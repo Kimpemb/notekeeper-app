@@ -1,0 +1,96 @@
+/* src/styles/main.css */
+/* Single entry point. Import this once in main.tsx. */
+
+@import "tailwindcss";
+
+/* ─── Dark mode ──────────────────────────────────────────────────────────────
+   Tailwind reads the .dark class on <html> to activate dark: variants.
+   useUIStore toggles this class — no data-theme gymnastics needed.
+──────────────────────────────────────────────────────────────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── TipTap prose styles ────────────────────────────────────────────────────
+   TipTap renders into a contenteditable div that Tailwind can't reach with
+   utility classes. These are the only hand-written styles in the project.
+──────────────────────────────────────────────────────────────────────────── */
+.tiptap {
+  outline: none;
+  min-height: 100%;
+  font-size: 1rem;
+  line-height: 1.75;
+  color: inherit;
+}
+
+.tiptap p {
+  margin-bottom: 0.75rem;
+}
+
+.tiptap h1 { font-size: 1.875rem; font-weight: 700; margin-bottom: 0.75rem; }
+.tiptap h2 { font-size: 1.5rem;   font-weight: 600; margin-bottom: 0.5rem;  }
+.tiptap h3 { font-size: 1.25rem;  font-weight: 600; margin-bottom: 0.5rem;  }
+
+.tiptap strong { font-weight: 700; }
+.tiptap em     { font-style: italic; }
+.tiptap u      { text-decoration: underline; }
+.tiptap s      { text-decoration: line-through; }
+
+.tiptap ul { list-style: disc;    padding-left: 1.5rem; margin-bottom: 0.75rem; }
+.tiptap ol { list-style: decimal; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+.tiptap li { margin-bottom: 0.25rem; }
+
+.tiptap blockquote {
+  border-left: 3px solid currentColor;
+  opacity: 0.7;
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  font-style: italic;
+}
+
+.tiptap code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.875rem;
+  background: rgba(128,128,128,0.15);
+  border-radius: 3px;
+  padding: 0.1em 0.3em;
+}
+
+.tiptap pre {
+  background: rgba(128,128,128,0.12);
+  border-radius: 6px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+.tiptap pre code {
+  background: none;
+  padding: 0;
+}
+
+.tiptap hr {
+  border: none;
+  border-top: 1px solid rgba(128,128,128,0.25);
+  margin: 1.5rem 0;
+}
+
+.tiptap a {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+/* Placeholder text */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: rgba(128,128,128,0.5);
+  pointer-events: none;
+  height: 0;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────────
+   Slim, unobtrusive scrollbar. Tailwind doesn't cover ::-webkit-scrollbar.
+──────────────────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(128,128,128,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }

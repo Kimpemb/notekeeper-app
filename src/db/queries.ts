@@ -1,0 +1,297 @@
+// src/db/queries.ts
+import { getDb } from "@/db/client";
+import { ALL_MIGRATIONS } from "@/db/schema";
+import type { Note, NoteVersion, Backlink } from "@/types";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function uuid(): string {
+  return crypto.randomUUID();
+}
+
+function now(): number {
+  return Date.now();
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Run all migrations at startup.
+ * Each entry in ALL_MIGRATIONS is a single complete SQL statement — no splitting needed.
+ */
+export async function initDb(): Promise<void> {
+  const db = await getDb();
+  for (const sql of ALL_MIGRATIONS) {
+    await db.execute(sql);
+  }
+}
+
+// ─── Notes ────────────────────────────────────────────────────────────────────
+
+export async function getAllNotes(): Promise<Note[]> {
+  const db = await getDb();
+  return db.select<Note[]>(`SELECT * FROM notes ORDER BY updated_at DESC`);
+}
+
+export async function getNoteById(id: string): Promise<Note | null> {
+  const db = await getDb();
+  const rows = await db.select<Note[]>(`SELECT * FROM notes WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
+export async function getNotesByParent(parentId: string | null): Promise<Note[]> {
+  const db = await getDb();
+  if (parentId === null) {
+    return db.select<Note[]>(
+      `SELECT * FROM notes WHERE parent_id IS NULL ORDER BY updated_at DESC`
+    );
+  }
+  return db.select<Note[]>(
+    `SELECT * FROM notes WHERE parent_id = $1 ORDER BY updated_at DESC`,
+    [parentId]
+  );
+}
+
+export interface CreateNoteInput {
+  title?: string;
+  content?: string;
+  plaintext?: string;
+  tags?: string | null;
+  parent_id?: string | null;
+}
+
+export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
+  const db = await getDb();
+  const note: Note = {
+    id: uuid(),
+    title: input.title ?? "Untitled",
+    content: input.content ?? JSON.stringify({ type: "doc", content: [] }),
+    plaintext: input.plaintext ?? "",
+    tags: input.tags ?? null,
+    parent_id: input.parent_id ?? null,
+    sync_id: uuid(),
+    created_at: now(),
+    updated_at: now(),
+  };
+
+  await db.execute(
+    `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [note.id, note.title, note.content, note.plaintext, note.tags,
+     note.parent_id, note.sync_id, note.created_at, note.updated_at]
+  );
+
+  return note;
+}
+
+export interface UpdateNoteInput {
+  title?: string;
+  content?: string;
+  plaintext?: string;
+  tags?: string | null;
+  parent_id?: string | null;
+}
+
+export async function updateNote(id: string, input: UpdateNoteInput): Promise<void> {
+  const db = await getDb();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+
+  if (input.title     !== undefined) { fields.push(`title = $${idx++}`);     values.push(input.title); }
+  if (input.content   !== undefined) { fields.push(`content = $${idx++}`);   values.push(input.content); }
+  if (input.plaintext !== undefined) { fields.push(`plaintext = $${idx++}`); values.push(input.plaintext); }
+  if (input.tags      !== undefined) { fields.push(`tags = $${idx++}`);      values.push(input.tags); }
+  if (input.parent_id !== undefined) { fields.push(`parent_id = $${idx++}`); values.push(input.parent_id); }
+
+  if (fields.length === 0) return;
+
+  fields.push(`updated_at = $${idx++}`);
+  values.push(now());
+  values.push(id);
+
+  await db.execute(
+    `UPDATE notes SET ${fields.join(", ")} WHERE id = $${idx}`,
+    values
+  );
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  const descendants = await getAllDescendants(id);
+  const allIds = [...descendants.reverse(), id];
+  const db = await getDb();
+  for (const noteId of allIds) {
+    await db.execute(`DELETE FROM notes WHERE id = $1`, [noteId]);
+  }
+}
+
+async function getAllDescendants(id: string): Promise<string[]> {
+  const db = await getDb();
+  const children = await db.select<{ id: string }[]>(
+    `SELECT id FROM notes WHERE parent_id = $1`, [id]
+  );
+  const ids: string[] = [];
+  for (const child of children) {
+    ids.push(child.id);
+    ids.push(...await getAllDescendants(child.id));
+  }
+  return ids;
+}
+
+export async function moveNote(id: string, newParentId: string | null): Promise<void> {
+  if (newParentId !== null) {
+    const descendants = await getAllDescendants(id);
+    if (descendants.includes(newParentId) || newParentId === id) {
+      throw new Error("Cannot move a note into one of its own descendants.");
+    }
+  }
+  await updateNote(id, { parent_id: newParentId });
+}
+
+// ─── Tags ─────────────────────────────────────────────────────────────────────
+
+export async function getAllTags(): Promise<string[]> {
+  const notes = await getAllNotes();
+  const tagSet = new Set<string>();
+  for (const note of notes) {
+    if (!note.tags) continue;
+    try {
+      const parsed: string[] = JSON.parse(note.tags);
+      parsed.forEach((t) => tagSet.add(t));
+    } catch { /* skip malformed */ }
+  }
+  return Array.from(tagSet).sort();
+}
+
+export async function getNotesByTag(tag: string): Promise<Note[]> {
+  const notes = await getAllNotes();
+  return notes.filter((note) => {
+    if (!note.tags) return false;
+    try {
+      return (JSON.parse(note.tags) as string[]).includes(tag);
+    } catch { return false; }
+  });
+}
+
+// ─── Search ───────────────────────────────────────────────────────────────────
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  plaintext: string;
+  updated_at: number;
+  parent_id: string | null;
+}
+
+export async function searchNotes(query: string, limit = 20): Promise<SearchResult[]> {
+  if (!query.trim()) return [];
+  const db = await getDb();
+  const sanitized = query.replace(/['"*^()]/g, " ").trim() + "*";
+  return db.select<SearchResult[]>(
+    `SELECT n.id, n.title, n.plaintext, n.updated_at, n.parent_id
+     FROM notes_fts f
+     JOIN notes n ON n.id = f.id
+     WHERE notes_fts MATCH $1
+     ORDER BY rank
+     LIMIT $2`,
+    [sanitized, limit]
+  );
+}
+
+// ─── Version History ──────────────────────────────────────────────────────────
+
+export async function getNoteVersions(noteId: string): Promise<NoteVersion[]> {
+  const db = await getDb();
+  return db.select<NoteVersion[]>(
+    `SELECT * FROM note_versions WHERE note_id = $1 ORDER BY created_at DESC`,
+    [noteId]
+  );
+}
+
+export async function restoreNoteVersion(noteId: string, versionId: string): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<NoteVersion[]>(
+    `SELECT * FROM note_versions WHERE id = $1`, [versionId]
+  );
+  const version = rows[0];
+  if (!version) throw new Error(`Version ${versionId} not found.`);
+  await updateNote(noteId, { content: version.content, plaintext: version.plaintext });
+}
+
+export async function saveManualVersion(noteId: string): Promise<void> {
+  const db = await getDb();
+  const note = await getNoteById(noteId);
+  if (!note) throw new Error(`Note ${noteId} not found.`);
+  await db.execute(
+    `INSERT INTO note_versions (id, note_id, content, plaintext, created_at) VALUES ($1,$2,$3,$4,$5)`,
+    [uuid(), noteId, note.content, note.plaintext, now()]
+  );
+}
+
+// ─── Backlinks ────────────────────────────────────────────────────────────────
+
+export async function syncBacklinks(sourceId: string, targetIds: string[]): Promise<void> {
+  const db = await getDb();
+  await db.execute(`DELETE FROM backlinks WHERE source_id = $1`, [sourceId]);
+  for (const targetId of targetIds) {
+    if (targetId === sourceId) continue;
+    await db.execute(
+      `INSERT OR IGNORE INTO backlinks (source_id, target_id) VALUES ($1, $2)`,
+      [sourceId, targetId]
+    );
+  }
+}
+
+export async function getBacklinksForNote(targetId: string): Promise<Note[]> {
+  const db = await getDb();
+  return db.select<Note[]>(
+    `SELECT n.* FROM notes n
+     JOIN backlinks b ON b.source_id = n.id
+     WHERE b.target_id = $1
+     ORDER BY n.updated_at DESC`,
+    [targetId]
+  );
+}
+
+export async function getAllBacklinks(): Promise<Backlink[]> {
+  const db = await getDb();
+  return db.select<Backlink[]>(`SELECT * FROM backlinks`);
+}
+
+// ─── Export / Import ──────────────────────────────────────────────────────────
+
+export async function exportAllNotes(): Promise<string> {
+  return JSON.stringify(await getAllNotes(), null, 2);
+}
+
+export async function importNotes(json: string): Promise<number> {
+  const db = await getDb();
+  const notes: Note[] = JSON.parse(json);
+  let imported = 0;
+  for (const note of notes) {
+    if (await getNoteById(note.id)) continue;
+    await db.execute(
+      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [note.id, note.title, note.content, note.plaintext, note.tags,
+       note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at]
+    );
+    imported++;
+  }
+  return imported;
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────────
+
+export interface DbStats {
+  totalNotes: number;
+  totalVersions: number;
+  tags: string[];
+}
+
+export async function getDbStats(): Promise<DbStats> {
+  const db = await getDb();
+  const [noteCount]    = await db.select<{ count: number }[]>(`SELECT COUNT(*) as count FROM notes`);
+  const [versionCount] = await db.select<{ count: number }[]>(`SELECT COUNT(*) as count FROM note_versions`);
+  return { totalNotes: noteCount.count, totalVersions: versionCount.count, tags: await getAllTags() };
+}
