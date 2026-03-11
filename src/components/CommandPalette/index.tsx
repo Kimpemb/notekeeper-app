@@ -16,15 +16,16 @@ export function CommandPalette() {
   const toggleTheme  = useUIStore((s) => s.toggleTheme);
   const theme        = useUIStore((s) => s.theme);
 
-  const notes       = useNoteStore((s) => s.notes);
-  const createNote  = useNoteStore((s) => s.createNote);
-  const setActive   = useNoteStore((s) => s.setActiveNote);
+  const notes      = useNoteStore((s) => s.notes);
+  const createNote = useNoteStore((s) => s.createNote);
+  const setActive  = useNoteStore((s) => s.setActiveNote);
 
-  const [query, setQuery]     = useState("");
+  const [query, setQuery]       = useState("");
   const [selected, setSelected] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef  = useRef<HTMLInputElement>(null);
+  const panelRef  = useRef<HTMLDivElement>(null);
 
-  // Focus input when palette opens
+  // Focus input when palette opens, reset state
   useEffect(() => {
     if (paletteOpen) {
       setQuery("");
@@ -33,7 +34,33 @@ export function CommandPalette() {
     }
   }, [paletteOpen]);
 
-  // Build command list
+  // Close on outside click — attached to document, not the backdrop div
+  // This way it works regardless of what has focus
+  useEffect(() => {
+    if (!paletteOpen) return;
+    function handleMouseDown(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        closePalette();
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [paletteOpen, closePalette]);
+
+  // Close on Escape — attached to document so it works even if focus moved away
+  useEffect(() => {
+    if (!paletteOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closePalette();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [paletteOpen, closePalette]);
+
   const staticCommands: CommandItem[] = [
     {
       id: "new-note",
@@ -66,7 +93,7 @@ export function CommandPalette() {
       )
     : allCommands;
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  function handleInputKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelected((s) => Math.min(s + 1, filtered.length - 1));
@@ -76,28 +103,26 @@ export function CommandPalette() {
     } else if (e.key === "Enter") {
       e.preventDefault();
       filtered[selected]?.action();
-    } else if (e.key === "Escape") {
-      closePalette();
     }
   }
 
   if (!paletteOpen) return null;
 
   return (
-    /* Backdrop */
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) closePalette(); }}
-    >
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
+      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/30 dark:bg-black/50 backdrop-blur-sm" />
 
       {/* Panel */}
-      <div className="
-        relative w-full max-w-lg mx-4 rounded-xl overflow-hidden
-        bg-white dark:bg-zinc-900
-        border border-zinc-200 dark:border-zinc-700
-        shadow-2xl
-      ">
+      <div
+        ref={panelRef}
+        className="
+          relative w-full max-w-lg mx-4 rounded-xl overflow-hidden
+          bg-white dark:bg-zinc-900
+          border border-zinc-200 dark:border-zinc-700
+          shadow-2xl
+        "
+      >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
           <svg className="shrink-0 text-zinc-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -108,7 +133,7 @@ export function CommandPalette() {
             ref={inputRef}
             value={query}
             onChange={(e) => { setQuery(e.target.value); setSelected(0); }}
-            onKeyDown={handleKeyDown}
+            onKeyDown={handleInputKeyDown}
             placeholder="Search notes or commands…"
             className="
               flex-1 bg-transparent outline-none text-sm
@@ -143,9 +168,7 @@ export function CommandPalette() {
               `}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-zinc-800 dark:text-zinc-200 truncate">
-                  {item.label}
-                </p>
+                <p className="text-sm text-zinc-800 dark:text-zinc-200 truncate">{item.label}</p>
                 {item.description && (
                   <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
                     {item.description}

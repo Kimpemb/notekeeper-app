@@ -9,31 +9,35 @@ interface Props {
   depth: number;
 }
 
+interface ContextMenuPos {
+  x: number;
+  y: number;
+  flip: boolean; // true = open upward
+}
+
 export function NoteTreeItem({ noteId, depth }: Props) {
   const notes        = useNoteStore((s) => s.notes);
   const activeNoteId = useNoteStore((s) => s.activeNoteId);
   const setActive    = useNoteStore((s) => s.setActiveNote);
   const createChild  = useNoteStore((s) => s.createChildNote);
   const deleteNote   = useNoteStore((s) => s.deleteNote);
+  const updateNote   = useNoteStore((s) => s.updateNote);
 
   const expandedNodes = useUIStore((s) => s.expandedNodes);
   const toggleNode    = useUIStore((s) => s.toggleNode);
 
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuPos | null>(null);
   const [renaming, setRenaming]       = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const renameRef = useRef<HTMLInputElement>(null);
   const menuRef   = useRef<HTMLDivElement>(null);
 
-  const updateNote = useNoteStore((s) => s.updateNote);
-
-  const note     = notes.find((n) => n.id === noteId);
-  const children = notes.filter((n) => n.parent_id === noteId);
-  const isActive   = activeNoteId === noteId;
+  const note      = notes.find((n) => n.id === noteId);
+  const children  = notes.filter((n) => n.parent_id === noteId);
+  const isActive  = activeNoteId === noteId;
   const isExpanded = expandedNodes.has(noteId);
   const hasChildren = children.length > 0;
 
-  // Close context menu on outside click
   useEffect(() => {
     if (!contextMenu) return;
     function handle(e: MouseEvent) {
@@ -45,14 +49,14 @@ export function NoteTreeItem({ noteId, depth }: Props) {
     return () => document.removeEventListener("mousedown", handle);
   }, [contextMenu]);
 
-  // Focus rename input when it appears
   useEffect(() => {
     if (renaming) renameRef.current?.select();
   }, [renaming]);
 
   if (!note) return null;
 
-  const indentPx = depth * 12;
+  const MENU_HEIGHT = 110; // approximate height of context menu in px
+  const indentPx = depth * 14;
 
   function handleClick() {
     setActive(noteId);
@@ -66,14 +70,16 @@ export function NoteTreeItem({ noteId, depth }: Props) {
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY });
+    // Detect if menu would go off screen bottom — if so, flip upward
+    const spaceBelow = window.innerHeight - e.clientY;
+    const flip = spaceBelow < MENU_HEIGHT + 16;
+    setContextMenu({ x: e.clientX, y: e.clientY, flip });
   }
 
   async function handleNewChild(e: React.MouseEvent) {
     e.stopPropagation();
     setContextMenu(null);
     await createChild(noteId);
-    // Expand so the new child is visible
     if (!isExpanded) toggleNode(noteId);
   }
 
@@ -110,10 +116,10 @@ export function NoteTreeItem({ noteId, depth }: Props) {
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        style={{ paddingLeft: `${indentPx + 8}px` }}
+        style={{ paddingLeft: `${indentPx + 10}px` }}
         className={`
-          group flex items-center gap-1 h-8 pr-2 rounded-md cursor-pointer
-          text-sm transition-colors duration-100
+          group flex items-center gap-1.5 h-10 pr-2 rounded-md cursor-pointer
+          transition-colors duration-100
           ${isActive
             ? "bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-medium"
             : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100"
@@ -130,14 +136,14 @@ export function NoteTreeItem({ noteId, depth }: Props) {
             ${isExpanded ? "rotate-90" : ""}
           `}
         >
-          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+          <svg width="9" height="9" viewBox="0 0 8 8" fill="none">
             <path d="M2 1.5l3 2.5-3 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </span>
 
         {/* Page icon */}
-        <span className="shrink-0 opacity-40 mr-0.5">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <span className="shrink-0 opacity-40">
+          <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
             <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.2"/>
             <path d="M3.5 4h5M3.5 6.5h5M3.5 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           </svg>
@@ -157,17 +163,17 @@ export function NoteTreeItem({ noteId, depth }: Props) {
             onClick={(e) => e.stopPropagation()}
             className="
               flex-1 bg-white dark:bg-zinc-600 text-zinc-900 dark:text-zinc-100
-              text-sm px-1 rounded outline-none border border-zinc-300 dark:border-zinc-500
+              text-base px-1 rounded outline-none border border-zinc-300 dark:border-zinc-500
               min-w-0
             "
           />
         ) : (
-          <span className="flex-1 truncate text-[13px] leading-none">
+          <span className="flex-1 truncate text-base leading-none">
             {note.title}
           </span>
         )}
 
-        {/* Inline + button (visible on hover) */}
+        {/* Inline + button */}
         {!renaming && (
           <button
             onClick={handleNewChild}
@@ -178,23 +184,29 @@ export function NoteTreeItem({ noteId, depth }: Props) {
               transition-opacity duration-100
             "
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
               <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </button>
         )}
       </div>
 
-      {/* Context menu */}
+      {/* Context menu — flips upward if near bottom of screen */}
       {contextMenu && (
         <div
           ref={menuRef}
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+          style={{
+            position: "fixed",
+            left: contextMenu.x,
+            ...(contextMenu.flip
+              ? { bottom: window.innerHeight - contextMenu.y }
+              : { top: contextMenu.y }),
+          }}
           className="
-            fixed z-50 min-w-[160px] py-1 rounded-lg shadow-xl
+            z-50 min-w-[180px] py-1 rounded-lg shadow-xl
             bg-white dark:bg-zinc-800
             border border-zinc-200 dark:border-zinc-700
-            text-sm text-zinc-700 dark:text-zinc-300
+            text-base text-zinc-700 dark:text-zinc-300
           "
         >
           <ContextItem label="New sub-note" onClick={handleNewChild} />
@@ -206,7 +218,7 @@ export function NoteTreeItem({ noteId, depth }: Props) {
 
       {/* Children */}
       {hasChildren && isExpanded && (
-        <ul className="space-y-0.5">
+        <ul className="space-y-0.5 mt-0.5">
           {children.map((child: Note) => (
             <NoteTreeItem key={child.id} noteId={child.id} depth={depth + 1} />
           ))}
@@ -216,12 +228,8 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   );
 }
 
-// ─── Context menu item ────────────────────────────────────────────────────────
-
 function ContextItem({
-  label,
-  onClick,
-  danger = false,
+  label, onClick, danger = false,
 }: {
   label: string;
   onClick: (e: React.MouseEvent) => void;
@@ -231,7 +239,7 @@ function ContextItem({
     <button
       onClick={onClick}
       className={`
-        w-full text-left px-3 py-1.5 transition-colors duration-75
+        w-full text-left px-4 py-2.5 text-base transition-colors duration-75
         ${danger
           ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
           : "hover:bg-zinc-100 dark:hover:bg-zinc-700"

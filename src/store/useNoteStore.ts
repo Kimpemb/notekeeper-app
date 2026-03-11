@@ -1,14 +1,11 @@
 // src/store/useNoteStore.ts
-// Central store for all note data. Single source of truth.
-// UI components read from here; never query the DB directly.
-
 import { create } from "zustand";
 import {
   getAllNotes,
-  createNote,
-  updateNote,
-  deleteNote,
-  moveNote,
+  createNote as dbCreateNote,
+  updateNote as dbUpdateNote,
+  deleteNote as dbDeleteNote,
+  moveNote as dbMoveNote,
   getNoteById,
   type CreateNoteInput,
   type UpdateNoteInput,
@@ -16,18 +13,15 @@ import {
 import type { Note } from "@/types";
 
 interface NoteStore {
-  // ─── State ────────────────────────────────────────────────────────────────
-  notes: Note[];                  // All notes, flat array — UI builds tree from this
-  activeNoteId: string | null;    // Currently open note
+  notes: Note[];
+  activeNoteId: string | null;
   isLoading: boolean;
   error: string | null;
 
-  // ─── Derived ──────────────────────────────────────────────────────────────
   activeNote: () => Note | null;
   rootNotes: () => Note[];
   childrenOf: (parentId: string) => Note[];
 
-  // ─── Actions ──────────────────────────────────────────────────────────────
   loadNotes: () => Promise<void>;
   setActiveNote: (id: string | null) => void;
   createNote: (input?: CreateNoteInput) => Promise<Note>;
@@ -38,14 +32,27 @@ interface NoteStore {
   refreshNote: (id: string) => Promise<void>;
 }
 
+// ─── Untitled-X helper ────────────────────────────────────────────────────────
+
+function nextUntitledName(notes: Note[]): string {
+  const pattern = /^Untitled-(\d+)$/;
+  const used = new Set<number>();
+  for (const note of notes) {
+    const match = note.title.match(pattern);
+    if (match) used.add(parseInt(match[1], 10));
+  }
+  let n = 1;
+  while (used.has(n)) n++;
+  return `Untitled-${n}`;
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
 export const useNoteStore = create<NoteStore>((set, get) => ({
-  // ─── Initial state ────────────────────────────────────────────────────────
   notes: [],
   activeNoteId: null,
   isLoading: false,
   error: null,
-
-  // ─── Derived helpers ──────────────────────────────────────────────────────
 
   activeNote: () => {
     const { notes, activeNoteId } = get();
@@ -53,15 +60,11 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     return notes.find((n) => n.id === activeNoteId) ?? null;
   },
 
-  rootNotes: () => {
-    return get().notes.filter((n) => n.parent_id === null);
-  },
+  rootNotes: () => get().notes.filter((n) => n.parent_id === null),
 
-  childrenOf: (parentId: string) => {
-    return get().notes.filter((n) => n.parent_id === parentId);
-  },
+  childrenOf: (parentId) => get().notes.filter((n) => n.parent_id === parentId),
 
-  // ─── Load ─────────────────────────────────────────────────────────────────
+  // ─── Load ──────────────────────────────────────────────────────────────────
 
   loadNotes: async () => {
     set({ isLoading: true, error: null });
@@ -73,16 +76,13 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }
   },
 
-  // ─── Active note ──────────────────────────────────────────────────────────
+  setActiveNote: (id) => set({ activeNoteId: id }),
 
-  setActiveNote: (id) => {
-    set({ activeNoteId: id });
-  },
-
-  // ─── Create ───────────────────────────────────────────────────────────────
+  // ─── Create ────────────────────────────────────────────────────────────────
 
   createNote: async (input = {}) => {
-    const note = await createNote(input);
+    const title = input.title ?? nextUntitledName(get().notes);
+    const note = await dbCreateNote({ ...input, title });
     set((state) => ({
       notes: [note, ...state.notes],
       activeNoteId: note.id,
@@ -90,8 +90,9 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     return note;
   },
 
-  createChildNote: async (parentId: string) => {
-    const note = await createNote({ parent_id: parentId });
+  createChildNote: async (parentId) => {
+    const title = nextUntitledName(get().notes);
+    const note = await dbCreateNote({ parent_id: parentId, title });
     set((state) => ({
       notes: [note, ...state.notes],
       activeNoteId: note.id,
@@ -99,11 +100,10 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     return note;
   },
 
-  // ─── Update ───────────────────────────────────────────────────────────────
+  // ─── Update ────────────────────────────────────────────────────────────────
 
   updateNote: async (id, input) => {
-    await updateNote(id, input);
-    // Refresh the single note in the store without a full reload
+    await dbUpdateNote(id, input);
     const updated = await getNoteById(id);
     if (!updated) return;
     set((state) => ({
@@ -111,16 +111,13 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }));
   },
 
-  // ─── Delete ───────────────────────────────────────────────────────────────
+  // ─── Delete ────────────────────────────────────────────────────────────────
 
   deleteNote: async (id) => {
-    // Collect all descendant IDs so we can remove them from the store too
     const { notes } = get();
     const toDelete = collectDescendants(id, notes);
     toDelete.add(id);
-
-    await deleteNote(id);
-
+    await dbDeleteNote(id);
     set((state) => {
       const remaining = state.notes.filter((n) => !toDelete.has(n.id));
       const newActiveId =
@@ -131,10 +128,10 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     });
   },
 
-  // ─── Move ─────────────────────────────────────────────────────────────────
+  // ─── Move ──────────────────────────────────────────────────────────────────
 
   moveNote: async (id, newParentId) => {
-    await moveNote(id, newParentId);
+    await dbMoveNote(id, newParentId);
     set((state) => ({
       notes: state.notes.map((n) =>
         n.id === id ? { ...n, parent_id: newParentId } : n
@@ -142,7 +139,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }));
   },
 
-  // ─── Refresh single note (used by auto-save) ──────────────────────────────
+  // ─── Refresh single note ───────────────────────────────────────────────────
 
   refreshNote: async (id) => {
     const updated = await getNoteById(id);
@@ -155,10 +152,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-/**
- * Collect all descendant IDs from the in-memory notes array.
- * Used to purge the store after a delete without a full DB reload.
- */
 function collectDescendants(id: string, notes: Note[]): Set<string> {
   const result = new Set<string>();
   const queue = [id];

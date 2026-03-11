@@ -9,25 +9,29 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const DEBOUNCE_MS = 2_000;
 const HARD_CAP_MS = 30_000;
+const UNTITLED_PATTERN = /^Untitled-\d+$/;
 
 interface UseAutoSaveOptions {
   editor: Editor | null;
   noteId: string | null;
+  // Called with the saved content string after a successful save,
+  // so the editor can update its lastSavedContent ref and avoid
+  // treating the store update as an external change (cursor jump fix)
+  onSaveComplete?: (content: string) => void;
 }
 
-export function useAutoSave({ editor, noteId }: UseAutoSaveOptions): void {
-  const updateNote = useNoteStore(
-    (s: { updateNote: (id: string, input: UpdateNoteInput) => Promise<void> }) =>
-      s.updateNote
-  );
-  const setSaveStatus = useUIStore(
-    (s: { setSaveStatus: (status: SaveStatus) => void }) => s.setSaveStatus
-  );
+export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptions): void {
+  const notes         = useNoteStore((s) => s.notes);
+  const updateNote    = useNoteStore((s) => s.updateNote);
+  const setSaveStatus = useUIStore((s) => s.setSaveStatus);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hardCapTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDirty       = useRef(false);
   const lastNoteId    = useRef<string | null>(null);
+  const notesRef      = useRef(notes);
+
+  useEffect(() => { notesRef.current = notes; }, [notes]);
 
   const save = useCallback(async () => {
     if (!editor || !noteId || !isDirty.current) return;
@@ -44,24 +48,34 @@ export function useAutoSave({ editor, noteId }: UseAutoSaveOptions): void {
       const json      = editor.getJSON();
       const content   = JSON.stringify(json);
       const plaintext = editor.getText();
-      const title     = deriveTitleFromDoc(json);
 
-      await updateNote(noteId, { title, content, plaintext });
+      // Notify editor BEFORE the store update so lastSavedContent is set
+      // before the useEffect watching activeNote?.content can fire
+      onSaveComplete?.(content);
+
+      const currentNote = notesRef.current.find((n) => n.id === noteId);
+      const isUntitled  = !currentNote || UNTITLED_PATTERN.test(currentNote.title);
+
+      const update: UpdateNoteInput = { content, plaintext };
+      if (isUntitled) {
+        const derived = deriveTitleFromDoc(json);
+        if (derived) update.title = derived;
+      }
+
+      await updateNote(noteId, update);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
     } catch (err) {
       console.error("[AutoSave] failed:", err);
       setSaveStatus("error");
     }
-  }, [editor, noteId, updateNote, setSaveStatus]);
+  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete]);
 
   const scheduleSave = useCallback(() => {
     isDirty.current = true;
     setSaveStatus("saving");
-
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(save, DEBOUNCE_MS);
-
     if (!hardCapTimer.current) {
       hardCapTimer.current = setTimeout(save, HARD_CAP_MS);
     }
@@ -91,22 +105,21 @@ export function useAutoSave({ editor, noteId }: UseAutoSaveOptions): void {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-interface TipTapTextNode { type: "text"; text?: string; }
+interface TipTapTextNode  { type: "text"; text?: string; }
 interface TipTapBlockNode { type: string; content?: TipTapNode[]; }
 type TipTapNode = TipTapTextNode | TipTapBlockNode;
 interface TipTapDoc { content?: TipTapNode[]; }
 
 function deriveTitleFromDoc(doc: TipTapDoc): string {
-  if (!doc.content) return "Untitled";
+  if (!doc.content) return "";
   for (const node of doc.content) {
     const block = node as TipTapBlockNode;
     if (!block.content) continue;
     const text = block.content
       .filter((n): n is TipTapTextNode => n.type === "text")
       .map((n) => n.text ?? "")
-      .join("")
-      .trim();
+      .join("").trim();
     if (text.length > 0) return text.slice(0, 80);
   }
-  return "Untitled";
+  return "";
 }

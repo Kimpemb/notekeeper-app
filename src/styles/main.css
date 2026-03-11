@@ -1,57 +1,71 @@
 /* src/styles/main.css */
-/* Single entry point. Import this once in main.tsx. */
-
 @import "tailwindcss";
 
-/* ─── Dark mode ──────────────────────────────────────────────────────────────
-   Tailwind reads the .dark class on <html> to activate dark: variants.
-   useUIStore toggles this class — no data-theme gymnastics needed.
-──────────────────────────────────────────────────────────────────────────── */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ─── TipTap prose styles ────────────────────────────────────────────────────
-   TipTap renders into a contenteditable div that Tailwind can't reach with
-   utility classes. These are the only hand-written styles in the project.
-──────────────────────────────────────────────────────────────────────────── */
+/* ─── TipTap prose ────────────────────────────────────────────────────────── */
 .tiptap {
   outline: none;
   min-height: 100%;
-  font-size: 1rem;
-  line-height: 1.75;
+  font-size: 1.2rem;     /* paragraph — 19.2px */
+  line-height: 1.85;
   color: inherit;
 }
 
 .tiptap p {
+  margin-bottom: 0.9rem;
+}
+
+/* Headings — each step is noticeably larger than the one below */
+.tiptap h1 {
+  font-size: 2.2rem;     /* ~35px */
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 1.6rem;
   margin-bottom: 0.75rem;
 }
 
-.tiptap h1 { font-size: 1.875rem; font-weight: 700; margin-bottom: 0.75rem; }
-.tiptap h2 { font-size: 1.5rem;   font-weight: 600; margin-bottom: 0.5rem;  }
-.tiptap h3 { font-size: 1.25rem;  font-weight: 600; margin-bottom: 0.5rem;  }
+.tiptap h2 {
+  font-size: 1.75rem;    /* ~28px */
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1.3rem;
+  margin-bottom: 0.6rem;
+}
+
+.tiptap h3 {
+  font-size: 1.4rem;     /* ~22px */
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Title lives in the component at 3rem (48px) via inline style — noticeably above H1 */
 
 .tiptap strong { font-weight: 700; }
 .tiptap em     { font-style: italic; }
 .tiptap u      { text-decoration: underline; }
 .tiptap s      { text-decoration: line-through; }
 
-.tiptap ul { list-style: disc;    padding-left: 1.5rem; margin-bottom: 0.75rem; }
-.tiptap ol { list-style: decimal; padding-left: 1.5rem; margin-bottom: 0.75rem; }
-.tiptap li { margin-bottom: 0.25rem; }
+.tiptap ul { list-style: disc;    padding-left: 1.7rem; margin-bottom: 0.9rem; }
+.tiptap ol { list-style: decimal; padding-left: 1.7rem; margin-bottom: 0.9rem; }
+.tiptap li { margin-bottom: 0.3rem; }
 
 .tiptap blockquote {
   border-left: 3px solid currentColor;
   opacity: 0.7;
   padding-left: 1rem;
-  margin: 0.75rem 0;
+  margin: 1rem 0;
   font-style: italic;
 }
 
 .tiptap code {
   font-family: ui-monospace, monospace;
-  font-size: 0.875rem;
+  font-size: 1rem;
   background: rgba(128,128,128,0.15);
   border-radius: 3px;
-  padding: 0.1em 0.3em;
+  padding: 0.1em 0.35em;
 }
 
 .tiptap pre {
@@ -59,18 +73,19 @@
   border-radius: 6px;
   padding: 1rem;
   overflow-x: auto;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.9rem;
 }
 
 .tiptap pre code {
   background: none;
   padding: 0;
+  font-size: 1rem;
 }
 
 .tiptap hr {
   border: none;
   border-top: 1px solid rgba(128,128,128,0.25);
-  margin: 1.5rem 0;
+  margin: 2rem 0;
 }
 
 .tiptap a {
@@ -78,18 +93,15 @@
   opacity: 0.8;
 }
 
-/* Placeholder text */
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: rgba(128,128,128,0.5);
+  color: rgba(128,128,128,0.45);
   pointer-events: none;
   height: 0;
 }
 
-/* ─── Scrollbar ──────────────────────────────────────────────────────────────
-   Slim, unobtrusive scrollbar. Tailwind doesn't cover ::-webkit-scrollbar.
-──────────────────────────────────────────────────────────────────────────── */
+/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar        { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: rgba(128,128,128,0.3); border-radius: 3px; }
