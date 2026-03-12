@@ -22,6 +22,9 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   const createChild  = useNoteStore((s) => s.createChildNote);
   const deleteNote   = useNoteStore((s) => s.deleteNote);
   const updateNote   = useNoteStore((s) => s.updateNote);
+  const pinNote      = useNoteStore((s) => s.pinNote);
+  const unpinNote    = useNoteStore((s) => s.unpinNote);
+  const isPinned     = useNoteStore((s) => s.isPinned(noteId));
 
   const expandedNodes = useUIStore((s) => s.expandedNodes);
   const toggleNode    = useUIStore((s) => s.toggleNode);
@@ -38,7 +41,9 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   const isExpanded = expandedNodes.has(noteId);
   const hasChildren = children.length > 0;
 
-  // Close context menu on outside click
+  // Only show pin for root-level notes
+  const isRoot = note?.parent_id === null;
+
   useEffect(() => {
     if (!contextMenu) return;
     function handle(e: MouseEvent) {
@@ -50,38 +55,32 @@ export function NoteTreeItem({ noteId, depth }: Props) {
     return () => document.removeEventListener("mousedown", handle);
   }, [contextMenu]);
 
-  // Focus rename input when entering rename mode
   useEffect(() => {
     if (renaming) renameRef.current?.select();
   }, [renaming]);
 
-  // Delete key shortcut — only fires when this note is the active one
-  // and the user is not currently typing in an input/editor
+  // Delete key shortcut
   useEffect(() => {
     if (!isActive) return;
-
     function handleKeyDown(e: KeyboardEvent) {
-      // Ignore if focus is inside an input, textarea, or contenteditable
       const target = e.target as HTMLElement;
       const isTyping =
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.isContentEditable;
       if (isTyping) return;
-
       if (e.key === "Delete") {
         e.preventDefault();
         confirmAndDelete();
       }
     }
-
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isActive, hasChildren, note]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!note) return null;
 
-  const MENU_HEIGHT = 110;
+  const MENU_HEIGHT = 140;
   const indentPx = depth * 14;
 
   async function confirmAndDelete() {
@@ -132,6 +131,12 @@ export function NoteTreeItem({ noteId, depth }: Props) {
       await updateNote(noteId, { title: trimmed });
     }
     setRenaming(false);
+  }
+
+  function handlePinToggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    setContextMenu(null);
+    isPinned ? unpinNote(noteId) : pinNote(noteId);
   }
 
   async function handleDelete(e: React.MouseEvent) {
@@ -198,8 +203,16 @@ export function NoteTreeItem({ noteId, depth }: Props) {
             "
           />
         ) : (
-          <span className="flex-1 truncate text-base leading-none">
+          <span className="flex-1 truncate text-base leading-none flex items-center gap-1.5">
             {note.title}
+            {/* Pin indicator — subtle, only visible when pinned */}
+            {isPinned && (
+              <span className="shrink-0 opacity-40">
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
+                  <path d="M5 0L6.2 3.8H10L7 6.2L8.1 10L5 7.8L1.9 10L3 6.2L0 3.8H3.8L5 0Z"/>
+                </svg>
+              </span>
+            )}
           </span>
         )}
 
@@ -241,6 +254,12 @@ export function NoteTreeItem({ noteId, depth }: Props) {
         >
           <ContextItem label="New sub-note" onClick={handleNewChild} />
           <ContextItem label="Rename" onClick={handleRename} />
+          {isRoot && (
+            <ContextItem
+              label={isPinned ? "Unpin" : "Pin to top"}
+              onClick={handlePinToggle}
+            />
+          )}
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
           <ContextItem label="Delete" onClick={handleDelete} danger />
         </div>

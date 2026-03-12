@@ -6,6 +6,7 @@ import { create } from "zustand";
 
 type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+export type SidebarState = "closed" | "peek" | "open";
 
 interface UIStore {
   // ─── Theme ────────────────────────────────────────────────────────────────
@@ -14,11 +15,12 @@ interface UIStore {
   setTheme: (theme: Theme) => void;
 
   // ─── Sidebar ──────────────────────────────────────────────────────────────
-  sidebarOpen: boolean;
-  sidebarWidth: number;                    // px, user-resizable in future phases
-  expandedNodes: Set<string>;              // note IDs that are expanded in the tree
-  toggleSidebar: () => void;
-  setSidebarOpen: (open: boolean) => void;
+  sidebarState: SidebarState;
+  sidebarOpen: boolean;                    // true when locked open (backwards compat)
+  sidebarWidth: number;
+  expandedNodes: Set<string>;
+  setSidebarState: (state: SidebarState) => void;
+  toggleSidebar: () => void;               // toggles between closed <-> open
   toggleNode: (id: string) => void;
   expandNode: (id: string) => void;
   collapseNode: (id: string) => void;
@@ -45,87 +47,63 @@ interface UIStore {
   clearSearch: () => void;
 }
 
-// Persist theme preference across launches via localStorage
 function getInitialTheme(): Theme {
   try {
     const saved = localStorage.getItem("notekeeper-theme");
     if (saved === "light" || saved === "dark") return saved;
-  } catch {
-    // localStorage unavailable (unlikely in Tauri, but safe)
-  }
-  // Default: follow OS preference
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  } catch { /**/ }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function applyTheme(theme: Theme) {
-  const root = document.documentElement;
-  if (theme === "dark") {
-    root.classList.add("dark");
-  } else {
-    root.classList.remove("dark");
-  }
-  try {
-    localStorage.setItem("notekeeper-theme", theme);
-  } catch {
-    // ignore
-  }
+  document.documentElement.classList.toggle("dark", theme === "dark");
+  try { localStorage.setItem("notekeeper-theme", theme); } catch { /**/ }
 }
 
 export const useUIStore = create<UIStore>((set, get) => {
-  // Apply theme immediately on store creation (before first render)
   const initialTheme = getInitialTheme();
   applyTheme(initialTheme);
 
   return {
     // ─── Theme ──────────────────────────────────────────────────────────────
     theme: initialTheme,
-
     toggleTheme: () => {
       const next = get().theme === "dark" ? "light" : "dark";
       applyTheme(next);
       set({ theme: next });
     },
-
-    setTheme: (theme) => {
-      applyTheme(theme);
-      set({ theme });
-    },
+    setTheme: (theme) => { applyTheme(theme); set({ theme }); },
 
     // ─── Sidebar ────────────────────────────────────────────────────────────
-    sidebarOpen: true,
-    sidebarWidth: 260,
+    sidebarState: "open",          // start locked open
+    sidebarOpen: true,             // backwards compat
+    sidebarWidth: 288,
     expandedNodes: new Set(),
 
-    toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-    setSidebarOpen: (open) => set({ sidebarOpen: open }),
+    setSidebarState: (state) =>
+      set({ sidebarState: state, sidebarOpen: state === "open" }),
+
+    // Ctrl+\ toggles between closed and open (skips peek)
+    toggleSidebar: () => {
+      const { sidebarState } = get();
+      const next: SidebarState = sidebarState === "open" ? "closed" : "open";
+      set({ sidebarState: next, sidebarOpen: next === "open" });
+    },
+
+    // kept for backwards compat — not used directly anymore
+    setSidebarOpen: (open: boolean) =>
+      set({ sidebarOpen: open, sidebarState: open ? "open" : "closed" }),
 
     toggleNode: (id) =>
       set((s) => {
         const next = new Set(s.expandedNodes);
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
+        next.has(id) ? next.delete(id) : next.add(id);
         return { expandedNodes: next };
       }),
-
     expandNode: (id) =>
-      set((s) => {
-        const next = new Set(s.expandedNodes);
-        next.add(id);
-        return { expandedNodes: next };
-      }),
-
+      set((s) => { const next = new Set(s.expandedNodes); next.add(id); return { expandedNodes: next }; }),
     collapseNode: (id) =>
-      set((s) => {
-        const next = new Set(s.expandedNodes);
-        next.delete(id);
-        return { expandedNodes: next };
-      }),
-
+      set((s) => { const next = new Set(s.expandedNodes); next.delete(id); return { expandedNodes: next }; }),
     collapseAll: () => set({ expandedNodes: new Set() }),
 
     // ─── Command palette ────────────────────────────────────────────────────
