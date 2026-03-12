@@ -41,6 +41,11 @@ interface UIStore {
   openVersionHistory: () => void;
   closeVersionHistory: () => void;
 
+  // ─── Keyboard shortcuts ──────────────────────────────────────────────────
+  shortcutsOpen: boolean;
+  openShortcuts: () => void;
+  closeShortcuts: () => void;
+
   // ─── Search ───────────────────────────────────────────────────────────────
   searchQuery: string;
   setSearchQuery: (query: string) => void;
@@ -120,6 +125,11 @@ export const useUIStore = create<UIStore>((set, get) => {
     versionHistoryOpen: false,
     openVersionHistory: () => set({ versionHistoryOpen: true }),
     closeVersionHistory: () => set({ versionHistoryOpen: false }),
+
+    // ─── Keyboard shortcuts ─────────────────────────────────────────────────
+    shortcutsOpen: false,
+    openShortcuts: () => set({ shortcutsOpen: true }),
+    closeShortcuts: () => set({ shortcutsOpen: false }),
 
     // ─── Search ─────────────────────────────────────────────────────────────
     searchQuery: "",

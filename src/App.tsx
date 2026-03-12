@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { initDb } from "@/db/queries";
 import { useNoteStore } from "@/store/useNoteStore";
 import { useUIStore } from "@/store/useUIStore";
@@ -7,7 +7,9 @@ import { Sidebar } from "@/components/Sidebar";
 import { Editor } from "@/components/Editor";
 import { EmptyState } from "@/components/EmptyState";
 import { CommandPalette } from "@/components/CommandPalette";
+import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { exportNotesToFile } from "@/lib/tauri/fs";
 import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 
@@ -41,9 +43,13 @@ export default function App() {
   const toggleSidebar   = useUIStore((s) => s.toggleSidebar);
   const openPalette     = useUIStore((s) => s.openPalette);
   const togglePalette   = useUIStore((s) => s.togglePalette);
+  const openShortcuts   = useUIStore((s) => s.openShortcuts);
 
-  const [dbReady, setDbReady] = useState(false);
-  const [dbError, setDbError] = useState<string | null>(null);
+  const [dbReady, setDbReady]         = useState(false);
+  const [dbError, setDbError]         = useState<string | null>(null);
+  const [exportOpen, setExportOpen]   = useState(false);
+  const [exporting, setExporting]     = useState(false);
+  const exportRef                     = useRef<HTMLDivElement>(null);
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
@@ -53,13 +59,28 @@ export default function App() {
       .catch((err) => setDbError(String(err)));
   }, [loadNotes]);
 
+  // Close export dropdown on outside click
+  useEffect(() => {
+    if (!exportOpen) return;
+    function onMouseDown(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [exportOpen]);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!dbReady) return;
+    const target = e.target as HTMLElement;
+    const isEditing = target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA";
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && e.key === "k")  { e.preventDefault(); togglePalette(); }
     if (ctrl && e.key === "n")  { e.preventDefault(); createNote().catch(console.error); }
     if (ctrl && e.key === "\\") { e.preventDefault(); toggleSidebar(); }
-  }, [dbReady, togglePalette, createNote, toggleSidebar]);
+    if (e.key === "?" && !isEditing) { e.preventDefault(); openShortcuts(); }
+  }, [dbReady, togglePalette, createNote, toggleSidebar, openShortcuts]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -69,7 +90,6 @@ export default function App() {
   const breadcrumb = buildBreadcrumb(activeNote?.id ?? null, notes);
   const isUntitled = activeNote ? /^Untitled-\d+$/.test(activeNote.title) : false;
 
-  // Hover → peek (only from closed, sidebar handles its own collapse timer)
   function handleHamburgerEnter() {
     const current = useUIStore.getState().sidebarState;
     if (current === "closed" || current === "peek") {
@@ -89,6 +109,33 @@ export default function App() {
   function handleHamburgerClick() {
     cancelSidebarCollapse();
     setSidebarState("open");
+  }
+
+  async function handleExportAll() {
+    setExporting(true);
+    setExportOpen(false);
+    try {
+      const json = JSON.stringify(notes, null, 2);
+      await exportNotesToFile(json);
+    } catch (err) {
+      console.error("Export failed:", err);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleExportNote() {
+    if (!activeNote) return;
+    setExporting(true);
+    setExportOpen(false);
+    try {
+      const md = `# ${activeNote.title}\n\n${activeNote.plaintext ?? ""}`;
+      await exportNotesToFile(md);
+    } catch (err) {
+      console.error("Export failed:", err);
+    } finally {
+      setExporting(false);
+    }
   }
 
   if (dbError) {
@@ -128,18 +175,16 @@ export default function App() {
             select-none
           "
           onMouseEnter={() => {
-            // Cancel collapse when mouse travels through header toward hamburger
             if (useUIStore.getState().sidebarState === "peek") cancelSidebarCollapse();
           }}
         >
-          {/* Left — hamburger (only when sidebar is closed or peeking) + breadcrumb */}
+          {/* Left — hamburger + breadcrumb */}
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <div
               className="overflow-hidden shrink-0"
               style={{
                 opacity: isClosed ? 1 : 0,
                 width: isClosed ? "28px" : "0px",
-                // Fade in smoothly when sidebar closes, disappear instantly on open
                 transition: sidebarState === "closed"
                   ? "opacity 250ms ease 100ms, width 250ms ease 100ms"
                   : "none",
@@ -191,8 +236,9 @@ export default function App() {
             )}
           </div>
 
-          {/* Centre — search */}
-          <div className="absolute left-1/2 -translate-x-1/2">
+          {/* Centre — search + export */}
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+            {/* Search */}
             <button
               onClick={openPalette}
               className="
@@ -210,10 +256,92 @@ export default function App() {
               <span>Search or jump to…</span>
               <kbd className="font-mono text-xs bg-zinc-200 dark:bg-zinc-700 px-1.5 rounded">⌘K</kbd>
             </button>
+
+            {/* Export */}
+            <div ref={exportRef} className="relative">
+              <button
+                onClick={() => setExportOpen((o) => !o)}
+                disabled={exporting}
+                title="Export"
+                className="
+                  flex items-center gap-1.5 px-2.5 h-7 rounded-md
+                  bg-zinc-100 dark:bg-zinc-800
+                  text-xs text-zinc-400 dark:text-zinc-500
+                  hover:bg-zinc-200 dark:hover:bg-zinc-700
+                  transition-colors duration-150
+                  disabled:opacity-50
+                "
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M6 1v7M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M1 9v1a1 1 0 001 1h8a1 1 0 001-1V9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+                <span>Export</span>
+              </button>
+
+              {exportOpen && (
+                <div className="
+                  absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-48
+                  bg-white dark:bg-zinc-900
+                  border border-zinc-200 dark:border-zinc-700
+                  rounded-lg shadow-xl overflow-hidden z-50
+                ">
+                  <button
+                    onClick={handleExportAll}
+                    className="
+                      w-full flex items-center gap-2.5 px-3 py-2.5 text-left
+                      text-sm text-zinc-700 dark:text-zinc-300
+                      hover:bg-zinc-50 dark:hover:bg-zinc-800
+                      transition-colors duration-100
+                    "
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                      <path d="M4 6.5h5M4 4.5h5M4 8.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                    </svg>
+                    Export all notes (JSON)
+                  </button>
+                  <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
+                  <button
+                    onClick={handleExportNote}
+                    disabled={!activeNote}
+                    className="
+                      w-full flex items-center gap-2.5 px-3 py-2.5 text-left
+                      text-sm text-zinc-700 dark:text-zinc-300
+                      hover:bg-zinc-50 dark:hover:bg-zinc-800
+                      transition-colors duration-100
+                      disabled:opacity-40 disabled:cursor-not-allowed
+                    "
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                      <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                    </svg>
+                    Export current note (MD)
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Right — theme toggle */}
-          <div className="flex items-center justify-end flex-1">
+          {/* Right — shortcuts + theme toggle */}
+          <div className="flex items-center justify-end gap-1 flex-1">
+            <button
+              onClick={openShortcuts}
+              title="Keyboard shortcuts (?)"
+              className="
+                w-7 h-7 flex items-center justify-center rounded-md
+                text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200
+                hover:bg-zinc-200 dark:hover:bg-zinc-700
+                transition-colors duration-150
+              "
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2"/>
+                <path d="M5 5.5a2 2 0 113 1.7V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                <circle cx="7" cy="10" r="0.7" fill="currentColor"/>
+              </svg>
+            </button>
             <ThemeToggle />
           </div>
         </header>
@@ -225,6 +353,7 @@ export default function App() {
       </div>
 
       <CommandPalette />
+      <KeyboardShortcuts />
     </div>
   );
 }
