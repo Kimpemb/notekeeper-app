@@ -24,6 +24,8 @@ export function CommandPalette() {
   const [selected, setSelected] = useState(0);
   const inputRef  = useRef<HTMLInputElement>(null);
   const panelRef  = useRef<HTMLDivElement>(null);
+  const listRef   = useRef<HTMLUListElement>(null);
+  const itemRefs  = useRef<(HTMLLIElement | null)[]>([]);
 
   // Focus input when palette opens, reset state
   useEffect(() => {
@@ -34,8 +36,7 @@ export function CommandPalette() {
     }
   }, [paletteOpen]);
 
-  // Close on outside click — attached to document, not the backdrop div
-  // This way it works regardless of what has focus
+  // Close on outside click
   useEffect(() => {
     if (!paletteOpen) return;
     function handleMouseDown(e: MouseEvent) {
@@ -47,7 +48,7 @@ export function CommandPalette() {
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [paletteOpen, closePalette]);
 
-  // Close on Escape — attached to document so it works even if focus moved away
+  // Close on Escape
   useEffect(() => {
     if (!paletteOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -60,6 +61,11 @@ export function CommandPalette() {
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [paletteOpen, closePalette]);
+
+  // Scroll selected item into view on arrow navigation
+  useEffect(() => {
+    itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selected]);
 
   const staticCommands: CommandItem[] = [
     {
@@ -136,26 +142,27 @@ export function CommandPalette() {
             onKeyDown={handleInputKeyDown}
             placeholder="Search notes or commands…"
             className="
-              flex-1 bg-transparent outline-none text-sm
+              flex-1 bg-transparent outline-none text-base
               text-zinc-800 dark:text-zinc-200
               placeholder:text-zinc-400 dark:placeholder:text-zinc-600
             "
           />
-          <kbd className="text-[10px] text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">
+          <kbd className="text-sm text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">
             ESC
           </kbd>
         </div>
 
         {/* Results */}
-        <ul className="max-h-72 overflow-y-auto py-1.5">
+        <ul ref={listRef} className="max-h-72 overflow-y-auto py-1.5">
           {filtered.length === 0 && (
-            <li className="px-4 py-6 text-sm text-zinc-400 text-center">
+            <li className="px-4 py-6 text-base text-zinc-400 text-center">
               No results for "{query}"
             </li>
           )}
           {filtered.map((item, i) => (
             <li
               key={item.id}
+              ref={(el) => { itemRefs.current[i] = el; }}
               onMouseEnter={() => setSelected(i)}
               onClick={() => item.action()}
               className={`
@@ -168,15 +175,15 @@ export function CommandPalette() {
               `}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-zinc-800 dark:text-zinc-200 truncate">{item.label}</p>
+                <p className="text-base text-zinc-800 dark:text-zinc-200 truncate">{item.label}</p>
                 {item.description && (
-                  <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
+                  <p className="text-sm text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
                     {item.description}
                   </p>
                 )}
               </div>
               {i === selected && (
-                <kbd className="text-[10px] text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono shrink-0">
+                <kbd className="text-base text-zinc-400 bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 rounded font-mono shrink-0 leading-snug">
                   ↵
                 </kbd>
               )}
