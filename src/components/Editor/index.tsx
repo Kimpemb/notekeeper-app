@@ -14,14 +14,60 @@ import { useUIStore } from "@/store/useUIStore";
 
 interface BubblePos { top: number; left: number; }
 
+// ─── Empty-line placeholder decoration ───────────────────────────────────────
+// Shows "Press '/' for commands" on every empty paragraph line (not just after /)
+// Displayed as a ProseMirror widget decoration — appears inline, no border-radius.
+
+const emptyLinePlaceholderKey = new PluginKey<DecorationSet>("emptyLinePlaceholder");
+
+const EmptyLinePlaceholderExtension = Extension.create({
+  name: "emptyLinePlaceholder",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: emptyLinePlaceholderKey,
+        props: {
+          decorations(state) {
+            const { doc, selection } = state;
+            const decorations: Decoration[] = [];
+
+            doc.descendants((node, pos) => {
+              // Only paragraph nodes that are completely empty
+              if (node.type.name !== "paragraph") return;
+              if (node.content.size !== 0) return;
+
+              // Only show on the line where the cursor currently sits
+              const nodeEnd = pos + node.nodeSize;
+              const cursorInNode =
+                selection.from >= pos && selection.from <= nodeEnd;
+              if (!cursorInNode) return;
+
+              const widget = Decoration.widget(
+                pos + 1,
+                () => {
+                  const span = document.createElement("span");
+                  span.textContent = "Press '/' for commands";
+                  span.className = "empty-line-hint";
+                  return span;
+                },
+                { side: 1, key: `empty-hint-${pos}` }
+              );
+              decorations.push(widget);
+            });
+
+            return DecorationSet.create(doc, decorations);
+          },
+        },
+      }),
+    ];
+  },
+});
+
 // ─── Slash placeholder decoration extension ───────────────────────────────────
-// Renders "Type to search" inline after the '/' character using a ProseMirror
-// widget decoration — it appears in the same line as the slash, right after it.
+// Renders "Type to search" inline after the '/' character.
 
 const slashPlaceholderKey = new PluginKey<{ active: boolean }>("slashPlaceholder");
 
-// Self-contained extension — detects '/' at start of block and shows ghost text.
-// No external ref needed; reads doc state directly every transaction.
 const SlashPlaceholderExtension = Extension.create({
   name: "slashPlaceholder",
   addProseMirrorPlugins() {
@@ -32,10 +78,7 @@ const SlashPlaceholderExtension = Extension.create({
           decorations(state) {
             const { doc, selection } = state;
             const { from, to } = selection;
-            // Only show when cursor (no selection)
             if (from !== to) return DecorationSet.empty;
-            // Check the single character immediately before the cursor is '/'
-            // This works regardless of what else is on the line
             const charBefore = from > 0 ? doc.textBetween(from - 1, from, "\n") : "";
             if (charBefore !== "/") return DecorationSet.empty;
             const widget = Decoration.widget(from, () => {
@@ -52,6 +95,47 @@ const SlashPlaceholderExtension = Extension.create({
         },
       }),
     ];
+  },
+});
+
+// ─── Numbered list backspace fix ─────────────────────────────────────────────
+// When cursor is at the start of an empty ordered-list item, backspace should
+// lift the item out of the list (converting it to a plain empty paragraph)
+// rather than merging it with the previous list item.
+
+const OrderedListBackspaceExtension = Extension.create({
+  name: "orderedListBackspace",
+  addKeyboardShortcuts() {
+    return {
+      Backspace: ({ editor }) => {
+        const { state } = editor;
+        const { selection } = state;
+        const { $from, empty } = selection;
+
+        // Only act when cursor is collapsed at the very start of a list item
+        if (!empty || $from.parentOffset !== 0) return false;
+
+        const parentNode = $from.parent;
+        // Must be inside an ordered list item that is empty
+        if (parentNode.type.name !== "paragraph") return false;
+        if (parentNode.content.size !== 0) return false;
+
+        // Walk up to find if we're inside a listItem inside an orderedList
+        let depth = $from.depth;
+        while (depth > 0) {
+          const node = $from.node(depth);
+          if (node.type.name === "listItem") {
+            const grandparent = $from.node(depth - 1);
+            if (grandparent.type.name === "orderedList") {
+              // Lift the list item out, turning it into a plain paragraph
+              return editor.chain().focus().liftListItem("listItem").run();
+            }
+          }
+          depth--;
+        }
+        return false;
+      },
+    };
   },
 });
 
@@ -78,10 +162,14 @@ export function Editor() {
   });
   const [slashQuery, setSlashQuery] = useState("");
   const slashStartPos               = useRef<number | null>(null);
-  // Ref for the decoration extension to read
 
   const editor = useEditor({
-    extensions: [StarterKit, SlashPlaceholderExtension],
+    extensions: [
+      StarterKit,
+      SlashPlaceholderExtension,
+      EmptyLinePlaceholderExtension,
+      OrderedListBackspaceExtension,
+    ],
     content: activeNote?.content ? JSON.parse(activeNote.content) : "",
     editorProps: {
       attributes: {
@@ -135,9 +223,9 @@ export function Editor() {
         setSlashQuery("");
         const coords = e.view.coordsAtPos(from);
         setSlashPos({
-          top: coords.bottom + 6,        // used when opening downward
+          top: coords.bottom + 6,
           left: coords.left,
-          caretTop: coords.top - 6,      // used when opening upward (above the line)
+          caretTop: coords.top - 6,
         });
         setSlashOpen(true);
       }
@@ -313,7 +401,7 @@ export function Editor() {
       {/* ── Editor surface ── */}
       <div className="flex-1 overflow-y-auto">
         <div
-          className="w-full mx-auto px-8 py-10 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text"
+          className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text"
           onClick={handleEditorAreaClick}
         >
           <h1
@@ -327,7 +415,7 @@ export function Editor() {
             onKeyDown={handleTitleKeyDown}
             onPaste={handleTitlePaste}
             className="
-              block w-full font-bold mb-8 outline-none
+              block w-full font-bold mb-6 outline-none
               text-zinc-900 dark:text-zinc-100
               empty:before:content-[attr(data-placeholder)]
               empty:before:text-zinc-300 dark:empty:before:text-zinc-600
