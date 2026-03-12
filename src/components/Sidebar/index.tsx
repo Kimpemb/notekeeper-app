@@ -6,9 +6,10 @@ import { NoteTree } from "./NoteTree";
 import { SearchBar } from "./SearchBar";
 
 export function Sidebar() {
-  const loadNotes   = useNoteStore((s) => s.loadNotes);
-  const createNote  = useNoteStore((s) => s.createNote);
-  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
+  const loadNotes      = useNoteStore((s) => s.loadNotes);
+  const createNote     = useNoteStore((s) => s.createNote);
+  const sidebarOpen    = useUIStore((s) => s.sidebarOpen);
+  const toggleSidebar  = useUIStore((s) => s.toggleSidebar);
 
   useEffect(() => { loadNotes(); }, [loadNotes]);
 
@@ -22,22 +23,43 @@ export function Sidebar() {
       `}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-6 pb-3 shrink-0">
-        <span className="text-sm font-bold tracking-widest uppercase text-zinc-400 dark:text-zinc-500 select-none">
-          Notes
-        </span>
+      <div className="flex items-center justify-between px-3 pt-4 pb-3 shrink-0">
+        {/* Hamburger — toggles sidebar closed */}
         <button
-          onClick={() => createNote()}
-          title="New note (Ctrl+N)"
+          onClick={toggleSidebar}
+          title="Close sidebar"
           className="
-            w-8 h-8 flex items-center justify-center rounded-md
+            w-7 h-7 flex flex-col items-center justify-center gap-[4.5px] rounded-md
             text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200
             hover:bg-zinc-200 dark:hover:bg-zinc-700
             transition-colors duration-100
           "
         >
-          <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+          <span className="w-[14px] h-[1.5px] bg-current rounded-full" />
+          <span className="w-[14px] h-[1.5px] bg-current rounded-full" />
+          <span className="w-[14px] h-[1.5px] bg-current rounded-full" />
+        </button>
+
+        {/* New note */}
+        <button
+          onClick={() => createNote()}
+          title="New note (Ctrl+N)"
+          className="
+            w-7 h-7 flex items-center justify-center rounded-md
+            text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200
+            hover:bg-zinc-200 dark:hover:bg-zinc-700
+            transition-colors duration-100
+          "
+        >
+          {/* Notion-style: square with a pencil line */}
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path
+              d="M9.5 2.5L12.5 5.5M2 13l1-4L10.5 1.5a1.414 1.414 0 012 2L5 11l-3 1z"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
       </div>

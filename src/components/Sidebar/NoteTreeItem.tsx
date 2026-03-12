@@ -12,7 +12,7 @@ interface Props {
 interface ContextMenuPos {
   x: number;
   y: number;
-  flip: boolean; // true = open upward
+  flip: boolean;
 }
 
 export function NoteTreeItem({ noteId, depth }: Props) {
@@ -32,12 +32,13 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   const renameRef = useRef<HTMLInputElement>(null);
   const menuRef   = useRef<HTMLDivElement>(null);
 
-  const note      = notes.find((n) => n.id === noteId);
-  const children  = notes.filter((n) => n.parent_id === noteId);
-  const isActive  = activeNoteId === noteId;
+  const note       = notes.find((n) => n.id === noteId);
+  const children   = notes.filter((n) => n.parent_id === noteId);
+  const isActive   = activeNoteId === noteId;
   const isExpanded = expandedNodes.has(noteId);
   const hasChildren = children.length > 0;
 
+  // Close context menu on outside click
   useEffect(() => {
     if (!contextMenu) return;
     function handle(e: MouseEvent) {
@@ -49,14 +50,50 @@ export function NoteTreeItem({ noteId, depth }: Props) {
     return () => document.removeEventListener("mousedown", handle);
   }, [contextMenu]);
 
+  // Focus rename input when entering rename mode
   useEffect(() => {
     if (renaming) renameRef.current?.select();
   }, [renaming]);
 
+  // Delete key shortcut — only fires when this note is the active one
+  // and the user is not currently typing in an input/editor
+  useEffect(() => {
+    if (!isActive) return;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      // Ignore if focus is inside an input, textarea, or contenteditable
+      const target = e.target as HTMLElement;
+      const isTyping =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable;
+      if (isTyping) return;
+
+      if (e.key === "Delete") {
+        e.preventDefault();
+        confirmAndDelete();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isActive, hasChildren, note]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!note) return null;
 
-  const MENU_HEIGHT = 110; // approximate height of context menu in px
+  const MENU_HEIGHT = 110;
   const indentPx = depth * 14;
+
+  async function confirmAndDelete() {
+    if (!note) return;
+    if (hasChildren) {
+      const confirmed = window.confirm(
+        `"${note.title}" has sub-notes. Delete everything inside?`
+      );
+      if (!confirmed) return;
+    }
+    await deleteNote(noteId);
+  }
 
   function handleClick() {
     setActive(noteId);
@@ -70,7 +107,6 @@ export function NoteTreeItem({ noteId, depth }: Props) {
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
-    // Detect if menu would go off screen bottom — if so, flip upward
     const spaceBelow = window.innerHeight - e.clientY;
     const flip = spaceBelow < MENU_HEIGHT + 16;
     setContextMenu({ x: e.clientX, y: e.clientY, flip });
@@ -101,13 +137,7 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   async function handleDelete(e: React.MouseEvent) {
     e.stopPropagation();
     setContextMenu(null);
-    if (hasChildren) {
-      const confirmed = window.confirm(
-        `"${note!.title}" has sub-notes. Delete everything inside?`
-      );
-      if (!confirmed) return;
-    }
-    await deleteNote(noteId);
+    await confirmAndDelete();
   }
 
   return (
@@ -191,7 +221,7 @@ export function NoteTreeItem({ noteId, depth }: Props) {
         )}
       </div>
 
-      {/* Context menu — flips upward if near bottom of screen */}
+      {/* Context menu */}
       {contextMenu && (
         <div
           ref={menuRef}
