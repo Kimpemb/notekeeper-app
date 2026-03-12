@@ -118,7 +118,7 @@ export default function App() {
       <Sidebar />
 
       {/* ── Right column — header + editor ── */}
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]">
 
         <header
           className="
@@ -139,8 +139,9 @@ export default function App() {
               style={{
                 opacity: isClosed ? 1 : 0,
                 width: isClosed ? "28px" : "0px",
-                transition: sidebarState === "peek"
-                  ? "opacity 150ms ease, width 150ms ease"
+                // Fade in smoothly when sidebar closes, disappear instantly on open
+                transition: sidebarState === "closed"
+                  ? "opacity 250ms ease 100ms, width 250ms ease 100ms"
                   : "none",
               }}
             >

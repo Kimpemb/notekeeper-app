@@ -48,12 +48,16 @@ export function Sidebar() {
         id="sidebar-panel"
         onMouseEnter={onSidebarEnter}
         onMouseLeave={onSidebarLeave}
-        style={{ width: isVisible ? "288px" : "0px" }}
+        style={{
+          width: isVisible ? "288px" : "0px",
+          opacity: isVisible ? 1 : 0,
+        }}
         className={`
           flex flex-col h-full shrink-0
           bg-zinc-50 dark:bg-zinc-900
           border-r border-zinc-200 dark:border-zinc-800
           overflow-hidden
+          transition-[width,opacity] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]
           ${isPeek ? "absolute left-0 top-0 z-40 shadow-2xl" : "relative"}
         `}
       >
@@ -66,6 +70,7 @@ export function Sidebar() {
                 w-7 h-7 flex flex-col items-center justify-center gap-[4.5px] rounded-md
                 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200
                 hover:bg-zinc-200 dark:hover:bg-zinc-700 mr-auto
+                transition-colors duration-150
               "
             >
               <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
@@ -84,6 +89,7 @@ export function Sidebar() {
                 w-7 h-7 flex items-center justify-center rounded-md
                 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200
                 hover:bg-zinc-200 dark:hover:bg-zinc-700
+                transition-colors duration-150
               "
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -100,6 +106,7 @@ export function Sidebar() {
               w-7 h-7 flex items-center justify-center rounded-md
               text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200
               hover:bg-zinc-200 dark:hover:bg-zinc-700
+              transition-colors duration-150
             "
           >
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
