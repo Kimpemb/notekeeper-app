@@ -1,6 +1,6 @@
-// src/db/queries.ts
-import { getDb } from "@/db/client";
-import { ALL_MIGRATIONS } from "@/db/schema";
+// src/features/notes/db/queries.ts
+import { getDb } from "@/features/notes/db/client";
+import { ALL_MIGRATIONS } from "@/features/notes/db/schema";
 import type { Note, NoteVersion, Backlink } from "@/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

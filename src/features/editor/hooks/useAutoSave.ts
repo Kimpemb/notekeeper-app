@@ -1,22 +1,21 @@
-// src/hooks/useAutoSave.ts
+// src/features/editor/hooks/useAutoSave.ts
 import { useEffect, useRef, useCallback } from "react";
 import { Editor } from "@tiptap/react";
-import { useNoteStore } from "@/store/useNoteStore";
-import { useUIStore } from "@/store/useUIStore";
-import type { UpdateNoteInput } from "@/db/queries";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useUIStore } from "@/features/ui/store/useUIStore";
+import type { UpdateNoteInput } from "@/features/notes/db/queries";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const DEBOUNCE_MS = 2_000;
 const HARD_CAP_MS = 30_000;
 const UNTITLED_PATTERN = /^Untitled-\d+$/;
-
 const INVALID_TITLE_PATTERN = /^[/\\|#*`~\-_=<>]+$/;
 
 interface UseAutoSaveOptions {
   editor: Editor | null;
   noteId: string | null;
-  onSaveComplete?: (content: string, noteId: string) => void; // ← added noteId
+  onSaveComplete?: (content: string, noteId: string) => void;
 }
 
 export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptions): void {
@@ -34,34 +33,22 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
 
   const save = useCallback(async () => {
     if (!editor || !noteId || !isDirty.current) return;
-
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     if (hardCapTimer.current)  clearTimeout(hardCapTimer.current);
-    debounceTimer.current = null;
-    hardCapTimer.current  = null;
-    isDirty.current = false;
-
+    debounceTimer.current = null; hardCapTimer.current = null; isDirty.current = false;
     setSaveStatus("saving");
-
     try {
       const json      = editor.getJSON();
       const content   = JSON.stringify(json);
       const plaintext = editor.getText();
-
-      onSaveComplete?.(content, noteId); // ← pass noteId
-
+      onSaveComplete?.(content, noteId);
       const currentNote = notesRef.current.find((n) => n.id === noteId);
       const isUntitled  = !currentNote || UNTITLED_PATTERN.test(currentNote.title);
-
       const update: UpdateNoteInput = { content, plaintext };
-
       if (isUntitled) {
         const derived = deriveTitleFromDoc(json);
-        if (derived && !INVALID_TITLE_PATTERN.test(derived)) {
-          update.title = derived;
-        }
+        if (derived && !INVALID_TITLE_PATTERN.test(derived)) update.title = derived;
       }
-
       await updateNote(noteId, update);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
@@ -76,9 +63,7 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
     setSaveStatus("saving");
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(save, DEBOUNCE_MS);
-    if (!hardCapTimer.current) {
-      hardCapTimer.current = setTimeout(save, HARD_CAP_MS);
-    }
+    if (!hardCapTimer.current) hardCapTimer.current = setTimeout(save, HARD_CAP_MS);
   }, [save, setSaveStatus]);
 
   useEffect(() => {
@@ -88,9 +73,7 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
   }, [editor, scheduleSave]);
 
   useEffect(() => {
-    if (lastNoteId.current && lastNoteId.current !== noteId && isDirty.current) {
-      save();
-    }
+    if (lastNoteId.current && lastNoteId.current !== noteId && isDirty.current) save();
     lastNoteId.current = noteId;
   }, [noteId, save]);
 
@@ -102,8 +85,6 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
     };
   }, [save]);
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 interface TipTapTextNode  { type: "text"; text?: string; }
 interface TipTapBlockNode { type: string; content?: TipTapNode[]; }

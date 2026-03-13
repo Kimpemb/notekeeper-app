@@ -1,4 +1,4 @@
-// src/store/useNoteStore.ts
+// src/features/notes/store/useNoteStore.ts
 import { create } from "zustand";
 import {
   getAllNotes,
@@ -9,9 +9,7 @@ import {
   getNoteById,
   type CreateNoteInput,
   type UpdateNoteInput,
-} from "@/db/queries";
-import type { Note } from "@/types";
-
+} from "@/features/notes/db/queries";import type { Note } from "@/types";
 const PINNED_STORAGE_KEY = "notekeeper:pinned";
 
 function loadPinnedIds(): Set<string> {
