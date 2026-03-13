@@ -66,8 +66,7 @@ export function CommandPalette() {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 sm:px-6 lg:px-0">
       {/* Removed blur/backdrop layer */}
-      <div ref={panelRef} className="relative w-full max-w-2xl sm:max-w-xl md:max-w-2xl lg:max-w-3xl rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
+    <div ref={panelRef} className="relative w-full max-w-5xl h-[85vh] rounded-t-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 border-b-0 shadow-2xl flex flex-col">        <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 flex-shrink-0">
           <svg className="shrink-0 text-zinc-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.4"/>
             <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -78,7 +77,7 @@ export function CommandPalette() {
           />
           <kbd className="text-sm text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">ESC</kbd>
         </div>
-        <ul className="max-h-[60vh] sm:max-h-72 overflow-y-auto py-1.5">
+        <ul className="flex-1 overflow-y-auto py-1.5">
           {filtered.length === 0 && <li className="px-4 py-6 text-base text-zinc-400 text-center">No results for "{query}"</li>}
           {filtered.map((item, i) => (
             <li key={item.id} ref={(el) => { itemRefs.current[i] = el; }} onMouseEnter={() => setSelected(i)} onClick={() => item.action()}
