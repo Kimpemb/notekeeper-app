@@ -166,7 +166,7 @@ export default function App() {
 
       <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]">
         <header
-          className="relative flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none"
+          className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
           onMouseEnter={() => {
             if (useUIStore.getState().sidebarState === "peek") cancelSidebarCollapse();
           }}
@@ -213,32 +213,42 @@ export default function App() {
             )}
           </div>
 
-          {/* Centre — search + export + import */}
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 max-w-[min(420px,40vw)]">
+          {/*
+            Right side — one single overflow-hidden flex row.
+            Order: search | export | import | filetree | shortcuts | theme
+            All children are shrink-0 so they never compress — the container
+            itself shrinks (driven by flex-1 on the left), and overflow-hidden
+            clips from the RIGHT edge inward. That means the theme button
+            disappears first, then shortcuts, then filetree — each one sliding
+            off into the Import button as if being swallowed by it.
+          */}
+          <div className="flex items-center gap-2 shrink overflow-hidden min-w-0">
+            {/* Search */}
             <button
               onClick={openPalette}
-              className="flex items-center gap-2 px-3 h-7 rounded-md min-w-0 bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 overflow-hidden"
+              className="flex items-center gap-2 px-3 h-7 rounded-md bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink min-w-0 max-w-[240px]"
             >
               <svg width="12" height="12" viewBox="0 0 11 11" fill="none" className="shrink-0">
                 <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
                 <path d="M7.5 7.5L10 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
               </svg>
-              <span className="truncate">Search or jump to…</span>
+              <span className="truncate hidden sm:inline">Search or jump to…</span>
               <kbd className="font-mono text-xs bg-zinc-200 dark:bg-zinc-700 px-1.5 rounded shrink-0">⌘K</kbd>
             </button>
 
-            <div ref={exportRef} className="relative">
+            {/* Export */}
+            <div ref={exportRef} className="relative shrink-0">
               <button
                 onClick={() => setExportOpen((o) => !o)}
                 disabled={exporting}
                 title="Export"
                 className="flex items-center gap-1.5 px-2.5 h-7 rounded-md bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 disabled:opacity-50"
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
                   <path d="M6 1v7M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                   <path d="M1 9v1a1 1 0 001 1h8a1 1 0 001-1V9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
                 </svg>
-                <span>Export</span>
+                <span className="hidden sm:inline">Export</span>
               </button>
 
               {exportOpen && (
@@ -260,45 +270,49 @@ export default function App() {
               )}
             </div>
 
+            {/* Import */}
             <button
               onClick={openImport}
               title="Import notes"
-              className="flex items-center gap-1.5 px-2.5 h-7 rounded-md bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+              className="flex items-center gap-1.5 px-2.5 h-7 rounded-md bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink-0"
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
                 <path d="M6 8V1M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M1 9v1a1 1 0 001 1h8a1 1 0 001-1V9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
               </svg>
-              <span>Import</span>
-            </button>
-          </div>
-
-          {/* Right — file tree + shortcuts + theme */}
-          <div className="flex items-center justify-end gap-1 flex-1">
-            <button
-              onClick={toggleFileTree}
-              title="File tree (Ctrl+T)"
-              className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${fileTreeOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M1 3.5a1 1 0 011-1h3l1 1.5h6a1 1 0 011 1V11a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-                <path d="M4 8.5h3M4 6.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              </svg>
+              <span className="hidden sm:inline">Import</span>
             </button>
 
-            <button
-              onClick={openShortcuts}
-              title="Keyboard shortcuts (?)"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2"/>
-                <path d="M5 5.5a2 2 0 113 1.7V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                <circle cx="7" cy="10" r="0.7" fill="currentColor"/>
-              </svg>
-            </button>
+            {/* Icon trio — intentionally AFTER Import in DOM order so they are
+                the first elements to be clipped by the overflow-hidden parent.
+                shrink-0 ensures they don't compress — they just vanish off the
+                right edge, sinking into the Import button as space runs out. */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={toggleFileTree}
+                title="File tree (Ctrl+T)"
+                className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${fileTreeOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M1 3.5a1 1 0 011-1h3l1 1.5h6a1 1 0 011 1V11a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <path d="M4 8.5h3M4 6.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+              </button>
 
-            <ThemeToggle />
+              <button
+                onClick={openShortcuts}
+                title="Keyboard shortcuts (?)"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2"/>
+                  <path d="M5 5.5a2 2 0 113 1.7V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  <circle cx="7" cy="10" r="0.7" fill="currentColor"/>
+                </svg>
+              </button>
+
+              <ThemeToggle />
+            </div>
           </div>
         </header>
 
