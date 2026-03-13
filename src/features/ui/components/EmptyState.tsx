@@ -28,7 +28,8 @@ export function EmptyState() {
         <div className="flex items-center gap-3 mt-2">
           <button
             onClick={() => createNote()}
-            className="text-xs px-3 py-1.5 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 transition-opacity duration-150 cursor-pointer"
+            className="text-xs px-3 py-1.5 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900
+                      hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors duration-150 cursor-pointer"
           >
             New note
           </button>
