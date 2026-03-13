@@ -41,6 +41,11 @@ interface UIStore {
   openVersionHistory: () => void;
   closeVersionHistory: () => void;
 
+  // ─── Import modal ────────────────────────────────────────────────────────
+  importOpen: boolean;
+  openImport: () => void;
+  closeImport: () => void;
+
   // ─── Keyboard shortcuts ──────────────────────────────────────────────────
   shortcutsOpen: boolean;
   openShortcuts: () => void;
@@ -125,6 +130,11 @@ export const useUIStore = create<UIStore>((set, get) => {
     versionHistoryOpen: false,
     openVersionHistory: () => set({ versionHistoryOpen: true }),
     closeVersionHistory: () => set({ versionHistoryOpen: false }),
+
+    // ─── Import modal ──────────────────────────────────────────────────────
+    importOpen: false,
+    openImport: () => set({ importOpen: true }),
+    closeImport: () => set({ importOpen: false }),
 
     // ─── Keyboard shortcuts ─────────────────────────────────────────────────
     shortcutsOpen: false,

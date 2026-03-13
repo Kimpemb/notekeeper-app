@@ -8,6 +8,7 @@ import { Editor } from "@/components/Editor";
 import { EmptyState } from "@/components/EmptyState";
 import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
+import { ImportModal } from "@/components/ImportModal";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { exportNotesToFile } from "@/lib/tauri/fs";
 import "@/styles/main.css";
@@ -44,6 +45,7 @@ export default function App() {
   const openPalette     = useUIStore((s) => s.openPalette);
   const togglePalette   = useUIStore((s) => s.togglePalette);
   const openShortcuts   = useUIStore((s) => s.openShortcuts);
+  const openImport      = useUIStore((s) => s.openImport);
 
   const [dbReady, setDbReady]         = useState(false);
   const [dbError, setDbError]         = useState<string | null>(null);
@@ -116,7 +118,7 @@ export default function App() {
     setExportOpen(false);
     try {
       const json = JSON.stringify(notes, null, 2);
-      await exportNotesToFile(json);
+      await exportNotesToFile(json, "notekeeper-export.json");
     } catch (err) {
       console.error("Export failed:", err);
     } finally {
@@ -129,8 +131,24 @@ export default function App() {
     setExporting(true);
     setExportOpen(false);
     try {
-      const md = `# ${activeNote.title}\n\n${activeNote.plaintext ?? ""}`;
-      await exportNotesToFile(md);
+      const slug = activeNote.title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+      const md = [`# ${activeNote.title}`, "", activeNote.plaintext ?? ""].join("\n");
+      await exportNotesToFile(md, `${slug}.md`);
+    } catch (err) {
+      console.error("Export failed:", err);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleExportNoteJson() {
+    if (!activeNote) return;
+    setExporting(true);
+    setExportOpen(false);
+    try {
+      const slug = activeNote.title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+      const json = JSON.stringify([activeNote], null, 2);
+      await exportNotesToFile(json, `${slug}.json`);
     } catch (err) {
       console.error("Export failed:", err);
     } finally {
@@ -237,24 +255,24 @@ export default function App() {
           </div>
 
           {/* Centre — search + export */}
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 max-w-[min(420px,40vw)]">
             {/* Search */}
             <button
               onClick={openPalette}
               className="
-                flex items-center gap-2 px-3 h-7 rounded-md
+                flex items-center gap-2 px-3 h-7 rounded-md min-w-0
                 bg-zinc-100 dark:bg-zinc-800
                 text-xs text-zinc-400 dark:text-zinc-500
                 hover:bg-zinc-200 dark:hover:bg-zinc-700
-                transition-colors duration-150
+                transition-colors duration-150 overflow-hidden
               "
             >
-              <svg width="12" height="12" viewBox="0 0 11 11" fill="none">
+              <svg width="12" height="12" viewBox="0 0 11 11" fill="none" className="shrink-0">
                 <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
                 <path d="M7.5 7.5L10 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
               </svg>
-              <span>Search or jump to…</span>
-              <kbd className="font-mono text-xs bg-zinc-200 dark:bg-zinc-700 px-1.5 rounded">⌘K</kbd>
+              <span className="truncate">Search or jump to…</span>
+              <kbd className="font-mono text-xs bg-zinc-200 dark:bg-zinc-700 px-1.5 rounded shrink-0">⌘K</kbd>
             </button>
 
             {/* Export */}
@@ -319,9 +337,46 @@ export default function App() {
                     </svg>
                     Export current note (MD)
                   </button>
+                  <button
+                    onClick={handleExportNoteJson}
+                    disabled={!activeNote}
+                    className="
+                      w-full flex items-center gap-2.5 px-3 py-2.5 text-left
+                      text-sm text-zinc-700 dark:text-zinc-300
+                      hover:bg-zinc-50 dark:hover:bg-zinc-800
+                      transition-colors duration-100
+                      disabled:opacity-40 disabled:cursor-not-allowed
+                    "
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                      <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                      <path d="M4 7h5M4 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                    </svg>
+                    Export current note (JSON)
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* Import */}
+            <button
+              onClick={openImport}
+              title="Import notes"
+              className="
+                flex items-center gap-1.5 px-2.5 h-7 rounded-md
+                bg-zinc-100 dark:bg-zinc-800
+                text-xs text-zinc-400 dark:text-zinc-500
+                hover:bg-zinc-200 dark:hover:bg-zinc-700
+                transition-colors duration-150
+              "
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M6 8V1M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M1 9v1a1 1 0 001 1h8a1 1 0 001-1V9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              <span>Import</span>
+            </button>
           </div>
 
           {/* Right — shortcuts + theme toggle */}
@@ -354,6 +409,7 @@ export default function App() {
 
       <CommandPalette />
       <KeyboardShortcuts />
+      <ImportModal />
     </div>
   );
 }

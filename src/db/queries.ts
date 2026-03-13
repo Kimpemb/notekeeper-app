@@ -264,9 +264,60 @@ export async function exportAllNotes(): Promise<string> {
   return JSON.stringify(await getAllNotes(), null, 2);
 }
 
+/**
+ * Validate and sanitize a raw parsed object into a Note.
+ * Fills in missing required fields with safe defaults.
+ */
+function sanitizeNote(raw: Record<string, unknown>): Note {
+  const now_ = Date.now();
+  const title = typeof raw.title === "string" && raw.title.trim()
+    ? raw.title.trim()
+    : "Imported Note";
+  const content = typeof raw.content === "string" && raw.content.trim()
+    ? raw.content
+    : JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
+  const plaintext = typeof raw.plaintext === "string" ? raw.plaintext : "";
+  const tags = typeof raw.tags === "string" ? raw.tags : null;
+  const parent_id = typeof raw.parent_id === "string" ? raw.parent_id : null;
+  const id = typeof raw.id === "string" && raw.id.trim()
+    ? raw.id.trim()
+    : crypto.randomUUID();
+  const sync_id = typeof raw.sync_id === "string" && raw.sync_id.trim()
+    ? raw.sync_id.trim()
+    : crypto.randomUUID();
+  const created_at = typeof raw.created_at === "number" ? raw.created_at : now_;
+  const updated_at = typeof raw.updated_at === "number" ? raw.updated_at : now_;
+  return { id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at };
+}
+
+/**
+ * Sort notes so parents always come before their children.
+ * Prevents FOREIGN KEY constraint failures during import.
+ */
+function topoSort(notes: Note[]): Note[] {
+  const map = new Map(notes.map((n) => [n.id, n]));
+  const result: Note[] = [];
+  const visited = new Set<string>();
+
+  function visit(note: Note) {
+    if (visited.has(note.id)) return;
+    // Visit parent first if it exists in the import set
+    if (note.parent_id && map.has(note.parent_id)) {
+      visit(map.get(note.parent_id)!);
+    }
+    visited.add(note.id);
+    result.push(note);
+  }
+
+  for (const note of notes) visit(note);
+  return result;
+}
+
 export async function importNotes(json: string): Promise<number> {
   const db = await getDb();
-  const notes: Note[] = JSON.parse(json);
+  const raw = JSON.parse(json);
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
+  const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
   let imported = 0;
   for (const note of notes) {
     if (await getNoteById(note.id)) continue;
@@ -279,6 +330,50 @@ export async function importNotes(json: string): Promise<number> {
     imported++;
   }
   return imported;
+}
+
+export async function importNotesOverwrite(json: string): Promise<number> {
+  const db = await getDb();
+  const raw = JSON.parse(json);
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
+  const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
+  let count = 0;
+  for (const note of notes) {
+    await db.execute(
+      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT(id) DO UPDATE SET
+         title=excluded.title, content=excluded.content, plaintext=excluded.plaintext,
+         tags=excluded.tags, updated_at=excluded.updated_at`,
+      [note.id, note.title, note.content, note.plaintext, note.tags,
+       note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at]
+    );
+    count++;
+  }
+  return count;
+}
+
+export async function importNotesAsCopies(json: string): Promise<number> {
+  const db = await getDb();
+  const raw = JSON.parse(json);
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
+  const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
+  // Build old→new ID map so parent_id references stay valid
+  const idMap = new Map<string, string>();
+  for (const note of notes) idMap.set(note.id, uuid());
+  let count = 0;
+  for (const note of notes) {
+    const newId       = idMap.get(note.id)!;
+    const newParentId = note.parent_id ? (idMap.get(note.parent_id) ?? null) : null;
+    await db.execute(
+      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [newId, note.title, note.content, note.plaintext, note.tags,
+       newParentId, uuid(), now(), now()]
+    );
+    count++;
+  }
+  return count;
 }
 
 // ─── Stats ────────────────────────────────────────────────────────────────────

@@ -1,29 +1,34 @@
 // src/lib/tauri/fs.ts
-// All Tauri invoke() calls live here only.
-// Components never call invoke() directly — always go through this module.
-// This keeps Phase 6 web portal migration clean: swap this file, nothing else changes.
-
 import { invoke } from "@tauri-apps/api/core";
+import { save, open } from "@tauri-apps/plugin-dialog";
 
-/**
- * Export all notes to a file chosen by the user.
- * Calls a Tauri command that opens a save dialog and writes JSON.
- */
-export async function exportNotesToFile(json: string): Promise<void> {
-  await invoke("export_notes", { json });
+export async function exportNotesToFile(contents: string, defaultName = "notekeeper-export.json"): Promise<boolean> {
+  const isJson = defaultName.endsWith(".json");
+  const path = await save({
+    defaultPath: defaultName,
+    filters: isJson
+      ? [{ name: "JSON", extensions: ["json"] }]
+      : [{ name: "Markdown", extensions: ["md"] }],
+  });
+  if (!path) return false;
+  await invoke("write_file", { path, contents });
+  return true;
 }
 
-/**
- * Import notes from a file chosen by the user.
- * Returns the raw JSON string for parsing in the caller.
- */
-export async function importNotesFromFile(): Promise<string> {
-  return await invoke<string>("import_notes");
+export async function importNotesFromFile(): Promise<{ content: string; ext: string } | null> {
+  const path = await open({
+    multiple: false,
+    filters: [
+      { name: "JSON", extensions: ["json"] },
+      { name: "Markdown", extensions: ["md"] },
+    ],
+  });
+  if (!path) return null;
+  const content = await invoke<string>("read_file", { path });
+  const ext = (path as string).split(".").pop()?.toLowerCase() ?? "json";
+  return { content, ext };
 }
 
-/**
- * Get the app data directory path (where notekeeper.db lives).
- */
 export async function getAppDataDir(): Promise<string> {
   return await invoke<string>("get_app_data_dir");
 }

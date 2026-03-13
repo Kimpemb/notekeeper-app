@@ -10,6 +10,9 @@
     "sql:allow-execute",
     "sql:allow-select",
     "sql:allow-load",
+    "dialog:default",
+    "dialog:allow-save",
+    "dialog:allow-open",
     "sql:allow-close"
   ]
 }
