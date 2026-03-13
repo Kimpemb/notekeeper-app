@@ -6,17 +6,19 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { DecorationSet, Decoration } from "@tiptap/pm/view";
 import { useNoteStore } from "@/store/useNoteStore";
+import { useUIStore } from "@/store/useUIStore";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { syncBacklinks } from "@/db/queries";
+import { NoteLink } from "./NoteLink";
+import { NoteLinkSuggest } from "./NoteLinkSuggest";
+import { BacklinksPanel } from "./BacklinksPanel";
 import { StatusBar } from "./StatusBar";
 import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
-import { useUIStore } from "@/store/useUIStore";
 
 interface BubblePos { top: number; left: number; }
 
 // ─── Empty-line placeholder decoration ───────────────────────────────────────
-// Shows "Press '/' for commands" on every empty paragraph line (not just after /)
-// Displayed as a ProseMirror widget decoration — appears inline, no border-radius.
 
 const emptyLinePlaceholderKey = new PluginKey<DecorationSet>("emptyLinePlaceholder");
 
@@ -30,18 +32,12 @@ const EmptyLinePlaceholderExtension = Extension.create({
           decorations(state) {
             const { doc, selection } = state;
             const decorations: Decoration[] = [];
-
             doc.descendants((node, pos) => {
-              // Only paragraph nodes that are completely empty
               if (node.type.name !== "paragraph") return;
               if (node.content.size !== 0) return;
-
-              // Only show on the line where the cursor currently sits
               const nodeEnd = pos + node.nodeSize;
-              const cursorInNode =
-                selection.from >= pos && selection.from <= nodeEnd;
+              const cursorInNode = selection.from >= pos && selection.from <= nodeEnd;
               if (!cursorInNode) return;
-
               const widget = Decoration.widget(
                 pos + 1,
                 () => {
@@ -54,7 +50,6 @@ const EmptyLinePlaceholderExtension = Extension.create({
               );
               decorations.push(widget);
             });
-
             return DecorationSet.create(doc, decorations);
           },
         },
@@ -63,8 +58,7 @@ const EmptyLinePlaceholderExtension = Extension.create({
   },
 });
 
-// ─── Slash placeholder decoration extension ───────────────────────────────────
-// Renders "Type to search" inline after the '/' character.
+// ─── Slash placeholder decoration ────────────────────────────────────────────
 
 const slashPlaceholderKey = new PluginKey<{ active: boolean }>("slashPlaceholder");
 
@@ -99,9 +93,6 @@ const SlashPlaceholderExtension = Extension.create({
 });
 
 // ─── Numbered list backspace fix ─────────────────────────────────────────────
-// When cursor is at the start of an empty ordered-list item, backspace should
-// lift the item out of the list (converting it to a plain empty paragraph)
-// rather than merging it with the previous list item.
 
 const OrderedListBackspaceExtension = Extension.create({
   name: "orderedListBackspace",
@@ -111,23 +102,16 @@ const OrderedListBackspaceExtension = Extension.create({
         const { state } = editor;
         const { selection } = state;
         const { $from, empty } = selection;
-
-        // Only act when cursor is collapsed at the very start of a list item
         if (!empty || $from.parentOffset !== 0) return false;
-
         const parentNode = $from.parent;
-        // Must be inside an ordered list item that is empty
         if (parentNode.type.name !== "paragraph") return false;
         if (parentNode.content.size !== 0) return false;
-
-        // Walk up to find if we're inside a listItem inside an orderedList
         let depth = $from.depth;
         while (depth > 0) {
           const node = $from.node(depth);
           if (node.type.name === "listItem") {
             const grandparent = $from.node(depth - 1);
             if (grandparent.type.name === "orderedList") {
-              // Lift the list item out, turning it into a plain paragraph
               return editor.chain().focus().liftListItem("listItem").run();
             }
           }
@@ -139,12 +123,29 @@ const OrderedListBackspaceExtension = Extension.create({
   },
 });
 
+// ─── Helper: collect all noteLink target IDs from the doc ────────────────────
+
+function extractNoteLinkIds(editor: ReturnType<typeof useEditor>): string[] {
+  if (!editor) return [];
+  const ids: string[] = [];
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === "noteLink" && node.attrs.id) {
+      ids.push(node.attrs.id as string);
+    }
+  });
+  return [...new Set(ids)]; // deduplicate
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function Editor() {
   const activeNote         = useNoteStore((s) => s.activeNote());
   const updateNote         = useNoteStore((s) => s.updateNote);
+  const setActiveNote      = useNoteStore((s) => s.setActiveNote);
   const versionHistoryOpen = useUIStore((s) => s.versionHistoryOpen);
+  const backlinksOpen      = useUIStore((s) => s.backlinksOpen);
+  const toggleBacklinks    = useUIStore((s) => s.toggleBacklinks);
+
   const titleRef           = useRef<HTMLHeadingElement>(null);
   const lastSavedContent   = useRef<string | null>(null);
   const editorWrapRef      = useRef<HTMLDivElement>(null);
@@ -163,12 +164,19 @@ export function Editor() {
   const [slashQuery, setSlashQuery] = useState("");
   const slashStartPos               = useRef<number | null>(null);
 
+  // Note-link suggest
+  const [linkOpen, setLinkOpen]         = useState(false);
+  const [linkPos, setLinkPos]           = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [linkQuery, setLinkQuery]       = useState("");
+  const linkBracketStart                = useRef<number | null>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
       SlashPlaceholderExtension,
       EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
+      NoteLink.configure({ onNavigate: setActiveNote }),
     ],
     content: activeNote?.content ? JSON.parse(activeNote.content) : "",
     editorProps: {
@@ -197,8 +205,9 @@ export function Editor() {
     },
     onUpdate: ({ editor: e }) => {
       const { state } = e;
-      const { from } = state.selection;
+      const { from }  = state.selection;
 
+      // ── Slash menu tracking ──────────────────────────────────────────────
       if (slashStartPos.current !== null && !slashFromBubble.current) {
         const slashStart = slashStartPos.current;
         if (from >= slashStart) {
@@ -206,9 +215,7 @@ export function Editor() {
           if (textAfterSlash.startsWith("/")) {
             const q = textAfterSlash.slice(1);
             setSlashQuery(q);
-            if (textAfterSlash.includes(" ")) {
-              closeSlashMenuInternal();
-            }
+            if (textAfterSlash.includes(" ")) closeSlashMenuInternal();
             return;
           } else {
             closeSlashMenuInternal();
@@ -217,16 +224,40 @@ export function Editor() {
         }
       }
 
-      const textBefore = state.doc.textBetween(Math.max(0, from - 1), from, "\n");
-      if (textBefore === "/") {
+      // ── Note-link suggest tracking ───────────────────────────────────────
+      if (linkBracketStart.current !== null) {
+        const bracketStart = linkBracketStart.current;
+        if (from >= bracketStart + 2) {
+          // text between [[ and cursor
+          const textAfter = state.doc.textBetween(bracketStart + 2, from, "\n");
+          if (!textAfter.includes("]") && !textAfter.includes("\n")) {
+            setLinkQuery(textAfter);
+            return;
+          }
+        }
+        // cursor moved before [[, or typed ]] — close
+        closeLinkSuggestInternal();
+      }
+
+      const textBefore2 = from >= 2 ? state.doc.textBetween(from - 2, from, "\n") : "";
+      const textBefore1 = from >= 1 ? state.doc.textBetween(from - 1, from, "\n") : "";
+
+      // Detect [[ — open note link suggest
+      if (textBefore2 === "[[") {
+        linkBracketStart.current = from - 2;
+        setLinkQuery("");
+        const coords = e.view.coordsAtPos(from);
+        setLinkPos({ top: coords.bottom, left: coords.left });
+        setLinkOpen(true);
+        return;
+      }
+
+      // Detect / — open slash menu
+      if (textBefore1 === "/") {
         slashStartPos.current = from - 1;
         setSlashQuery("");
         const coords = e.view.coordsAtPos(from);
-        setSlashPos({
-          top: coords.bottom + 6,
-          left: coords.left,
-          caretTop: coords.top - 6,
-        });
+        setSlashPos({ top: coords.bottom + 6, left: coords.left, caretTop: coords.top - 6 });
         setSlashOpen(true);
       }
     },
@@ -239,6 +270,13 @@ export function Editor() {
     slashFromBubble.current = false;
   }
 
+  function closeLinkSuggestInternal() {
+    setLinkOpen(false);
+    setLinkQuery("");
+    linkBracketStart.current = null;
+  }
+
+  // ── Sync content when active note changes ──────────────────────────────────
   useEffect(() => {
     if (!editor || !activeNote) return;
     const incoming = activeNote.content;
@@ -248,6 +286,7 @@ export function Editor() {
     setHasSelection(false);
     bubblePosRef.current = null;
     closeSlashMenuInternal();
+    closeLinkSuggestInternal();
     if (titleRef.current) {
       const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
       titleRef.current.textContent = isUntitled ? "" : activeNote.title;
@@ -268,12 +307,17 @@ export function Editor() {
     }
   }, [activeNote?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onSaveComplete = useCallback((content: string) => {
+  // ── Sync backlinks after every successful save ─────────────────────────────
+  const onSaveComplete = useCallback((content: string, noteId: string) => {
     lastSavedContent.current = content;
-  }, []);
+    if (!editor) return;
+    const targetIds = extractNoteLinkIds(editor);
+    syncBacklinks(noteId, targetIds).catch(console.error);
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useAutoSave({ editor: editor ?? null, noteId: activeNote?.id ?? null, onSaveComplete });
 
+  // ── Keyboard: Escape closes slash menu / link suggest ─────────────────────
   useEffect(() => {
     if (!slashOpen) return;
     function handle(e: KeyboardEvent) {
@@ -283,10 +327,27 @@ export function Editor() {
     return () => document.removeEventListener("keydown", handle, true);
   }, [slashOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Ctrl+Shift+B toggles backlinks panel ──────────────────────────────────
+  useEffect(() => {
+    function handle(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "b") {
+        e.preventDefault();
+        toggleBacklinks();
+      }
+    }
+    window.addEventListener("keydown", handle);
+    return () => window.removeEventListener("keydown", handle);
+  }, [toggleBacklinks]);
+
   if (!activeNote) return null;
 
   function closeSlashMenu() {
     closeSlashMenuInternal();
+    editor?.commands.focus();
+  }
+
+  function closeLinkSuggest() {
+    closeLinkSuggestInternal();
     editor?.commands.focus();
   }
 
@@ -355,90 +416,122 @@ export function Editor() {
   const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
 
   return (
-    <div className="flex flex-col h-full w-full">
+    <div className="flex h-full w-full overflow-hidden">
 
-      {/* ── Bubble menu ── */}
-      {editor && hasSelection && bubblePos && (
-        <div
-          style={{ position: "fixed", top: bubblePos.top, left: bubblePos.left, zIndex: 40 }}
-          className="
-            flex items-center gap-0.5 px-1.5 py-1 rounded-lg
-            bg-white dark:bg-zinc-800
-            border border-zinc-200 dark:border-zinc-700
-            shadow-xl
-          "
-          onMouseDown={(e) => {
-            if ((e.target as HTMLElement).closest("button") === null) e.preventDefault();
-          }}
-        >
-          <BubbleBtn onClick={() => editor.chain().focus().toggleBold().run()}
-            active={editor.isActive("bold")} title="Bold">
-            <span className="font-bold text-sm">B</span>
-          </BubbleBtn>
-          <BubbleBtn onClick={() => editor.chain().focus().toggleItalic().run()}
-            active={editor.isActive("italic")} title="Italic">
-            <span className="italic text-sm">I</span>
-          </BubbleBtn>
-          <BubbleBtn onClick={() => editor.chain().focus().toggleStrike().run()}
-            active={editor.isActive("strike")} title="Strikethrough">
-            <span className="line-through text-sm">S</span>
-          </BubbleBtn>
-          <BubbleBtn onClick={() => editor.chain().focus().toggleCode().run()}
-            active={editor.isActive("code")} title="Inline code">
-            <span className="font-mono text-sm">{"<>"}</span>
-          </BubbleBtn>
-          <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
+      {/* ── Main editor column ── */}
+      <div className="flex flex-col flex-1 h-full overflow-hidden">
+
+        {/* Backlinks toggle button — floats in top-right of editor column */}
+        <div className="absolute top-[52px] right-3 z-30 flex items-center gap-1.5">
           <button
-            onClick={handleThreeDots}
-            title="More commands"
-            className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75"
+            onClick={toggleBacklinks}
+            title="Toggle backlinks (Ctrl+Shift+B)"
+            className={`
+              flex items-center gap-1.5 px-2 h-6 rounded-md text-xs
+              transition-colors duration-150
+              ${backlinksOpen
+                ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
+                : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+              }
+            `}
           >
-            <span className="text-sm tracking-widest">···</span>
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6"
+                stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <path d="M6 1h4v4M10 1L6.5 4.5"
+                stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Backlinks
           </button>
         </div>
-      )}
 
-      {/* ── Editor surface ── */}
-      <div className="flex-1 overflow-y-auto">
-        <div
-          className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text"
-          onClick={handleEditorAreaClick}
-        >
-          <h1
-            ref={titleRef}
-            contentEditable
-            suppressContentEditableWarning
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="off"
-            onBlur={handleTitleBlur}
-            onKeyDown={handleTitleKeyDown}
-            onPaste={handleTitlePaste}
+        {/* ── Bubble menu ── */}
+        {editor && hasSelection && bubblePos && (
+          <div
+            style={{ position: "fixed", top: bubblePos.top, left: bubblePos.left, zIndex: 40 }}
             className="
-              block w-full font-bold mb-6 outline-none
-              text-zinc-900 dark:text-zinc-100
-              empty:before:content-[attr(data-placeholder)]
-              empty:before:text-zinc-300 dark:empty:before:text-zinc-600
-              empty:before:pointer-events-none
+              flex items-center gap-0.5 px-1.5 py-1 rounded-lg
+              bg-white dark:bg-zinc-800
+              border border-zinc-200 dark:border-zinc-700
+              shadow-xl
             "
-            style={{ fontSize: "3rem", lineHeight: 1.2 }}
-            data-placeholder={isUntitled ? activeNote.title : "Untitled"}
+            onMouseDown={(e) => {
+              if ((e.target as HTMLElement).closest("button") === null) e.preventDefault();
+            }}
           >
-            {isUntitled ? "" : activeNote.title}
-          </h1>
+            <BubbleBtn onClick={() => editor.chain().focus().toggleBold().run()}
+              active={editor.isActive("bold")} title="Bold">
+              <span className="font-bold text-sm">B</span>
+            </BubbleBtn>
+            <BubbleBtn onClick={() => editor.chain().focus().toggleItalic().run()}
+              active={editor.isActive("italic")} title="Italic">
+              <span className="italic text-sm">I</span>
+            </BubbleBtn>
+            <BubbleBtn onClick={() => editor.chain().focus().toggleStrike().run()}
+              active={editor.isActive("strike")} title="Strikethrough">
+              <span className="line-through text-sm">S</span>
+            </BubbleBtn>
+            <BubbleBtn onClick={() => editor.chain().focus().toggleCode().run()}
+              active={editor.isActive("code")} title="Inline code">
+              <span className="font-mono text-sm">{"<>"}</span>
+            </BubbleBtn>
+            <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
+            <button
+              onClick={handleThreeDots}
+              title="More commands"
+              className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75"
+            >
+              <span className="text-sm tracking-widest">···</span>
+            </button>
+          </div>
+        )}
 
-          <div ref={editorWrapRef}>
-            <EditorContent
-              editor={editor}
-              className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]"
-            />
+        {/* ── Editor surface ── */}
+        <div className="flex-1 overflow-y-auto">
+          <div
+            className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text"
+            onClick={handleEditorAreaClick}
+          >
+            <h1
+              ref={titleRef}
+              contentEditable
+              suppressContentEditableWarning
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              onBlur={handleTitleBlur}
+              onKeyDown={handleTitleKeyDown}
+              onPaste={handleTitlePaste}
+              className="
+                block w-full font-bold mb-6 outline-none
+                text-zinc-900 dark:text-zinc-100
+                empty:before:content-[attr(data-placeholder)]
+                empty:before:text-zinc-300 dark:empty:before:text-zinc-600
+                empty:before:pointer-events-none
+              "
+              style={{ fontSize: "3rem", lineHeight: 1.2 }}
+              data-placeholder={isUntitled ? activeNote.title : "Untitled"}
+            >
+              {isUntitled ? "" : activeNote.title}
+            </h1>
+
+            <div ref={editorWrapRef}>
+              <EditorContent
+                editor={editor}
+                className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]"
+              />
+            </div>
           </div>
         </div>
+
+        <StatusBar editor={editor ?? null} />
+        {versionHistoryOpen && <VersionHistory noteId={activeNote.id} />}
       </div>
 
-      <StatusBar editor={editor ?? null} />
-      {versionHistoryOpen && <VersionHistory noteId={activeNote.id} />}
+      {/* ── Backlinks panel — slides in from the right ── */}
+      {backlinksOpen && <BacklinksPanel noteId={activeNote.id} />}
 
+      {/* ── Menus ── */}
       {slashOpen && editor && (
         <SlashMenu
           position={slashPos}
@@ -446,6 +539,16 @@ export function Editor() {
           query={slashQuery}
           onCommand={handleSlashCommand}
           onClose={closeSlashMenu}
+        />
+      )}
+
+      {linkOpen && editor && linkBracketStart.current !== null && (
+        <NoteLinkSuggest
+          position={linkPos}
+          editor={editor}
+          query={linkQuery}
+          bracketStart={linkBracketStart.current}
+          onClose={closeLinkSuggest}
         />
       )}
     </div>

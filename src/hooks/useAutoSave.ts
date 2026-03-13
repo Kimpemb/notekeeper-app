@@ -11,14 +11,12 @@ const DEBOUNCE_MS = 2_000;
 const HARD_CAP_MS = 30_000;
 const UNTITLED_PATTERN = /^Untitled-\d+$/;
 
-// Characters that should never be promoted to a note title.
-// A lone '/' means the user is mid-command; other symbols are similarly useless.
 const INVALID_TITLE_PATTERN = /^[/\\|#*`~\-_=<>]+$/;
 
 interface UseAutoSaveOptions {
   editor: Editor | null;
   noteId: string | null;
-  onSaveComplete?: (content: string) => void;
+  onSaveComplete?: (content: string, noteId: string) => void; // ← added noteId
 }
 
 export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptions): void {
@@ -50,9 +48,7 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
       const content   = JSON.stringify(json);
       const plaintext = editor.getText();
 
-      // Notify editor BEFORE the store update so lastSavedContent is set
-      // before the useEffect watching activeNote?.content can fire
-      onSaveComplete?.(content);
+      onSaveComplete?.(content, noteId); // ← pass noteId
 
       const currentNote = notesRef.current.find((n) => n.id === noteId);
       const isUntitled  = !currentNote || UNTITLED_PATTERN.test(currentNote.title);
@@ -61,11 +57,9 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
 
       if (isUntitled) {
         const derived = deriveTitleFromDoc(json);
-        // Only promote to title if it's a real, non-symbol string
         if (derived && !INVALID_TITLE_PATTERN.test(derived)) {
           update.title = derived;
         }
-        // Otherwise leave the title as Untitled-X — don't set update.title at all
       }
 
       await updateNote(noteId, update);

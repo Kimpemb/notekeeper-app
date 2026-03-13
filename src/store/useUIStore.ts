@@ -16,11 +16,11 @@ interface UIStore {
 
   // ─── Sidebar ──────────────────────────────────────────────────────────────
   sidebarState: SidebarState;
-  sidebarOpen: boolean;                    // true when locked open (backwards compat)
+  sidebarOpen: boolean;
   sidebarWidth: number;
   expandedNodes: Set<string>;
   setSidebarState: (state: SidebarState) => void;
-  toggleSidebar: () => void;               // toggles between closed <-> open
+  toggleSidebar: () => void;
   toggleNode: (id: string) => void;
   expandNode: (id: string) => void;
   collapseNode: (id: string) => void;
@@ -40,6 +40,12 @@ interface UIStore {
   versionHistoryOpen: boolean;
   openVersionHistory: () => void;
   closeVersionHistory: () => void;
+
+  // ─── Backlinks panel ─────────────────────────────────────────────────────
+  backlinksOpen: boolean;
+  openBacklinks: () => void;
+  closeBacklinks: () => void;
+  toggleBacklinks: () => void;
 
   // ─── Import modal ────────────────────────────────────────────────────────
   importOpen: boolean;
@@ -85,24 +91,19 @@ export const useUIStore = create<UIStore>((set, get) => {
     setTheme: (theme) => { applyTheme(theme); set({ theme }); },
 
     // ─── Sidebar ────────────────────────────────────────────────────────────
-    sidebarState: "open",          // start locked open
-    sidebarOpen: true,             // backwards compat
+    sidebarState: "open",
+    sidebarOpen: true,
     sidebarWidth: 288,
     expandedNodes: new Set(),
 
     setSidebarState: (state) =>
       set({ sidebarState: state, sidebarOpen: state === "open" }),
 
-    // Ctrl+\ toggles between closed and open (skips peek)
     toggleSidebar: () => {
       const { sidebarState } = get();
       const next: SidebarState = sidebarState === "open" ? "closed" : "open";
       set({ sidebarState: next, sidebarOpen: next === "open" });
     },
-
-    // kept for backwards compat — not used directly anymore
-    setSidebarOpen: (open: boolean) =>
-      set({ sidebarOpen: open, sidebarState: open ? "open" : "closed" }),
 
     toggleNode: (id) =>
       set((s) => {
@@ -130,6 +131,12 @@ export const useUIStore = create<UIStore>((set, get) => {
     versionHistoryOpen: false,
     openVersionHistory: () => set({ versionHistoryOpen: true }),
     closeVersionHistory: () => set({ versionHistoryOpen: false }),
+
+    // ─── Backlinks panel ────────────────────────────────────────────────────
+    backlinksOpen: false,
+    openBacklinks: () => set({ backlinksOpen: true }),
+    closeBacklinks: () => set({ backlinksOpen: false }),
+    toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
 
     // ─── Import modal ──────────────────────────────────────────────────────
     importOpen: false,
