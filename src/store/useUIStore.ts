@@ -1,7 +1,4 @@
 // src/store/useUIStore.ts
-// All UI state: theme, sidebar, command palette, dialogs.
-// No DB calls here — pure UI concerns only.
-
 import { create } from "zustand";
 
 type Theme = "light" | "dark";
@@ -46,6 +43,12 @@ interface UIStore {
   openBacklinks: () => void;
   closeBacklinks: () => void;
   toggleBacklinks: () => void;
+
+  // ─── File tree panel ─────────────────────────────────────────────────────
+  fileTreeOpen: boolean;
+  openFileTree: () => void;
+  closeFileTree: () => void;
+  toggleFileTree: () => void;
 
   // ─── Import modal ────────────────────────────────────────────────────────
   importOpen: boolean;
@@ -137,6 +140,12 @@ export const useUIStore = create<UIStore>((set, get) => {
     openBacklinks: () => set({ backlinksOpen: true }),
     closeBacklinks: () => set({ backlinksOpen: false }),
     toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
+
+    // ─── File tree panel ────────────────────────────────────────────────────
+    fileTreeOpen: false,
+    openFileTree: () => set({ fileTreeOpen: true }),
+    closeFileTree: () => set({ fileTreeOpen: false }),
+    toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
 
     // ─── Import modal ──────────────────────────────────────────────────────
     importOpen: false,
