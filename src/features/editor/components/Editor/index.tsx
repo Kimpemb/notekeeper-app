@@ -265,21 +265,21 @@ export function Editor() {
     setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null;
   }
 
-  // ── Note switch: load content + clear undo history ────────────────────────
-useEffect(() => {
-  if (!editor || !activeNote) return;
-  const incoming = activeNote.content;
-  lastSavedContent.current = incoming;
-  editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-  setBubblePos(null); setHasSelection(false); bubblePosRef.current = null;
-  closeSlashMenuInternal(); closeLinkSuggestInternal();
-  if (titleRef.current) {
-    const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
-    titleRef.current.textContent = isUntitled ? "" : activeNote.title;
-  }
-}, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── Note switch: load content + reset history via key prop ───────────────
+  useEffect(() => {
+    if (!editor || !activeNote) return;
+    const incoming = activeNote.content;
+    lastSavedContent.current = incoming;
+    editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
+    setBubblePos(null); setHasSelection(false); bubblePosRef.current = null;
+    closeSlashMenuInternal(); closeLinkSuggestInternal();
+    if (titleRef.current) {
+      const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
+      titleRef.current.textContent = isUntitled ? "" : activeNote.title;
+    }
+  }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-// ── External content update (e.g. version restore) ───────────────────────
+  // ── External content update (e.g. version restore) ───────────────────────
   useEffect(() => {
     if (!editor || !activeNote) return;
     const incoming = activeNote.content;
@@ -402,21 +402,34 @@ useEffect(() => {
           />
         )}
 
-        <div className="absolute top-[52px] right-3 z-30 flex items-center gap-1.5">
+        {/* Top-right panel toggles */}
+        <div className="absolute top-13 right-3 z-30 flex items-center gap-1.5">
+
+          {/* Outline toggle */}
           <button
             onClick={toggleOutline}
             title="Toggle outline (Ctrl+Shift+O)"
-            className={`flex items-center gap-1.5 px-2 h-6 rounded-md text-xs transition-colors duration-150 ${outlineOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+            className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border ${
+              outlineOpen
+                ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 shadow-sm"
+                : "bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+            }`}
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
               <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
             </svg>
             Outline
           </button>
+
+          {/* Backlinks toggle — modernized pill button */}
           <button
             onClick={toggleBacklinks}
             title="Toggle backlinks (Ctrl+Shift+B)"
-            className={`flex items-center gap-1.5 px-2 h-6 rounded-md text-xs transition-colors duration-150 ${backlinksOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+            className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border ${
+              backlinksOpen
+                ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 shadow-sm"
+                : "bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+            }`}
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
               <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
