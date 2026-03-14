@@ -1,5 +1,6 @@
 // src/App.tsx
 import { useEffect, useCallback, useState, useRef } from "react";
+import type { RefObject } from "react";
 import { initDb } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
@@ -36,21 +37,23 @@ export default function App() {
   const notes          = useNoteStore((s) => s.notes);
   const createNote     = useNoteStore((s) => s.createNote);
 
-  const sidebarState   = useUIStore((s) => s.sidebarState);
+  const sidebarState    = useUIStore((s) => s.sidebarState);
   const setSidebarState = useUIStore((s) => s.setSidebarState);
-  const toggleSidebar  = useUIStore((s) => s.toggleSidebar);
-  const openPalette    = useUIStore((s) => s.openPalette);
-  const togglePalette  = useUIStore((s) => s.togglePalette);
-  const openShortcuts  = useUIStore((s) => s.openShortcuts);
-  const openImport     = useUIStore((s) => s.openImport);
-  const fileTreeOpen   = useUIStore((s) => s.fileTreeOpen);
-  const toggleFileTree = useUIStore((s) => s.toggleFileTree);
+  const toggleSidebar   = useUIStore((s) => s.toggleSidebar);
+  const openPalette     = useUIStore((s) => s.openPalette);
+  const togglePalette   = useUIStore((s) => s.togglePalette);
+  const openShortcuts   = useUIStore((s) => s.openShortcuts);
+  const openImport      = useUIStore((s) => s.openImport);
+  const fileTreeOpen    = useUIStore((s) => s.fileTreeOpen);
+  const toggleFileTree  = useUIStore((s) => s.toggleFileTree);
 
   const [dbReady, setDbReady]       = useState(false);
   const [dbError, setDbError]       = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting]   = useState(false);
-  const exportRef                   = useRef<HTMLDivElement>(null);
+
+  const exportBtnRef = useRef<HTMLButtonElement>(null);
+  const exportRef    = useRef<HTMLDivElement>(null);
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
@@ -62,14 +65,32 @@ export default function App() {
 
   useEffect(() => {
     if (!exportOpen) return;
+
     function onMouseDown(e: MouseEvent) {
       if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
-        setExportOpen(false);
+        closeExport();
       }
     }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeExport();
+      }
+    }
+
     document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [exportOpen]);
+
+  function closeExport() {
+    setExportOpen(false);
+    exportBtnRef.current?.blur();
+  }
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!dbReady) return;
@@ -113,7 +134,7 @@ export default function App() {
   }
 
   async function handleExportAll() {
-    setExporting(true); setExportOpen(false);
+    setExporting(true); closeExport();
     try {
       await exportNotesToFile(JSON.stringify(notes, null, 2), "notekeeper-export.json");
     } catch (err) { console.error("Export failed:", err); }
@@ -122,7 +143,7 @@ export default function App() {
 
   async function handleExportNote() {
     if (!activeNote) return;
-    setExporting(true); setExportOpen(false);
+    setExporting(true); closeExport();
     try {
       const slug = activeNote.title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
       await exportNotesToFile([`# ${activeNote.title}`, "", activeNote.plaintext ?? ""].join("\n"), `${slug}.md`);
@@ -132,7 +153,7 @@ export default function App() {
 
   async function handleExportNoteJson() {
     if (!activeNote) return;
-    setExporting(true); setExportOpen(false);
+    setExporting(true); closeExport();
     try {
       const slug = activeNote.title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
       await exportNotesToFile(JSON.stringify([activeNote], null, 2), `${slug}.json`);
@@ -164,7 +185,7 @@ export default function App() {
     <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
       <Sidebar />
 
-      <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]">
+      <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
         <header
           className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
           onMouseEnter={() => {
@@ -213,20 +234,13 @@ export default function App() {
             )}
           </div>
 
-          {/*
-            Right side — one single overflow-hidden flex row.
-            Order: search | export | import | filetree | shortcuts | theme
-            All children are shrink-0 so they never compress — the container
-            itself shrinks (driven by flex-1 on the left), and overflow-hidden
-            clips from the RIGHT edge inward. That means the theme button
-            disappears first, then shortcuts, then filetree — each one sliding
-            off into the Import button as if being swallowed by it.
-          */}
-          <div className="flex items-center gap-2 shrink overflow-hidden min-w-0">
+          {/* Right side — search | export | import | filetree | shortcuts | theme */}
+          <div className="flex items-center gap-2 shrink overflow-hidden min-w-0 transition-all duration-300 ease-in-out">
+
             {/* Search */}
             <button
               onClick={openPalette}
-              className="flex items-center gap-2 px-3 h-7 rounded-md bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink min-w-0 max-w-[240px]"
+              className="flex items-center gap-2 px-3 h-7 rounded-md bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink min-w-0 max-w-60"
             >
               <svg width="12" height="12" viewBox="0 0 11 11" fill="none" className="shrink-0">
                 <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
@@ -239,6 +253,7 @@ export default function App() {
             {/* Export */}
             <div ref={exportRef} className="relative shrink-0">
               <button
+                ref={exportBtnRef}
                 onClick={() => setExportOpen((o) => !o)}
                 disabled={exporting}
                 title="Export"
@@ -252,21 +267,13 @@ export default function App() {
               </button>
 
               {exportOpen && (
-                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-48 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl overflow-hidden z-50">
-                  <button onClick={handleExportAll} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100">
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/><path d="M4 6.5h5M4 4.5h5M4 8.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                    Export all notes (JSON)
-                  </button>
-                  <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
-                  <button onClick={handleExportNote} disabled={!activeNote} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/><path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg>
-                    Export current note (MD)
-                  </button>
-                  <button onClick={handleExportNoteJson} disabled={!activeNote} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed">
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/><path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/><path d="M4 7h5M4 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/></svg>
-                    Export current note (JSON)
-                  </button>
-                </div>
+                <ExportDropdown
+                  anchorRef={exportBtnRef}
+                  activeNote={!!activeNote}
+                  onExportAll={handleExportAll}
+                  onExportNote={handleExportNote}
+                  onExportNoteJson={handleExportNoteJson}
+                />
               )}
             </div>
 
@@ -283,10 +290,7 @@ export default function App() {
               <span className="hidden sm:inline">Import</span>
             </button>
 
-            {/* Icon trio — intentionally AFTER Import in DOM order so they are
-                the first elements to be clipped by the overflow-hidden parent.
-                shrink-0 ensures they don't compress — they just vanish off the
-                right edge, sinking into the Import button as space runs out. */}
+            {/* Icon trio — after Import so they sink into it on shrink */}
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={toggleFileTree}
@@ -325,6 +329,74 @@ export default function App() {
       <CommandPalette />
       <KeyboardShortcuts />
       <ImportModal />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ExportDropdown — fixed-position so it escapes overflow-hidden clipping
+// ---------------------------------------------------------------------------
+function ExportDropdown({
+  anchorRef,
+  activeNote,
+  onExportAll,
+  onExportNote,
+  onExportNoteJson,
+}: {
+  anchorRef: RefObject<HTMLButtonElement | null>;
+  activeNote: boolean;
+  onExportAll: () => void;
+  onExportNote: () => void;
+  onExportNoteJson: () => void;
+}) {
+  const rect = anchorRef.current?.getBoundingClientRect();
+  if (!rect) return null;
+
+  const style: React.CSSProperties = {
+    position: "fixed",
+    top: rect.bottom + 6,
+    left: rect.left + rect.width / 2,
+    transform: "translateX(-50%)",
+    zIndex: 9999,
+    width: 192,
+  };
+
+  return (
+    <div style={style} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl overflow-hidden">
+      <button
+        onClick={onExportAll}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100"
+      >
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+          <path d="M4 6.5h5M4 4.5h5M4 8.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+        </svg>
+        Export all notes (JSON)
+      </button>
+      <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
+      <button
+        onClick={onExportNote}
+        disabled={!activeNote}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+        </svg>
+        Export current note (MD)
+      </button>
+      <button
+        onClick={onExportNoteJson}
+        disabled={!activeNote}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          <path d="M4 7h5M4 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
+        Export current note (JSON)
+      </button>
     </div>
   );
 }
