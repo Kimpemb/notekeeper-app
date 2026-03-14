@@ -5,7 +5,6 @@ import {
   getTrashedNotes,
   createNote as dbCreateNote,
   updateNote as dbUpdateNote,
-  deleteNote as dbDeleteNote,
   trashNote as dbTrashNote,
   restoreNote as dbRestoreNote,
   permanentlyDeleteNote as dbPermanentlyDeleteNote,

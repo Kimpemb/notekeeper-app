@@ -5,7 +5,6 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import type { UpdateNoteInput } from "@/features/notes/db/queries";
 
-type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const DEBOUNCE_MS = 2_000;
 const HARD_CAP_MS = 30_000;
