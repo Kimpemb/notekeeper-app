@@ -12,6 +12,7 @@ import { syncBacklinks } from "@/features/notes/db/queries";
 import { NoteLink } from "./NoteLink";
 import { NoteLinkSuggest } from "./NoteLinkSuggest";
 import { BacklinksPanel } from "./BacklinksPanel";
+import { OutlinePanel } from "./OutlinePanel";
 import { StatusBar } from "./StatusBar";
 import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
@@ -118,8 +119,6 @@ const OrderedListBackspaceExtension = Extension.create({
   },
 });
 
-// Extension that registers Ctrl+H / Cmd+H inside the editor
-// and forwards it to a callback so the React layer can open the bar.
 function createFindReplaceShortcutExtension(onOpen: () => void) {
   return Extension.create({
     name: "findReplaceShortcut",
@@ -149,6 +148,8 @@ export function Editor() {
   const versionHistoryOpen = useUIStore((s) => s.versionHistoryOpen);
   const backlinksOpen      = useUIStore((s) => s.backlinksOpen);
   const toggleBacklinks    = useUIStore((s) => s.toggleBacklinks);
+  const outlineOpen        = useUIStore((s) => s.outlineOpen);
+  const toggleOutline      = useUIStore((s) => s.toggleOutline);
 
   const titleRef         = useRef<HTMLHeadingElement>(null);
   const lastSavedContent = useRef<string | null>(null);
@@ -169,7 +170,7 @@ export function Editor() {
   const [linkQuery, setLinkQuery] = useState("");
   const linkBracketStart          = useRef<number | null>(null);
 
-  // Find & Replace state
+  // Find & Replace
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
@@ -181,7 +182,7 @@ export function Editor() {
       EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
       NoteLink.configure({ onNavigate: setActiveNote }),
-      createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),      // Register the find/replace decoration plugin via a bare Extension
+      createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({
         name: "findReplacePlugin",
         addProseMirrorPlugins() {
@@ -314,7 +315,9 @@ export function Editor() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "b") {
         e.preventDefault(); toggleBacklinks();
       }
-      // Ctrl+H when focus is outside the editor (e.g. title bar)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "o") {
+        e.preventDefault(); toggleOutline();
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === "h" && !e.shiftKey) {
         const target = e.target as HTMLElement;
         const inEditor = target.closest(".tiptap") !== null;
@@ -323,7 +326,7 @@ export function Editor() {
     }
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
-  }, [toggleBacklinks]);
+  }, [toggleBacklinks, toggleOutline]);
 
   if (!activeNote) return null;
 
@@ -388,7 +391,7 @@ export function Editor() {
     <div className="flex h-full w-full overflow-hidden">
       <div className="flex flex-col flex-1 h-full overflow-hidden">
 
-        {/* Find & Replace bar — slides in just below the topbar */}
+        {/* Find & Replace bar */}
         {findReplaceOpen && editor && (
           <FindReplace
             editor={editor}
@@ -399,7 +402,18 @@ export function Editor() {
           />
         )}
 
+        {/* Top-right panel toggles */}
         <div className="absolute top-[52px] right-3 z-30 flex items-center gap-1.5">
+          <button
+            onClick={toggleOutline}
+            title="Toggle outline (Ctrl+Shift+O)"
+            className={`flex items-center gap-1.5 px-2 h-6 rounded-md text-xs transition-colors duration-150 ${outlineOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+            Outline
+          </button>
           <button
             onClick={toggleBacklinks}
             title="Toggle backlinks (Ctrl+Shift+B)"
@@ -453,6 +467,8 @@ export function Editor() {
         {versionHistoryOpen && <VersionHistory noteId={activeNote.id} />}
       </div>
 
+      {/* Right panels */}
+      {outlineOpen  && editor && <OutlinePanel editor={editor} />}
       {backlinksOpen && <BacklinksPanel noteId={activeNote.id} />}
 
       {slashOpen && editor && (

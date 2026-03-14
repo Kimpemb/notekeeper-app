@@ -38,24 +38,30 @@ interface UIStore {
   openVersionHistory: () => void;
   closeVersionHistory: () => void;
 
-  // ─── Backlinks panel ─────────────────────────────────────────────────────
+  // ─── Backlinks panel ──────────────────────────────────────────────────────
   backlinksOpen: boolean;
   openBacklinks: () => void;
   closeBacklinks: () => void;
   toggleBacklinks: () => void;
 
-  // ─── File tree panel ─────────────────────────────────────────────────────
+  // ─── File tree panel ──────────────────────────────────────────────────────
   fileTreeOpen: boolean;
   openFileTree: () => void;
   closeFileTree: () => void;
   toggleFileTree: () => void;
 
-  // ─── Import modal ────────────────────────────────────────────────────────
+  // ─── Outline panel (new) ──────────────────────────────────────────────────
+  outlineOpen: boolean;
+  openOutline: () => void;
+  closeOutline: () => void;
+  toggleOutline: () => void;
+
+  // ─── Import modal ─────────────────────────────────────────────────────────
   importOpen: boolean;
   openImport: () => void;
   closeImport: () => void;
 
-  // ─── Keyboard shortcuts ──────────────────────────────────────────────────
+  // ─── Keyboard shortcuts ───────────────────────────────────────────────────
   shortcutsOpen: boolean;
   openShortcuts: () => void;
   closeShortcuts: () => void;
@@ -70,13 +76,19 @@ function getInitialTheme(): Theme {
   try {
     const saved = localStorage.getItem("notekeeper-theme");
     if (saved === "light" || saved === "dark") return saved;
-  } catch { /**/ }
+  } catch {
+    /**/
+  }
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("dark", theme === "dark");
-  try { localStorage.setItem("notekeeper-theme", theme); } catch { /**/ }
+  try {
+    localStorage.setItem("notekeeper-theme", theme);
+  } catch {
+    /**/
+  }
 }
 
 export const useUIStore = create<UIStore>((set, get) => {
@@ -84,16 +96,19 @@ export const useUIStore = create<UIStore>((set, get) => {
   applyTheme(initialTheme);
 
   return {
-    // ─── Theme ──────────────────────────────────────────────────────────────
+    // ─── Theme ────────────────────────────────────────────────────────────────
     theme: initialTheme,
     toggleTheme: () => {
       const next = get().theme === "dark" ? "light" : "dark";
       applyTheme(next);
       set({ theme: next });
     },
-    setTheme: (theme) => { applyTheme(theme); set({ theme }); },
+    setTheme: (theme) => {
+      applyTheme(theme);
+      set({ theme });
+    },
 
-    // ─── Sidebar ────────────────────────────────────────────────────────────
+    // ─── Sidebar ──────────────────────────────────────────────────────────────
     sidebarState: "open",
     sidebarOpen: true,
     sidebarWidth: 288,
@@ -114,50 +129,67 @@ export const useUIStore = create<UIStore>((set, get) => {
         next.has(id) ? next.delete(id) : next.add(id);
         return { expandedNodes: next };
       }),
+
     expandNode: (id) =>
-      set((s) => { const next = new Set(s.expandedNodes); next.add(id); return { expandedNodes: next }; }),
+      set((s) => {
+        const next = new Set(s.expandedNodes);
+        next.add(id);
+        return { expandedNodes: next };
+      }),
+
     collapseNode: (id) =>
-      set((s) => { const next = new Set(s.expandedNodes); next.delete(id); return { expandedNodes: next }; }),
+      set((s) => {
+        const next = new Set(s.expandedNodes);
+        next.delete(id);
+        return { expandedNodes: next };
+      }),
+
     collapseAll: () => set({ expandedNodes: new Set() }),
 
-    // ─── Command palette ────────────────────────────────────────────────────
+    // ─── Command palette ──────────────────────────────────────────────────────
     paletteOpen: false,
     openPalette: () => set({ paletteOpen: true }),
     closePalette: () => set({ paletteOpen: false }),
     togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
 
-    // ─── Save status ────────────────────────────────────────────────────────
+    // ─── Save status ──────────────────────────────────────────────────────────
     saveStatus: "idle",
     setSaveStatus: (status) => set({ saveStatus: status }),
 
-    // ─── Version history ────────────────────────────────────────────────────
+    // ─── Version history panel ────────────────────────────────────────────────
     versionHistoryOpen: false,
     openVersionHistory: () => set({ versionHistoryOpen: true }),
     closeVersionHistory: () => set({ versionHistoryOpen: false }),
 
-    // ─── Backlinks panel ────────────────────────────────────────────────────
+    // ─── Backlinks panel ──────────────────────────────────────────────────────
     backlinksOpen: false,
     openBacklinks: () => set({ backlinksOpen: true }),
     closeBacklinks: () => set({ backlinksOpen: false }),
     toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
 
-    // ─── File tree panel ────────────────────────────────────────────────────
+    // ─── File tree panel ──────────────────────────────────────────────────────
     fileTreeOpen: false,
     openFileTree: () => set({ fileTreeOpen: true }),
     closeFileTree: () => set({ fileTreeOpen: false }),
     toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
 
-    // ─── Import modal ──────────────────────────────────────────────────────
+    // ─── Outline panel (new) ──────────────────────────────────────────────────
+    outlineOpen: false,
+    openOutline: () => set({ outlineOpen: true }),
+    closeOutline: () => set({ outlineOpen: false }),
+    toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
+
+    // ─── Import modal ─────────────────────────────────────────────────────────
     importOpen: false,
     openImport: () => set({ importOpen: true }),
     closeImport: () => set({ importOpen: false }),
 
-    // ─── Keyboard shortcuts ─────────────────────────────────────────────────
+    // ─── Keyboard shortcuts ───────────────────────────────────────────────────
     shortcutsOpen: false,
     openShortcuts: () => set({ shortcutsOpen: true }),
     closeShortcuts: () => set({ shortcutsOpen: false }),
 
-    // ─── Search ─────────────────────────────────────────────────────────────
+    // ─── Search ───────────────────────────────────────────────────────────────
     searchQuery: "",
     setSearchQuery: (query) => set({ searchQuery: query }),
     clearSearch: () => set({ searchQuery: "" }),
