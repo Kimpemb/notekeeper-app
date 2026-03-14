@@ -3,33 +3,44 @@ import { useEffect, useState } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
+import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
 import { NoteTree } from "./NoteTree";
 import { SearchBar } from "./SearchBar";
 
-// ─── Days remaining helper ────────────────────────────────────────────────────
 function daysLeft(deletedAt: number): number {
   const msLeft = deletedAt + 30 * 24 * 60 * 60 * 1000 - Date.now();
   return Math.max(0, Math.ceil(msLeft / (24 * 60 * 60 * 1000)));
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
+interface ConfirmState {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+}
+
+const CONFIRM_CLOSED: ConfirmState = {
+  open: false, title: "", message: "", confirmLabel: "", onConfirm: () => {},
+};
+
 export function Sidebar() {
-  const loadNotes        = useNoteStore((s) => s.loadNotes);
-  const loadTrashedNotes = useNoteStore((s) => s.loadTrashedNotes);
-  const createNote       = useNoteStore((s) => s.createNote);
-  const trashedNotes     = useNoteStore((s) => s.trashedNotes);
-  const restoreNote      = useNoteStore((s) => s.restoreNote);
+  const loadNotes             = useNoteStore((s) => s.loadNotes);
+  const loadTrashedNotes      = useNoteStore((s) => s.loadTrashedNotes);
+  const createNote            = useNoteStore((s) => s.createNote);
+  const trashedNotes          = useNoteStore((s) => s.trashedNotes);
+  const restoreNote           = useNoteStore((s) => s.restoreNote);
   const permanentlyDeleteNote = useNoteStore((s) => s.permanentlyDeleteNote);
-  const emptyTrash       = useNoteStore((s) => s.emptyTrash);
+  const emptyTrash            = useNoteStore((s) => s.emptyTrash);
 
   const sidebarState    = useUIStore((s) => s.sidebarState);
   const setSidebarState = useUIStore((s) => s.setSidebarState);
 
-  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashOpen, setTrashOpen]   = useState(false);
+  const [confirm, setConfirm]       = useState<ConfirmState>(CONFIRM_CLOSED);
 
   useEffect(() => { loadNotes(); }, [loadNotes]);
 
-  // Load trashed notes when trash section is opened
   useEffect(() => {
     if (trashOpen) loadTrashedNotes();
   }, [trashOpen, loadTrashedNotes]);
@@ -42,14 +53,32 @@ export function Sidebar() {
   function lock()     { cancelSidebarCollapse(); setSidebarState("open"); }
   function close()    { cancelSidebarCollapse(); setSidebarState("closed"); }
 
-  async function handleEmptyTrash() {
-    if (!window.confirm(`Permanently delete all ${trashedNotes.length} trashed note${trashedNotes.length !== 1 ? "s" : ""}? This cannot be undone.`)) return;
-    await emptyTrash();
+  function askConfirm(opts: Omit<ConfirmState, "open">) {
+    setConfirm({ open: true, ...opts });
   }
 
-  async function handlePermanentlyDelete(id: string, title: string) {
-    if (!window.confirm(`Permanently delete "${title}"? This cannot be undone.`)) return;
-    await permanentlyDeleteNote(id);
+  function handleEmptyTrash() {
+    askConfirm({
+      title: "Empty Trash",
+      message: `Permanently delete all ${trashedNotes.length} trashed note${trashedNotes.length !== 1 ? "s" : ""}? This cannot be undone.`,
+      confirmLabel: "Empty Trash",
+      onConfirm: async () => {
+        setConfirm(CONFIRM_CLOSED);
+        await emptyTrash();
+      },
+    });
+  }
+
+  function handlePermanentlyDelete(id: string, title: string) {
+    askConfirm({
+      title: "Delete Permanently",
+      message: `"${title}" will be deleted forever and cannot be recovered.`,
+      confirmLabel: "Delete Forever",
+      onConfirm: async () => {
+        setConfirm(CONFIRM_CLOSED);
+        await permanentlyDeleteNote(id);
+      },
+    });
   }
 
   return (
@@ -90,14 +119,13 @@ export function Sidebar() {
         <div className="px-3 pb-3 shrink-0"><SearchBar /></div>
         <div className="mx-3 border-t border-zinc-200 dark:border-zinc-800 shrink-0" />
 
-        {/* Note tree — flex-1 so it takes remaining space, trash sits below */}
+        {/* Note tree */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 min-h-0">
           <NoteTree />
         </div>
 
-        {/* ── Trash section ───────────────────────────────────────────────── */}
+        {/* ── Trash section ─────────────────────────────────────────────────── */}
         <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-800">
-          {/* Trash header row */}
           <button
             onClick={() => setTrashOpen((o) => !o)}
             className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100 group"
@@ -105,9 +133,7 @@ export function Sidebar() {
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-zinc-400 shrink-0">
               <path d="M2 3h9M5 3V2h3v1M3.5 3l.5 8h5l.5-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            <span className="flex-1 text-xs font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-wider">
-              Trash
-            </span>
+            <span className="flex-1 text-xs font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-wider">Trash</span>
             {trashedNotes.length > 0 && (
               <span className="text-xs text-zinc-400 dark:text-zinc-600 tabular-nums">{trashedNotes.length}</span>
             )}
@@ -119,14 +145,12 @@ export function Sidebar() {
             </svg>
           </button>
 
-          {/* Trash list */}
           {trashOpen && (
             <div className="max-h-56 overflow-y-auto">
               {trashedNotes.length === 0 ? (
                 <p className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-600">Trash is empty.</p>
               ) : (
                 <>
-                  {/* Empty trash button */}
                   <div className="flex items-center justify-end px-3 pb-1">
                     <button
                       onClick={handleEmptyTrash}
@@ -135,17 +159,13 @@ export function Sidebar() {
                       Empty Trash
                     </button>
                   </div>
-
                   <ul className="pb-1">
                     {trashedNotes.map((note) => (
                       <li key={note.id} className="group flex items-center gap-1.5 px-3 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-75">
-                        {/* Trash icon */}
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-zinc-300 dark:text-zinc-600 shrink-0">
                           <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
                           <path d="M3.5 4h5M3.5 6.5h5M3.5 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
                         </svg>
-
-                        {/* Title + days left */}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate line-through">{note.title}</p>
                           {note.deleted_at && (
@@ -154,8 +174,6 @@ export function Sidebar() {
                             </p>
                           )}
                         </div>
-
-                        {/* Restore + delete buttons — visible on hover */}
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-100 shrink-0">
                           <button
                             onClick={() => restoreNote(note.id)}
@@ -193,6 +211,17 @@ export function Sidebar() {
           className="absolute left-0 top-0 w-6 h-full z-50"
         />
       )}
+
+      {/* Confirm modal — rendered outside aside so it's not clipped */}
+      <ConfirmModal
+        open={confirm.open}
+        title={confirm.title}
+        message={confirm.message}
+        confirmLabel={confirm.confirmLabel}
+        danger
+        onConfirm={confirm.onConfirm}
+        onCancel={() => setConfirm(CONFIRM_CLOSED)}
+      />
     </>
   );
 }

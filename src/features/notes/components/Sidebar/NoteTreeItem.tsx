@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
 import type { Note } from "@/types";
 
 interface Props { noteId: string; depth: number; }
@@ -12,7 +13,7 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   const activeNoteId = useNoteStore((s) => s.activeNoteId);
   const setActive    = useNoteStore((s) => s.setActiveNote);
   const createChild  = useNoteStore((s) => s.createChildNote);
-  const deleteNote   = useNoteStore((s) => s.deleteNote); // now = move to trash
+  const deleteNote   = useNoteStore((s) => s.deleteNote);
   const updateNote   = useNoteStore((s) => s.updateNote);
   const pinNote      = useNoteStore((s) => s.pinNote);
   const unpinNote    = useNoteStore((s) => s.unpinNote);
@@ -21,9 +22,10 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   const expandedNodes = useUIStore((s) => s.expandedNodes);
   const toggleNode    = useUIStore((s) => s.toggleNode);
 
-  const [contextMenu, setContextMenu] = useState<ContextMenuPos | null>(null);
-  const [renaming, setRenaming]       = useState(false);
-  const [renameValue, setRenameValue] = useState("");
+  const [contextMenu, setContextMenu]   = useState<ContextMenuPos | null>(null);
+  const [renaming, setRenaming]         = useState(false);
+  const [renameValue, setRenameValue]   = useState("");
+  const [confirmOpen, setConfirmOpen]   = useState(false);
   const renameRef = useRef<HTMLInputElement>(null);
   const menuRef   = useRef<HTMLDivElement>(null);
 
@@ -57,20 +59,14 @@ export function NoteTreeItem({ noteId, depth }: Props) {
     function handleKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
-      if (e.key === "Delete") { e.preventDefault(); confirmAndTrash(); }
+      if (e.key === "Delete") { e.preventDefault(); setConfirmOpen(true); }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isActive, hasChildren, note]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!note) return null;
   const indentPx = depth * 14;
-
-  async function confirmAndTrash() {
-    if (!note) return;
-    if (hasChildren && !window.confirm(`"${note.title}" has sub-notes. Move everything to trash?`)) return;
-    await deleteNote(noteId);
-  }
 
   function handleClick()        { setActive(noteId); if (hasChildren) toggleNode(noteId); }
   function handleChevronClick(e: React.MouseEvent) { e.stopPropagation(); toggleNode(noteId); }
@@ -102,9 +98,14 @@ export function NoteTreeItem({ noteId, depth }: Props) {
     isPinned ? unpinNote(noteId) : pinNote(noteId);
   }
 
-  async function handleTrash(e: React.MouseEvent) {
+  function handleTrashClick(e: React.MouseEvent) {
     e.stopPropagation(); setContextMenu(null);
-    await confirmAndTrash();
+    setConfirmOpen(true);
+  }
+
+  async function handleConfirmTrash() {
+    setConfirmOpen(false);
+    await deleteNote(noteId);
   }
 
   return (
@@ -161,7 +162,7 @@ export function NoteTreeItem({ noteId, depth }: Props) {
           <ContextItem label="Rename" onClick={handleRename} />
           {isRoot && <ContextItem label={isPinned ? "Unpin" : "Pin to top"} onClick={handlePinToggle} />}
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <ContextItem label="Move to Trash" onClick={handleTrash} danger />
+          <ContextItem label="Move to Trash" onClick={handleTrashClick} danger />
         </div>
       )}
 
@@ -172,6 +173,21 @@ export function NoteTreeItem({ noteId, depth }: Props) {
           ))}
         </ul>
       )}
+
+      {/* Confirm trash modal */}
+      <ConfirmModal
+        open={confirmOpen}
+        title="Move to Trash"
+        message={
+          hasChildren
+            ? `"${note.title}" has sub-notes. Move everything to trash?`
+            : `"${note.title}" will be moved to trash. You can restore it within 30 days.`
+        }
+        confirmLabel="Move to Trash"
+        danger
+        onConfirm={handleConfirmTrash}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </li>
   );
 }
