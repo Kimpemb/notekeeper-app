@@ -15,6 +15,7 @@ import { BacklinksPanel } from "./BacklinksPanel";
 import { StatusBar } from "./StatusBar";
 import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
+import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 
 interface BubblePos { top: number; left: number; }
 
@@ -117,6 +118,19 @@ const OrderedListBackspaceExtension = Extension.create({
   },
 });
 
+// Extension that registers Ctrl+H / Cmd+H inside the editor
+// and forwards it to a callback so the React layer can open the bar.
+function createFindReplaceShortcutExtension(onOpen: () => void) {
+  return Extension.create({
+    name: "findReplaceShortcut",
+    addKeyboardShortcuts() {
+      return {
+        "Mod-h": () => { onOpen(); return true; },
+      };
+    },
+  });
+}
+
 function extractNoteLinkIds(editor: ReturnType<typeof useEditor>): string[] {
   if (!editor) return [];
   const ids: string[] = [];
@@ -155,6 +169,10 @@ export function Editor() {
   const [linkQuery, setLinkQuery] = useState("");
   const linkBracketStart          = useRef<number | null>(null);
 
+  // Find & Replace state
+  const [findReplaceOpen, setFindReplaceOpen] = useState(false);
+  const openFindReplace = useCallback(() => setFindReplaceOpen(true), []);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -162,6 +180,14 @@ export function Editor() {
       EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
       NoteLink.configure({ onNavigate: setActiveNote }),
+      createFindReplaceShortcutExtension(openFindReplace),
+      // Register the find/replace decoration plugin via a bare Extension
+      Extension.create({
+        name: "findReplacePlugin",
+        addProseMirrorPlugins() {
+          return [buildFindReplacePlugin()];
+        },
+      }),
     ],
     content: activeNote?.content ? JSON.parse(activeNote.content) : "",
     editorProps: {
@@ -288,6 +314,12 @@ export function Editor() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "b") {
         e.preventDefault(); toggleBacklinks();
       }
+      // Ctrl+H when focus is outside the editor (e.g. title bar)
+      if ((e.ctrlKey || e.metaKey) && e.key === "h" && !e.shiftKey) {
+        const target = e.target as HTMLElement;
+        const inEditor = target.closest(".tiptap") !== null;
+        if (!inEditor) { e.preventDefault(); setFindReplaceOpen(true); }
+      }
     }
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
@@ -355,6 +387,17 @@ export function Editor() {
   return (
     <div className="flex h-full w-full overflow-hidden">
       <div className="flex flex-col flex-1 h-full overflow-hidden">
+
+        {/* Find & Replace bar — slides in just below the topbar */}
+        {findReplaceOpen && editor && (
+          <FindReplace
+            editor={editor}
+            onClose={() => {
+              setFindReplaceOpen(false);
+              editor.commands.focus();
+            }}
+          />
+        )}
 
         <div className="absolute top-[52px] right-3 z-30 flex items-center gap-1.5">
           <button

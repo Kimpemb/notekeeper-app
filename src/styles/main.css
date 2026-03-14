@@ -125,3 +125,28 @@
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: rgba(128,128,128,0.3); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
+
+/* Add these to src/styles/main.css */
+
+/* All non-current matches — soft yellow */
+.find-replace-match {
+  background-color: rgba(250, 204, 21, 0.35);
+  border-radius: 2px;
+}
+
+/* The active/current match — orange, more prominent */
+.find-replace-current {
+  background-color: rgba(249, 115, 22, 0.5);
+  border-radius: 2px;
+  outline: 1.5px solid rgba(249, 115, 22, 0.7);
+}
+
+/* Dark mode overrides */
+.dark .find-replace-match {
+  background-color: rgba(250, 204, 21, 0.2);
+}
+
+.dark .find-replace-current {
+  background-color: rgba(249, 115, 22, 0.4);
+  outline-color: rgba(249, 115, 22, 0.6);
+}
