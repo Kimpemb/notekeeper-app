@@ -171,7 +171,8 @@ export function Editor() {
 
   // Find & Replace state
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
-  const openFindReplace = useCallback(() => setFindReplaceOpen(true), []);
+  const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
+  openFindReplaceRef.current = () => setFindReplaceOpen(true);
 
   const editor = useEditor({
     extensions: [
@@ -180,8 +181,7 @@ export function Editor() {
       EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
       NoteLink.configure({ onNavigate: setActiveNote }),
-      createFindReplaceShortcutExtension(openFindReplace),
-      // Register the find/replace decoration plugin via a bare Extension
+      createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),      // Register the find/replace decoration plugin via a bare Extension
       Extension.create({
         name: "findReplacePlugin",
         addProseMirrorPlugins() {
