@@ -12,6 +12,8 @@ import {
   emptyTrash as dbEmptyTrash,
   moveNote as dbMoveNote,
   getNoteById,
+  recordVisit as dbRecordVisit,
+  getRecentVisits,
   type CreateNoteInput,
   type UpdateNoteInput,
 } from "@/features/notes/db/queries";
@@ -38,6 +40,7 @@ interface NoteStore {
   trashedNotes: Note[];   // trashed notes
   activeNoteId: string | null;
   pinnedIds: Set<string>;
+  visitedNoteIds: string[];
   isLoading: boolean;
   error: string | null;
 
@@ -49,7 +52,9 @@ interface NoteStore {
 
   loadNotes: () => Promise<void>;
   loadTrashedNotes: () => Promise<void>;
+  loadRecentVisits: () => Promise<void>;
   setActiveNote: (id: string | null) => void;
+  recordVisit: (id: string) => Promise<void>;
   createNote: (input?: CreateNoteInput) => Promise<Note>;
   createChildNote: (parentId: string) => Promise<Note>;
   updateNote: (id: string, input: UpdateNoteInput) => Promise<void>;
@@ -103,6 +108,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   trashedNotes: [],
   activeNoteId: null,
   pinnedIds: loadPinnedIds(),
+  visitedNoteIds: [],
   isLoading: false,
   error: null,
 
@@ -124,10 +130,22 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   },
 
   recentNotes: () => {
-    const { notes, pinnedIds } = get();
-    return notes
-      .filter((n) => n.parent_id === null && !pinnedIds.has(n.id))
-      .sort(byRecency);
+    const { notes, pinnedIds, visitedNoteIds } = get();
+    const unpinned = notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
+    console.log("[recentNotes] visitedNoteIds", visitedNoteIds);
+    console.log("[recentNotes] unpinned ids", unpinned.map(n => n.id));
+  // ...rest unchanged
+    if (visitedNoteIds.length === 0) return unpinned.sort(byRecency);
+    const unpinnedMap = new Map(unpinned.map((n) => [n.id, n]));
+    const ordered: Note[] = [];
+    const seen = new Set<string>();
+    for (const id of visitedNoteIds) {
+      const note = unpinnedMap.get(id);
+      if (note) { ordered.push(note); seen.add(id); }
+    }
+    // append any notes never visited, sorted by recency
+    const unvisited = unpinned.filter((n) => !seen.has(n.id)).sort(byRecency);
+    return [...ordered, ...unvisited];
   },
 
   // ─── Load ──────────────────────────────────────────────────────────────────
@@ -137,6 +155,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     try {
       const notes = await getAllNotes();
       set({ notes, isLoading: false });
+      await get().loadRecentVisits();
     } catch (err) {
       set({ error: String(err), isLoading: false });
     }
@@ -151,7 +170,28 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }
   },
 
-  setActiveNote: (id) => set({ activeNoteId: id }),
+  loadRecentVisits: async () => {
+    try {
+      const visits = await getRecentVisits(50);
+      console.log("[visits] loaded", visits);
+      set({ visitedNoteIds: visits.map((v) => v.note_id) });
+    } catch (err) {
+      console.error("Failed to load recent visits:", err);
+    }
+  },
+
+  setActiveNote: (id) => {
+  set({ activeNoteId: id });
+    if (id) {
+      console.log("[visit] recording visit for", id);
+      get().recordVisit(id).catch(console.error);
+    }
+  },
+
+  recordVisit: async (id) => {
+    await dbRecordVisit(id);
+    await get().loadRecentVisits();
+  },
 
   // ─── Create ────────────────────────────────────────────────────────────────
 
@@ -279,6 +319,8 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       return { pinnedIds: newPinnedIds };
     });
   },
+
+  
 
   isPinned: (id) => get().pinnedIds.has(id),
 }));

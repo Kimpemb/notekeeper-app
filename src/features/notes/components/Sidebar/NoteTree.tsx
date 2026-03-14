@@ -8,13 +8,22 @@ function byRecency(a: { updated_at: number }, b: { updated_at: number }) {
 }
 
 export function NoteTree() {
-  const notes       = useNoteStore((s) => s.notes);
-  const pinnedIds   = useNoteStore((s) => s.pinnedIds);
-  const searchQuery = useUIStore((s) => s.searchQuery);
+  const notes          = useNoteStore((s) => s.notes);
+  const pinnedIds      = useNoteStore((s) => s.pinnedIds);
+  const visitedNoteIds = useNoteStore((s) => s.visitedNoteIds);
+  const searchQuery    = useUIStore((s) => s.searchQuery);
 
   const rootNotes   = notes.filter((n) => n.parent_id === null);
   const pinnedNotes = rootNotes.filter((n) => pinnedIds.has(n.id)).sort(byRecency);
-  const recentNotes = rootNotes.filter((n) => !pinnedIds.has(n.id)).sort(byRecency);
+
+  const unpinned = rootNotes.filter((n) => !pinnedIds.has(n.id));
+  const seen = new Set<string>();
+  const recentNotes: typeof unpinned = [];
+  for (const id of visitedNoteIds) {
+    const note = unpinned.find((n) => n.id === id);
+    if (note) { recentNotes.push(note); seen.add(id); }
+  }
+  unpinned.filter((n) => !seen.has(n.id)).sort(byRecency).forEach((n) => recentNotes.push(n));
 
   if (searchQuery.trim()) {
     const lower    = searchQuery.toLowerCase();

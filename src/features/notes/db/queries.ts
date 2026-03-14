@@ -450,3 +450,44 @@ export async function getDbStats(): Promise<DbStats> {
   const [versionCount] = await db.select<{ count: number }[]>(`SELECT COUNT(*) as count FROM note_versions`);
   return { totalNotes: noteCount.count, totalVersions: versionCount.count, tags: await getAllTags() };
 }
+
+// ─── Visits ───────────────────────────────────────────────────────────────────
+
+export async function recordVisit(noteId: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO note_visits (note_id, visited_at) VALUES ($1, $2)`,
+    [noteId, Date.now()]
+  );
+}
+
+export async function getRecentVisits(limit = 50): Promise<{ note_id: string; visited_at: number }[]> {
+  const db = await getDb();
+  return db.select(
+    `SELECT note_id, MAX(visited_at) as visited_at
+     FROM note_visits
+     GROUP BY note_id
+     ORDER BY visited_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
+export async function getSetting(key: string): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<{ value: string }[]>(
+    `SELECT value FROM app_settings WHERE key = $1`, [key]
+  );
+  return rows[0]?.value ?? null;
+}
+
+export async function setSetting(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO app_settings (key, value) VALUES ($1, $2)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [key, value]
+  );
+}

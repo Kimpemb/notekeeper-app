@@ -3,6 +3,12 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+
+
+.dark html, .dark body {
+  background-color: #18181b; /* zinc-900 */
+}
+
 /* ─── TipTap prose ────────────────────────────────────────────────────────── */
 .tiptap {
   outline: none;

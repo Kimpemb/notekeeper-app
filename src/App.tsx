@@ -59,7 +59,12 @@ export default function App() {
 
   useEffect(() => {
     initDb()
-      .then(() => { setDbReady(true); return loadNotes(); })
+      .then(() => {
+        setDbReady(true);
+        // Load DB-persisted settings (theme, etc.) after DB is ready
+        useUIStore.getState().loadSettings().catch(console.error);
+        return loadNotes();
+      })
       .catch((err) => setDbError(String(err)));
   }, [loadNotes]);
 

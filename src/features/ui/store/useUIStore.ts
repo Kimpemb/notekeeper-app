@@ -1,5 +1,6 @@
-// src/store/useUIStore.ts
+// src/features/ui/store/useUIStore.ts
 import { create } from "zustand";
+import { getSetting, setSetting } from "@/features/notes/db/queries";
 
 type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -10,6 +11,7 @@ interface UIStore {
   theme: Theme;
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
+  loadSettings: () => Promise<void>;
 
   // ─── Sidebar ──────────────────────────────────────────────────────────────
   sidebarState: SidebarState;
@@ -50,7 +52,7 @@ interface UIStore {
   closeFileTree: () => void;
   toggleFileTree: () => void;
 
-  // ─── Outline panel (new) ──────────────────────────────────────────────────
+  // ─── Outline panel ────────────────────────────────────────────────────────
   outlineOpen: boolean;
   openOutline: () => void;
   closeOutline: () => void;
@@ -73,6 +75,9 @@ interface UIStore {
 }
 
 function getInitialTheme(): Theme {
+  // localStorage is used as a fast synchronous fallback before the DB is ready,
+  // preventing a flash of the wrong theme on startup. The DB value takes over
+  // once loadSettings() is called in App.tsx after initDb().
   try {
     const saved = localStorage.getItem("notekeeper-theme");
     if (saved === "light" || saved === "dark") return saved;
@@ -82,13 +87,12 @@ function getInitialTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function applyTheme(theme: Theme) {
+function applyTheme(theme: Theme, persist = false) {
   document.documentElement.classList.toggle("dark", theme === "dark");
-  try {
-    localStorage.setItem("notekeeper-theme", theme);
-  } catch {
-    /**/
-  }
+  // Keep localStorage in sync as a fast-read cache for next startup
+  try { localStorage.setItem("notekeeper-theme", theme); } catch { /**/ }
+  // Persist authoritative value to DB when explicitly changed by the user
+  if (persist) setSetting("theme", theme).catch(console.error);
 }
 
 export const useUIStore = create<UIStore>((set, get) => {
@@ -98,14 +102,25 @@ export const useUIStore = create<UIStore>((set, get) => {
   return {
     // ─── Theme ────────────────────────────────────────────────────────────────
     theme: initialTheme,
+
     toggleTheme: () => {
       const next = get().theme === "dark" ? "light" : "dark";
-      applyTheme(next);
+      applyTheme(next, true);
       set({ theme: next });
     },
+
     setTheme: (theme) => {
-      applyTheme(theme);
+      applyTheme(theme, true);
       set({ theme });
+    },
+
+    // Called in App.tsx after initDb() resolves — syncs theme from DB
+    loadSettings: async () => {
+      const theme = await getSetting("theme");
+      if (theme === "light" || theme === "dark") {
+        applyTheme(theme);
+        set({ theme });
+      }
     },
 
     // ─── Sidebar ──────────────────────────────────────────────────────────────
@@ -173,7 +188,7 @@ export const useUIStore = create<UIStore>((set, get) => {
     closeFileTree: () => set({ fileTreeOpen: false }),
     toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
 
-    // ─── Outline panel (new) ──────────────────────────────────────────────────
+    // ─── Outline panel ────────────────────────────────────────────────────────
     outlineOpen: false,
     openOutline: () => set({ outlineOpen: true }),
     closeOutline: () => set({ outlineOpen: false }),
