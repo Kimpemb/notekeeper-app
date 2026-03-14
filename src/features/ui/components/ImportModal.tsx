@@ -74,7 +74,7 @@ export function ImportModal() {
           type: "paragraph", content: [{ type: "text", text: p }],
         }));
         const doc = JSON.stringify({ type: "doc", content: paragraphs.length ? paragraphs : [{ type: "paragraph" }] });
-        notes = [{ id: crypto.randomUUID(), title, content: doc, plaintext, tags: null, parent_id: null, sync_id: crypto.randomUUID(), created_at: Date.now(), updated_at: Date.now() }];
+        notes = [{ id: crypto.randomUUID(), title, content: doc, plaintext, tags: null, parent_id: null, sync_id: crypto.randomUUID(), created_at: Date.now(), updated_at: Date.now(), deleted_at: null }];
       } else {
         const parsed = JSON.parse(content);
         if (!Array.isArray(parsed)) throw new Error("File must contain a JSON array of notes.");

@@ -1,21 +1,23 @@
 // src/types/index.ts
+// Add deleted_at to the Note interface
 
 export interface Note {
   id: string;
   title: string;
-  content: string;      // TipTap JSON stringified
-  plaintext: string;    // Stripped plain text for search + AI
-  tags: string | null;  // JSON array string e.g. '["draft","important"]'
-  parent_id: string | null;  // For sidebar nesting
-  sync_id: string;      // UUID — required for PowerSync Phase 6
-  created_at: number;   // Unix timestamp
-  updated_at: number;   // Unix timestamp
+  content: string;
+  plaintext: string;
+  tags: string | null;
+  parent_id: string | null;
+  sync_id: string;
+  created_at: number;
+  updated_at: number;
+  deleted_at: number | null;  // null = live, timestamp = in trash
 }
 
 export interface NoteVersion {
   id: string;
   note_id: string;
-  content: string;      // TipTap JSON snapshot
+  content: string;
   plaintext: string;
   created_at: number;
 }

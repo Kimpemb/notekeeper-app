@@ -103,4 +103,8 @@ export const ALL_MIGRATIONS: string[] = [
           LIMIT 50
         );
     END`,
+
+  // ── Trash: add deleted_at column (migration safe — ignored if exists) ────
+
+  `ALTER TABLE notes ADD COLUMN deleted_at INTEGER`,
 ];

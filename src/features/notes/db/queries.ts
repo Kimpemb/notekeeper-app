@@ -15,22 +15,30 @@ function now(): number {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
-/**
- * Run all migrations at startup.
- * Each entry in ALL_MIGRATIONS is a single complete SQL statement — no splitting needed.
- */
 export async function initDb(): Promise<void> {
   const db = await getDb();
   for (const sql of ALL_MIGRATIONS) {
-    await db.execute(sql);
+    try {
+      await db.execute(sql);
+    } catch (err) {
+      // ALTER TABLE throws if column already exists — safe to ignore
+      const msg = String(err);
+      if (msg.includes("duplicate column name") || msg.includes("already exists")) continue;
+      throw err;
+    }
   }
+  // Auto-purge notes trashed more than 30 days ago on every startup
+  await purgeTrashedNotes();
 }
 
 // ─── Notes ────────────────────────────────────────────────────────────────────
 
 export async function getAllNotes(): Promise<Note[]> {
   const db = await getDb();
-  return db.select<Note[]>(`SELECT * FROM notes ORDER BY updated_at DESC`);
+  // Only return notes that are NOT in the trash
+  return db.select<Note[]>(
+    `SELECT * FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC`
+  );
 }
 
 export async function getNoteById(id: string): Promise<Note | null> {
@@ -43,11 +51,11 @@ export async function getNotesByParent(parentId: string | null): Promise<Note[]>
   const db = await getDb();
   if (parentId === null) {
     return db.select<Note[]>(
-      `SELECT * FROM notes WHERE parent_id IS NULL ORDER BY updated_at DESC`
+      `SELECT * FROM notes WHERE parent_id IS NULL AND deleted_at IS NULL ORDER BY updated_at DESC`
     );
   }
   return db.select<Note[]>(
-    `SELECT * FROM notes WHERE parent_id = $1 ORDER BY updated_at DESC`,
+    `SELECT * FROM notes WHERE parent_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC`,
     [parentId]
   );
 }
@@ -72,13 +80,14 @@ export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
     sync_id: uuid(),
     created_at: now(),
     updated_at: now(),
+    deleted_at: null,
   };
 
   await db.execute(
-    `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [note.id, note.title, note.content, note.plaintext, note.tags,
-     note.parent_id, note.sync_id, note.created_at, note.updated_at]
+     note.parent_id, note.sync_id, note.created_at, note.updated_at, null]
   );
 
   return note;
@@ -116,6 +125,7 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
   );
 }
 
+// Hard delete — used internally and for permanent deletion from trash
 export async function deleteNote(id: string): Promise<void> {
   const descendants = await getAllDescendants(id);
   const allIds = [...descendants.reverse(), id];
@@ -123,6 +133,64 @@ export async function deleteNote(id: string): Promise<void> {
   for (const noteId of allIds) {
     await db.execute(`DELETE FROM notes WHERE id = $1`, [noteId]);
   }
+}
+
+// Soft delete — moves note (and all descendants) to trash
+export async function trashNote(id: string): Promise<void> {
+  const descendants = await getAllDescendants(id);
+  const allIds = [id, ...descendants];
+  const db = await getDb();
+  const trashedAt = now();
+  for (const noteId of allIds) {
+    await db.execute(
+      `UPDATE notes SET deleted_at = $1 WHERE id = $2`,
+      [trashedAt, noteId]
+    );
+  }
+}
+
+// Restore a note from trash (restores only the note itself, not descendants —
+// descendants were trashed at the same time so they'll be visible in trash too)
+export async function restoreNote(id: string): Promise<void> {
+  const db = await getDb();
+  // Restore the note and all its trashed descendants
+  const descendants = await getAllDescendants(id);
+  const allIds = [id, ...descendants];
+  for (const noteId of allIds) {
+    await db.execute(
+      `UPDATE notes SET deleted_at = NULL WHERE id = $1`,
+      [noteId]
+    );
+  }
+}
+
+// Permanently delete a trashed note and all its descendants
+export async function permanentlyDeleteNote(id: string): Promise<void> {
+  await deleteNote(id);
+}
+
+// Get all notes in the trash
+export async function getTrashedNotes(): Promise<Note[]> {
+  const db = await getDb();
+  return db.select<Note[]>(
+    `SELECT * FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`
+  );
+}
+
+// Empty the entire trash (permanently delete all trashed notes)
+export async function emptyTrash(): Promise<void> {
+  const db = await getDb();
+  await db.execute(`DELETE FROM notes WHERE deleted_at IS NOT NULL`);
+}
+
+// Auto-purge notes trashed more than 30 days ago
+export async function purgeTrashedNotes(): Promise<void> {
+  const db = await getDb();
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  await db.execute(
+    `DELETE FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
+    [thirtyDaysAgo]
+  );
 }
 
 async function getAllDescendants(id: string): Promise<string[]> {
@@ -192,6 +260,7 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
      FROM notes_fts f
      JOIN notes n ON n.id = f.id
      WHERE notes_fts MATCH $1
+       AND n.deleted_at IS NULL
      ORDER BY rank
      LIMIT $2`,
     [sanitized, limit]
@@ -248,6 +317,7 @@ export async function getBacklinksForNote(targetId: string): Promise<Note[]> {
     `SELECT n.* FROM notes n
      JOIN backlinks b ON b.source_id = n.id
      WHERE b.target_id = $1
+       AND n.deleted_at IS NULL
      ORDER BY n.updated_at DESC`,
     [targetId]
   );
@@ -264,10 +334,6 @@ export async function exportAllNotes(): Promise<string> {
   return JSON.stringify(await getAllNotes(), null, 2);
 }
 
-/**
- * Validate and sanitize a raw parsed object into a Note.
- * Fills in missing required fields with safe defaults.
- */
 function sanitizeNote(raw: Record<string, unknown>): Note {
   const now_ = Date.now();
   const title = typeof raw.title === "string" && raw.title.trim()
@@ -287,13 +353,9 @@ function sanitizeNote(raw: Record<string, unknown>): Note {
     : crypto.randomUUID();
   const created_at = typeof raw.created_at === "number" ? raw.created_at : now_;
   const updated_at = typeof raw.updated_at === "number" ? raw.updated_at : now_;
-  return { id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at };
+  return { id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at: null };
 }
 
-/**
- * Sort notes so parents always come before their children.
- * Prevents FOREIGN KEY constraint failures during import.
- */
 function topoSort(notes: Note[]): Note[] {
   const map = new Map(notes.map((n) => [n.id, n]));
   const result: Note[] = [];
@@ -301,7 +363,6 @@ function topoSort(notes: Note[]): Note[] {
 
   function visit(note: Note) {
     if (visited.has(note.id)) return;
-    // Visit parent first if it exists in the import set
     if (note.parent_id && map.has(note.parent_id)) {
       visit(map.get(note.parent_id)!);
     }
@@ -322,10 +383,10 @@ export async function importNotes(json: string): Promise<number> {
   for (const note of notes) {
     if (await getNoteById(note.id)) continue;
     await db.execute(
-      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [note.id, note.title, note.content, note.plaintext, note.tags,
-       note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at]
+       note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null]
     );
     imported++;
   }
@@ -340,13 +401,13 @@ export async function importNotesOverwrite(json: string): Promise<number> {
   let count = 0;
   for (const note of notes) {
     await db.execute(
-      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT(id) DO UPDATE SET
          title=excluded.title, content=excluded.content, plaintext=excluded.plaintext,
          tags=excluded.tags, updated_at=excluded.updated_at`,
       [note.id, note.title, note.content, note.plaintext, note.tags,
-       note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at]
+       note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null]
     );
     count++;
   }
@@ -358,7 +419,6 @@ export async function importNotesAsCopies(json: string): Promise<number> {
   const raw = JSON.parse(json);
   if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
   const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
-  // Build old→new ID map so parent_id references stay valid
   const idMap = new Map<string, string>();
   for (const note of notes) idMap.set(note.id, uuid());
   let count = 0;
@@ -366,10 +426,10 @@ export async function importNotesAsCopies(json: string): Promise<number> {
     const newId       = idMap.get(note.id)!;
     const newParentId = note.parent_id ? (idMap.get(note.parent_id) ?? null) : null;
     await db.execute(
-      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [newId, note.title, note.content, note.plaintext, note.tags,
-       newParentId, uuid(), now(), now()]
+       newParentId, uuid(), now(), now(), null]
     );
     count++;
   }
@@ -386,7 +446,7 @@ export interface DbStats {
 
 export async function getDbStats(): Promise<DbStats> {
   const db = await getDb();
-  const [noteCount]    = await db.select<{ count: number }[]>(`SELECT COUNT(*) as count FROM notes`);
+  const [noteCount]    = await db.select<{ count: number }[]>(`SELECT COUNT(*) as count FROM notes WHERE deleted_at IS NULL`);
   const [versionCount] = await db.select<{ count: number }[]>(`SELECT COUNT(*) as count FROM note_versions`);
   return { totalNotes: noteCount.count, totalVersions: versionCount.count, tags: await getAllTags() };
 }

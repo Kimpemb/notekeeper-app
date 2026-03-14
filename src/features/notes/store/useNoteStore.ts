@@ -2,14 +2,21 @@
 import { create } from "zustand";
 import {
   getAllNotes,
+  getTrashedNotes,
   createNote as dbCreateNote,
   updateNote as dbUpdateNote,
   deleteNote as dbDeleteNote,
+  trashNote as dbTrashNote,
+  restoreNote as dbRestoreNote,
+  permanentlyDeleteNote as dbPermanentlyDeleteNote,
+  emptyTrash as dbEmptyTrash,
   moveNote as dbMoveNote,
   getNoteById,
   type CreateNoteInput,
   type UpdateNoteInput,
-} from "@/features/notes/db/queries";import type { Note } from "@/types";
+} from "@/features/notes/db/queries";
+import type { Note } from "@/types";
+
 const PINNED_STORAGE_KEY = "notekeeper:pinned";
 
 function loadPinnedIds(): Set<string> {
@@ -27,7 +34,8 @@ function savePinnedIds(ids: Set<string>) {
 }
 
 interface NoteStore {
-  notes: Note[];
+  notes: Note[];          // live (non-trashed) notes
+  trashedNotes: Note[];   // trashed notes
   activeNoteId: string | null;
   pinnedIds: Set<string>;
   isLoading: boolean;
@@ -40,11 +48,15 @@ interface NoteStore {
   recentNotes: () => Note[];
 
   loadNotes: () => Promise<void>;
+  loadTrashedNotes: () => Promise<void>;
   setActiveNote: (id: string | null) => void;
   createNote: (input?: CreateNoteInput) => Promise<Note>;
   createChildNote: (parentId: string) => Promise<Note>;
   updateNote: (id: string, input: UpdateNoteInput) => Promise<void>;
-  deleteNote: (id: string) => Promise<void>;
+  deleteNote: (id: string) => Promise<void>;       // now = move to trash
+  restoreNote: (id: string) => Promise<void>;
+  permanentlyDeleteNote: (id: string) => Promise<void>;
+  emptyTrash: () => Promise<void>;
   moveNote: (id: string, newParentId: string | null) => Promise<void>;
   refreshNote: (id: string) => Promise<void>;
   pinNote: (id: string) => void;
@@ -66,16 +78,29 @@ function nextUntitledName(notes: Note[]): string {
   return `Untitled-${n}`;
 }
 
-// ─── Sort by updated_at descending ───────────────────────────────────────────
-
 function byRecency(a: Note, b: Note): number {
   return b.updated_at - a.updated_at;
+}
+
+function collectDescendants(id: string, notes: Note[]): Set<string> {
+  const result = new Set<string>();
+  const queue = [id];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const children = notes.filter((n) => n.parent_id === current);
+    for (const child of children) {
+      result.add(child.id);
+      queue.push(child.id);
+    }
+  }
+  return result;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useNoteStore = create<NoteStore>((set, get) => ({
   notes: [],
+  trashedNotes: [],
   activeNoteId: null,
   pinnedIds: loadPinnedIds(),
   isLoading: false,
@@ -91,7 +116,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
 
   childrenOf: (parentId) => get().notes.filter((n) => n.parent_id === parentId),
 
-  // Pinned root notes — in pin order (order they were pinned)
   pinnedNotes: () => {
     const { notes, pinnedIds } = get();
     return notes
@@ -99,7 +123,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       .sort(byRecency);
   },
 
-  // Unpinned root notes — sorted by most recently updated
   recentNotes: () => {
     const { notes, pinnedIds } = get();
     return notes
@@ -116,6 +139,15 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       set({ notes, isLoading: false });
     } catch (err) {
       set({ error: String(err), isLoading: false });
+    }
+  },
+
+  loadTrashedNotes: async () => {
+    try {
+      const trashedNotes = await getTrashedNotes();
+      set({ trashedNotes });
+    } catch (err) {
+      console.error("Failed to load trash:", err);
     }
   },
 
@@ -154,24 +186,57 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }));
   },
 
-  // ─── Delete ────────────────────────────────────────────────────────────────
+  // ─── Trash (soft delete) ───────────────────────────────────────────────────
 
   deleteNote: async (id) => {
     const { notes } = get();
-    const toDelete = collectDescendants(id, notes);
-    toDelete.add(id);
-    await dbDeleteNote(id);
+    // Collect note + all descendants that will be trashed
+    const descendants = collectDescendants(id, notes);
+    const allIds = new Set([id, ...descendants]);
+
+    await dbTrashNote(id);
+
+    // Reload trashed notes to get fresh deleted_at timestamps
+    const trashedNotes = await getTrashedNotes();
+
     set((state) => {
-      const remaining = state.notes.filter((n) => !toDelete.has(n.id));
-      // Clean up any pinned IDs that no longer exist
-      const newPinnedIds = new Set([...state.pinnedIds].filter((pid) => !toDelete.has(pid)));
+      const remaining = state.notes.filter((n) => !allIds.has(n.id));
+      const newPinnedIds = new Set([...state.pinnedIds].filter((pid) => !allIds.has(pid)));
       savePinnedIds(newPinnedIds);
       const newActiveId =
-        state.activeNoteId && toDelete.has(state.activeNoteId)
+        state.activeNoteId && allIds.has(state.activeNoteId)
           ? remaining[0]?.id ?? null
           : state.activeNoteId;
-      return { notes: remaining, activeNoteId: newActiveId, pinnedIds: newPinnedIds };
+      return { notes: remaining, trashedNotes, activeNoteId: newActiveId, pinnedIds: newPinnedIds };
     });
+  },
+
+  // ─── Restore from trash ────────────────────────────────────────────────────
+
+  restoreNote: async (id) => {
+    await dbRestoreNote(id);
+    // Reload both live and trashed lists
+    const [notes, trashedNotes] = await Promise.all([getAllNotes(), getTrashedNotes()]);
+    set({ notes, trashedNotes });
+  },
+
+  // ─── Permanently delete ────────────────────────────────────────────────────
+
+  permanentlyDeleteNote: async (id) => {
+    await dbPermanentlyDeleteNote(id);
+    const trashedNotes = await getTrashedNotes();
+    set((state) => ({
+      trashedNotes,
+      // If permanently deleting a note that somehow got re-activated
+      activeNoteId: state.activeNoteId === id ? null : state.activeNoteId,
+    }));
+  },
+
+  // ─── Empty trash ───────────────────────────────────────────────────────────
+
+  emptyTrash: async () => {
+    await dbEmptyTrash();
+    set({ trashedNotes: [] });
   },
 
   // ─── Move ──────────────────────────────────────────────────────────────────
@@ -217,19 +282,3 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
 
   isPinned: (id) => get().pinnedIds.has(id),
 }));
-
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-
-function collectDescendants(id: string, notes: Note[]): Set<string> {
-  const result = new Set<string>();
-  const queue = [id];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const children = notes.filter((n) => n.parent_id === current);
-    for (const child of children) {
-      result.add(child.id);
-      queue.push(child.id);
-    }
-  }
-  return result;
-}
