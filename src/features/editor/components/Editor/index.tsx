@@ -170,7 +170,6 @@ export function Editor() {
   const [linkQuery, setLinkQuery] = useState("");
   const linkBracketStart          = useRef<number | null>(null);
 
-  // Find & Replace
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
@@ -266,19 +265,21 @@ export function Editor() {
     setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null;
   }
 
-  useEffect(() => {
-    if (!editor || !activeNote) return;
-    const incoming = activeNote.content;
-    lastSavedContent.current = incoming;
-    editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-    setBubblePos(null); setHasSelection(false); bubblePosRef.current = null;
-    closeSlashMenuInternal(); closeLinkSuggestInternal();
-    if (titleRef.current) {
-      const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
-      titleRef.current.textContent = isUntitled ? "" : activeNote.title;
-    }
-  }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── Note switch: load content + clear undo history ────────────────────────
+useEffect(() => {
+  if (!editor || !activeNote) return;
+  const incoming = activeNote.content;
+  lastSavedContent.current = incoming;
+  editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
+  setBubblePos(null); setHasSelection(false); bubblePosRef.current = null;
+  closeSlashMenuInternal(); closeLinkSuggestInternal();
+  if (titleRef.current) {
+    const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
+    titleRef.current.textContent = isUntitled ? "" : activeNote.title;
+  }
+}, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+// ── External content update (e.g. version restore) ───────────────────────
   useEffect(() => {
     if (!editor || !activeNote) return;
     const incoming = activeNote.content;
@@ -391,7 +392,6 @@ export function Editor() {
     <div className="flex h-full w-full overflow-hidden">
       <div className="flex flex-col flex-1 h-full overflow-hidden">
 
-        {/* Find & Replace bar */}
         {findReplaceOpen && editor && (
           <FindReplace
             editor={editor}
@@ -402,7 +402,6 @@ export function Editor() {
           />
         )}
 
-        {/* Top-right panel toggles */}
         <div className="absolute top-[52px] right-3 z-30 flex items-center gap-1.5">
           <button
             onClick={toggleOutline}
@@ -457,7 +456,7 @@ export function Editor() {
             >
               {isUntitled ? "" : activeNote.title}
             </h1>
-            <div ref={editorWrapRef}>
+            <div key={activeNote.id} ref={editorWrapRef}>
               <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
             </div>
           </div>
@@ -467,7 +466,6 @@ export function Editor() {
         {versionHistoryOpen && <VersionHistory noteId={activeNote.id} />}
       </div>
 
-      {/* Right panels */}
       {outlineOpen  && editor && <OutlinePanel editor={editor} />}
       {backlinksOpen && <BacklinksPanel noteId={activeNote.id} />}
 

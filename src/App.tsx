@@ -179,12 +179,12 @@ export default function App() {
   }
 
   if (!dbReady) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-white dark:bg-zinc-950">
-        <p className="text-base text-zinc-400 animate-pulse">Loading…</p>
-      </div>
-    );
-  }
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+      <p className="text-base text-zinc-400 animate-pulse">Loading…</p>
+    </div>
+  );
+}
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
@@ -326,8 +326,7 @@ export default function App() {
         </header>
 
         <main className="flex-1 flex overflow-hidden relative">
-          {activeNote ? <Editor /> : <EmptyState />}
-          {fileTreeOpen && <FileTreePanel />}
+{activeNote ? <Editor key={activeNote.id} /> : <EmptyState />}          {fileTreeOpen && <FileTreePanel />}
         </main>
       </div>
 

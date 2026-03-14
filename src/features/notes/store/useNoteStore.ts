@@ -35,8 +35,8 @@ function savePinnedIds(ids: Set<string>) {
 }
 
 interface NoteStore {
-  notes: Note[];          // live (non-trashed) notes
-  trashedNotes: Note[];   // trashed notes
+  notes: Note[];
+  trashedNotes: Note[];
   activeNoteId: string | null;
   pinnedIds: Set<string>;
   visitedNoteIds: string[];
@@ -57,7 +57,7 @@ interface NoteStore {
   createNote: (input?: CreateNoteInput) => Promise<Note>;
   createChildNote: (parentId: string) => Promise<Note>;
   updateNote: (id: string, input: UpdateNoteInput) => Promise<void>;
-  deleteNote: (id: string) => Promise<void>;       // now = move to trash
+  deleteNote: (id: string) => Promise<void>;
   restoreNote: (id: string) => Promise<void>;
   permanentlyDeleteNote: (id: string) => Promise<void>;
   emptyTrash: () => Promise<void>;
@@ -131,9 +131,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   recentNotes: () => {
     const { notes, pinnedIds, visitedNoteIds } = get();
     const unpinned = notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
-    console.log("[recentNotes] visitedNoteIds", visitedNoteIds);
-    console.log("[recentNotes] unpinned ids", unpinned.map(n => n.id));
-  // ...rest unchanged
     if (visitedNoteIds.length === 0) return unpinned.sort(byRecency);
     const unpinnedMap = new Map(unpinned.map((n) => [n.id, n]));
     const ordered: Note[] = [];
@@ -142,7 +139,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       const note = unpinnedMap.get(id);
       if (note) { ordered.push(note); seen.add(id); }
     }
-    // append any notes never visited, sorted by recency
     const unvisited = unpinned.filter((n) => !seen.has(n.id)).sort(byRecency);
     return [...ordered, ...unvisited];
   },
@@ -172,7 +168,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   loadRecentVisits: async () => {
     try {
       const visits = await getRecentVisits(50);
-      console.log("[visits] loaded", visits);
       set({ visitedNoteIds: visits.map((v) => v.note_id) });
     } catch (err) {
       console.error("Failed to load recent visits:", err);
@@ -180,11 +175,8 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   },
 
   setActiveNote: (id) => {
-  set({ activeNoteId: id });
-    if (id) {
-      console.log("[visit] recording visit for", id);
-      get().recordVisit(id).catch(console.error);
-    }
+    set({ activeNoteId: id });
+    if (id) get().recordVisit(id).catch(console.error);
   },
 
   recordVisit: async (id) => {
@@ -197,20 +189,16 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   createNote: async (input = {}) => {
     const title = input.title ?? nextUntitledName(get().notes);
     const note = await dbCreateNote({ ...input, title });
-    set((state) => ({
-      notes: [note, ...state.notes],
-      activeNoteId: note.id,
-    }));
+    set((state) => ({ notes: [note, ...state.notes] }));
+    get().setActiveNote(note.id);
     return note;
   },
 
   createChildNote: async (parentId) => {
     const title = nextUntitledName(get().notes);
     const note = await dbCreateNote({ parent_id: parentId, title });
-    set((state) => ({
-      notes: [note, ...state.notes],
-      activeNoteId: note.id,
-    }));
+    set((state) => ({ notes: [note, ...state.notes] }));
+    get().setActiveNote(note.id);
     return note;
   },
 
@@ -229,13 +217,11 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
 
   deleteNote: async (id) => {
     const { notes } = get();
-    // Collect note + all descendants that will be trashed
     const descendants = collectDescendants(id, notes);
     const allIds = new Set([id, ...descendants]);
 
     await dbTrashNote(id);
 
-    // Reload trashed notes to get fresh deleted_at timestamps
     const trashedNotes = await getTrashedNotes();
 
     set((state) => {
@@ -254,7 +240,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
 
   restoreNote: async (id) => {
     await dbRestoreNote(id);
-    // Reload both live and trashed lists
     const [notes, trashedNotes] = await Promise.all([getAllNotes(), getTrashedNotes()]);
     set({ notes, trashedNotes });
   },
@@ -266,7 +251,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     const trashedNotes = await getTrashedNotes();
     set((state) => ({
       trashedNotes,
-      // If permanently deleting a note that somehow got re-activated
       activeNoteId: state.activeNoteId === id ? null : state.activeNoteId,
     }));
   },
@@ -318,8 +302,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       return { pinnedIds: newPinnedIds };
     });
   },
-
-  
 
   isPinned: (id) => get().pinnedIds.has(id),
 }));

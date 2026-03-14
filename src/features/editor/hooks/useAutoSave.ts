@@ -5,11 +5,8 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import type { UpdateNoteInput } from "@/features/notes/db/queries";
 
-
 const DEBOUNCE_MS = 2_000;
 const HARD_CAP_MS = 30_000;
-const UNTITLED_PATTERN = /^Untitled-\d+$/;
-const INVALID_TITLE_PATTERN = /^[/\\|#*`~\-_=<>]+$/;
 
 interface UseAutoSaveOptions {
   editor: Editor | null;
@@ -18,7 +15,6 @@ interface UseAutoSaveOptions {
 }
 
 export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptions): void {
-  const notes         = useNoteStore((s) => s.notes);
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setSaveStatus = useUIStore((s) => s.setSaveStatus);
 
@@ -26,29 +22,22 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
   const hardCapTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDirty       = useRef(false);
   const lastNoteId    = useRef<string | null>(null);
-  const notesRef      = useRef(notes);
-
-  useEffect(() => { notesRef.current = notes; }, [notes]);
 
   const save = useCallback(async () => {
     if (!editor || !noteId || !isDirty.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     if (hardCapTimer.current)  clearTimeout(hardCapTimer.current);
-    debounceTimer.current = null; hardCapTimer.current = null; isDirty.current = false;
+    debounceTimer.current = null;
+    hardCapTimer.current  = null;
+    isDirty.current       = false;
     setSaveStatus("saving");
     try {
-      const json      = editor.getJSON();
-      const content   = JSON.stringify(json);
+      const content   = JSON.stringify(editor.getJSON());
       const plaintext = editor.getText();
-      onSaveComplete?.(content, noteId);
-      const currentNote = notesRef.current.find((n) => n.id === noteId);
-      const isUntitled  = !currentNote || UNTITLED_PATTERN.test(currentNote.title);
       const update: UpdateNoteInput = { content, plaintext };
-      if (isUntitled) {
-        const derived = deriveTitleFromDoc(json);
-        if (derived && !INVALID_TITLE_PATTERN.test(derived)) update.title = derived;
-      }
+      // Title is NEVER derived from content — only updated explicitly via the title field
       await updateNote(noteId, update);
+      onSaveComplete?.(content, noteId);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
     } catch (err) {
@@ -71,11 +60,13 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
     return () => { editor.off("update", scheduleSave); };
   }, [editor, scheduleSave]);
 
+  // Flush pending save when switching notes
   useEffect(() => {
     if (lastNoteId.current && lastNoteId.current !== noteId && isDirty.current) save();
     lastNoteId.current = noteId;
   }, [noteId, save]);
 
+  // Flush on unmount
   useEffect(() => {
     return () => {
       if (isDirty.current) save();
@@ -83,23 +74,4 @@ export function useAutoSave({ editor, noteId, onSaveComplete }: UseAutoSaveOptio
       if (hardCapTimer.current)  clearTimeout(hardCapTimer.current);
     };
   }, [save]);
-}
-
-interface TipTapTextNode  { type: "text"; text?: string; }
-interface TipTapBlockNode { type: string; content?: TipTapNode[]; }
-type TipTapNode = TipTapTextNode | TipTapBlockNode;
-interface TipTapDoc { content?: TipTapNode[]; }
-
-function deriveTitleFromDoc(doc: TipTapDoc): string {
-  if (!doc.content) return "";
-  for (const node of doc.content) {
-    const block = node as TipTapBlockNode;
-    if (!block.content) continue;
-    const text = block.content
-      .filter((n): n is TipTapTextNode => n.type === "text")
-      .map((n) => n.text ?? "")
-      .join("").trim();
-    if (text.length > 0) return text.slice(0, 80);
-  }
-  return "";
 }
