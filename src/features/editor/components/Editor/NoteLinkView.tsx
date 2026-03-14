@@ -14,37 +14,41 @@ export function NoteLinkView({ node }: NodeViewProps) {
   const liveTitle = note?.title ?? label;
   const exists    = !!note;
 
-  const [preview, setPreview]     = useState<DOMRect | null>(null);
-  const hoverTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const leaveTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pillRef                   = useRef<HTMLSpanElement>(null);
+  const [preview, setPreview]   = useState<DOMRect | null>(null);
+  const hoverTimer              = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const leaveTimer              = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pillRef                 = useRef<HTMLSpanElement>(null);
+
+  // Shared enter logic — cancels any pending leave, schedules show
+  const handleEnter = useCallback(() => {
+    if (!exists) return;
+    if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; }
+    if (!preview) {
+      hoverTimer.current = setTimeout(() => {
+        const rect = pillRef.current?.getBoundingClientRect();
+        if (rect) setPreview(rect);
+      }, 400);
+    }
+  }, [exists, preview]);
+
+  // Shared leave logic — cancels any pending show, schedules hide
+  const handleLeave = useCallback(() => {
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
+    leaveTimer.current = setTimeout(() => setPreview(null), 150);
+  }, []);
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault(); e.stopPropagation();
     if (exists) setActiveNote(id);
   }
 
-  const handleMouseEnter = useCallback(() => {
-    if (!exists) return;
-    if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; }
-    hoverTimer.current = setTimeout(() => {
-      const rect = pillRef.current?.getBoundingClientRect();
-      if (rect) setPreview(rect);
-    }, 400); // 400ms delay before showing
-  }, [exists]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
-    leaveTimer.current = setTimeout(() => setPreview(null), 150); // brief grace period
-  }, []);
-
   return (
     <NodeViewWrapper as="span" className="inline" contentEditable={false}>
       <span
         ref={pillRef}
         onClick={handleClick}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
         title={exists ? `Go to: ${liveTitle}` : "Note not found"}
         className={`inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-xs font-medium cursor-pointer select-none transition-colors duration-100 ${
           exists
@@ -65,6 +69,8 @@ export function NoteLinkView({ node }: NodeViewProps) {
           content={note.content ?? null}
           plaintext={note.plaintext ?? null}
           anchorRect={preview}
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
         />
       )}
     </NodeViewWrapper>

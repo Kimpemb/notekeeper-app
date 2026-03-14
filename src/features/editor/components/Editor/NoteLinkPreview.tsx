@@ -12,6 +12,8 @@ interface Props {
   content: string | null;
   plaintext: string | null;
   anchorRect: DOMRect;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
 }
 
 function extractHeadings(content: string): Heading[] {
@@ -44,32 +46,41 @@ function extractSnippet(plaintext: string | null): string {
   return lines.slice(0, 3).join(" ").slice(0, 160);
 }
 
-export function NoteLinkPreview({ title, content, plaintext, anchorRect }: Props) {
+export function NoteLinkPreview({ title, content, plaintext, anchorRect, onMouseEnter, onMouseLeave }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; flipUp: boolean } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   const headings = content ? extractHeadings(content) : [];
   const snippet  = extractSnippet(plaintext);
   const isEmpty  = headings.length === 0 && !snippet;
 
+  const panelWidth  = 280;
+  const panelHeight = 220;
+  const gap         = 8;
+
   useEffect(() => {
-    const panelHeight = 220;
-    const panelWidth  = 280;
-    const gap         = 8;
-    const spaceBelow  = window.innerHeight - anchorRect.bottom;
-    const spaceAbove  = anchorRect.top;
-    const flipUp      = spaceBelow < panelHeight + gap && spaceAbove > panelHeight + gap;
+    const spaceRight = window.innerWidth - anchorRect.right;
+    const spaceLeft  = anchorRect.left;
 
-    let top  = flipUp ? anchorRect.top - panelHeight - gap : anchorRect.bottom + gap;
-    let left = anchorRect.left;
-
-    // Keep within horizontal bounds
-    if (left + panelWidth > window.innerWidth - 12) {
-      left = window.innerWidth - panelWidth - 12;
+    // Prefer right, flip to left if not enough space
+    let left: number;
+    if (spaceRight >= panelWidth + gap) {
+      left = anchorRect.right + gap;
+    } else if (spaceLeft >= panelWidth + gap) {
+      left = anchorRect.left - panelWidth - gap;
+    } else {
+      // Fallback: right side clamped
+      left = Math.min(anchorRect.right + gap, window.innerWidth - panelWidth - 12);
     }
-    if (left < 12) left = 12;
 
-    setPos({ top, left, flipUp });
+    // Vertically align with the pill, keep within screen bounds
+    let top = anchorRect.top;
+    if (top + panelHeight > window.innerHeight - 12) {
+      top = window.innerHeight - panelHeight - 12;
+    }
+    if (top < 12) top = 12;
+
+    setPos({ top, left });
   }, [anchorRect]);
 
   if (!pos) return null;
@@ -77,22 +88,24 @@ export function NoteLinkPreview({ title, content, plaintext, anchorRect }: Props
   return createPortal(
     <div
       ref={ref}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={{
         position: "fixed",
         top: pos.top,
         left: pos.left,
-        width: 280,
-        maxHeight: 220,
+        width: panelWidth,
+        maxHeight: panelHeight,
         zIndex: 9999,
-        transformOrigin: pos.flipUp ? "bottom left" : "top left",
+        transformOrigin: "left center",
         animation: "notelink-preview-in 120ms cubic-bezier(0.4,0,0.2,1)",
       }}
       className="flex flex-col rounded-lg shadow-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 overflow-hidden"
     >
       <style>{`
         @keyframes notelink-preview-in {
-          from { opacity: 0; transform: scale(0.96); }
-          to   { opacity: 1; transform: scale(1); }
+          from { opacity: 0; transform: scale(0.96) translateX(-4px); }
+          to   { opacity: 1; transform: scale(1) translateX(0); }
         }
       `}</style>
 
@@ -101,7 +114,7 @@ export function NoteLinkPreview({ title, content, plaintext, anchorRect }: Props
         <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 truncate">{title}</p>
       </div>
 
-      {/* Body */}
+      {/* Body — scrollable */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 min-h-0">
         {isEmpty ? (
           <p className="text-xs text-zinc-400 dark:text-zinc-600 italic">No content yet.</p>
@@ -115,7 +128,13 @@ export function NoteLinkPreview({ title, content, plaintext, anchorRect }: Props
               <span className="shrink-0 text-[9px] font-bold text-zinc-300 dark:text-zinc-600 uppercase">
                 H{h.level}
               </span>
-              <span className={`truncate text-xs ${h.level === 1 ? "font-semibold text-zinc-700 dark:text-zinc-200" : h.level === 2 ? "font-medium text-zinc-600 dark:text-zinc-300" : "text-zinc-500 dark:text-zinc-400"}`}>
+              <span className={`truncate text-xs ${
+                h.level === 1
+                  ? "font-semibold text-zinc-700 dark:text-zinc-200"
+                  : h.level === 2
+                  ? "font-medium text-zinc-600 dark:text-zinc-300"
+                  : "text-zinc-500 dark:text-zinc-400"
+              }`}>
                 {h.text}
               </span>
             </div>
@@ -127,7 +146,7 @@ export function NoteLinkPreview({ title, content, plaintext, anchorRect }: Props
         )}
       </div>
 
-      {/* Footer hint */}
+      {/* Footer */}
       <div className="px-3 py-1.5 border-t border-zinc-100 dark:border-zinc-800 shrink-0">
         <p className="text-[10px] text-zinc-300 dark:text-zinc-600">Click to open note</p>
       </div>
