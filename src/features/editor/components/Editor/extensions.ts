@@ -2,6 +2,24 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { DecorationSet, Decoration } from "@tiptap/pm/view";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { ReactNodeViewRenderer } from "@tiptap/react";
+import { common, createLowlight } from "lowlight";
+import { CodeBlockNodeView } from "./CodeBlockNodeView";
+
+// ── Lowlight instance ─────────────────────────────────────────────────────────
+export const lowlight = createLowlight(common);
+
+// ── Syntax-highlighted code block with React NodeView ────────────────────────
+export const CodeBlock = CodeBlockLowlight.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(CodeBlockNodeView);
+  },
+}).configure({
+  lowlight,
+  defaultLanguage: "plaintext",
+  HTMLAttributes: { class: "hljs" },
+});
 
 // ── Empty-line "Press '/' for commands" hint ──────────────────────────────────
 const emptyLinePlaceholderKey = new PluginKey<DecorationSet>("emptyLinePlaceholder");
@@ -122,7 +140,7 @@ export const CodeBlockSelectAllExtension = Extension.create({
           }
           depth--;
         }
-        return false; // fall through to default Ctrl+A
+        return false;
       },
     };
   },

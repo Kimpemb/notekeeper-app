@@ -3,8 +3,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Extension } from "@tiptap/core";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import { common, createLowlight } from "lowlight";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAutoSave } from "@/features/editor/hooks/useAutoSave";
@@ -18,6 +16,7 @@ import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
 import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 import {
+  CodeBlock,
   EmptyLinePlaceholderExtension,
   SlashPlaceholderExtension,
   OrderedListBackspaceExtension,
@@ -25,9 +24,6 @@ import {
   createFindReplaceShortcutExtension,
 } from "./extensions";
 import { extractNoteLinkIds, scrollToHeadingText } from "./editorUtils";
-
-// ── Lowlight instance ─────────────────────────────────────────────────────────
-const lowlight = createLowlight(common);
 
 interface BubblePos { top: number; left: number; }
 
@@ -70,21 +66,10 @@ export function Editor() {
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
 
-  // ── Active code block language (drives StatusBar picker) ─────────────────
-  // null  = cursor is not inside a code block
-  // ""    = inside a code block with no language set (auto-detect)
-  // "typescript" etc = inside a code block with an explicit language
-  const [activeCodeBlockLang, setActiveCodeBlockLang] = useState<string | null>(null);
-  const activeCodeBlockPosRef = useRef<number | null>(null);
-
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
-      CodeBlockLowlight.configure({
-        lowlight,
-        defaultLanguage: "plaintext",
-        HTMLAttributes: { class: "hljs" },
-      }),
+      CodeBlock,
       CodeBlockSelectAllExtension,
       SlashPlaceholderExtension,
       EmptyLinePlaceholderExtension,
@@ -109,34 +94,12 @@ export function Editor() {
     onSelectionUpdate: ({ editor: e }) => {
       if (slashFromBubble.current) return;
       const { from, to } = e.state.selection;
-
-      // ── Bubble menu ──
       if (from === to) {
-        setHasSelection(false); setBubblePos(null); bubblePosRef.current = null;
-      } else {
-        const coords = e.view.coordsAtPos(from);
-        const pos = { top: coords.top - 48, left: coords.left };
-        setHasSelection(true); setBubblePos(pos); bubblePosRef.current = pos;
+        setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
       }
-
-      // ── Code block language for StatusBar ──
-      const { $from } = e.state.selection;
-      let depth = $from.depth;
-      let foundCodeBlock = false;
-      while (depth > 0) {
-        const node = $from.node(depth);
-        if (node.type.name === "codeBlock") {
-          activeCodeBlockPosRef.current = $from.before(depth);
-          setActiveCodeBlockLang(node.attrs.language ?? "");
-          foundCodeBlock = true;
-          break;
-        }
-        depth--;
-      }
-      if (!foundCodeBlock) {
-        activeCodeBlockPosRef.current = null;
-        setActiveCodeBlockLang(null);
-      }
+      const coords = e.view.coordsAtPos(from);
+      const pos = { top: coords.top - 48, left: coords.left };
+      setHasSelection(true); setBubblePos(pos); bubblePosRef.current = pos;
     },
     onUpdate: ({ editor: e }) => {
       const { state } = e;
@@ -187,24 +150,6 @@ export function Editor() {
     },
   });
 
-  // ── Language change from StatusBar picker ────────────────────────────────
-  function handleLanguageChange(lang: string) {
-    if (!editor) return;
-    const nodePos = activeCodeBlockPosRef.current;
-    if (nodePos === null) return;
-    const node = editor.state.doc.nodeAt(nodePos);
-    if (!node || node.type.name !== "codeBlock") return;
-    editor
-      .chain()
-      .focus()
-      .command(({ tr }) => {
-        tr.setNodeMarkup(nodePos, undefined, { ...node.attrs, language: lang || null });
-        return true;
-      })
-      .run();
-    setActiveCodeBlockLang(lang);
-  }
-
   function closeSlashMenuInternal() {
     setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false;
   }
@@ -219,7 +164,6 @@ export function Editor() {
     lastSavedContent.current = incoming;
     editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
     setBubblePos(null); setHasSelection(false); bubblePosRef.current = null;
-    setActiveCodeBlockLang(null); activeCodeBlockPosRef.current = null;
     closeSlashMenuInternal(); closeLinkSuggestInternal();
     if (titleRef.current) {
       const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
@@ -227,7 +171,7 @@ export function Editor() {
     }
   }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Pending scroll: execute after note content loads ─────────────────────
+  // ── Pending scroll ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!editor || !activeNote || !pendingScrollHeading) return;
     const timer = setTimeout(() => {
@@ -237,7 +181,7 @@ export function Editor() {
     return () => clearTimeout(timer);
   }, [activeNote?.id, pendingScrollHeading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── External content update (e.g. version restore) ───────────────────────
+  // ── External content update (version restore) ────────────────────────────
   useEffect(() => {
     if (!editor || !activeNote) return;
     const incoming = activeNote.content;
@@ -435,11 +379,7 @@ export function Editor() {
           </div>
         </div>
 
-        <StatusBar
-          editor={editor ?? null}
-          codeBlockLang={activeCodeBlockLang}
-          onLanguageChange={handleLanguageChange}
-        />
+        <StatusBar editor={editor ?? null} />
         {versionHistoryOpen && <VersionHistory noteId={activeNote.id} />}
       </div>
 
