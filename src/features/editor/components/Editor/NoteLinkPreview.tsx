@@ -1,6 +1,8 @@
 // src/features/editor/components/Editor/NoteLinkPreview.tsx
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 
 interface Heading {
   level: number;
@@ -8,6 +10,7 @@ interface Heading {
 }
 
 interface Props {
+  noteId: string;
   title: string;
   content: string | null;
   plaintext: string | null;
@@ -46,9 +49,20 @@ function extractSnippet(plaintext: string | null): string {
   return lines.slice(0, 3).join(" ").slice(0, 160);
 }
 
-export function NoteLinkPreview({ title, content, plaintext, anchorRect, onMouseEnter, onMouseLeave }: Props) {
+export function NoteLinkPreview({
+  noteId,
+  title,
+  content,
+  plaintext,
+  anchorRect,
+  onMouseEnter,
+  onMouseLeave,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  const setActiveNote          = useNoteStore((s) => s.setActiveNote);
+  const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
 
   const headings = content ? extractHeadings(content) : [];
   const snippet  = extractSnippet(plaintext);
@@ -62,28 +76,32 @@ export function NoteLinkPreview({ title, content, plaintext, anchorRect, onMouse
     const spaceRight = window.innerWidth - anchorRect.right;
     const spaceLeft  = anchorRect.left;
 
-    // Prefer right, flip to left if not enough space
     let left: number;
     if (spaceRight >= panelWidth + gap) {
       left = anchorRect.right + gap;
     } else if (spaceLeft >= panelWidth + gap) {
       left = anchorRect.left - panelWidth - gap;
     } else {
-      // Fallback: right side clamped
       left = Math.min(anchorRect.right + gap, window.innerWidth - panelWidth - 12);
     }
 
-    // Vertically align with the pill, keep within screen bounds
     let top = anchorRect.top;
-    if (top + panelHeight > window.innerHeight - 12) {
-      top = window.innerHeight - panelHeight - 12;
-    }
+    if (top + panelHeight > window.innerHeight - 12) top = window.innerHeight - panelHeight - 12;
     if (top < 12) top = 12;
 
     setPos({ top, left });
   }, [anchorRect]);
 
   if (!pos) return null;
+
+  function handleTitleClick() {
+    setActiveNote(noteId);
+  }
+
+  function handleHeadingClick(headingText: string) {
+    setPendingScrollHeading(headingText);
+    setActiveNote(noteId);
+  }
 
   return createPortal(
     <div
@@ -109,38 +127,55 @@ export function NoteLinkPreview({ title, content, plaintext, anchorRect, onMouse
         }
       `}</style>
 
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
-        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 truncate">{title}</p>
-      </div>
+      {/* Header — clickable, navigates to note top */}
+      <button
+        onClick={handleTitleClick}
+        className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 shrink-0 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 group"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-100">
+            {title}
+          </p>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-300 dark:text-zinc-600 group-hover:text-blue-400 shrink-0 transition-colors duration-100">
+            <path d="M2 5h6M5 2l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+      </button>
 
-      {/* Body — scrollable */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 min-h-0">
+      {/* Body — scrollable, headings are clickable */}
+      <div className="flex-1 overflow-y-auto min-h-0">
         {isEmpty ? (
-          <p className="text-xs text-zinc-400 dark:text-zinc-600 italic">No content yet.</p>
+          <p className="px-3 py-2 text-xs text-zinc-400 dark:text-zinc-600 italic">No content yet.</p>
         ) : headings.length > 0 ? (
-          headings.map((h, i) => (
-            <div
-              key={i}
-              style={{ paddingLeft: `${(h.level - 1) * 10}px` }}
-              className="flex items-center gap-1.5 min-w-0"
-            >
-              <span className="shrink-0 text-[9px] font-bold text-zinc-300 dark:text-zinc-600 uppercase">
-                H{h.level}
-              </span>
-              <span className={`truncate text-xs ${
-                h.level === 1
-                  ? "font-semibold text-zinc-700 dark:text-zinc-200"
-                  : h.level === 2
-                  ? "font-medium text-zinc-600 dark:text-zinc-300"
-                  : "text-zinc-500 dark:text-zinc-400"
-              }`}>
-                {h.text}
-              </span>
-            </div>
-          ))
+          <ul className="py-1">
+            {headings.map((h, i) => (
+              <li key={i}>
+                <button
+                  onClick={() => handleHeadingClick(h.text)}
+                  style={{ paddingLeft: `${8 + (h.level - 1) * 10}px` }}
+                  className="w-full flex items-center gap-1.5 py-1 pr-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-75 group"
+                >
+                  <span className="shrink-0 text-[9px] font-bold text-zinc-300 dark:text-zinc-600 uppercase group-hover:text-blue-400 transition-colors duration-75">
+                    H{h.level}
+                  </span>
+                  <span className={`truncate text-xs transition-colors duration-75 group-hover:text-blue-600 dark:group-hover:text-blue-400 ${
+                    h.level === 1
+                      ? "font-semibold text-zinc-700 dark:text-zinc-200"
+                      : h.level === 2
+                      ? "font-medium text-zinc-600 dark:text-zinc-300"
+                      : "text-zinc-500 dark:text-zinc-400"
+                  }`}>
+                    {h.text}
+                  </span>
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0 ml-auto text-zinc-200 dark:text-zinc-700 group-hover:text-blue-400 transition-colors duration-75">
+                    <path d="M1 4h6M4 1.5l2.5 2.5L4 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed line-clamp-4">
+          <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed line-clamp-4">
             {snippet}
           </p>
         )}
@@ -148,7 +183,9 @@ export function NoteLinkPreview({ title, content, plaintext, anchorRect, onMouse
 
       {/* Footer */}
       <div className="px-3 py-1.5 border-t border-zinc-100 dark:border-zinc-800 shrink-0">
-        <p className="text-[10px] text-zinc-300 dark:text-zinc-600">Click to open note</p>
+        <p className="text-[10px] text-zinc-300 dark:text-zinc-600">
+          {headings.length > 0 ? "Click heading to jump there" : "Click title to open note"}
+        </p>
       </div>
     </div>,
     document.body

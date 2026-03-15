@@ -72,26 +72,25 @@ interface UIStore {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   clearSearch: () => void;
+
+  // ─── Pending scroll heading ───────────────────────────────────────────────
+  // Set when navigating to a note via a heading click in a preview panel.
+  // The editor watches this and scrolls to the heading once content is loaded.
+  pendingScrollHeading: string | null;
+  setPendingScrollHeading: (heading: string | null) => void;
 }
 
 function getInitialTheme(): Theme {
-  // localStorage is used as a fast synchronous fallback before the DB is ready,
-  // preventing a flash of the wrong theme on startup. The DB value takes over
-  // once loadSettings() is called in App.tsx after initDb().
   try {
     const saved = localStorage.getItem("notekeeper-theme");
     if (saved === "light" || saved === "dark") return saved;
-  } catch {
-    /**/
-  }
+  } catch { /**/ }
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function applyTheme(theme: Theme, persist = false) {
   document.documentElement.classList.toggle("dark", theme === "dark");
-  // Keep localStorage in sync as a fast-read cache for next startup
   try { localStorage.setItem("notekeeper-theme", theme); } catch { /**/ }
-  // Persist authoritative value to DB when explicitly changed by the user
   if (persist) setSetting("theme", theme).catch(console.error);
 }
 
@@ -114,7 +113,6 @@ export const useUIStore = create<UIStore>((set, get) => {
       set({ theme });
     },
 
-    // Called in App.tsx after initDb() resolves — syncs theme from DB
     loadSettings: async () => {
       const theme = await getSetting("theme");
       if (theme === "light" || theme === "dark") {
@@ -208,5 +206,9 @@ export const useUIStore = create<UIStore>((set, get) => {
     searchQuery: "",
     setSearchQuery: (query) => set({ searchQuery: query }),
     clearSearch: () => set({ searchQuery: "" }),
+
+    // ─── Pending scroll heading ───────────────────────────────────────────────
+    pendingScrollHeading: null,
+    setPendingScrollHeading: (heading) => set({ pendingScrollHeading: heading }),
   };
 });

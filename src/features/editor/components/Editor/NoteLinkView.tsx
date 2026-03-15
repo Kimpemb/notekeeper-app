@@ -3,12 +3,14 @@ import { useState, useRef, useCallback } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 import { NoteLinkPreview } from "./NoteLinkPreview";
 
 export function NoteLinkView({ node }: NodeViewProps) {
   const { id, label } = node.attrs as { id: string; label: string };
   const notes         = useNoteStore((s) => s.notes);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
+  const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
 
   const note      = notes.find((n) => n.id === id);
   const liveTitle = note?.title ?? label;
@@ -19,7 +21,6 @@ export function NoteLinkView({ node }: NodeViewProps) {
   const leaveTimer              = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pillRef                 = useRef<HTMLSpanElement>(null);
 
-  // Shared enter logic — cancels any pending leave, schedules show
   const handleEnter = useCallback(() => {
     if (!exists) return;
     if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; }
@@ -31,7 +32,6 @@ export function NoteLinkView({ node }: NodeViewProps) {
     }
   }, [exists, preview]);
 
-  // Shared leave logic — cancels any pending show, schedules hide
   const handleLeave = useCallback(() => {
     if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
     leaveTimer.current = setTimeout(() => setPreview(null), 150);
@@ -39,7 +39,10 @@ export function NoteLinkView({ node }: NodeViewProps) {
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault(); e.stopPropagation();
-    if (exists) setActiveNote(id);
+    if (exists) {
+      setPendingScrollHeading(null); // plain click goes to top, no scroll target
+      setActiveNote(id);
+    }
   }
 
   return (
@@ -65,6 +68,7 @@ export function NoteLinkView({ node }: NodeViewProps) {
 
       {preview && note && (
         <NoteLinkPreview
+          noteId={id}
           title={liveTitle}
           content={note.content ?? null}
           plaintext={note.plaintext ?? null}

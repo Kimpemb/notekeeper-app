@@ -141,15 +141,57 @@ function extractNoteLinkIds(editor: ReturnType<typeof useEditor>): string[] {
   return [...new Set(ids)];
 }
 
+// Reused from OutlinePanel — scroll editor to a heading by text
+function getScrollContainer(editor: ReturnType<typeof useEditor>): HTMLElement | null {
+  if (!editor) return null;
+  let el: HTMLElement | null = editor.view.dom as HTMLElement;
+  while (el) {
+    const overflow = window.getComputedStyle(el).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && el.scrollHeight > el.clientHeight) {
+      return el;
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
+function scrollToHeadingText(editor: ReturnType<typeof useEditor>, headingText: string): boolean {
+  if (!editor) return false;
+  let targetPos: number | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (targetPos !== null) return false;
+    if (node.type.name === "heading" && node.textContent.trim() === headingText.trim()) {
+      targetPos = pos;
+    }
+  });
+  if (targetPos === null) return false;
+
+  editor.commands.setTextSelection(targetPos + 1);
+  const domNode = editor.view.nodeDOM(targetPos);
+  const el = domNode instanceof HTMLElement ? domNode : (domNode as Node)?.parentElement;
+  if (!el) return false;
+
+  const scrollContainer = getScrollContainer(editor);
+  if (!scrollContainer) return false;
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const targetScrollTop = scrollContainer.scrollTop + (elRect.top - containerRect.top) - 80;
+  scrollContainer.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+  return true;
+}
+
 export function Editor() {
-  const activeNote         = useNoteStore((s) => s.activeNote());
-  const updateNote         = useNoteStore((s) => s.updateNote);
-  const setActiveNote      = useNoteStore((s) => s.setActiveNote);
-  const versionHistoryOpen = useUIStore((s) => s.versionHistoryOpen);
-  const backlinksOpen      = useUIStore((s) => s.backlinksOpen);
-  const toggleBacklinks    = useUIStore((s) => s.toggleBacklinks);
-  const outlineOpen        = useUIStore((s) => s.outlineOpen);
-  const toggleOutline      = useUIStore((s) => s.toggleOutline);
+  const activeNote              = useNoteStore((s) => s.activeNote());
+  const updateNote              = useNoteStore((s) => s.updateNote);
+  const setActiveNote           = useNoteStore((s) => s.setActiveNote);
+  const versionHistoryOpen      = useUIStore((s) => s.versionHistoryOpen);
+  const backlinksOpen           = useUIStore((s) => s.backlinksOpen);
+  const toggleBacklinks         = useUIStore((s) => s.toggleBacklinks);
+  const outlineOpen             = useUIStore((s) => s.outlineOpen);
+  const toggleOutline           = useUIStore((s) => s.toggleOutline);
+  const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
+  const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
 
   const titleRef         = useRef<HTMLHeadingElement>(null);
   const lastSavedContent = useRef<string | null>(null);
@@ -265,7 +307,7 @@ export function Editor() {
     setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null;
   }
 
-  // ── Note switch: load content + reset history via key prop ───────────────
+  // ── Note switch: load content ─────────────────────────────────────────────
   useEffect(() => {
     if (!editor || !activeNote) return;
     const incoming = activeNote.content;
@@ -278,6 +320,17 @@ export function Editor() {
       titleRef.current.textContent = isUntitled ? "" : activeNote.title;
     }
   }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Pending scroll: execute after note content loads ─────────────────────
+  useEffect(() => {
+    if (!editor || !activeNote || !pendingScrollHeading) return;
+    // Use a short delay to ensure the editor DOM has fully rendered the new content
+    const timer = setTimeout(() => {
+      const success = scrollToHeadingText(editor, pendingScrollHeading);
+      if (success) setPendingScrollHeading(null);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [activeNote?.id, pendingScrollHeading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── External content update (e.g. version restore) ───────────────────────
   useEffect(() => {
@@ -404,8 +457,6 @@ export function Editor() {
 
         {/* Top-right panel toggles */}
         <div className="absolute top-13 right-3 z-30 flex items-center gap-1.5">
-
-          {/* Outline toggle */}
           <button
             onClick={toggleOutline}
             title="Toggle outline (Ctrl+Shift+O)"
@@ -421,7 +472,6 @@ export function Editor() {
             Outline
           </button>
 
-          {/* Backlinks toggle — modernized pill button */}
           <button
             onClick={toggleBacklinks}
             title="Toggle backlinks (Ctrl+Shift+B)"
