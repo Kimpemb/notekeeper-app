@@ -456,7 +456,7 @@ export function Editor() {
         )}
 
         {/* Top-right panel toggles */}
-        <div className="absolute top-13 right-3 z-30 flex items-center gap-1.5">
+        <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
           <button
             onClick={toggleOutline}
             title="Toggle outline (Ctrl+Shift+O)"

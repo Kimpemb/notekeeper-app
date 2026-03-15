@@ -135,7 +135,7 @@ export function BacklinksPanel({ noteId }: Props) {
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto pt-6">
         {loading ? (
           <div className="flex items-center justify-center h-32">
             <span className="text-xs text-zinc-400 animate-pulse">Loading…</span>
@@ -292,7 +292,7 @@ function UnlinkedMentionCard({
       </button>
 
       {/* Snippet with highlighted mention */}
-      <p className="px-3 pb-2 text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed line-clamp-2">
+      <p className="px-3 pb-2 text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed overflow-y-auto max-h-16">
         {highlightMention(mention.snippet, targetTitle)}
       </p>
 
