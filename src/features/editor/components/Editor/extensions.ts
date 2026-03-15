@@ -33,6 +33,44 @@ export const CheckItem = TaskItem.configure({
   HTMLAttributes: { class: "task-item" },
 });
 
+// ── Exit task list on Enter (empty item) or Backspace (start of item) ─────────
+export const TaskItemExitExtension = Extension.create({
+  name: "taskItemExit",
+  addKeyboardShortcuts() {
+    return {
+      // Enter on an empty task item → lift out to paragraph
+      Enter: ({ editor }) => {
+        const { $from, empty } = editor.state.selection;
+        if (!empty) return false;
+        if ($from.parent.type.name !== "paragraph") return false;
+        if ($from.parent.content.size !== 0) return false;
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "taskItem") {
+            return editor.chain().focus().liftListItem("taskItem").run();
+          }
+          depth--;
+        }
+        return false;
+      },
+      // Backspace at the very start of a task item → lift out to paragraph
+      Backspace: ({ editor }) => {
+        const { $from, empty } = editor.state.selection;
+        if (!empty || $from.parentOffset !== 0) return false;
+        if ($from.parent.type.name !== "paragraph") return false;
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "taskItem") {
+            return editor.chain().focus().liftListItem("taskItem").run();
+          }
+          depth--;
+        }
+        return false;
+      },
+    };
+  },
+});
+
 // ── Empty-line "Press '/' for commands" hint ──────────────────────────────────
 const emptyLinePlaceholderKey = new PluginKey<DecorationSet>("emptyLinePlaceholder");
 
