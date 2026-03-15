@@ -101,6 +101,29 @@ export const Callout = Node.create({
 
   addKeyboardShortcuts() {
     return {
+      // Ctrl+A inside callout — select only text content, not the node structure
+      "Mod-a": ({ editor }) => {
+        const { $from } = editor.state.selection;
+        let depth = $from.depth;
+        while (depth > 0) {
+          const node = $from.node(depth);
+          if (node.type.name === "callout") {
+            const pos = $from.before(depth);
+            // Find the first and last text positions inside the callout
+            // by walking into the first and last block children
+            let from = pos + 2; // pos+1 = callout open, pos+2 = first child open
+            let to   = pos + node.nodeSize - 2; // skip callout close and last child close
+            // Clamp to actual content boundaries
+            const docSize = editor.state.doc.content.size;
+            from = Math.max(1, Math.min(from, docSize));
+            to   = Math.max(from, Math.min(to, docSize));
+            editor.commands.setTextSelection({ from, to });
+            return true;
+          }
+          depth--;
+        }
+        return false;
+      },
       // Enter on empty callout paragraph → exit below as paragraph
       Enter: ({ editor }) => {
         const { $from, empty } = editor.state.selection;

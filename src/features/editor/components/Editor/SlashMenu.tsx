@@ -25,64 +25,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
   const [selected, setSelected] = useState(0);
 
   const commands: Command[] = [
-    {
-      id: "callout-info",
-      label: "Info Callout",
-      description: "Blue info callout block — callout, info, note",
-      icon: <span className="text-base">💡</span>,
-      action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "info" },
-        content: [{ type: "paragraph" }],
-      }).run(),
-    },
-    {
-      id: "callout-warning",
-      label: "Warning Callout",
-      description: "Amber warning callout block — warning, caution",
-      icon: <span className="text-base">⚠️</span>,
-      action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "warning" },
-        content: [{ type: "paragraph" }],
-      }).run(),
-    },
-    {
-      id: "callout-tip",
-      label: "Tip Callout",
-      description: "Green tip callout block — tip, success",
-      icon: <span className="text-base">✅</span>,
-      action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "tip" },
-        content: [{ type: "paragraph" }],
-      }).run(),
-    },
-    {
-      id: "callout-danger",
-      label: "Danger Callout",
-      description: "Red danger callout block — danger, error",
-      icon: <span className="text-base">🚨</span>,
-      action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "danger" },
-        content: [{ type: "paragraph" }],
-      }).run(),
-    },
-    {
-      id: "todo",
-      label: "To-do List",
-      description: "Checklist with checkboxes — todo, task",
-      icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
-          <rect x="1" y="1.5" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
-          <path d="M1.75 3.25l0.9 0.9 1.35-1.35" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-          <rect x="1" y="7" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
-          <path d="M6.5 3.25h4M6.5 8.75h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-        </svg>
-      ),
-      action: () => editor.chain().focus().toggleTaskList().run(),
-    },
+    // ── Text structure ──────────────────────────────────────────────────────
     {
       id: "h1",
       label: "Heading 1",
@@ -104,6 +47,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
       icon: <span className="font-bold text-base">H3</span>,
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
     },
+    // ── Lists ───────────────────────────────────────────────────────────────
     {
       id: "bullet",
       label: "Bullet List",
@@ -132,16 +76,30 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
       action: () => editor.chain().focus().toggleOrderedList().run(),
     },
     {
-      id: "blockquote",
-      label: "Blockquote",
-      description: "Highlighted quote or callout",
+      id: "todo",
+      label: "To-do List",
+      description: "Checklist with checkboxes — todo, task",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
-          <path d="M2 3h2v3H2V3zm4 0h2v3H6V3zM4 6c0 1-.9 2-2 2M8 6c0 1-.9 2-2 2"
-            stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          <rect x="1" y="1.5" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M1.75 3.25l0.9 0.9 1.35-1.35" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+          <rect x="1" y="7" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M6.5 3.25h4M6.5 8.75h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
         </svg>
       ),
-      action: () => editor.chain().focus().toggleBlockquote().run(),
+      action: () => editor.chain().focus().toggleTaskList().run(),
+    },
+    // ── Blocks ──────────────────────────────────────────────────────────────
+    {
+      id: "divider",
+      label: "Divider",
+      description: "Horizontal rule",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+          <path d="M1 6h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+        </svg>
+      ),
+      action: () => editor.chain().focus().setHorizontalRule().run(),
     },
     {
       id: "code",
@@ -157,15 +115,83 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
       action: () => editor.chain().focus().toggleCodeBlock().run(),
     },
     {
-      id: "divider",
-      label: "Divider",
-      description: "Horizontal rule",
+      id: "blockquote",
+      label: "Blockquote",
+      description: "Highlighted quote",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
-          <path d="M1 6h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          <path d="M2 3h2v3H2V3zm4 0h2v3H6V3zM4 6c0 1-.9 2-2 2M8 6c0 1-.9 2-2 2"
+            stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       ),
-      action: () => editor.chain().focus().setHorizontalRule().run(),
+      action: () => editor.chain().focus().toggleBlockquote().run(),
+    },
+    // ── Callouts ────────────────────────────────────────────────────────────
+    {
+      id: "callout-info",
+      label: "Info Callout",
+      description: "Blue info callout block — callout, info, note",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-blue-500">
+          <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
+          <path d="M8 7v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <circle cx="8" cy="5" r="0.75" fill="currentColor"/>
+        </svg>
+      ),
+      action: () => editor.chain().focus().insertContent({
+        type: "callout",
+        attrs: { type: "info" },
+        content: [{ type: "paragraph" }],
+      }).run(),
+    },
+    {
+      id: "callout-warning",
+      label: "Warning Callout",
+      description: "Amber warning callout block — warning, caution",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-amber-500">
+          <path d="M8 2.5L14 13H2L8 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+          <path d="M8 7v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <circle cx="8" cy="11.5" r="0.75" fill="currentColor"/>
+        </svg>
+      ),
+      action: () => editor.chain().focus().insertContent({
+        type: "callout",
+        attrs: { type: "warning" },
+        content: [{ type: "paragraph" }],
+      }).run(),
+    },
+    {
+      id: "callout-tip",
+      label: "Tip Callout",
+      description: "Green tip callout block — tip, success",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-green-500">
+          <path d="M8 2a4.5 4.5 0 0 1 2.5 8.2V11.5a.5.5 0 0 1-.5.5h-4a.5.5 0 0 1-.5-.5v-1.3A4.5 4.5 0 0 1 8 2Z" stroke="currentColor" strokeWidth="1.4"/>
+          <path d="M6 13.5h4M7 15h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+        </svg>
+      ),
+      action: () => editor.chain().focus().insertContent({
+        type: "callout",
+        attrs: { type: "tip" },
+        content: [{ type: "paragraph" }],
+      }).run(),
+    },
+    {
+      id: "callout-danger",
+      label: "Danger Callout",
+      description: "Red danger callout block — danger, error",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-red-500">
+          <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
+          <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      ),
+      action: () => editor.chain().focus().insertContent({
+        type: "callout",
+        attrs: { type: "danger" },
+        content: [{ type: "paragraph" }],
+      }).run(),
     },
   ];
 
