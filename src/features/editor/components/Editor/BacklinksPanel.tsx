@@ -14,7 +14,8 @@ import type { Note } from "@/types";
 
 interface Props { noteId: string; }
 
-// Extract all noteLink IDs from a TipTap JSON doc
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function extractNoteLinkIds(content: string): string[] {
   try {
     const doc = JSON.parse(content);
@@ -31,6 +32,26 @@ function extractNoteLinkIds(content: string): string[] {
     return [];
   }
 }
+
+function highlightMention(snippet: string, targetTitle: string): React.ReactNode {
+  const escapedTitle = targetTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escapedTitle})`, "gi");
+  const parts = snippet.split(regex);
+  return parts.map((part, i) =>
+    regex.test(part) ? (
+      <mark
+        key={i}
+        className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded px-0.5 not-italic font-medium"
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function BacklinksPanel({ noteId }: Props) {
   const [backlinks, setBacklinks] = useState<Note[]>([]);
@@ -67,21 +88,13 @@ export function BacklinksPanel({ noteId }: Props) {
     if (!activeNote) return;
     setLinking(mention.note.id);
     try {
-      // 1. Replace first plain-text occurrence with a noteLink node in the DB
       await linkFirstMention(mention.note.id, noteId, activeNote.title);
-
-      // 2. Read the updated note from DB and sync its backlinks table immediately
-      //    so getUnlinkedMentions excludes it on the next load()
       const updated = await getNoteById(mention.note.id);
       if (updated?.content) {
         const ids = extractNoteLinkIds(updated.content);
         await syncBacklinks(mention.note.id, ids);
       }
-
-      // 3. Refresh the note in the Zustand store so if it's open it re-renders
       await refreshNote(mention.note.id);
-
-      // 4. Reload both sections
       await load();
     } catch (err) {
       console.error(err);
@@ -173,6 +186,7 @@ export function BacklinksPanel({ noteId }: Props) {
                     <UnlinkedMentionCard
                       key={mention.note.id}
                       mention={mention}
+                      targetTitle={activeNote?.title ?? ""}
                       linking={linking === mention.note.id}
                       onNavigate={() => setActiveNote(mention.note.id)}
                       onLinkIt={() => handleLinkIt(mention)}
@@ -240,11 +254,13 @@ function BacklinkCard({ note, onNavigate }: { note: Note; onNavigate: () => void
 
 function UnlinkedMentionCard({
   mention,
+  targetTitle,
   linking,
   onNavigate,
   onLinkIt,
 }: {
   mention: UnlinkedMention;
+  targetTitle: string;
   linking: boolean;
   onNavigate: () => void;
   onLinkIt: () => void;
@@ -275,9 +291,9 @@ function UnlinkedMentionCard({
         )}
       </button>
 
-      {/* Snippet */}
+      {/* Snippet with highlighted mention */}
       <p className="px-3 pb-2 text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed line-clamp-2">
-        {mention.snippet}
+        {highlightMention(mention.snippet, targetTitle)}
       </p>
 
       {/* Link it button */}
