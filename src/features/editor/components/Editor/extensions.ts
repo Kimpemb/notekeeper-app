@@ -376,17 +376,17 @@ export const ToggleKeyboardExtension = Extension.create({
             const toggleNode = $from.node(depth - 1);
             if (!toggleNode || toggleNode.type.name !== "toggle") return false;
 
-            const togglePos         = $from.before(depth - 1);
-            // togglePos + 1 = toggleSummary open token
-            // togglePos + 2 = first content pos inside summary
-            const summaryContentPos = togglePos + 2;
+            const togglePos   = $from.before(depth - 1);
+            const summaryNode = toggleNode.child(0);
+            // End of summary = togglePos + 1 (toggle open) + summaryNode.nodeSize - 1 (before summary close)
+            const summaryEndPos = togglePos + 1 + summaryNode.nodeSize - 1;
 
             return editor
               .chain().focus()
               .command(({ tr, state, dispatch }) => {
                 if (dispatch) {
                   const resolved = state.doc.resolve(
-                    Math.min(summaryContentPos, state.doc.content.size)
+                    Math.min(summaryEndPos, state.doc.content.size)
                   );
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   tr.setSelection((state.selection as any).constructor.near(resolved));
