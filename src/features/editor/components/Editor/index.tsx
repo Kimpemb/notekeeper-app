@@ -5,6 +5,8 @@ import StarterKit from "@tiptap/starter-kit";
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { DecorationSet, Decoration } from "@tiptap/pm/view";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { common, createLowlight } from "lowlight";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAutoSave } from "@/features/editor/hooks/useAutoSave";
@@ -17,6 +19,9 @@ import { StatusBar } from "./StatusBar";
 import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
 import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
+
+// ── Lowlight instance with common languages ───────────────────────────────────
+const lowlight = createLowlight(common);
 
 interface BubblePos { top: number; left: number; }
 
@@ -119,6 +124,35 @@ const OrderedListBackspaceExtension = Extension.create({
   },
 });
 
+// ── Ctrl+A inside code block selects only block content ───────────────────────
+const CodeBlockSelectAllExtension = Extension.create({
+  name: "codeBlockSelectAll",
+  addKeyboardShortcuts() {
+    return {
+      "Mod-a": ({ editor }) => {
+        const { state } = editor;
+        const { $from } = state.selection;
+        // Walk up to find if we're inside a codeBlock
+        let depth = $from.depth;
+        while (depth > 0) {
+          const node = $from.node(depth);
+          if (node.type.name === "codeBlock") {
+            const pos = $from.before(depth);
+            // Select all content inside the code block
+            editor.commands.setTextSelection({
+              from: pos + 1,
+              to: pos + node.nodeSize - 1,
+            });
+            return true;
+          }
+          depth--;
+        }
+        return false; // fall through to default Ctrl+A
+      },
+    };
+  },
+});
+
 function createFindReplaceShortcutExtension(onOpen: () => void) {
   return Extension.create({
     name: "findReplaceShortcut",
@@ -141,7 +175,6 @@ function extractNoteLinkIds(editor: ReturnType<typeof useEditor>): string[] {
   return [...new Set(ids)];
 }
 
-// Reused from OutlinePanel — scroll editor to a heading by text
 function getScrollContainer(editor: ReturnType<typeof useEditor>): HTMLElement | null {
   if (!editor) return null;
   let el: HTMLElement | null = editor.view.dom as HTMLElement;
@@ -218,7 +251,19 @@ export function Editor() {
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        // Disable StarterKit's built-in codeBlock — we use CodeBlockLowlight instead
+        codeBlock: false,
+      }),
+      // Syntax-highlighted code blocks
+      CodeBlockLowlight.configure({
+        lowlight,
+        defaultLanguage: null, // auto-detect
+        HTMLAttributes: {
+          class: "hljs",
+        },
+      }),
+      CodeBlockSelectAllExtension,
       SlashPlaceholderExtension,
       EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
@@ -324,7 +369,6 @@ export function Editor() {
   // ── Pending scroll: execute after note content loads ─────────────────────
   useEffect(() => {
     if (!editor || !activeNote || !pendingScrollHeading) return;
-    // Use a short delay to ensure the editor DOM has fully rendered the new content
     const timer = setTimeout(() => {
       const success = scrollToHeadingText(editor, pendingScrollHeading);
       if (success) setPendingScrollHeading(null);
