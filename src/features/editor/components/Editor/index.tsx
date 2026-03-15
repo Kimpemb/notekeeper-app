@@ -15,6 +15,7 @@ import { StatusBar } from "./StatusBar";
 import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
 import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
+import { TableToolbar } from "./TableToolbar";
 import {
   CodeBlock,
   Callout,
@@ -23,6 +24,10 @@ import {
   Toggle,
   ToggleSummary,
   ToggleBody,
+  EditorTable,
+  TableRow,
+  TableHeader,
+  TableCell,
   TaskItemExitExtension,
   ToggleKeyboardExtension,
   EmptyLinePlaceholderExtension,
@@ -81,14 +86,16 @@ export function Editor() {
       Callout,
       CheckList,
       CheckItem,
+      // Table — registered before toggle nodes to avoid any schema ordering issues
+      EditorTable,
+      TableRow,
+      TableHeader,
+      TableCell,
       // Toggle nodes — ToggleSummary and ToggleBody must be registered before Toggle
-      // so the schema knows their node types when Toggle's content spec is validated.
       ToggleSummary,
       ToggleBody,
       Toggle,
-      // Keyboard handlers — order matters: more specific handlers first.
-      // TaskItemExitExtension and ToggleKeyboardExtension both handle Enter/Backspace
-      // but guard on different node types, so order is a safety measure only.
+      // Keyboard handlers
       TaskItemExitExtension,
       ToggleKeyboardExtension,
       CodeBlockSelectAllExtension,
@@ -406,6 +413,9 @@ export function Editor() {
 
       {outlineOpen   && editor && <OutlinePanel editor={editor} />}
       {backlinksOpen && <BacklinksPanel noteId={activeNote.id} />}
+
+      {/* Table toolbar — floats above the active table */}
+      {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (
         <SlashMenu position={slashPos} editor={editor} query={slashQuery} onCommand={handleSlashCommand} onClose={closeSlashMenu} />

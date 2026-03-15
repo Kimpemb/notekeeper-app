@@ -25,7 +25,6 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
   const [selected, setSelected] = useState(0);
 
   // Detect if cursor is inside a toggleBody — if so, hide the toggle command
-  // to prevent nested toggles which are not supported.
   const insideToggleBody = (() => {
     const { $from } = editor.state.selection;
     for (let d = $from.depth; d > 0; d--) {
@@ -125,15 +124,27 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
           .insertContent({
             type: "toggle",
             attrs: { open: false },
-            content: [
-              {
-                type: "toggleSummary",
-                content: [],
-              },
-            ],
+            content: [{ type: "toggleSummary", content: [] }],
           })
           .run(),
     }] as Command[] : []),
+    {
+      id: "table",
+      label: "Table",
+      description: "Insert a table — table, grid",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+          <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M1 4.5h10M1 7.5h10M4.5 1v10" stroke="currentColor" strokeWidth="1.1"/>
+        </svg>
+      ),
+      action: () =>
+        editor
+          .chain()
+          .focus()
+          .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+          .run(),
+    },
     {
       id: "divider",
       label: "Divider",
@@ -183,9 +194,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "info" },
-        content: [{ type: "paragraph" }],
+        type: "callout", attrs: { type: "info" }, content: [{ type: "paragraph" }],
       }).run(),
     },
     {
@@ -200,9 +209,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "warning" },
-        content: [{ type: "paragraph" }],
+        type: "callout", attrs: { type: "warning" }, content: [{ type: "paragraph" }],
       }).run(),
     },
     {
@@ -216,9 +223,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "tip" },
-        content: [{ type: "paragraph" }],
+        type: "callout", attrs: { type: "tip" }, content: [{ type: "paragraph" }],
       }).run(),
     },
     {
@@ -232,9 +237,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "danger" },
-        content: [{ type: "paragraph" }],
+        type: "callout", attrs: { type: "danger" }, content: [{ type: "paragraph" }],
       }).run(),
     },
   ];

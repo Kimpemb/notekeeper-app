@@ -7,6 +7,10 @@ import { ReactNodeViewRenderer } from "@tiptap/react";
 import { common, createLowlight } from "lowlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableCell } from "@tiptap/extension-table-cell";
 import { CodeBlockNodeView } from "./CodeBlockNodeView";
 import { CalloutNodeView } from "./CalloutNodeView";
 import {
@@ -39,6 +43,14 @@ export const CheckItem = TaskItem.configure({
   nested: true,
   HTMLAttributes: { class: "task-item" },
 });
+
+// ── Table ─────────────────────────────────────────────────────────────────────
+export const EditorTable = Table.configure({
+  resizable: true,
+  HTMLAttributes: { class: "editor-table" },
+});
+
+export { TableRow, TableHeader, TableCell };
 
 // ── Exit task list on Enter (empty item) or Backspace (start of item) ─────────
 export const TaskItemExitExtension = Extension.create({
@@ -181,15 +193,6 @@ export const Callout = Node.create({
 });
 
 // ── Toggle nodes ──────────────────────────────────────────────────────────────
-//
-// `open` lives on toggle (source of truth) and is mirrored onto toggleSummary
-// so ToggleSummaryNodeView re-renders when it changes (needed if summary
-// ever needs to read open state directly).
-//
-// ToggleBody does NOT use display:none — body is always in the DOM.
-// Show/hide is handled by CSS: .toggle-closed .toggle-body { height:0; visibility:hidden }
-// This keeps ProseMirror's view intact and prevents content corruption.
-
 export const ToggleSummary = Node.create({
   name: "toggleSummary",
   content: "inline*",
@@ -221,7 +224,6 @@ export const ToggleBody = Node.create({
   defining: true,
   isolating: false,
 
-  // No open attr needed — visibility is CSS-driven from parent .toggle-closed class
   parseHTML() { return [{ tag: "div[data-toggle-body]" }]; },
   renderHTML({ HTMLAttributes }) {
     return ["div", { "data-toggle-body": "", ...HTMLAttributes }, 0];
@@ -262,14 +264,10 @@ export const ToggleKeyboardExtension = Extension.create({
 
   addKeyboardShortcuts() {
     return {
-      // ── Enter ─────────────────────────────────────────────────────────────
       Enter: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty) return false;
 
-        // In toggleSummary:
-        //   if toggle is OPEN  → move cursor into the body (or open it first)
-        //   if toggle is CLOSED → insert new closed toggle after this one
         let depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "toggleSummary") {
@@ -280,7 +278,6 @@ export const ToggleKeyboardExtension = Extension.create({
             const isOpen    = toggleNode.attrs.open ?? false;
 
             if (isOpen) {
-              // Toggle is open — move cursor into body, creating it if needed
               const hasBody = toggleNode.childCount > 1;
               if (hasBody) {
                 const summaryNode = toggleNode.child(0);
@@ -298,12 +295,10 @@ export const ToggleKeyboardExtension = Extension.create({
                   })
                   .run();
               } else {
-                // Open but no body yet — create it
                 toggleOpenState(editor, togglePos);
                 return true;
               }
             } else {
-              // Toggle is closed — insert new closed toggle after this one
               const afterPos = togglePos + toggleNode.nodeSize;
               return editor
                 .chain().focus()
@@ -328,12 +323,10 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
-      // ── Backspace ─────────────────────────────────────────────────────────
       Backspace: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty || $from.parentOffset !== 0) return false;
 
-        // Empty toggleSummary → replace entire toggle with empty paragraph
         let depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "toggleSummary") {
@@ -362,7 +355,6 @@ export const ToggleKeyboardExtension = Extension.create({
           depth--;
         }
 
-        // First empty paragraph in toggleBody → move cursor back to summary
         depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "toggleBody") {
@@ -397,7 +389,6 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
-      // ── Ctrl+Enter: open/close toggle from title, cursor stays on title ───
       "Mod-Enter": ({ editor }) => {
         const { $from } = editor.state.selection;
         let depth = $from.depth;
@@ -440,7 +431,6 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
-      // ── Mod-a: select within current toggle section ───────────────────────
       "Mod-a": ({ editor }) => {
         const { $from } = editor.state.selection;
 
