@@ -268,11 +268,31 @@ export const SlashPlaceholderExtension = Extension.create({
   },
 });
 
-// ── Backspace to lift list item out of ordered list ───────────────────────────
+// ── Exit ordered and bullet lists on Enter (empty item) or Backspace ─────────
 export const OrderedListBackspaceExtension = Extension.create({
   name: "orderedListBackspace",
   addKeyboardShortcuts() {
     return {
+      // Enter on empty list item → lift out to paragraph
+      Enter: ({ editor }) => {
+        const { $from, empty } = editor.state.selection;
+        if (!empty) return false;
+        if ($from.parent.type.name !== "paragraph") return false;
+        if ($from.parent.content.size !== 0) return false;
+        let depth = $from.depth;
+        while (depth > 0) {
+          const node = $from.node(depth);
+          if (node.type.name === "listItem") {
+            const parent = $from.node(depth - 1);
+            if (parent.type.name === "orderedList" || parent.type.name === "bulletList") {
+              return editor.chain().focus().liftListItem("listItem").run();
+            }
+          }
+          depth--;
+        }
+        return false;
+      },
+      // Backspace at start of empty list item → lift out to paragraph
       Backspace: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty || $from.parentOffset !== 0) return false;
@@ -281,8 +301,11 @@ export const OrderedListBackspaceExtension = Extension.create({
         let depth = $from.depth;
         while (depth > 0) {
           const node = $from.node(depth);
-          if (node.type.name === "listItem" && $from.node(depth - 1).type.name === "orderedList") {
-            return editor.chain().focus().liftListItem("listItem").run();
+          if (node.type.name === "listItem") {
+            const parent = $from.node(depth - 1);
+            if (parent.type.name === "orderedList" || parent.type.name === "bulletList") {
+              return editor.chain().focus().liftListItem("listItem").run();
+            }
           }
           depth--;
         }

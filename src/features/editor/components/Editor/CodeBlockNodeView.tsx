@@ -106,12 +106,12 @@ export function CodeBlockNodeView({ node, updateAttributes, editor }: NodeViewPr
           ref={dropdownRef}
           className="code-block-lang-dropdown"
           style={dropdownStyle}
-          onMouseDown={(e) => e.preventDefault()}
         >
           {SUPPORTED_LANGUAGES.map((l) => (
             <button
               key={l.value}
               className={`code-block-lang-option${l.value === (language ?? "") ? " active" : ""}`}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => select(l.value)}
               tabIndex={-1}
             >
