@@ -24,6 +24,16 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
   const [selected, setSelected] = useState(0);
 
+  // Detect if cursor is inside a toggleBody — if so, hide the toggle command
+  // to prevent nested toggles which are not supported.
+  const insideToggleBody = (() => {
+    const { $from } = editor.state.selection;
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type.name === "toggleBody") return true;
+    }
+    return false;
+  })();
+
   const commands: Command[] = [
     // ── Text structure ──────────────────────────────────────────────────────
     {
@@ -90,7 +100,8 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
       action: () => editor.chain().focus().toggleTaskList().run(),
     },
     // ── Blocks ──────────────────────────────────────────────────────────────
-    {
+    // Toggle is excluded when cursor is inside a toggleBody (no nesting supported)
+    ...(!insideToggleBody ? [{
       id: "toggle",
       label: "Toggle",
       description: "Collapsible block — toggle, collapsible, expand, details",
@@ -107,8 +118,6 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
           <path d="M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
         </svg>
       ),
-      // Insert a closed toggle with an empty summary only — no body yet.
-      // Body is created on first open (click arrow or Ctrl+Enter).
       action: () =>
         editor
           .chain()
@@ -124,7 +133,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
             ],
           })
           .run(),
-    },
+    }] as Command[] : []),
     {
       id: "divider",
       label: "Divider",
