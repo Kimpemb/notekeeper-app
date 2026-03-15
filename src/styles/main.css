@@ -558,3 +558,130 @@ html, body { overscroll-behavior: none; }
 .dark .code-block-lang-option         { color: #c9d1d9; }
 .dark .code-block-lang-option:hover   { background: #21262d; }
 .dark .code-block-lang-option.active  { background: #1e3a5f; color: #79c0ff; }
+
+/* ─── Toggle blocks ───────────────────────────────────────────────────────── */
+/*
+  Layout goal:
+    [▶] Title text here          ← arrow + summary on same line
+        Body content here        ← body indented below, hidden when closed
+
+  NodeViewWrapper (.toggle-block) uses position:relative.
+  .toggle-header holds the arrow button, positioned absolute top-left.
+  .toggle-children (NodeViewContent) has padding-left to clear the arrow,
+  so summary text and body content both start to the right of the arrow.
+
+  Body is hidden via height:0 + overflow:hidden (NOT display:none).
+  display:none removes the ProseMirror node from the DOM view, corrupting
+  content. height:0 keeps the DOM node present and ProseMirror happy.
+*/
+
+.tiptap .toggle-block {
+  position: relative;
+  margin-bottom: 0.3rem;
+}
+
+/* Arrow container — absolutely positioned top-left */
+.tiptap .toggle-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1.4rem;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 0.18rem; /* align arrow with first text line */
+  pointer-events: none; /* let clicks through to button only */
+}
+
+/* Arrow button */
+.tiptap .toggle-arrow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 3px;
+  color: #9ca3af;
+  transition: color 100ms, background 100ms;
+  pointer-events: all;
+  flex-shrink: 0;
+}
+
+.tiptap .toggle-arrow-btn:hover {
+  color: #6b7280;
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.dark .tiptap .toggle-arrow-btn       { color: #52525b; }
+.dark .tiptap .toggle-arrow-btn:hover { color: #a1a1aa; background: rgba(255,255,255,0.06); }
+
+/* Arrow icon — rotates 90° when parent has .toggle-open */
+.tiptap .toggle-arrow-icon {
+  transition: transform 150ms ease;
+  transform: rotate(0deg);
+}
+.tiptap .toggle-open .toggle-arrow-icon {
+  transform: rotate(90deg);
+}
+
+/* NodeViewContent wrapper — left padding clears the arrow */
+.tiptap .toggle-children {
+  padding-left: 1.5rem;
+}
+
+/* ── Summary row ─────────────────────────────────────────────────────────── */
+/* NodeViewWrapper for toggleSummary */
+.tiptap .toggle-summary-row {
+  margin: 0;
+  min-height: 1.65em; /* match line-height so empty summary has height */
+}
+
+/* NodeViewContent inside summary — the editable title area */
+.tiptap .toggle-summary-content {
+  display: block;
+}
+
+.tiptap .toggle-summary-content p {
+  margin-bottom: 0;
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────── */
+/* NodeViewWrapper for toggleBody */
+.tiptap .toggle-body {
+  overflow: hidden;
+  /* Open state — full height, visible */
+}
+
+/* Closed state — collapse without display:none */
+.tiptap .toggle-closed .toggle-body {
+  height: 0;
+  visibility: hidden;
+}
+
+/* Open state — natural height */
+.tiptap .toggle-open .toggle-body {
+  height: auto;
+  visibility: visible;
+}
+
+/* Body content padding */
+.tiptap .toggle-body-content {
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+}
+
+.tiptap .toggle-body-content > p {
+  margin-bottom: 0.35rem;
+}
+
+.tiptap .toggle-body-content > p:last-child {
+  margin-bottom: 0;
+}
+
+/* Nested toggles inside body */
+.tiptap .toggle-body-content > .toggle-block {
+  margin-bottom: 0.2rem;
+}

@@ -20,7 +20,11 @@ import {
   Callout,
   CheckList,
   CheckItem,
+  Toggle,
+  ToggleSummary,
+  ToggleBody,
   TaskItemExitExtension,
+  ToggleKeyboardExtension,
   EmptyLinePlaceholderExtension,
   SlashPlaceholderExtension,
   OrderedListBackspaceExtension,
@@ -77,7 +81,16 @@ export function Editor() {
       Callout,
       CheckList,
       CheckItem,
+      // Toggle nodes — ToggleSummary and ToggleBody must be registered before Toggle
+      // so the schema knows their node types when Toggle's content spec is validated.
+      ToggleSummary,
+      ToggleBody,
+      Toggle,
+      // Keyboard handlers — order matters: more specific handlers first.
+      // TaskItemExitExtension and ToggleKeyboardExtension both handle Enter/Backspace
+      // but guard on different node types, so order is a safety measure only.
       TaskItemExitExtension,
+      ToggleKeyboardExtension,
       CodeBlockSelectAllExtension,
       SlashPlaceholderExtension,
       EmptyLinePlaceholderExtension,

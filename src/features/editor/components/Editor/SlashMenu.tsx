@@ -91,6 +91,41 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
     },
     // ── Blocks ──────────────────────────────────────────────────────────────
     {
+      id: "toggle",
+      label: "Toggle",
+      description: "Collapsible block — toggle, collapsible, expand, details",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+          <path
+            d="M3 4l3 3 3-3"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+        </svg>
+      ),
+      // Insert a closed toggle with an empty summary only — no body yet.
+      // Body is created on first open (click arrow or Ctrl+Enter).
+      action: () =>
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: "toggle",
+            attrs: { open: false },
+            content: [
+              {
+                type: "toggleSummary",
+                content: [],
+              },
+            ],
+          })
+          .run(),
+    },
+    {
       id: "divider",
       label: "Divider",
       description: "Horizontal rule",

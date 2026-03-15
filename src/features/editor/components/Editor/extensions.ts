@@ -9,6 +9,12 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { CodeBlockNodeView } from "./CodeBlockNodeView";
 import { CalloutNodeView } from "./CalloutNodeView";
+import {
+  ToggleNodeView,
+  ToggleSummaryNodeView,
+  ToggleBodyNodeView,
+  toggleOpenState,
+} from "./ToggleNodeView";
 
 // ── Lowlight instance ─────────────────────────────────────────────────────────
 export const lowlight = createLowlight(common);
@@ -87,21 +93,16 @@ export const Callout = Node.create({
     };
   },
 
-  parseHTML() {
-    return [{ tag: "div[data-callout]" }];
-  },
-
+  parseHTML() { return [{ tag: "div[data-callout]" }]; },
   renderHTML({ HTMLAttributes }) {
     return ["div", { "data-callout": "", ...HTMLAttributes }, 0];
   },
-
   addNodeView() {
     return ReactNodeViewRenderer(CalloutNodeView);
   },
 
   addKeyboardShortcuts() {
     return {
-      // Ctrl+A inside callout — select only text content, not the node structure
       "Mod-a": ({ editor }) => {
         const { $from } = editor.state.selection;
         let depth = $from.depth;
@@ -109,11 +110,8 @@ export const Callout = Node.create({
           const node = $from.node(depth);
           if (node.type.name === "callout") {
             const pos = $from.before(depth);
-            // Find the first and last text positions inside the callout
-            // by walking into the first and last block children
-            let from = pos + 2; // pos+1 = callout open, pos+2 = first child open
-            let to   = pos + node.nodeSize - 2; // skip callout close and last child close
-            // Clamp to actual content boundaries
+            let from = pos + 2;
+            let to   = pos + node.nodeSize - 2;
             const docSize = editor.state.doc.content.size;
             from = Math.max(1, Math.min(from, docSize));
             to   = Math.max(from, Math.min(to, docSize));
@@ -124,7 +122,6 @@ export const Callout = Node.create({
         }
         return false;
       },
-      // Enter on empty callout paragraph → exit below as paragraph
       Enter: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty) return false;
@@ -133,13 +130,11 @@ export const Callout = Node.create({
         let depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "callout") {
-            // Insert a paragraph after the callout node
             const calloutPos  = $from.before(depth);
             const calloutNode = $from.node(depth);
             const afterPos    = calloutPos + calloutNode.nodeSize;
             return editor
-              .chain()
-              .focus()
+              .chain().focus()
               .command(({ tr, dispatch }) => {
                 if (dispatch) {
                   const paragraph = editor.schema.nodes.paragraph.create();
@@ -157,7 +152,6 @@ export const Callout = Node.create({
         }
         return false;
       },
-      // Backspace at start of empty callout → remove the whole block
       Backspace: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty || $from.parentOffset !== 0) return false;
@@ -167,16 +161,12 @@ export const Callout = Node.create({
         while (depth > 0) {
           const node = $from.node(depth);
           if (node.type.name === "callout") {
-            // Only delete if it's the only/first paragraph in the callout
             if ($from.index(depth) === 0) {
               const pos = $from.before(depth);
               return editor
-                .chain()
-                .focus()
+                .chain().focus()
                 .command(({ tr, dispatch }) => {
-                  if (dispatch) {
-                    tr.delete(pos, pos + node.nodeSize);
-                  }
+                  if (dispatch) tr.delete(pos, pos + node.nodeSize);
                   return true;
                 })
                 .run();
@@ -184,6 +174,280 @@ export const Callout = Node.create({
           }
           depth--;
         }
+        return false;
+      },
+    };
+  },
+});
+
+// ── Toggle nodes ──────────────────────────────────────────────────────────────
+//
+// `open` lives on toggle (source of truth) and is mirrored onto toggleSummary
+// so ToggleSummaryNodeView re-renders when it changes (needed if summary
+// ever needs to read open state directly).
+//
+// ToggleBody does NOT use display:none — body is always in the DOM.
+// Show/hide is handled by CSS: .toggle-closed .toggle-body { height:0; visibility:hidden }
+// This keeps ProseMirror's view intact and prevents content corruption.
+
+export const ToggleSummary = Node.create({
+  name: "toggleSummary",
+  content: "inline*",
+  defining: true,
+  isolating: false,
+
+  addAttributes() {
+    return {
+      open: {
+        default: false,
+        parseHTML: (el) => el.getAttribute("data-open") === "true",
+        renderHTML: (attrs) => ({ "data-open": attrs.open ? "true" : "false" }),
+      },
+    };
+  },
+
+  parseHTML() { return [{ tag: "div[data-toggle-summary]" }]; },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", { "data-toggle-summary": "", ...HTMLAttributes }, 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ToggleSummaryNodeView);
+  },
+});
+
+export const ToggleBody = Node.create({
+  name: "toggleBody",
+  content: "block+",
+  defining: true,
+
+  // No open attr needed — visibility is CSS-driven from parent .toggle-closed class
+  parseHTML() { return [{ tag: "div[data-toggle-body]" }]; },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", { "data-toggle-body": "", ...HTMLAttributes }, 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ToggleBodyNodeView);
+  },
+});
+
+export const Toggle = Node.create({
+  name: "toggle",
+  group: "block",
+  content: "toggleSummary toggleBody?",
+  defining: true,
+
+  addAttributes() {
+    return {
+      open: {
+        default: false,
+        parseHTML: (el) => el.getAttribute("data-open") === "true",
+        renderHTML: (attrs) => ({ "data-open": attrs.open ? "true" : "false" }),
+      },
+    };
+  },
+
+  parseHTML() { return [{ tag: "div[data-toggle]" }]; },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", { "data-toggle": "", ...HTMLAttributes }, 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ToggleNodeView);
+  },
+});
+
+// ── Toggle keyboard extension ─────────────────────────────────────────────────
+export const ToggleKeyboardExtension = Extension.create({
+  name: "toggleKeyboard",
+
+  addKeyboardShortcuts() {
+    return {
+      // ── Enter ─────────────────────────────────────────────────────────────
+      Enter: ({ editor }) => {
+        const { $from, empty } = editor.state.selection;
+        if (!empty) return false;
+
+        // In toggleSummary → insert new closed toggle after this one
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "toggleSummary") {
+            const toggleNode = $from.node(depth - 1);
+            if (!toggleNode || toggleNode.type.name !== "toggle") return false;
+
+            const togglePos = $from.before(depth - 1);
+            const afterPos  = togglePos + toggleNode.nodeSize;
+
+            return editor
+              .chain().focus()
+              .command(({ tr, state, dispatch }) => {
+                if (dispatch) {
+                  const newSummary = state.schema.nodes.toggleSummary.create({ open: false });
+                  const newToggle  = state.schema.nodes.toggle.create({ open: false }, newSummary);
+                  tr.insert(afterPos, newToggle);
+                  // afterPos + 1 = toggleSummary open token
+                  // afterPos + 2 = first content pos inside summary
+                  const cursorPos = afterPos + 2;
+                  const resolved  = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size));
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  tr.setSelection((state.selection as any).constructor.near(resolved));
+                }
+                return true;
+              })
+              .run();
+          }
+          depth--;
+        }
+
+        // In toggleBody on empty last paragraph → exit below toggle
+        depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "toggleBody") {
+            if ($from.parent.type.name !== "paragraph") return false;
+            if ($from.parent.content.size !== 0) return false;
+
+            const toggleNode = $from.node(depth - 1);
+            if (!toggleNode || toggleNode.type.name !== "toggle") return false;
+
+            const togglePos = $from.before(depth - 1);
+            const afterPos  = togglePos + toggleNode.nodeSize;
+
+            return editor
+              .chain().focus()
+              .command(({ tr, state, dispatch }) => {
+                if (dispatch) {
+                  const paragraph = state.schema.nodes.paragraph.create();
+                  tr.insert(afterPos, paragraph);
+                  tr.setSelection(
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (state.selection as any).constructor.near(tr.doc.resolve(afterPos + 1))
+                  );
+                }
+                return true;
+              })
+              .run();
+          }
+          depth--;
+        }
+
+        return false;
+      },
+
+      // ── Backspace ─────────────────────────────────────────────────────────
+      Backspace: ({ editor }) => {
+        const { $from, empty } = editor.state.selection;
+        if (!empty || $from.parentOffset !== 0) return false;
+
+        // Empty toggleSummary → replace entire toggle with empty paragraph
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "toggleSummary") {
+            const summaryNode = $from.node(depth);
+            if (summaryNode.content.size !== 0) return false;
+
+            const toggleNode = $from.node(depth - 1);
+            if (!toggleNode || toggleNode.type.name !== "toggle") return false;
+
+            const togglePos = $from.before(depth - 1);
+
+            return editor
+              .chain().focus()
+              .command(({ tr, state, dispatch }) => {
+                if (dispatch) {
+                  const paragraph = state.schema.nodes.paragraph.create();
+                  tr.replaceWith(togglePos, togglePos + toggleNode.nodeSize, paragraph);
+                  const resolved = tr.doc.resolve(togglePos + 1);
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  tr.setSelection((state.selection as any).constructor.near(resolved));
+                }
+                return true;
+              })
+              .run();
+          }
+          depth--;
+        }
+
+        // First empty paragraph in toggleBody → move cursor back to summary
+        depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "toggleBody") {
+            if ($from.parent.type.name !== "paragraph") return false;
+            if ($from.parent.content.size !== 0) return false;
+            if ($from.index(depth) !== 0) return false;
+
+            const toggleNode = $from.node(depth - 1);
+            if (!toggleNode || toggleNode.type.name !== "toggle") return false;
+
+            const togglePos         = $from.before(depth - 1);
+            // togglePos + 1 = toggleSummary open token
+            // togglePos + 2 = first content pos inside summary
+            const summaryContentPos = togglePos + 2;
+
+            return editor
+              .chain().focus()
+              .command(({ tr, state, dispatch }) => {
+                if (dispatch) {
+                  const resolved = state.doc.resolve(
+                    Math.min(summaryContentPos, state.doc.content.size)
+                  );
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  tr.setSelection((state.selection as any).constructor.near(resolved));
+                }
+                return true;
+              })
+              .run();
+          }
+          depth--;
+        }
+
+        return false;
+      },
+
+      // ── Ctrl+Enter: toggle open/close ─────────────────────────────────────
+      "Mod-Enter": ({ editor }) => {
+        const { $from } = editor.state.selection;
+        let depth = $from.depth;
+        while (depth > 0) {
+          const node = $from.node(depth);
+          if (node.type.name === "toggleSummary" || node.type.name === "toggleBody") {
+            const toggleNode = $from.node(depth - 1);
+            if (!toggleNode || toggleNode.type.name !== "toggle") return false;
+            const togglePos = $from.before(depth - 1);
+            toggleOpenState(editor, togglePos);
+            return true;
+          }
+          depth--;
+        }
+        return false;
+      },
+
+      // ── Mod-a: select within current toggle section ───────────────────────
+      "Mod-a": ({ editor }) => {
+        const { $from } = editor.state.selection;
+
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "toggleSummary") {
+            const pos  = $from.before(depth);
+            const node = $from.node(depth);
+            editor.commands.setTextSelection({ from: pos + 1, to: pos + node.nodeSize - 1 });
+            return true;
+          }
+          depth--;
+        }
+
+        depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "toggleBody") {
+            const pos     = $from.before(depth);
+            const node    = $from.node(depth);
+            const docSize = editor.state.doc.content.size;
+            const from    = Math.max(1, Math.min(pos + 2, docSize));
+            const to      = Math.max(from, Math.min(pos + node.nodeSize - 2, docSize));
+            editor.commands.setTextSelection({ from, to });
+            return true;
+          }
+          depth--;
+        }
+
         return false;
       },
     };
@@ -273,7 +537,6 @@ export const OrderedListBackspaceExtension = Extension.create({
   name: "orderedListBackspace",
   addKeyboardShortcuts() {
     return {
-      // Enter on empty list item → lift out to paragraph
       Enter: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty) return false;
@@ -292,7 +555,6 @@ export const OrderedListBackspaceExtension = Extension.create({
         }
         return false;
       },
-      // Backspace at start of empty list item → lift out to paragraph
       Backspace: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty || $from.parentOffset !== 0) return false;
