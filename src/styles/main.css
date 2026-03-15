@@ -173,7 +173,7 @@ html, body { overscroll-behavior: none; }
   -webkit-appearance: none;
   width: 1rem;
   height: 1rem;
-  border-radius: 4px;
+  border-radius: 2px;
   border: 1.5px solid #d1d5db;
   background: #ffffff;
   cursor: pointer;
