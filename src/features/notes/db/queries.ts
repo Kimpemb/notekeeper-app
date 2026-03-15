@@ -21,13 +21,11 @@ export async function initDb(): Promise<void> {
     try {
       await db.execute(sql);
     } catch (err) {
-      // ALTER TABLE throws if column already exists — safe to ignore
       const msg = String(err);
       if (msg.includes("duplicate column name") || msg.includes("already exists")) continue;
       throw err;
     }
   }
-  // Auto-purge notes trashed more than 30 days ago on every startup
   await purgeTrashedNotes();
 }
 
@@ -35,7 +33,6 @@ export async function initDb(): Promise<void> {
 
 export async function getAllNotes(): Promise<Note[]> {
   const db = await getDb();
-  // Only return notes that are NOT in the trash
   return db.select<Note[]>(
     `SELECT * FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC`
   );
@@ -125,7 +122,6 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
   );
 }
 
-// Hard delete — used internally and for permanent deletion from trash
 export async function deleteNote(id: string): Promise<void> {
   const descendants = await getAllDescendants(id);
   const allIds = [...descendants.reverse(), id];
@@ -135,7 +131,6 @@ export async function deleteNote(id: string): Promise<void> {
   }
 }
 
-// Soft delete — moves note (and all descendants) to trash
 export async function trashNote(id: string): Promise<void> {
   const descendants = await getAllDescendants(id);
   const allIds = [id, ...descendants];
@@ -149,11 +144,8 @@ export async function trashNote(id: string): Promise<void> {
   }
 }
 
-// Restore a note from trash (restores only the note itself, not descendants —
-// descendants were trashed at the same time so they'll be visible in trash too)
 export async function restoreNote(id: string): Promise<void> {
   const db = await getDb();
-  // Restore the note and all its trashed descendants
   const descendants = await getAllDescendants(id);
   const allIds = [id, ...descendants];
   for (const noteId of allIds) {
@@ -164,12 +156,10 @@ export async function restoreNote(id: string): Promise<void> {
   }
 }
 
-// Permanently delete a trashed note and all its descendants
 export async function permanentlyDeleteNote(id: string): Promise<void> {
   await deleteNote(id);
 }
 
-// Get all notes in the trash
 export async function getTrashedNotes(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
@@ -177,13 +167,11 @@ export async function getTrashedNotes(): Promise<Note[]> {
   );
 }
 
-// Empty the entire trash (permanently delete all trashed notes)
 export async function emptyTrash(): Promise<void> {
   const db = await getDb();
   await db.execute(`DELETE FROM notes WHERE deleted_at IS NOT NULL`);
 }
 
-// Auto-purge notes trashed more than 30 days ago
 export async function purgeTrashedNotes(): Promise<void> {
   const db = await getDb();
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -327,6 +315,145 @@ export async function getAllBacklinks(): Promise<Backlink[]> {
   const db = await getDb();
   return db.select<Backlink[]>(`SELECT * FROM backlinks`);
 }
+
+// ─── Unlinked Mentions ────────────────────────────────────────────────────────
+
+export interface UnlinkedMention {
+  note: Note;
+  snippet: string; // text around the mention for context
+  occurrences: number; // total plain-text occurrences (not yet linked)
+}
+
+export async function getUnlinkedMentions(
+  targetId: string,
+  targetTitle: string
+): Promise<UnlinkedMention[]> {
+  if (!targetTitle.trim() || /^Untitled-\d+$/.test(targetTitle)) return [];
+
+  const db = await getDb();
+
+  // Get IDs of notes that already have a [[link]] to this note
+  const linked = await db.select<{ source_id: string }[]>(
+    `SELECT source_id FROM backlinks WHERE target_id = $1`,
+    [targetId]
+  );
+  const linkedIds = new Set(linked.map((r) => r.source_id));
+
+  // Get all non-trashed notes except the target itself
+  const allNotes = await db.select<Note[]>(
+    `SELECT * FROM notes WHERE deleted_at IS NULL AND id != $1`,
+    [targetId]
+  );
+
+  // Build a set of all other note titles for false-positive filtering
+  const otherTitles = allNotes
+    .filter((n) => n.id !== targetId)
+    .map((n) => n.title.toLowerCase());
+
+  const escapedTitle = targetTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(?<![\\w])${escapedTitle}(?![\\w])`, "gi");
+
+  const mentions: UnlinkedMention[] = [];
+
+  for (const note of allNotes) {
+    if (linkedIds.has(note.id)) continue;
+    const plaintext = note.plaintext ?? "";
+
+    // Find all matches and filter out those that are part of a longer note title
+    const rawMatches = [...plaintext.matchAll(new RegExp(regex.source, "gi"))];
+    const validMatches = rawMatches.filter((match) => {
+      const matchIndex = match.index ?? 0;
+      // Check if any other note title contains targetTitle and would match at this position
+      return !otherTitles.some((otherTitle) => {
+        if (!otherTitle.includes(targetTitle.toLowerCase())) return false;
+        const chunk = plaintext.slice(matchIndex, matchIndex + otherTitle.length).toLowerCase();
+        return chunk === otherTitle;
+      });
+    });
+
+    if (validMatches.length === 0) continue;
+
+    // Build snippet around first valid match
+    const idx = validMatches[0].index ?? 0;
+    const start = Math.max(0, idx - 60);
+    const end   = Math.min(plaintext.length, idx + targetTitle.length + 60);
+    let snippet = plaintext.slice(start, end).trim();
+    if (start > 0) snippet = "…" + snippet;
+    if (end < plaintext.length) snippet = snippet + "…";
+
+    mentions.push({ note, snippet, occurrences: validMatches.length });
+  }
+
+  return mentions.sort((a, b) => b.note.updated_at - a.note.updated_at);
+}
+
+// ─── Link first unlinked mention in a note's JSON content ────────────────────
+
+export async function linkFirstMention(
+  sourceNoteId: string,
+  targetId: string,
+  targetTitle: string
+): Promise<void> {
+  const note = await getNoteById(sourceNoteId);
+  if (!note || !note.content) return;
+
+  let doc: any;
+  try { doc = JSON.parse(note.content); } catch { return; }
+
+  const escapedTitle = targetTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(?<![\\w])${escapedTitle}(?![\\w])`);
+
+  let linked = false;
+
+  function walkAndLink(nodes: any[]): any[] {
+    if (linked) return nodes;
+    return nodes.map((node) => {
+      if (linked) return node;
+
+      // Recurse into block nodes
+      if (node.content && Array.isArray(node.content)) {
+        return { ...node, content: walkAndLink(node.content) };
+      }
+
+      // Only process plain text nodes (not inside noteLink atoms)
+      if (node.type !== "text" || typeof node.text !== "string") return node;
+
+      const match = regex.exec(node.text);
+      if (!match) return node;
+
+      linked = true;
+      const before = node.text.slice(0, match.index);
+      const after  = node.text.slice(match.index + match[0].length);
+      const result: any[] = [];
+
+      if (before) result.push({ ...node, text: before });
+      result.push({ type: "noteLink", attrs: { id: targetId, label: targetTitle } });
+      if (after) result.push({ ...node, text: after });
+
+      return result;
+    }).flat();
+  }
+
+  if (doc.content) doc.content = walkAndLink(doc.content);
+  console.log("[linkFirstMention] linked:", linked, "doc:", JSON.stringify(doc).slice(0, 200));
+  if (!linked) return;
+  // Rebuild plaintext from updated doc
+  function extractText(nodes: any[]): string {
+    return nodes.map((n) => {
+      if (n.type === "text") return n.text ?? "";
+      if (n.type === "noteLink") return "";
+      if (n.content) return extractText(n.content);
+      return "";
+    }).join("");
+  }
+
+  const newContent  = JSON.stringify(doc);
+  const newPlaintext = extractText(doc.content ?? []);
+
+  await updateNote(sourceNoteId, { content: newContent, plaintext: newPlaintext });
+  console.log("[linkFirstMention] updateNote called for", sourceNoteId);
+  const check = await getNoteById(sourceNoteId);
+  console.log("[linkFirstMention] content after save:", check?.content?.slice(0, 100));}
 
 // ─── Export / Import ──────────────────────────────────────────────────────────
 
