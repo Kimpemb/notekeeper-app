@@ -5,7 +5,7 @@ import type { Editor } from "@tiptap/react";
 interface Props {
   position: { top: number; left: number; caretTop: number };
   editor: Editor;
-  query?: string; // text typed after '/' — passed from parent
+  query?: string;
   onCommand: (action: () => void) => void;
   onClose: () => void;
 }
@@ -25,6 +25,20 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
   const [selected, setSelected] = useState(0);
 
   const commands: Command[] = [
+    {
+      id: "todo",
+      label: "To-do List",
+      description: "Checklist with checkboxes — todo, task",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+          <rect x="1" y="1.5" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M1.75 3.25l0.9 0.9 1.35-1.35" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+          <rect x="1" y="7" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M6.5 3.25h4M6.5 8.75h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+        </svg>
+      ),
+      action: () => editor.chain().focus().toggleTaskList().run(),
+    },
     {
       id: "h1",
       label: "Heading 1",
@@ -120,30 +134,22 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
       )
     : commands;
 
-  // Reset selection when filtered list changes
-  useEffect(() => {
-    setSelected(0);
-  }, [query]);
+  useEffect(() => { setSelected(0); }, [query]);
 
-  // Scroll selected item into view
   useEffect(() => {
     itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selected]);
 
-  // Arrow + Enter navigation — capture phase so editor doesn't get them
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "ArrowDown") {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         setSelected((s) => Math.min(s + 1, filtered.length - 1));
       } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         setSelected((s) => Math.max(s - 1, 0));
       } else if (e.key === "Enter") {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         const cmd = filtered[selected];
         if (cmd) onCommand(cmd.action);
       }
@@ -152,12 +158,9 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
     return () => document.removeEventListener("keydown", handleKey, true);
   }, [filtered, selected, onCommand]);
 
-  // Close on outside click
   useEffect(() => {
     function handleMouseDown(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
     }
     document.addEventListener("mousedown", handleMouseDown);
     return () => document.removeEventListener("mousedown", handleMouseDown);
@@ -172,19 +175,12 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
       style={{
         position: "fixed",
         left: Math.min(position.left, window.innerWidth - 260),
-        // Normal: open downward below the /Type to search line
-        // Flipped: open upward, bottom edge anchored just above the caret line
         ...(flip
           ? { bottom: window.innerHeight - position.caretTop }
           : { top: position.top }),
         zIndex: 50,
       }}
-      className="
-        w-64 rounded-xl overflow-hidden
-        bg-white dark:bg-zinc-900
-        border border-zinc-200 dark:border-zinc-700
-        shadow-2xl
-      "
+      className="w-64 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl"
     >
       {query && (
         <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
@@ -203,20 +199,13 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
             ref={(el) => { itemRefs.current[i] = el; }}
             onMouseEnter={() => setSelected(i)}
             onMouseDown={(e) => { e.preventDefault(); onCommand(cmd.action); }}
-            className={`
-              flex items-center gap-3 px-3 py-2.5 cursor-pointer
-              transition-colors duration-75
-              ${i === selected
+            className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors duration-75 ${
+              i === selected
                 ? "bg-zinc-100 dark:bg-zinc-800"
                 : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-              }
-            `}
+            }`}
           >
-            <span className="
-              w-8 h-8 flex items-center justify-center rounded-md shrink-0
-              bg-zinc-100 dark:bg-zinc-800
-              text-zinc-600 dark:text-zinc-300
-            ">
+            <span className="w-8 h-8 flex items-center justify-center rounded-md shrink-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
               {cmd.icon}
             </span>
             <div className="min-w-0">

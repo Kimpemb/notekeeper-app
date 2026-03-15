@@ -69,6 +69,7 @@ html, body { overscroll-behavior: none; }
 
 /* NodeViewWrapper wraps each code block — margin lives here */
 .tiptap .code-block-wrap {
+  position: relative;
   margin-bottom: 0.55rem;
 }
 
@@ -138,6 +139,103 @@ html, body { overscroll-behavior: none; }
   outline-color: rgba(249, 115, 22, 0.6);
 }
 
+/* ─── Task list (to-do / checklist) ──────────────────────────────────────── */
+.tiptap ul.task-list {
+  list-style: none;
+  padding-left: 0.25rem;
+  margin-bottom: 0.55rem;
+}
+
+.tiptap ul.task-list ul.task-list {
+  margin-bottom: 0;
+  padding-left: 1.5rem;
+}
+
+.tiptap li.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-bottom: 0.25rem;
+  padding: 0.1rem 0;
+}
+
+.tiptap li.task-item > label {
+  display: flex;
+  align-items: center;
+  margin-top: 0.22rem;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* Custom checkbox */
+.tiptap li.task-item > label > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 4px;
+  border: 1.5px solid #d1d5db;
+  background: #ffffff;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tiptap li.task-item > label > input[type="checkbox"]:hover {
+  border-color: #3b82f6;
+}
+
+.tiptap li.task-item > label > input[type="checkbox"]:checked {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+/* Checkmark */
+.tiptap li.task-item > label > input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 0.18rem;
+  top: 0.05rem;
+  width: 0.35rem;
+  height: 0.6rem;
+  border: 1.5px solid #ffffff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+/* Dark mode checkbox */
+.dark .tiptap li.task-item > label > input[type="checkbox"] {
+  border-color: #52525b;
+  background: #27272a;
+}
+
+.dark .tiptap li.task-item > label > input[type="checkbox"]:hover {
+  border-color: #60a5fa;
+}
+
+.dark .tiptap li.task-item > label > input[type="checkbox"]:checked {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+/* Task item text content */
+.tiptap li.task-item > div {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Strike through and mute completed items */
+.tiptap li.task-item[data-checked="true"] > div p {
+  text-decoration: line-through;
+  color: #9ca3af;
+}
+
+.dark .tiptap li.task-item[data-checked="true"] > div p {
+  color: #52525b;
+}
+
 /* ─── Syntax highlighting ─────────────────────────────────────────────────── */
 /* Scoped to .tiptap pre — no global leakage                                  */
 
@@ -198,12 +296,6 @@ html, body { overscroll-behavior: none; }
 
 /* ─── Code block language picker ─────────────────────────────────────────── */
 /* Rendered by CodeBlockNodeView inside every code block, top-right corner    */
-
-/* NodeViewWrapper wraps the whole block */
-.tiptap .code-block-wrap {
-  position: relative;
-  margin-bottom: 0.55rem;
-}
 
 /* We render our own <pre> inside the NodeView */
 .tiptap .code-block-pre {

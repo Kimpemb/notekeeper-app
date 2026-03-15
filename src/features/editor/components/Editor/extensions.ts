@@ -5,6 +5,8 @@ import { DecorationSet, Decoration } from "@tiptap/pm/view";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { common, createLowlight } from "lowlight";
+import TaskList from "@tiptap/extension-task-list";
+import TaskItem from "@tiptap/extension-task-item";
 import { CodeBlockNodeView } from "./CodeBlockNodeView";
 
 // ── Lowlight instance ─────────────────────────────────────────────────────────
@@ -19,6 +21,16 @@ export const CodeBlock = CodeBlockLowlight.extend({
   lowlight,
   defaultLanguage: "plaintext",
   HTMLAttributes: { class: "hljs" },
+});
+
+// ── Task list (checklist / to-do) ─────────────────────────────────────────────
+export const CheckList = TaskList.configure({
+  HTMLAttributes: { class: "task-list" },
+});
+
+export const CheckItem = TaskItem.configure({
+  nested: true,
+  HTMLAttributes: { class: "task-item" },
 });
 
 // ── Empty-line "Press '/' for commands" hint ──────────────────────────────────

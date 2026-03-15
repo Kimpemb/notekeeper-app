@@ -17,6 +17,8 @@ import { SlashMenu } from "./SlashMenu";
 import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 import {
   CodeBlock,
+  CheckList,
+  CheckItem,
   EmptyLinePlaceholderExtension,
   SlashPlaceholderExtension,
   OrderedListBackspaceExtension,
@@ -70,6 +72,8 @@ export function Editor() {
     extensions: [
       StarterKit.configure({ codeBlock: false }),
       CodeBlock,
+      CheckList,
+      CheckItem,
       CodeBlockSelectAllExtension,
       SlashPlaceholderExtension,
       EmptyLinePlaceholderExtension,
