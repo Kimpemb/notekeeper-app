@@ -1,5 +1,5 @@
 // src/features/editor/components/Editor/extensions.ts
-import { Extension } from "@tiptap/core";
+import { Extension, Node } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { DecorationSet, Decoration } from "@tiptap/pm/view";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -8,6 +8,7 @@ import { common, createLowlight } from "lowlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { CodeBlockNodeView } from "./CodeBlockNodeView";
+import { CalloutNodeView } from "./CalloutNodeView";
 
 // ── Lowlight instance ─────────────────────────────────────────────────────────
 export const lowlight = createLowlight(common);
@@ -38,7 +39,6 @@ export const TaskItemExitExtension = Extension.create({
   name: "taskItemExit",
   addKeyboardShortcuts() {
     return {
-      // Enter on an empty task item → lift out to paragraph
       Enter: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty) return false;
@@ -53,7 +53,6 @@ export const TaskItemExitExtension = Extension.create({
         }
         return false;
       },
-      // Backspace at the very start of a task item → lift out to paragraph
       Backspace: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty || $from.parentOffset !== 0) return false;
@@ -62,6 +61,103 @@ export const TaskItemExitExtension = Extension.create({
         while (depth > 0) {
           if ($from.node(depth).type.name === "taskItem") {
             return editor.chain().focus().liftListItem("taskItem").run();
+          }
+          depth--;
+        }
+        return false;
+      },
+    };
+  },
+});
+
+// ── Callout block (info / warning / tip / danger) ─────────────────────────────
+export const Callout = Node.create({
+  name: "callout",
+  group: "block",
+  content: "block+",
+  defining: true,
+
+  addAttributes() {
+    return {
+      type: {
+        default: "info",
+        parseHTML: (el) => el.getAttribute("data-type") ?? "info",
+        renderHTML: (attrs) => ({ "data-type": attrs.type }),
+      },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: "div[data-callout]" }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ["div", { "data-callout": "", ...HTMLAttributes }, 0];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(CalloutNodeView);
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      // Enter on empty callout paragraph → exit below as paragraph
+      Enter: ({ editor }) => {
+        const { $from, empty } = editor.state.selection;
+        if (!empty) return false;
+        if ($from.parent.type.name !== "paragraph") return false;
+        if ($from.parent.content.size !== 0) return false;
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "callout") {
+            // Insert a paragraph after the callout node
+            const calloutPos  = $from.before(depth);
+            const calloutNode = $from.node(depth);
+            const afterPos    = calloutPos + calloutNode.nodeSize;
+            return editor
+              .chain()
+              .focus()
+              .command(({ tr, dispatch }) => {
+                if (dispatch) {
+                  const paragraph = editor.schema.nodes.paragraph.create();
+                  tr.insert(afterPos, paragraph);
+                  tr.setSelection(
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (editor.state.selection as any).constructor.near(tr.doc.resolve(afterPos + 1))
+                  );
+                }
+                return true;
+              })
+              .run();
+          }
+          depth--;
+        }
+        return false;
+      },
+      // Backspace at start of empty callout → remove the whole block
+      Backspace: ({ editor }) => {
+        const { $from, empty } = editor.state.selection;
+        if (!empty || $from.parentOffset !== 0) return false;
+        if ($from.parent.type.name !== "paragraph") return false;
+        if ($from.parent.content.size !== 0) return false;
+        let depth = $from.depth;
+        while (depth > 0) {
+          const node = $from.node(depth);
+          if (node.type.name === "callout") {
+            // Only delete if it's the only/first paragraph in the callout
+            if ($from.index(depth) === 0) {
+              const pos = $from.before(depth);
+              return editor
+                .chain()
+                .focus()
+                .command(({ tr, dispatch }) => {
+                  if (dispatch) {
+                    tr.delete(pos, pos + node.nodeSize);
+                  }
+                  return true;
+                })
+                .run();
+            }
           }
           depth--;
         }

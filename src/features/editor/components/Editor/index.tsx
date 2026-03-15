@@ -17,6 +17,7 @@ import { SlashMenu } from "./SlashMenu";
 import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 import {
   CodeBlock,
+  Callout,
   CheckList,
   CheckItem,
   TaskItemExitExtension,
@@ -73,6 +74,7 @@ export function Editor() {
     extensions: [
       StarterKit.configure({ codeBlock: false }),
       CodeBlock,
+      Callout,
       CheckList,
       CheckItem,
       TaskItemExitExtension,

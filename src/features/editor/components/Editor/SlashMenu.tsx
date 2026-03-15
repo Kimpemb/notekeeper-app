@@ -26,6 +26,50 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
 
   const commands: Command[] = [
     {
+      id: "callout-info",
+      label: "Info Callout",
+      description: "Blue info callout block — callout, info, note",
+      icon: <span className="text-base">💡</span>,
+      action: () => editor.chain().focus().insertContent({
+        type: "callout",
+        attrs: { type: "info" },
+        content: [{ type: "paragraph" }],
+      }).run(),
+    },
+    {
+      id: "callout-warning",
+      label: "Warning Callout",
+      description: "Amber warning callout block — warning, caution",
+      icon: <span className="text-base">⚠️</span>,
+      action: () => editor.chain().focus().insertContent({
+        type: "callout",
+        attrs: { type: "warning" },
+        content: [{ type: "paragraph" }],
+      }).run(),
+    },
+    {
+      id: "callout-tip",
+      label: "Tip Callout",
+      description: "Green tip callout block — tip, success",
+      icon: <span className="text-base">✅</span>,
+      action: () => editor.chain().focus().insertContent({
+        type: "callout",
+        attrs: { type: "tip" },
+        content: [{ type: "paragraph" }],
+      }).run(),
+    },
+    {
+      id: "callout-danger",
+      label: "Danger Callout",
+      description: "Red danger callout block — danger, error",
+      icon: <span className="text-base">🚨</span>,
+      action: () => editor.chain().focus().insertContent({
+        type: "callout",
+        attrs: { type: "danger" },
+        content: [{ type: "paragraph" }],
+      }).run(),
+    },
+    {
       id: "todo",
       label: "To-do List",
       description: "Checklist with checkboxes — todo, task",
