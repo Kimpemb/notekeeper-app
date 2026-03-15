@@ -219,6 +219,7 @@ export const ToggleBody = Node.create({
   name: "toggleBody",
   content: "block+",
   defining: true,
+  isolating: false,
 
   // No open attr needed — visibility is CSS-driven from parent .toggle-closed class
   parseHTML() { return [{ tag: "div[data-toggle-body]" }]; },
@@ -266,7 +267,9 @@ export const ToggleKeyboardExtension = Extension.create({
         const { $from, empty } = editor.state.selection;
         if (!empty) return false;
 
-        // In toggleSummary → insert new closed toggle after this one
+        // In toggleSummary:
+        //   if toggle is OPEN  → move cursor into the body (or open it first)
+        //   if toggle is CLOSED → insert new closed toggle after this one
         let depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "toggleSummary") {
@@ -274,56 +277,50 @@ export const ToggleKeyboardExtension = Extension.create({
             if (!toggleNode || toggleNode.type.name !== "toggle") return false;
 
             const togglePos = $from.before(depth - 1);
-            const afterPos  = togglePos + toggleNode.nodeSize;
+            const isOpen    = toggleNode.attrs.open ?? false;
 
-            return editor
-              .chain().focus()
-              .command(({ tr, state, dispatch }) => {
-                if (dispatch) {
-                  const newSummary = state.schema.nodes.toggleSummary.create({ open: false });
-                  const newToggle  = state.schema.nodes.toggle.create({ open: false }, newSummary);
-                  tr.insert(afterPos, newToggle);
-                  // afterPos + 1 = toggleSummary open token
-                  // afterPos + 2 = first content pos inside summary
-                  const cursorPos = afterPos + 2;
-                  const resolved  = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size));
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  tr.setSelection((state.selection as any).constructor.near(resolved));
-                }
+            if (isOpen) {
+              // Toggle is open — move cursor into body, creating it if needed
+              const hasBody = toggleNode.childCount > 1;
+              if (hasBody) {
+                const summaryNode = toggleNode.child(0);
+                const bodyPos     = togglePos + 1 + summaryNode.nodeSize;
+                const cursorPos   = bodyPos + 2;
+                return editor
+                  .chain().focus()
+                  .command(({ tr, state, dispatch }) => {
+                    if (dispatch) {
+                      const resolved = state.doc.resolve(Math.min(cursorPos, state.doc.content.size));
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      tr.setSelection((state.selection as any).constructor.near(resolved));
+                    }
+                    return true;
+                  })
+                  .run();
+              } else {
+                // Open but no body yet — create it
+                toggleOpenState(editor, togglePos);
                 return true;
-              })
-              .run();
-          }
-          depth--;
-        }
-
-        // In toggleBody on empty last paragraph → exit below toggle
-        depth = $from.depth;
-        while (depth > 0) {
-          if ($from.node(depth).type.name === "toggleBody") {
-            if ($from.parent.type.name !== "paragraph") return false;
-            if ($from.parent.content.size !== 0) return false;
-
-            const toggleNode = $from.node(depth - 1);
-            if (!toggleNode || toggleNode.type.name !== "toggle") return false;
-
-            const togglePos = $from.before(depth - 1);
-            const afterPos  = togglePos + toggleNode.nodeSize;
-
-            return editor
-              .chain().focus()
-              .command(({ tr, state, dispatch }) => {
-                if (dispatch) {
-                  const paragraph = state.schema.nodes.paragraph.create();
-                  tr.insert(afterPos, paragraph);
-                  tr.setSelection(
+              }
+            } else {
+              // Toggle is closed — insert new closed toggle after this one
+              const afterPos = togglePos + toggleNode.nodeSize;
+              return editor
+                .chain().focus()
+                .command(({ tr, state, dispatch }) => {
+                  if (dispatch) {
+                    const newSummary = state.schema.nodes.toggleSummary.create({ open: false });
+                    const newToggle  = state.schema.nodes.toggle.create({ open: false }, newSummary);
+                    tr.insert(afterPos, newToggle);
+                    const cursorPos = afterPos + 2;
+                    const resolved  = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size));
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (state.selection as any).constructor.near(tr.doc.resolve(afterPos + 1))
-                  );
-                }
-                return true;
-              })
-              .run();
+                    tr.setSelection((state.selection as any).constructor.near(resolved));
+                  }
+                  return true;
+                })
+                .run();
+            }
           }
           depth--;
         }
@@ -376,9 +373,8 @@ export const ToggleKeyboardExtension = Extension.create({
             const toggleNode = $from.node(depth - 1);
             if (!toggleNode || toggleNode.type.name !== "toggle") return false;
 
-            const togglePos   = $from.before(depth - 1);
-            const summaryNode = toggleNode.child(0);
-            // End of summary = togglePos + 1 (toggle open) + summaryNode.nodeSize - 1 (before summary close)
+            const togglePos    = $from.before(depth - 1);
+            const summaryNode  = toggleNode.child(0);
             const summaryEndPos = togglePos + 1 + summaryNode.nodeSize - 1;
 
             return editor
@@ -401,18 +397,43 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
-      // ── Ctrl+Enter: toggle open/close ─────────────────────────────────────
+      // ── Ctrl+Enter: open/close toggle from title, cursor stays on title ───
       "Mod-Enter": ({ editor }) => {
         const { $from } = editor.state.selection;
         let depth = $from.depth;
         while (depth > 0) {
-          const node = $from.node(depth);
-          if (node.type.name === "toggleSummary" || node.type.name === "toggleBody") {
+          if ($from.node(depth).type.name === "toggleSummary") {
             const toggleNode = $from.node(depth - 1);
             if (!toggleNode || toggleNode.type.name !== "toggle") return false;
-            const togglePos = $from.before(depth - 1);
-            toggleOpenState(editor, togglePos);
-            return true;
+
+            const togglePos  = $from.before(depth - 1);
+            const isOpen     = toggleNode.attrs.open ?? false;
+            const willOpen   = !isOpen;
+            const hasBody    = toggleNode.childCount > 1;
+
+            return editor
+              .chain().focus()
+              .command(({ tr, state: s }) => {
+                if (willOpen && !hasBody) {
+                  tr.setNodeMarkup(togglePos, undefined, { ...toggleNode.attrs, open: true });
+                  const summaryNode   = toggleNode.child(0);
+                  tr.setNodeMarkup(togglePos + 1, undefined, { ...summaryNode.attrs, open: true });
+                  const paragraphNode = s.schema.nodes.paragraph.create();
+                  const bodyNode      = s.schema.nodes.toggleBody.create({ open: true }, paragraphNode);
+                  tr.insert(togglePos + toggleNode.nodeSize - 1, bodyNode);
+                } else {
+                  tr.setNodeMarkup(togglePos, undefined, { ...toggleNode.attrs, open: willOpen });
+                  const summaryNode = toggleNode.child(0);
+                  tr.setNodeMarkup(togglePos + 1, undefined, { ...summaryNode.attrs, open: willOpen });
+                  if (hasBody) {
+                    const bodyPos  = togglePos + 1 + summaryNode.nodeSize;
+                    const bodyNode = toggleNode.child(1);
+                    tr.setNodeMarkup(bodyPos, undefined, { ...bodyNode.attrs, open: willOpen });
+                  }
+                }
+                return true;
+              })
+              .run();
           }
           depth--;
         }
@@ -451,6 +472,46 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
     };
+  },
+});
+
+// ── Toggle body empty hint ────────────────────────────────────────────────────
+const toggleBodyPlaceholderKey = new PluginKey<DecorationSet>("toggleBodyPlaceholder");
+
+export const ToggleBodyPlaceholderExtension = Extension.create({
+  name: "toggleBodyPlaceholder",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: toggleBodyPlaceholderKey,
+        props: {
+          decorations(state) {
+            const { doc } = state;
+            const decorations: Decoration[] = [];
+            doc.descendants((node, pos) => {
+              if (node.type.name !== "toggleBody") return;
+              if (node.childCount !== 1) return;
+              const child = node.firstChild!;
+              if (child.type.name !== "paragraph") return;
+              if (child.content.size !== 0) return;
+              decorations.push(
+                Decoration.widget(
+                  pos + 2,
+                  () => {
+                    const span = document.createElement("span");
+                    span.textContent = "Write something, or press '/' for commands";
+                    span.className = "toggle-body-hint";
+                    return span;
+                  },
+                  { side: 1, key: `toggle-body-hint-${pos}` }
+                )
+              );
+            });
+            return DecorationSet.create(doc, decorations);
+          },
+        },
+      }),
+    ];
   },
 });
 
