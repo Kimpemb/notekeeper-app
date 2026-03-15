@@ -3,8 +3,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { DecorationSet, Decoration } from "@tiptap/pm/view";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
@@ -19,200 +17,19 @@ import { StatusBar } from "./StatusBar";
 import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
 import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
+import {
+  EmptyLinePlaceholderExtension,
+  SlashPlaceholderExtension,
+  OrderedListBackspaceExtension,
+  CodeBlockSelectAllExtension,
+  createFindReplaceShortcutExtension,
+} from "./extensions";
+import { extractNoteLinkIds, scrollToHeadingText } from "./editorUtils";
 
-// ── Lowlight instance with common languages ───────────────────────────────────
+// ── Lowlight instance ─────────────────────────────────────────────────────────
 const lowlight = createLowlight(common);
 
 interface BubblePos { top: number; left: number; }
-
-const emptyLinePlaceholderKey = new PluginKey<DecorationSet>("emptyLinePlaceholder");
-
-const EmptyLinePlaceholderExtension = Extension.create({
-  name: "emptyLinePlaceholder",
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: emptyLinePlaceholderKey,
-        props: {
-          decorations(state) {
-            const { doc, selection } = state;
-            const decorations: Decoration[] = [];
-            doc.descendants((node, pos) => {
-              if (node.type.name !== "paragraph") return;
-              if (node.content.size !== 0) return;
-              const nodeEnd = pos + node.nodeSize;
-              const cursorInNode = selection.from >= pos && selection.from <= nodeEnd;
-              if (!cursorInNode) return;
-              const widget = Decoration.widget(
-                pos + 1,
-                () => {
-                  const span = document.createElement("span");
-                  span.textContent = "Press '/' for commands";
-                  span.className = "empty-line-hint";
-                  return span;
-                },
-                { side: 1, key: `empty-hint-${pos}` }
-              );
-              decorations.push(widget);
-            });
-            return DecorationSet.create(doc, decorations);
-          },
-        },
-      }),
-    ];
-  },
-});
-
-const slashPlaceholderKey = new PluginKey<{ active: boolean }>("slashPlaceholder");
-
-const SlashPlaceholderExtension = Extension.create({
-  name: "slashPlaceholder",
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: slashPlaceholderKey,
-        props: {
-          decorations(state) {
-            const { doc, selection } = state;
-            const { from, to } = selection;
-            if (from !== to) return DecorationSet.empty;
-            const charBefore = from > 0 ? doc.textBetween(from - 1, from, "\n") : "";
-            if (charBefore !== "/") return DecorationSet.empty;
-            const widget = Decoration.widget(from, () => {
-              const span = document.createElement("span");
-              span.textContent = "Type to search";
-              span.style.color = "rgba(128,128,128,0.42)";
-              span.style.pointerEvents = "none";
-              span.style.userSelect = "none";
-              span.setAttribute("data-slash-hint", "true");
-              return span;
-            }, { side: 1, key: "slash-hint" });
-            return DecorationSet.create(doc, [widget]);
-          },
-        },
-      }),
-    ];
-  },
-});
-
-const OrderedListBackspaceExtension = Extension.create({
-  name: "orderedListBackspace",
-  addKeyboardShortcuts() {
-    return {
-      Backspace: ({ editor }) => {
-        const { state } = editor;
-        const { selection } = state;
-        const { $from, empty } = selection;
-        if (!empty || $from.parentOffset !== 0) return false;
-        const parentNode = $from.parent;
-        if (parentNode.type.name !== "paragraph") return false;
-        if (parentNode.content.size !== 0) return false;
-        let depth = $from.depth;
-        while (depth > 0) {
-          const node = $from.node(depth);
-          if (node.type.name === "listItem") {
-            const grandparent = $from.node(depth - 1);
-            if (grandparent.type.name === "orderedList") {
-              return editor.chain().focus().liftListItem("listItem").run();
-            }
-          }
-          depth--;
-        }
-        return false;
-      },
-    };
-  },
-});
-
-// ── Ctrl+A inside code block selects only block content ───────────────────────
-const CodeBlockSelectAllExtension = Extension.create({
-  name: "codeBlockSelectAll",
-  addKeyboardShortcuts() {
-    return {
-      "Mod-a": ({ editor }) => {
-        const { state } = editor;
-        const { $from } = state.selection;
-        // Walk up to find if we're inside a codeBlock
-        let depth = $from.depth;
-        while (depth > 0) {
-          const node = $from.node(depth);
-          if (node.type.name === "codeBlock") {
-            const pos = $from.before(depth);
-            // Select all content inside the code block
-            editor.commands.setTextSelection({
-              from: pos + 1,
-              to: pos + node.nodeSize - 1,
-            });
-            return true;
-          }
-          depth--;
-        }
-        return false; // fall through to default Ctrl+A
-      },
-    };
-  },
-});
-
-function createFindReplaceShortcutExtension(onOpen: () => void) {
-  return Extension.create({
-    name: "findReplaceShortcut",
-    addKeyboardShortcuts() {
-      return {
-        "Mod-h": () => { onOpen(); return true; },
-      };
-    },
-  });
-}
-
-function extractNoteLinkIds(editor: ReturnType<typeof useEditor>): string[] {
-  if (!editor) return [];
-  const ids: string[] = [];
-  editor.state.doc.descendants((node) => {
-    if (node.type.name === "noteLink" && node.attrs.id) {
-      ids.push(node.attrs.id as string);
-    }
-  });
-  return [...new Set(ids)];
-}
-
-function getScrollContainer(editor: ReturnType<typeof useEditor>): HTMLElement | null {
-  if (!editor) return null;
-  let el: HTMLElement | null = editor.view.dom as HTMLElement;
-  while (el) {
-    const overflow = window.getComputedStyle(el).overflowY;
-    if ((overflow === "auto" || overflow === "scroll") && el.scrollHeight > el.clientHeight) {
-      return el;
-    }
-    el = el.parentElement;
-  }
-  return null;
-}
-
-function scrollToHeadingText(editor: ReturnType<typeof useEditor>, headingText: string): boolean {
-  if (!editor) return false;
-  let targetPos: number | null = null;
-  editor.state.doc.descendants((node, pos) => {
-    if (targetPos !== null) return false;
-    if (node.type.name === "heading" && node.textContent.trim() === headingText.trim()) {
-      targetPos = pos;
-    }
-  });
-  if (targetPos === null) return false;
-
-  editor.commands.setTextSelection(targetPos + 1);
-  const domNode = editor.view.nodeDOM(targetPos);
-  const el = domNode instanceof HTMLElement ? domNode : (domNode as Node)?.parentElement;
-  if (!el) return false;
-
-  const scrollContainer = getScrollContainer(editor);
-  if (!scrollContainer) return false;
-
-  const containerRect = scrollContainer.getBoundingClientRect();
-  const elRect = el.getBoundingClientRect();
-  const targetScrollTop = scrollContainer.scrollTop + (elRect.top - containerRect.top) - 80;
-  scrollContainer.scrollTo({ top: targetScrollTop, behavior: "smooth" });
-  return true;
-}
 
 export function Editor() {
   const activeNote              = useNoteStore((s) => s.activeNote());
@@ -230,38 +47,43 @@ export function Editor() {
   const lastSavedContent = useRef<string | null>(null);
   const editorWrapRef    = useRef<HTMLDivElement>(null);
 
+  // ── Bubble menu ──────────────────────────────────────────────────────────
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const bubblePosRef                    = useRef<BubblePos | null>(null);
   const slashFromBubble                 = useRef(false);
 
+  // ── Slash menu ───────────────────────────────────────────────────────────
   const [slashOpen, setSlashOpen]   = useState(false);
   const [slashPos, setSlashPos]     = useState<{ top: number; left: number; caretTop: number }>({ top: 0, left: 0, caretTop: 0 });
   const [slashQuery, setSlashQuery] = useState("");
   const slashStartPos               = useRef<number | null>(null);
 
+  // ── Note link suggest ────────────────────────────────────────────────────
   const [linkOpen, setLinkOpen]   = useState(false);
   const [linkPos, setLinkPos]     = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [linkQuery, setLinkQuery] = useState("");
   const linkBracketStart          = useRef<number | null>(null);
 
+  // ── Find & Replace ───────────────────────────────────────────────────────
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
 
+  // ── Active code block language (drives StatusBar picker) ─────────────────
+  // null  = cursor is not inside a code block
+  // ""    = inside a code block with no language set (auto-detect)
+  // "typescript" etc = inside a code block with an explicit language
+  const [activeCodeBlockLang, setActiveCodeBlockLang] = useState<string | null>(null);
+  const activeCodeBlockPosRef = useRef<number | null>(null);
+
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({
-        // Disable StarterKit's built-in codeBlock — we use CodeBlockLowlight instead
-        codeBlock: false,
-      }),
-      // Syntax-highlighted code blocks
+      StarterKit.configure({ codeBlock: false }),
       CodeBlockLowlight.configure({
         lowlight,
-        defaultLanguage: null, // auto-detect
-        HTMLAttributes: {
-          class: "hljs",
-        },
+        defaultLanguage: "plaintext",
+        HTMLAttributes: { class: "hljs" },
       }),
       CodeBlockSelectAllExtension,
       SlashPlaceholderExtension,
@@ -271,9 +93,7 @@ export function Editor() {
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({
         name: "findReplacePlugin",
-        addProseMirrorPlugins() {
-          return [buildFindReplacePlugin()];
-        },
+        addProseMirrorPlugins() { return [buildFindReplacePlugin()]; },
       }),
     ],
     content: activeNote?.content ? JSON.parse(activeNote.content) : "",
@@ -289,12 +109,34 @@ export function Editor() {
     onSelectionUpdate: ({ editor: e }) => {
       if (slashFromBubble.current) return;
       const { from, to } = e.state.selection;
+
+      // ── Bubble menu ──
       if (from === to) {
-        setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
+        setHasSelection(false); setBubblePos(null); bubblePosRef.current = null;
+      } else {
+        const coords = e.view.coordsAtPos(from);
+        const pos = { top: coords.top - 48, left: coords.left };
+        setHasSelection(true); setBubblePos(pos); bubblePosRef.current = pos;
       }
-      const coords = e.view.coordsAtPos(from);
-      const pos = { top: coords.top - 48, left: coords.left };
-      setHasSelection(true); setBubblePos(pos); bubblePosRef.current = pos;
+
+      // ── Code block language for StatusBar ──
+      const { $from } = e.state.selection;
+      let depth = $from.depth;
+      let foundCodeBlock = false;
+      while (depth > 0) {
+        const node = $from.node(depth);
+        if (node.type.name === "codeBlock") {
+          activeCodeBlockPosRef.current = $from.before(depth);
+          setActiveCodeBlockLang(node.attrs.language ?? "");
+          foundCodeBlock = true;
+          break;
+        }
+        depth--;
+      }
+      if (!foundCodeBlock) {
+        activeCodeBlockPosRef.current = null;
+        setActiveCodeBlockLang(null);
+      }
     },
     onUpdate: ({ editor: e }) => {
       const { state } = e;
@@ -345,6 +187,24 @@ export function Editor() {
     },
   });
 
+  // ── Language change from StatusBar picker ────────────────────────────────
+  function handleLanguageChange(lang: string) {
+    if (!editor) return;
+    const nodePos = activeCodeBlockPosRef.current;
+    if (nodePos === null) return;
+    const node = editor.state.doc.nodeAt(nodePos);
+    if (!node || node.type.name !== "codeBlock") return;
+    editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setNodeMarkup(nodePos, undefined, { ...node.attrs, language: lang || null });
+        return true;
+      })
+      .run();
+    setActiveCodeBlockLang(lang);
+  }
+
   function closeSlashMenuInternal() {
     setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false;
   }
@@ -359,6 +219,7 @@ export function Editor() {
     lastSavedContent.current = incoming;
     editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
     setBubblePos(null); setHasSelection(false); bubblePosRef.current = null;
+    setActiveCodeBlockLang(null); activeCodeBlockPosRef.current = null;
     closeSlashMenuInternal(); closeLinkSuggestInternal();
     if (titleRef.current) {
       const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
@@ -399,6 +260,7 @@ export function Editor() {
 
   useAutoSave({ editor: editor ?? null, noteId: activeNote?.id ?? null, onSaveComplete });
 
+  // ── Escape closes slash menu ──────────────────────────────────────────────
   useEffect(() => {
     if (!slashOpen) return;
     function handle(e: KeyboardEvent) {
@@ -408,6 +270,7 @@ export function Editor() {
     return () => document.removeEventListener("keydown", handle, true);
   }, [slashOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Global keyboard shortcuts ─────────────────────────────────────────────
   useEffect(() => {
     function handle(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "b") {
@@ -417,8 +280,7 @@ export function Editor() {
         e.preventDefault(); toggleOutline();
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "h" && !e.shiftKey) {
-        const target = e.target as HTMLElement;
-        const inEditor = target.closest(".tiptap") !== null;
+        const inEditor = (e.target as HTMLElement).closest(".tiptap") !== null;
         if (!inEditor) { e.preventDefault(); setFindReplaceOpen(true); }
       }
     }
@@ -492,10 +354,7 @@ export function Editor() {
         {findReplaceOpen && editor && (
           <FindReplace
             editor={editor}
-            onClose={() => {
-              setFindReplaceOpen(false);
-              editor.commands.focus();
-            }}
+            onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }}
           />
         )}
 
@@ -515,7 +374,6 @@ export function Editor() {
             </svg>
             Outline
           </button>
-
           <button
             onClick={toggleBacklinks}
             title="Toggle backlinks (Ctrl+Shift+B)"
@@ -533,25 +391,33 @@ export function Editor() {
           </button>
         </div>
 
+        {/* Bubble menu */}
         {editor && hasSelection && bubblePos && (
           <div
             style={{ position: "fixed", top: bubblePos.top, left: bubblePos.left, zIndex: 40 }}
             className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-xl"
             onMouseDown={(e) => { if ((e.target as HTMLElement).closest("button") === null) e.preventDefault(); }}
           >
-            <BubbleBtn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} title="Bold"><span className="font-bold text-sm">B</span></BubbleBtn>
+            <BubbleBtn onClick={() => editor.chain().focus().toggleBold().run()}   active={editor.isActive("bold")}   title="Bold"><span className="font-bold text-sm">B</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive("italic")} title="Italic"><span className="italic text-sm">I</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive("strike")} title="Strikethrough"><span className="line-through text-sm">S</span></BubbleBtn>
-            <BubbleBtn onClick={() => editor.chain().focus().toggleCode().run()} active={editor.isActive("code")} title="Inline code"><span className="font-mono text-sm">{"<>"}</span></BubbleBtn>
+            <BubbleBtn onClick={() => editor.chain().focus().toggleCode().run()}   active={editor.isActive("code")}   title="Inline code"><span className="font-mono text-sm">{"<>"}</span></BubbleBtn>
             <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
-            <button onClick={handleThreeDots} title="More commands" className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75">
+            <button
+              onClick={handleThreeDots}
+              title="More commands"
+              className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75"
+            >
               <span className="text-sm tracking-widest">···</span>
             </button>
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto">
-          <div className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text" onClick={handleEditorAreaClick}>
+          <div
+            className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text"
+            onClick={handleEditorAreaClick}
+          >
             <h1
               ref={titleRef}
               contentEditable suppressContentEditableWarning spellCheck={false}
@@ -569,11 +435,15 @@ export function Editor() {
           </div>
         </div>
 
-        <StatusBar editor={editor ?? null} />
+        <StatusBar
+          editor={editor ?? null}
+          codeBlockLang={activeCodeBlockLang}
+          onLanguageChange={handleLanguageChange}
+        />
         {versionHistoryOpen && <VersionHistory noteId={activeNote.id} />}
       </div>
 
-      {outlineOpen  && editor && <OutlinePanel editor={editor} />}
+      {outlineOpen   && editor && <OutlinePanel editor={editor} />}
       {backlinksOpen && <BacklinksPanel noteId={activeNote.id} />}
 
       {slashOpen && editor && (
@@ -586,12 +456,21 @@ export function Editor() {
   );
 }
 
-function BubbleBtn({ onClick, active, title, children }: { onClick: () => void; active: boolean; title: string; children: React.ReactNode; }) {
+function BubbleBtn({ onClick, active, title, children }: {
+  onClick: () => void;
+  active: boolean;
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onMouseDown={(e) => { e.preventDefault(); onClick(); }}
       title={title}
-      className={`w-8 h-7 flex items-center justify-center rounded-md transition-colors duration-75 ${active ? "bg-zinc-200 dark:bg-zinc-600 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"}`}
+      className={`w-8 h-7 flex items-center justify-center rounded-md transition-colors duration-75 ${
+        active
+          ? "bg-zinc-200 dark:bg-zinc-600 text-zinc-900 dark:text-zinc-100"
+          : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+      }`}
     >
       {children}
     </button>
