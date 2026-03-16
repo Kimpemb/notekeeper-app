@@ -1,10 +1,10 @@
 // src/features/notes/components/Sidebar/index.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
-import { getAllTags } from "@/features/notes/db/queries";
+import { getAllTags, renameTag, deleteTag } from "@/features/notes/db/queries";
 import { NoteTree } from "./NoteTree";
 import { SearchBar } from "./SearchBar";
 
@@ -25,6 +25,12 @@ const CONFIRM_CLOSED: ConfirmState = {
   open: false, title: "", message: "", confirmLabel: "", onConfirm: () => {},
 };
 
+interface TagMenu {
+  tag: string;
+  x: number;
+  y: number;
+}
+
 export function Sidebar() {
   const loadNotes             = useNoteStore((s) => s.loadNotes);
   const loadTrashedNotes      = useNoteStore((s) => s.loadTrashedNotes);
@@ -40,10 +46,18 @@ export function Sidebar() {
   const activeTag       = useUIStore((s) => s.activeTag);
   const setActiveTag    = useUIStore((s) => s.setActiveTag);
 
-  const [trashOpen, setTrashOpen]   = useState(false);
-  const [tagsOpen, setTagsOpen]     = useState(false);
-  const [confirm, setConfirm]       = useState<ConfirmState>(CONFIRM_CLOSED);
-  const [allTags, setAllTags]       = useState<string[]>([]);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [tagsOpen, setTagsOpen]   = useState(false);
+  const [confirm, setConfirm]     = useState<ConfirmState>(CONFIRM_CLOSED);
+  const [allTags, setAllTags]     = useState<string[]>([]);
+
+  // Tag context menu
+  const [tagMenu, setTagMenu]         = useState<TagMenu | null>(null);
+  const [menuPos, setMenuPos]         = useState<{ x: number; y: number } | null>(null);
+  const [renamingTag, setRenamingTag] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef                = useRef<HTMLInputElement>(null);
+  const menuRef                       = useRef<HTMLDivElement>(null);
 
   useEffect(() => { loadNotes(); }, [loadNotes]);
 
@@ -51,10 +65,46 @@ export function Sidebar() {
     if (trashOpen) loadTrashedNotes();
   }, [trashOpen, loadTrashedNotes]);
 
-  // Reload tags whenever notes change
   useEffect(() => {
     getAllTags().then(setAllTags).catch(console.error);
   }, [notes]);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!tagMenu) return;
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setTagMenu(null);
+        setMenuPos(null);
+      }
+    }
+    window.addEventListener("mousedown", handleClick);
+    return () => window.removeEventListener("mousedown", handleClick);
+  }, [tagMenu]);
+
+  // Smart positioning — flip up/left if menu would overflow viewport
+  useEffect(() => {
+    if (!tagMenu || !menuRef.current) return;
+    const menu = menuRef.current;
+    const { width, height } = menu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const MARGIN = 8;
+
+    let x = tagMenu.x;
+    let y = tagMenu.y;
+
+    if (x + width + MARGIN > vw) x = vw - width - MARGIN;
+    if (y + height + MARGIN > vh) y = tagMenu.y - height;
+    if (y < MARGIN) y = MARGIN;
+
+    setMenuPos({ x, y });
+  }, [tagMenu]);
+
+  // Focus rename input when it appears
+  useEffect(() => {
+    if (renamingTag) setTimeout(() => renameInputRef.current?.focus(), 0);
+  }, [renamingTag]);
 
   const isOpen    = sidebarState === "open";
   const isPeek    = sidebarState === "peek";
@@ -92,7 +142,57 @@ export function Sidebar() {
     });
   }
 
-  // Count notes per tag
+  // ── Tag context menu handlers ─────────────────────────────────────────────
+
+  function handleTagContextMenu(e: React.MouseEvent, tag: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuPos(null); // reset so positioning effect re-runs
+    setTagMenu({ tag, x: e.clientX, y: e.clientY });
+  }
+
+  function startRename(tag: string) {
+    setTagMenu(null);
+    setMenuPos(null);
+    setRenamingTag(tag);
+    setRenameValue(tag);
+  }
+
+  async function commitRename() {
+    if (!renamingTag) return;
+    const trimmed = renameValue.trim().toLowerCase().replace(/\s+/g, "-");
+    if (trimmed && trimmed !== renamingTag) {
+      await renameTag(renamingTag, trimmed);
+      if (activeTag === renamingTag) setActiveTag(trimmed);
+      const updated = await getAllTags();
+      setAllTags(updated);
+    }
+    setRenamingTag(null);
+  }
+
+  function handleRenameKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter")  { e.preventDefault(); commitRename(); }
+    if (e.key === "Escape") { setRenamingTag(null); }
+  }
+
+  function handleDeleteTag(tag: string) {
+    setTagMenu(null);
+    setMenuPos(null);
+    const count = tagCount(tag);
+    askConfirm({
+      title: "Delete Tag",
+      message: `Remove "#${tag}" from ${count} note${count !== 1 ? "s" : ""}? The notes will not be deleted.`,
+      confirmLabel: "Delete Tag",
+      onConfirm: async () => {
+        setConfirm(CONFIRM_CLOSED);
+        await deleteTag(tag);
+        if (activeTag === tag) setActiveTag(null);
+        const updated = await getAllTags();
+        setAllTags(updated);
+      },
+    });
+  }
+
   function tagCount(tag: string): number {
     return notes.filter((n) => {
       if (!n.tags) return false;
@@ -169,20 +269,33 @@ export function Sidebar() {
               <div className="max-h-48 overflow-y-auto pb-1">
                 <div className="flex flex-wrap gap-1.5 px-3 py-2">
                   {allTags.map((tag) => (
-                    <button
-                      key={tag}
-                      onClick={() => setActiveTag(activeTag === tag ? null : tag)}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-colors duration-100 ${
-                        activeTag === tag
-                          ? "bg-zinc-800 dark:bg-zinc-100 text-white dark:text-zinc-900 border-zinc-800 dark:border-zinc-100"
-                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500"
-                      }`}
-                    >
-                      <span className="opacity-60">#</span>{tag}
-                      <span className={`tabular-nums ${activeTag === tag ? "opacity-60" : "opacity-40"}`}>
-                        {tagCount(tag)}
-                      </span>
-                    </button>
+                    renamingTag === tag ? (
+                      <input
+                        key={tag}
+                        ref={renameInputRef}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={handleRenameKeyDown}
+                        onBlur={commitRename}
+                        className="h-5 px-2 rounded-full text-xs border border-blue-400 dark:border-blue-500 bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 outline-none w-28"
+                      />
+                    ) : (
+                      <button
+                        key={tag}
+                        onClick={() => setActiveTag(activeTag === tag ? null : tag)}
+                        onContextMenu={(e) => handleTagContextMenu(e, tag)}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-colors duration-100 ${
+                          activeTag === tag
+                            ? "bg-zinc-800 dark:bg-zinc-100 text-white dark:text-zinc-900 border-zinc-800 dark:border-zinc-100"
+                            : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500"
+                        }`}
+                      >
+                        <span className="opacity-60">#</span>{tag}
+                        <span className={`tabular-nums ${activeTag === tag ? "opacity-60" : "opacity-40"}`}>
+                          {tagCount(tag)}
+                        </span>
+                      </button>
+                    )
                   ))}
                 </div>
               </div>
@@ -276,6 +389,43 @@ export function Sidebar() {
           onMouseEnter={() => { cancelSidebarCollapse(); setSidebarState("peek"); }}
           className="absolute left-0 top-0 w-6 h-full z-50"
         />
+      )}
+
+      {/* ── Tag context menu ────────────────────────────────────────────────── */}
+      {tagMenu && (
+        <div
+          ref={menuRef}
+          style={{
+            position: "fixed",
+            left: menuPos?.x ?? tagMenu.x,
+            top: menuPos?.y ?? tagMenu.y,
+            zIndex: 9999,
+            // keep invisible until position is calculated to avoid flash at wrong position
+            opacity: menuPos ? 1 : 0,
+            transition: "opacity 80ms ease",
+          }}
+          className="py-1 rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 min-w-[140px]"
+        >
+          <button
+            onClick={() => startRename(tagMenu.tag)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-75"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M8.5 1.5l2 2-6 6H2.5v-2l6-6z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+            </svg>
+            Rename
+          </button>
+          <div className="mx-2 my-1 border-t border-zinc-100 dark:border-zinc-800" />
+          <button
+            onClick={() => handleDeleteTag(tagMenu.tag)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors duration-75"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 3h8M4.5 3V2h3v1M3 3l.5 7h5L9 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Delete tag
+          </button>
+        </div>
       )}
 
       <ConfirmModal

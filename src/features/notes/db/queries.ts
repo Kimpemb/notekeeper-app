@@ -274,6 +274,36 @@ export async function getNotesByTag(tag: string): Promise<Note[]> {
   });
 }
 
+// Rename a tag across all notes that have it
+export async function renameTag(oldName: string, newName: string): Promise<void> {
+  const trimmed = newName.trim().toLowerCase().replace(/\s+/g, "-");
+  if (!trimmed || trimmed === oldName) return;
+  const notes = await getAllNotes();
+  for (const note of notes) {
+    if (!note.tags) continue;
+    try {
+      const tags: string[] = JSON.parse(note.tags);
+      if (!tags.includes(oldName)) continue;
+      const next = tags.map((t) => (t === oldName ? trimmed : t));
+      await updateNote(note.id, { tags: JSON.stringify(next) });
+    } catch { /* skip malformed */ }
+  }
+}
+
+// Delete a tag across all notes that have it
+export async function deleteTag(name: string): Promise<void> {
+  const notes = await getAllNotes();
+  for (const note of notes) {
+    if (!note.tags) continue;
+    try {
+      const tags: string[] = JSON.parse(note.tags);
+      if (!tags.includes(name)) continue;
+      const next = tags.filter((t) => t !== name);
+      await updateNote(note.id, { tags: next.length ? JSON.stringify(next) : null });
+    } catch { /* skip malformed */ }
+  }
+}
+
 // ─── Search ───────────────────────────────────────────────────────────────────
 
 export interface SearchResult {
