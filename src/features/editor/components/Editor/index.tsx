@@ -36,9 +36,10 @@ import {
   CodeBlockSelectAllExtension,
   createFindReplaceShortcutExtension,
   ImageExtension,
+  AttachmentExtension,
 } from "./extensions";
 import { extractNoteLinkIds, scrollToHeadingText } from "./editorUtils";
-import { pickImageFile, readImageFile, saveImage } from "@/lib/tauri/fs";
+import { pickImageFile, readImageFile, saveImage, pickAttachmentFile, readImageFile as readFileBytes, saveAttachment } from "@/lib/tauri/fs";
 
 interface BubblePos { top: number; left: number; }
 
@@ -125,6 +126,8 @@ export function Editor() {
       }),
       // Image — paste, drop, and NodeView all handled inside the extension
       ImageExtension,
+      // Attachments (PDF + Audio) — paste, drop, and NodeView all handled inside the extension
+      AttachmentExtension,
     ],
     content: activeNote?.content ? JSON.parse(activeNote.content) : "",
     editorProps: {
@@ -343,6 +346,23 @@ export function Editor() {
     }).run();
   }
 
+  // ── Attachment upload action (called from slash menu) ─────────────────────
+  async function handleAttachmentUpload(kind: "pdf" | "audio") {
+    if (!editor) return;
+    const filePath = await pickAttachmentFile();
+    if (!filePath) return;
+    const bytes    = await readFileBytes(filePath);
+    const fileName = filePath.split(/[\\/]/).pop() ?? "file";
+    const ext      = fileName.split(".").pop()?.toLowerCase() ?? "";
+    const base     = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
+    const uniqueName = `${base}_${Date.now()}.${ext}`;
+    const savedPath  = await saveAttachment(uniqueName, bytes);
+    editor.chain().focus().insertContent({
+      type: "attachment",
+      attrs: { src: savedPath, filename: fileName, kind, size: bytes.length },
+    }).run();
+  }
+
   function handleThreeDots() {
     const pos = bubblePosRef.current ?? bubblePos;
     if (!pos) return;
@@ -459,6 +479,7 @@ export function Editor() {
           onCommand={handleSlashCommand}
           onClose={closeSlashMenu}
           onImageUpload={handleImageUpload}
+          onAttachmentUpload={handleAttachmentUpload}
         />
       )}
       {linkOpen && editor && linkBracketStart.current !== null && (

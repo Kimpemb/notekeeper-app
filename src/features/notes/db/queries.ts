@@ -14,7 +14,7 @@ function now(): number {
   return Date.now();
 }
 
-// ─── Image path extractor ─────────────────────────────────────────────────────
+// ─── Asset path extractor (images + attachments) ─────────────────────────────
 
 function extractImagePaths(content: string): string[] {
   if (!content) return [];
@@ -22,7 +22,8 @@ function extractImagePaths(content: string): string[] {
     const doc = JSON.parse(content);
     const paths: string[] = [];
     function walk(node: Record<string, unknown>) {
-      if (node.type === "image" && typeof node.attrs === "object" && node.attrs !== null) {
+      if ((node.type === "image" || node.type === "attachment") &&
+          typeof node.attrs === "object" && node.attrs !== null) {
         const src = (node.attrs as Record<string, unknown>).src;
         if (typeof src === "string" && src) paths.push(src);
       }
@@ -41,7 +42,6 @@ function extractImagePaths(content: string): string[] {
 
 async function deleteNoteImages(content: string): Promise<void> {
   const paths = extractImagePaths(content);
-  console.log("[deleteNoteImages] paths found:", paths);
   await Promise.allSettled(paths.map((p) => deleteImage(p)));
 }
 

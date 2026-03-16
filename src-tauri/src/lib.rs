@@ -38,6 +38,20 @@ async fn save_image(
 }
 
 #[tauri::command]
+async fn save_attachment(
+    app: tauri::AppHandle,
+    file_name: String,
+    data: Vec<u8>,
+) -> Result<String, String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let attachments_dir = app_data.join("attachments");
+    std::fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
+    let dest = attachments_dir.join(&file_name);
+    std::fs::write(&dest, data).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn delete_image(path: String) -> Result<(), String> {
     std::fs::remove_file(&path).map_err(|e| e.to_string())
 }
@@ -77,6 +91,7 @@ pub fn run() {
             read_file_bytes,
             get_app_data_dir,
             save_image,
+            save_attachment,
             delete_image,
             open_in_browser,
         ])

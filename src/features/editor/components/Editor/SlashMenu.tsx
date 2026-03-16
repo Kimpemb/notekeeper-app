@@ -9,6 +9,7 @@ interface Props {
   onCommand: (action: () => void) => void;
   onClose: () => void;
   onImageUpload: () => Promise<void>;
+  onAttachmentUpload: (kind: "pdf" | "audio") => Promise<void>;
 }
 
 interface Command {
@@ -19,7 +20,7 @@ interface Command {
   action: () => void;
 }
 
-export function SlashMenu({ position, editor, query = "", onCommand, onClose, onImageUpload }: Props) {
+export function SlashMenu({ position, editor, query = "", onCommand, onClose, onImageUpload, onAttachmentUpload }: Props) {
   const menuRef  = useRef<HTMLDivElement>(null);
   const listRef  = useRef<HTMLUListElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
@@ -157,6 +158,32 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => { onImageUpload(); },
+    },
+    {
+      id: "pdf",
+      label: "PDF",
+      description: "Attach a PDF file — document, attachment",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-red-500">
+          <path d="M2 1h5.5l2.5 2.5V11H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+          <path d="M7.5 1v2.5H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+          <path d="M3.5 7h1.5a.75.75 0 010 1.5H3.5V7z" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ),
+      action: () => { onAttachmentUpload("pdf"); },
+    },
+    {
+      id: "audio",
+      label: "Audio",
+      description: "Attach an audio file — mp3, wav, music, sound",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-violet-500">
+          <path d="M4 2l6 1.5v5L4 10V2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+          <circle cx="2.5" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.1"/>
+          <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.1"/>
+        </svg>
+      ),
+      action: () => { onAttachmentUpload("audio"); },
     },
     {
       id: "divider",

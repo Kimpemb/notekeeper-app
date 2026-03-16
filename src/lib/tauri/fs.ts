@@ -55,3 +55,15 @@ export async function saveImage(fileName: string, data: Uint8Array): Promise<str
 export async function deleteImage(path: string): Promise<void> {
   await invoke("delete_image", { path });
 }
+
+export async function saveAttachment(fileName: string, data: Uint8Array): Promise<string> {
+  return await invoke<string>("save_attachment", { fileName, data: Array.from(data) });
+}
+
+export async function pickAttachmentFile(): Promise<string | null> {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: "Attachments", extensions: ["pdf", "mp3", "wav", "ogg", "m4a", "aac"] }],
+  });
+  return (path as string) ?? null;
+}
