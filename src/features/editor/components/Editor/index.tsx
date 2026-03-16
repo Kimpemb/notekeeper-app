@@ -138,8 +138,14 @@ export function Editor() {
     },
     onSelectionUpdate: ({ editor: e }) => {
       if (slashFromBubble.current) return;
-      const { from, to } = e.state.selection;
+      const { from, to, $from } = e.state.selection;
       if (from === to) {
+        setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
+      }
+      // Suppress bubble menu for image node selections and table selections
+      const selectedNodeType = $from.nodeAfter?.type.name ?? "";
+      const insideTable = (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "table") return true; } return false; })();
+      if (selectedNodeType === "image" || insideTable) {
         setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
       }
       const coords = e.view.coordsAtPos(from);

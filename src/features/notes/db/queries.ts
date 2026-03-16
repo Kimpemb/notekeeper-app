@@ -1,6 +1,7 @@
 // src/features/notes/db/queries.ts
 import { getDb } from "@/features/notes/db/client";
 import { ALL_MIGRATIONS } from "@/features/notes/db/schema";
+import { deleteImage } from "@/lib/tauri/fs";
 import type { Note, NoteVersion, Backlink } from "@/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -11,6 +12,37 @@ function uuid(): string {
 
 function now(): number {
   return Date.now();
+}
+
+// ─── Image path extractor ─────────────────────────────────────────────────────
+
+function extractImagePaths(content: string): string[] {
+  if (!content) return [];
+  try {
+    const doc = JSON.parse(content);
+    const paths: string[] = [];
+    function walk(node: Record<string, unknown>) {
+      if (node.type === "image" && typeof node.attrs === "object" && node.attrs !== null) {
+        const src = (node.attrs as Record<string, unknown>).src;
+        if (typeof src === "string" && src) paths.push(src);
+      }
+      if (Array.isArray(node.content)) {
+        (node.content as Record<string, unknown>[]).forEach(walk);
+      }
+    }
+    if (Array.isArray(doc.content)) {
+      (doc.content as Record<string, unknown>[]).forEach(walk);
+    }
+    return paths;
+  } catch {
+    return [];
+  }
+}
+
+async function deleteNoteImages(content: string): Promise<void> {
+  const paths = extractImagePaths(content);
+  console.log("[deleteNoteImages] paths found:", paths);
+  await Promise.allSettled(paths.map((p) => deleteImage(p)));
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -127,6 +159,8 @@ export async function deleteNote(id: string): Promise<void> {
   const allIds = [...descendants.reverse(), id];
   const db = await getDb();
   for (const noteId of allIds) {
+    const note = await getNoteById(noteId);
+    if (note) await deleteNoteImages(note.content ?? "");
     await db.execute(`DELETE FROM notes WHERE id = $1`, [noteId]);
   }
 }
@@ -169,12 +203,23 @@ export async function getTrashedNotes(): Promise<Note[]> {
 
 export async function emptyTrash(): Promise<void> {
   const db = await getDb();
+  const trashed = await getTrashedNotes();
+  await Promise.allSettled(
+    trashed.map((note) => deleteNoteImages(note.content ?? ""))
+  );
   await db.execute(`DELETE FROM notes WHERE deleted_at IS NOT NULL`);
 }
 
 export async function purgeTrashedNotes(): Promise<void> {
   const db = await getDb();
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const expired = await db.select<Note[]>(
+    `SELECT * FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
+    [thirtyDaysAgo]
+  );
+  await Promise.allSettled(
+    expired.map((note) => deleteNoteImages(note.content ?? ""))
+  );
   await db.execute(
     `DELETE FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
     [thirtyDaysAgo]
@@ -320,8 +365,8 @@ export async function getAllBacklinks(): Promise<Backlink[]> {
 
 export interface UnlinkedMention {
   note: Note;
-  snippet: string; // text around the mention for context
-  occurrences: number; // total plain-text occurrences (not yet linked)
+  snippet: string;
+  occurrences: number;
 }
 
 export async function getUnlinkedMentions(
@@ -332,20 +377,17 @@ export async function getUnlinkedMentions(
 
   const db = await getDb();
 
-  // Get IDs of notes that already have a [[link]] to this note
   const linked = await db.select<{ source_id: string }[]>(
     `SELECT source_id FROM backlinks WHERE target_id = $1`,
     [targetId]
   );
   const linkedIds = new Set(linked.map((r) => r.source_id));
 
-  // Get all non-trashed notes except the target itself
   const allNotes = await db.select<Note[]>(
     `SELECT * FROM notes WHERE deleted_at IS NULL AND id != $1`,
     [targetId]
   );
 
-  // Build a set of all other note titles for false-positive filtering
   const otherTitles = allNotes
     .filter((n) => n.id !== targetId)
     .map((n) => n.title.toLowerCase());
@@ -359,11 +401,9 @@ export async function getUnlinkedMentions(
     if (linkedIds.has(note.id)) continue;
     const plaintext = note.plaintext ?? "";
 
-    // Find all matches and filter out those that are part of a longer note title
     const rawMatches = [...plaintext.matchAll(new RegExp(regex.source, "gi"))];
     const validMatches = rawMatches.filter((match) => {
       const matchIndex = match.index ?? 0;
-      // Check if any other note title contains targetTitle and would match at this position
       return !otherTitles.some((otherTitle) => {
         if (!otherTitle.includes(targetTitle.toLowerCase())) return false;
         const chunk = plaintext.slice(matchIndex, matchIndex + otherTitle.length).toLowerCase();
@@ -373,7 +413,6 @@ export async function getUnlinkedMentions(
 
     if (validMatches.length === 0) continue;
 
-    // Build snippet around first valid match
     const idx = validMatches[0].index ?? 0;
     const start = Math.max(0, idx - 60);
     const end   = Math.min(plaintext.length, idx + targetTitle.length + 60);
@@ -410,12 +449,10 @@ export async function linkFirstMention(
     return nodes.map((node) => {
       if (linked) return node;
 
-      // Recurse into block nodes
       if (node.content && Array.isArray(node.content)) {
         return { ...node, content: walkAndLink(node.content) };
       }
 
-      // Only process plain text nodes (not inside noteLink atoms)
       if (node.type !== "text" || typeof node.text !== "string") return node;
 
       const match = regex.exec(node.text);
@@ -437,7 +474,7 @@ export async function linkFirstMention(
   if (doc.content) doc.content = walkAndLink(doc.content);
   console.log("[linkFirstMention] linked:", linked, "doc:", JSON.stringify(doc).slice(0, 200));
   if (!linked) return;
-  // Rebuild plaintext from updated doc
+
   function extractText(nodes: any[]): string {
     return nodes.map((n) => {
       if (n.type === "text") return n.text ?? "";
@@ -447,13 +484,14 @@ export async function linkFirstMention(
     }).join("");
   }
 
-  const newContent  = JSON.stringify(doc);
+  const newContent   = JSON.stringify(doc);
   const newPlaintext = extractText(doc.content ?? []);
 
   await updateNote(sourceNoteId, { content: newContent, plaintext: newPlaintext });
   console.log("[linkFirstMention] updateNote called for", sourceNoteId);
   const check = await getNoteById(sourceNoteId);
-  console.log("[linkFirstMention] content after save:", check?.content?.slice(0, 100));}
+  console.log("[linkFirstMention] content after save:", check?.content?.slice(0, 100));
+}
 
 // ─── Export / Import ──────────────────────────────────────────────────────────
 
