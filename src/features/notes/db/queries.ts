@@ -16,7 +16,7 @@ function now(): number {
 
 // ─── Asset path extractor (images + attachments) ─────────────────────────────
 
-function extractImagePaths(content: string): string[] {
+function extractAssetPaths(content: string): string[] {
   if (!content) return [];
   try {
     const doc = JSON.parse(content);
@@ -40,8 +40,8 @@ function extractImagePaths(content: string): string[] {
   }
 }
 
-async function deleteNoteImages(content: string): Promise<void> {
-  const paths = extractImagePaths(content);
+async function deleteNoteAssets(content: string): Promise<void> {
+  const paths = extractAssetPaths(content);
   await Promise.allSettled(paths.map((p) => deleteImage(p)));
 }
 
@@ -160,7 +160,7 @@ export async function deleteNote(id: string): Promise<void> {
   const db = await getDb();
   for (const noteId of allIds) {
     const note = await getNoteById(noteId);
-    if (note) await deleteNoteImages(note.content ?? "");
+    if (note) await deleteNoteAssets(note.content ?? "");
     await db.execute(`DELETE FROM notes WHERE id = $1`, [noteId]);
   }
 }
@@ -205,7 +205,7 @@ export async function emptyTrash(): Promise<void> {
   const db = await getDb();
   const trashed = await getTrashedNotes();
   await Promise.allSettled(
-    trashed.map((note) => deleteNoteImages(note.content ?? ""))
+    trashed.map((note) => deleteNoteAssets(note.content ?? ""))
   );
   await db.execute(`DELETE FROM notes WHERE deleted_at IS NOT NULL`);
 }
@@ -218,7 +218,7 @@ export async function purgeTrashedNotes(): Promise<void> {
     [thirtyDaysAgo]
   );
   await Promise.allSettled(
-    expired.map((note) => deleteNoteImages(note.content ?? ""))
+    expired.map((note) => deleteNoteAssets(note.content ?? ""))
   );
   await db.execute(
     `DELETE FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
