@@ -74,10 +74,12 @@ interface UIStore {
   clearSearch: () => void;
 
   // ─── Pending scroll heading ───────────────────────────────────────────────
-  // Set when navigating to a note via a heading click in a preview panel.
-  // The editor watches this and scrolls to the heading once content is loaded.
   pendingScrollHeading: string | null;
   setPendingScrollHeading: (heading: string | null) => void;
+
+  // ─── Tag filter ───────────────────────────────────────────────────────────
+  activeTag: string | null;
+  setActiveTag: (tag: string | null) => void;
 }
 
 function getInitialTheme(): Theme {
@@ -210,5 +212,9 @@ export const useUIStore = create<UIStore>((set, get) => {
     // ─── Pending scroll heading ───────────────────────────────────────────────
     pendingScrollHeading: null,
     setPendingScrollHeading: (heading) => set({ pendingScrollHeading: heading }),
+
+    // ─── Tag filter ───────────────────────────────────────────────────────────
+    activeTag: null,
+    setActiveTag: (tag) => set({ activeTag: tag }),
   };
 });

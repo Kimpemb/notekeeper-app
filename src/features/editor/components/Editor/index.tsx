@@ -16,6 +16,7 @@ import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
 import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 import { TableToolbar } from "./TableToolbar";
+import { TagBar } from "./TagBar";
 import {
   CodeBlock,
   Callout,
@@ -449,12 +450,13 @@ export function Editor() {
               contentEditable suppressContentEditableWarning spellCheck={false}
               autoCorrect="off" autoCapitalize="off"
               onBlur={handleTitleBlur} onKeyDown={handleTitleKeyDown} onPaste={handleTitlePaste}
-              className="block w-full font-bold mb-6 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
+              className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
               style={{ fontSize: "3rem", lineHeight: 1.2 }}
               data-placeholder={isUntitled ? activeNote.title : "Untitled"}
             >
               {isUntitled ? "" : activeNote.title}
             </h1>
+            <TagBar noteId={activeNote.id} tags={activeNote.tags} />
             <div key={activeNote.id} ref={editorWrapRef}>
               <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
             </div>

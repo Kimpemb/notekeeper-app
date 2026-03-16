@@ -4,6 +4,7 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
+import { getAllTags } from "@/features/notes/db/queries";
 import { NoteTree } from "./NoteTree";
 import { SearchBar } from "./SearchBar";
 
@@ -29,21 +30,31 @@ export function Sidebar() {
   const loadTrashedNotes      = useNoteStore((s) => s.loadTrashedNotes);
   const createNote            = useNoteStore((s) => s.createNote);
   const trashedNotes          = useNoteStore((s) => s.trashedNotes);
+  const notes                 = useNoteStore((s) => s.notes);
   const restoreNote           = useNoteStore((s) => s.restoreNote);
   const permanentlyDeleteNote = useNoteStore((s) => s.permanentlyDeleteNote);
   const emptyTrash            = useNoteStore((s) => s.emptyTrash);
 
   const sidebarState    = useUIStore((s) => s.sidebarState);
   const setSidebarState = useUIStore((s) => s.setSidebarState);
+  const activeTag       = useUIStore((s) => s.activeTag);
+  const setActiveTag    = useUIStore((s) => s.setActiveTag);
 
   const [trashOpen, setTrashOpen]   = useState(false);
+  const [tagsOpen, setTagsOpen]     = useState(false);
   const [confirm, setConfirm]       = useState<ConfirmState>(CONFIRM_CLOSED);
+  const [allTags, setAllTags]       = useState<string[]>([]);
 
   useEffect(() => { loadNotes(); }, [loadNotes]);
 
   useEffect(() => {
     if (trashOpen) loadTrashedNotes();
   }, [trashOpen, loadTrashedNotes]);
+
+  // Reload tags whenever notes change
+  useEffect(() => {
+    getAllTags().then(setAllTags).catch(console.error);
+  }, [notes]);
 
   const isOpen    = sidebarState === "open";
   const isPeek    = sidebarState === "peek";
@@ -79,6 +90,15 @@ export function Sidebar() {
         await permanentlyDeleteNote(id);
       },
     });
+  }
+
+  // Count notes per tag
+  function tagCount(tag: string): number {
+    return notes.filter((n) => {
+      if (!n.tags) return false;
+      try { return (JSON.parse(n.tags) as string[]).includes(tag); }
+      catch { return false; }
+    }).length;
   }
 
   return (
@@ -123,6 +143,52 @@ export function Sidebar() {
         <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 min-h-0">
           <NoteTree />
         </div>
+
+        {/* ── Tags section ──────────────────────────────────────────────────── */}
+        {allTags.length > 0 && (
+          <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-800">
+            <button
+              onClick={() => setTagsOpen((o) => !o)}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-zinc-400 shrink-0">
+                <path d="M1.5 1.5h4l5.5 5.5-4 4L1.5 5.5v-4z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                <circle cx="4" cy="4" r="0.8" fill="currentColor"/>
+              </svg>
+              <span className="flex-1 text-xs font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-wider">Tags</span>
+              <span className="text-xs text-zinc-400 dark:text-zinc-600 tabular-nums">{allTags.length}</span>
+              <svg
+                width="10" height="10" viewBox="0 0 10 10" fill="none"
+                className={`text-zinc-400 shrink-0 transition-transform duration-200 ${tagsOpen ? "rotate-180" : ""}`}
+              >
+                <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+
+            {tagsOpen && (
+              <div className="max-h-48 overflow-y-auto pb-1">
+                <div className="flex flex-wrap gap-1.5 px-3 py-2">
+                  {allTags.map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => setActiveTag(activeTag === tag ? null : tag)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-colors duration-100 ${
+                        activeTag === tag
+                          ? "bg-zinc-800 dark:bg-zinc-100 text-white dark:text-zinc-900 border-zinc-800 dark:border-zinc-100"
+                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500"
+                      }`}
+                    >
+                      <span className="opacity-60">#</span>{tag}
+                      <span className={`tabular-nums ${activeTag === tag ? "opacity-60" : "opacity-40"}`}>
+                        {tagCount(tag)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Trash section ─────────────────────────────────────────────────── */}
         <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-800">
@@ -212,7 +278,6 @@ export function Sidebar() {
         />
       )}
 
-      {/* Confirm modal — rendered outside aside so it's not clipped */}
       <ConfirmModal
         open={confirm.open}
         title={confirm.title}
