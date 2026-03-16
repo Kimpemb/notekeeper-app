@@ -145,10 +145,10 @@ export function Editor() {
       if (from === to) {
         setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
       }
-      // Suppress bubble menu for image node selections and table selections
+      // Suppress bubble menu for image, attachment node selections and table selections
       const selectedNodeType = $from.nodeAfter?.type.name ?? "";
       const insideTable = (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "table") return true; } return false; })();
-      if (selectedNodeType === "image" || insideTable) {
+      if (selectedNodeType === "image" || selectedNodeType === "attachment" || insideTable) {
         setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
       }
       const coords = e.view.coordsAtPos(from);
