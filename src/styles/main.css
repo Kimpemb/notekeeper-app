@@ -3,13 +3,26 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-html, body { overscroll-behavior: none; }
+/* ─── Base styles ────────────────────────────────────────────────────────── */
+html, body { 
+  overscroll-behavior: none; 
+}
 
 .dark html, .dark body {
   background-color: #18181b; /* zinc-900 */
 }
 
-/* ─── TipTap prose ────────────────────────────────────────────────────────── */
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(128,128,128,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
+
+/* ============================================================================
+   Editor & Typography
+   ========================================================================== */
+
+/* ─── TipTap base ────────────────────────────────────────────────────────── */
 .tiptap {
   outline: none;
   min-height: 100%;
@@ -20,6 +33,7 @@ html, body { overscroll-behavior: none; }
 
 .tiptap p { margin-bottom: 0.55rem; }
 
+/* ─── Headings ───────────────────────────────────────────────────────────── */
 .tiptap h1 {
   font-size: 2.2rem;
   font-weight: 700;
@@ -27,6 +41,7 @@ html, body { overscroll-behavior: none; }
   margin-top: 1.2rem;
   margin-bottom: 0.5rem;
 }
+
 .tiptap h2 {
   font-size: 1.75rem;
   font-weight: 700;
@@ -34,6 +49,7 @@ html, body { overscroll-behavior: none; }
   margin-top: 1rem;
   margin-bottom: 0.4rem;
 }
+
 .tiptap h3 {
   font-size: 1.4rem;
   font-weight: 600;
@@ -42,15 +58,18 @@ html, body { overscroll-behavior: none; }
   margin-bottom: 0.35rem;
 }
 
+/* ─── Text formatting ────────────────────────────────────────────────────── */
 .tiptap strong { font-weight: 700; }
 .tiptap em     { font-style: italic; }
 .tiptap u      { text-decoration: underline; }
 .tiptap s      { text-decoration: line-through; }
 
+/* ─── Lists ──────────────────────────────────────────────────────────────── */
 .tiptap ul { list-style: disc;    padding-left: 1.5rem; margin-bottom: 0.55rem; }
 .tiptap ol { list-style: decimal; padding-left: 1.5rem; margin-bottom: 0.55rem; }
 .tiptap li { margin-bottom: 0.15rem; }
 
+/* ─── Blockquotes ────────────────────────────────────────────────────────── */
 .tiptap blockquote {
   border-left: 3px solid currentColor;
   opacity: 0.7;
@@ -59,6 +78,7 @@ html, body { overscroll-behavior: none; }
   font-style: italic;
 }
 
+/* ─── Inline code ────────────────────────────────────────────────────────── */
 .tiptap code {
   font-family: ui-monospace, monospace;
   font-size: 0.95rem;
@@ -67,35 +87,20 @@ html, body { overscroll-behavior: none; }
   padding: 0.1em 0.35em;
 }
 
-/* NodeViewWrapper wraps each code block — margin lives here */
-.tiptap .code-block-wrap {
-  position: relative;
-  margin-bottom: 0.55rem;
-}
-
-/* NodeViewContent renders as a div — give it code typography */
-.tiptap .code-block-content {
-  display: block;
-  font-family: ui-monospace, monospace;
-  font-size: 0.95rem;
-  line-height: 1.6;
-  white-space: pre;
-  word-break: normal;
-  overflow-wrap: normal;
-}
-
+/* ─── Horizontal rule ────────────────────────────────────────────────────── */
 .tiptap hr {
   border: none;
   border-top: 1px solid rgba(128,128,128,0.25);
   margin: 1.5rem 0;
 }
 
+/* ─── Links ──────────────────────────────────────────────────────────────── */
 .tiptap a {
   text-decoration: underline;
   opacity: 0.8;
 }
 
-/* First-child empty paragraph placeholder */
+/* ─── Placeholders ───────────────────────────────────────────────────────── */
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
@@ -104,7 +109,6 @@ html, body { overscroll-behavior: none; }
   height: 0;
 }
 
-/* ─── Empty-line hint ─────────────────────────────────────────────────────── */
 .empty-line-hint {
   color: rgba(128, 128, 128, 0.38);
   font-size: inherit;
@@ -115,31 +119,237 @@ html, body { overscroll-behavior: none; }
   background: none;
   border: none;
 }
+
 .dark .empty-line-hint { color: rgba(180, 180, 180, 0.28); }
 
-/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
-::-webkit-scrollbar        { width: 6px; height: 6px; }
-::-webkit-scrollbar-track  { background: transparent; }
-::-webkit-scrollbar-thumb  { background: rgba(128,128,128,0.3); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
+/* ============================================================================
+   Code Blocks
+   ========================================================================== */
 
-/* ─── Find & Replace ──────────────────────────────────────────────────────── */
-.find-replace-match {
-  background-color: rgba(250, 204, 21, 0.35);
-  border-radius: 2px;
-}
-.find-replace-current {
-  background-color: rgba(249, 115, 22, 0.5);
-  border-radius: 2px;
-  outline: 1.5px solid rgba(249, 115, 22, 0.7);
-}
-.dark .find-replace-match   { background-color: rgba(250, 204, 21, 0.2); }
-.dark .find-replace-current {
-  background-color: rgba(249, 115, 22, 0.4);
-  outline-color: rgba(249, 115, 22, 0.6);
+/* ─── Code block container ───────────────────────────────────────────────── */
+.tiptap .code-block-wrap {
+  position: relative;
+  margin-bottom: 0.55rem;
 }
 
-/* ─── Task list (to-do / checklist) ──────────────────────────────────────── */
+.tiptap .code-block-pre {
+  position: relative;
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 2rem 0.85rem 0.85rem;
+  overflow-x: auto;
+  margin: 0;
+}
+
+.dark .tiptap .code-block-pre {
+  background: #161b22;
+}
+
+.tiptap .code-block-content {
+  display: block;
+  font-family: ui-monospace, monospace;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+/* ─── Code block toolbar (language picker + copy) ────────────────────────── */
+.code-block-lang-anchor {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.5rem;
+  z-index: 10;
+}
+
+/* Language dropdown button */
+.code-block-lang-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid rgba(175, 184, 193, 0.4);
+  color: #6e7781;
+  background: rgba(246, 248, 250, 0.8);
+  cursor: pointer;
+  transition: color 100ms, background 100ms, border-color 100ms;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.code-block-lang-btn:hover {
+  color: #24292f;
+  background: #eaeef2;
+  border-color: rgba(175, 184, 193, 0.6);
+}
+
+.dark .code-block-lang-btn {
+  color: #8b949e;
+  background: rgba(22, 27, 34, 0.8);
+  border-color: rgba(48, 54, 61, 0.8);
+}
+
+.dark .code-block-lang-btn:hover {
+  color: #c9d1d9;
+  background: #21262d;
+  border-color: rgba(139, 148, 158, 0.3);
+}
+
+/* Copy button */
+.code-block-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid rgba(175, 184, 193, 0.4);
+  color: #6e7781;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-right: 0.25rem;
+}
+
+.code-block-copy-btn:hover {
+  background: #eaeef2;
+  color: #24292f;
+  border-color: rgba(175, 184, 193, 0.6);
+}
+
+.dark .code-block-copy-btn {
+  color: #8b949e;
+  border-color: rgba(48, 54, 61, 0.8);
+  background: rgba(22, 27, 34, 0.8);
+}
+
+.dark .code-block-copy-btn:hover {
+  background: #21262d;
+  color: #c9d1d9;
+  border-color: rgba(139, 148, 158, 0.3);
+}
+
+.code-block-copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Language dropdown panel */
+.code-block-lang-dropdown {
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.25);
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: lang-drop-in 100ms ease;
+  overflow-y: auto;
+  max-height: 280px;
+}
+
+.dark .code-block-lang-dropdown {
+  background: #161b22;
+  border-color: #30363d;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes lang-drop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.code-block-lang-option {
+  width: 100%;
+  text-align: left;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: #24292f;
+  cursor: pointer;
+  transition: background 80ms;
+  white-space: nowrap;
+}
+
+.code-block-lang-option:hover  { background: #f3f4f6; }
+.code-block-lang-option.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 500;
+}
+
+.dark .code-block-lang-option         { color: #c9d1d9; }
+.dark .code-block-lang-option:hover   { background: #21262d; }
+.dark .code-block-lang-option.active  { background: #1e3a5f; color: #79c0ff; }
+
+/* ─── Syntax highlighting ─────────────────────────────────────────────────── */
+.tiptap pre .hljs           { color: #24292e; }
+.tiptap pre .hljs-comment,
+.tiptap pre .hljs-punctuation                        { color: #6a737d; }
+.tiptap pre .hljs-keyword,
+.tiptap pre .hljs-selector-tag,
+.tiptap pre .hljs-deletion                           { color: #d73a49; }
+.tiptap pre .hljs-number,
+.tiptap pre .hljs-literal,
+.tiptap pre .hljs-insertion                          { color: #005cc5; }
+.tiptap pre .hljs-string,
+.tiptap pre .hljs-doctag,
+.tiptap pre .hljs-regexp                             { color: #032f62; }
+.tiptap pre .hljs-title,
+.tiptap pre .hljs-name,
+.tiptap pre .hljs-section                            { color: #6f42c1; }
+.tiptap pre .hljs-type,
+.tiptap pre .hljs-class .hljs-title                  { color: #6f42c1; }
+.tiptap pre .hljs-attr,
+.tiptap pre .hljs-attribute                          { color: #005cc5; }
+.tiptap pre .hljs-variable,
+.tiptap pre .hljs-template-variable                  { color: #e36209; }
+.tiptap pre .hljs-built_in,
+.tiptap pre .hljs-builtin-name                       { color: #005cc5; }
+.tiptap pre .hljs-meta                               { color: #d73a49; }
+.tiptap pre .hljs-emphasis                           { font-style: italic; }
+.tiptap pre .hljs-strong                             { font-weight: bold; }
+
+/* Dark mode syntax highlighting */
+.dark .tiptap pre .hljs           { color: #c9d1d9; }
+.dark .tiptap pre .hljs-comment,
+.dark .tiptap pre .hljs-punctuation                  { color: #8b949e; }
+.dark .tiptap pre .hljs-keyword,
+.dark .tiptap pre .hljs-selector-tag,
+.dark .tiptap pre .hljs-deletion                     { color: #ff7b72; }
+.dark .tiptap pre .hljs-number,
+.dark .tiptap pre .hljs-literal,
+.dark .tiptap pre .hljs-insertion                    { color: #79c0ff; }
+.dark .tiptap pre .hljs-string,
+.dark .tiptap pre .hljs-doctag,
+.dark .tiptap pre .hljs-regexp                       { color: #a5d6ff; }
+.dark .tiptap pre .hljs-title,
+.dark .tiptap pre .hljs-name,
+.dark .tiptap pre .hljs-section                      { color: #d2a8ff; }
+.dark .tiptap pre .hljs-type,
+.dark .tiptap pre .hljs-class .hljs-title            { color: #d2a8ff; }
+.dark .tiptap pre .hljs-attr,
+.dark .tiptap pre .hljs-attribute                    { color: #79c0ff; }
+.dark .tiptap pre .hljs-variable,
+.dark .tiptap pre .hljs-template-variable            { color: #ffa657; }
+.dark .tiptap pre .hljs-built_in,
+.dark .tiptap pre .hljs-builtin-name                 { color: #79c0ff; }
+.dark .tiptap pre .hljs-meta                         { color: #ff7b72; }
+
+/* ============================================================================
+   Block Elements
+   ========================================================================== */
+
+/* ─── Task lists (checklists) ────────────────────────────────────────────── */
 .tiptap ul.task-list {
   list-style: none;
   padding-left: 0.25rem;
@@ -167,7 +377,6 @@ html, body { overscroll-behavior: none; }
   cursor: pointer;
 }
 
-/* Custom checkbox */
 .tiptap li.task-item > label > input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -191,7 +400,6 @@ html, body { overscroll-behavior: none; }
   border-color: #3b82f6;
 }
 
-/* Checkmark */
 .tiptap li.task-item > label > input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
@@ -205,7 +413,6 @@ html, body { overscroll-behavior: none; }
   transform: rotate(45deg);
 }
 
-/* Dark mode checkbox */
 .dark .tiptap li.task-item > label > input[type="checkbox"] {
   border-color: #52525b;
   background: #27272a;
@@ -220,13 +427,11 @@ html, body { overscroll-behavior: none; }
   border-color: #3b82f6;
 }
 
-/* Task item text content */
 .tiptap li.task-item > div {
   flex: 1;
   min-width: 0;
 }
 
-/* Strike through and mute completed items */
 .tiptap li.task-item[data-checked="true"] > div p {
   text-decoration: line-through;
   color: #9ca3af;
@@ -237,8 +442,6 @@ html, body { overscroll-behavior: none; }
 }
 
 /* ─── Callout blocks ──────────────────────────────────────────────────────── */
-/* Single-row layout: icon on left, content on right                          */
-
 .tiptap .callout {
   display: flex;
   align-items: flex-start;
@@ -248,7 +451,6 @@ html, body { overscroll-behavior: none; }
   margin-bottom: 0.65rem;
 }
 
-/* Icon button — left column */
 .tiptap .callout-icon-btn {
   flex-shrink: 0;
   display: flex;
@@ -256,7 +458,7 @@ html, body { overscroll-behavior: none; }
   justify-content: center;
   width: 1.25rem;
   height: 1.25rem;
-  margin-top: 0.18rem; /* align with first line of text */
+  margin-top: 0.18rem;
   background: none;
   border: none;
   padding: 0;
@@ -271,7 +473,6 @@ html, body { overscroll-behavior: none; }
   transform: scale(1.12);
 }
 
-/* Content area */
 .tiptap .callout-content {
   flex: 1;
   min-width: 0;
@@ -285,51 +486,44 @@ html, body { overscroll-behavior: none; }
   margin-bottom: 0;
 }
 
-/* ── Info — blue ─────────────────────────────────────────────────────────── */
+/* Callout variants */
 .tiptap .callout-info {
   background: #eff6ff;
 }
 .tiptap .callout-info .callout-icon-btn { color: #3b82f6; }
-
 .dark .tiptap .callout-info {
   background: rgba(59, 130, 246, 0.08);
 }
 .dark .tiptap .callout-info .callout-icon-btn { color: #60a5fa; }
 
-/* ── Warning — amber ─────────────────────────────────────────────────────── */
 .tiptap .callout-warning {
   background: #fffbeb;
 }
 .tiptap .callout-warning .callout-icon-btn { color: #f59e0b; }
-
 .dark .tiptap .callout-warning {
   background: rgba(245, 158, 11, 0.08);
 }
 .dark .tiptap .callout-warning .callout-icon-btn { color: #fbbf24; }
 
-/* ── Tip — green ─────────────────────────────────────────────────────────── */
 .tiptap .callout-tip {
   background: #f0fdf4;
 }
 .tiptap .callout-tip .callout-icon-btn { color: #22c55e; }
-
 .dark .tiptap .callout-tip {
   background: rgba(34, 197, 94, 0.08);
 }
 .dark .tiptap .callout-tip .callout-icon-btn { color: #4ade80; }
 
-/* ── Danger — red ────────────────────────────────────────────────────────── */
 .tiptap .callout-danger {
   background: #fff1f2;
 }
 .tiptap .callout-danger .callout-icon-btn { color: #ef4444; }
-
 .dark .tiptap .callout-danger {
   background: rgba(239, 68, 68, 0.08);
 }
 .dark .tiptap .callout-danger .callout-icon-btn { color: #f87171; }
 
-/* ── Variant picker dropdown ─────────────────────────────────────────────── */
+/* Callout dropdown */
 .callout-dropdown {
   background: #ffffff;
   border: 1px solid #e4e7eb;
@@ -374,7 +568,6 @@ html, body { overscroll-behavior: none; }
 .callout-dropdown-option.active { background: #f3f4f6; font-weight: 600; }
 .dark .callout-dropdown-option.active { background: #21262d; }
 
-/* Icon colors inside dropdown */
 .callout-dropdown-icon       { display: flex; align-items: center; }
 .callout-dropdown-icon-info    { color: #3b82f6; }
 .callout-dropdown-icon-warning { color: #f59e0b; }
@@ -386,201 +579,12 @@ html, body { overscroll-behavior: none; }
 .dark .callout-dropdown-icon-tip     { color: #4ade80; }
 .dark .callout-dropdown-icon-danger  { color: #f87171; }
 
-/* ─── Syntax highlighting ─────────────────────────────────────────────────── */
-/* Scoped to .tiptap pre — no global leakage                                  */
-
-.tiptap pre .hljs           { color: #24292e; }
-.tiptap pre .hljs-comment,
-.tiptap pre .hljs-punctuation                        { color: #6a737d; }
-.tiptap pre .hljs-keyword,
-.tiptap pre .hljs-selector-tag,
-.tiptap pre .hljs-deletion                           { color: #d73a49; }
-.tiptap pre .hljs-number,
-.tiptap pre .hljs-literal,
-.tiptap pre .hljs-insertion                          { color: #005cc5; }
-.tiptap pre .hljs-string,
-.tiptap pre .hljs-doctag,
-.tiptap pre .hljs-regexp                             { color: #032f62; }
-.tiptap pre .hljs-title,
-.tiptap pre .hljs-name,
-.tiptap pre .hljs-section                            { color: #6f42c1; }
-.tiptap pre .hljs-type,
-.tiptap pre .hljs-class .hljs-title                  { color: #6f42c1; }
-.tiptap pre .hljs-attr,
-.tiptap pre .hljs-attribute                          { color: #005cc5; }
-.tiptap pre .hljs-variable,
-.tiptap pre .hljs-template-variable                  { color: #e36209; }
-.tiptap pre .hljs-built_in,
-.tiptap pre .hljs-builtin-name                       { color: #005cc5; }
-.tiptap pre .hljs-meta                               { color: #d73a49; }
-.tiptap pre .hljs-emphasis                           { font-style: italic; }
-.tiptap pre .hljs-strong                             { font-weight: bold; }
-
-/* Dark */
-.dark .tiptap pre .hljs           { color: #c9d1d9; }
-.dark .tiptap pre .hljs-comment,
-.dark .tiptap pre .hljs-punctuation                  { color: #8b949e; }
-.dark .tiptap pre .hljs-keyword,
-.dark .tiptap pre .hljs-selector-tag,
-.dark .tiptap pre .hljs-deletion                     { color: #ff7b72; }
-.dark .tiptap pre .hljs-number,
-.dark .tiptap pre .hljs-literal,
-.dark .tiptap pre .hljs-insertion                    { color: #79c0ff; }
-.dark .tiptap pre .hljs-string,
-.dark .tiptap pre .hljs-doctag,
-.dark .tiptap pre .hljs-regexp                       { color: #a5d6ff; }
-.dark .tiptap pre .hljs-title,
-.dark .tiptap pre .hljs-name,
-.dark .tiptap pre .hljs-section                      { color: #d2a8ff; }
-.dark .tiptap pre .hljs-type,
-.dark .tiptap pre .hljs-class .hljs-title            { color: #d2a8ff; }
-.dark .tiptap pre .hljs-attr,
-.dark .tiptap pre .hljs-attribute                    { color: #79c0ff; }
-.dark .tiptap pre .hljs-variable,
-.dark .tiptap pre .hljs-template-variable            { color: #ffa657; }
-.dark .tiptap pre .hljs-built_in,
-.dark .tiptap pre .hljs-builtin-name                 { color: #79c0ff; }
-.dark .tiptap pre .hljs-meta                         { color: #ff7b72; }
-.dark .tiptap pre .hljs-emphasis                     { font-style: italic; }
-.dark .tiptap pre .hljs-strong                       { font-weight: bold; }
-
-/* ─── Code block language picker ─────────────────────────────────────────── */
-/* Rendered by CodeBlockNodeView inside every code block, top-right corner    */
-
-/* We render our own <pre> inside the NodeView */
-.tiptap .code-block-pre {
-  position: relative;
-  background: #f6f8fa;
-  border-radius: 6px;
-  padding: 2rem 0.85rem 0.85rem;
-  overflow-x: auto;
-  margin: 0;
-}
-
-.dark .tiptap .code-block-pre {
-  background: #161b22;
-}
-
-/* Anchor div that sits top-right inside the pre */
-.code-block-lang-anchor {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.5rem;
-  z-index: 10;
-}
-
-/* Trigger button */
-.code-block-lang-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-family: ui-monospace, monospace;
-  font-size: 0.68rem;
-  line-height: 1;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  border: 1px solid rgba(175, 184, 193, 0.4);
-  color: #6e7781;
-  background: rgba(246, 248, 250, 0.8);
-  cursor: pointer;
-  transition: color 100ms, background 100ms, border-color 100ms;
-  user-select: none;
-  white-space: nowrap;
-}
-
-.code-block-lang-btn:hover {
-  color: #24292f;
-  background: #eaeef2;
-  border-color: rgba(175, 184, 193, 0.6);
-}
-
-.dark .code-block-lang-btn {
-  color: #8b949e;
-  background: rgba(22, 27, 34, 0.8);
-  border-color: rgba(48, 54, 61, 0.8);
-}
-
-.dark .code-block-lang-btn:hover {
-  color: #c9d1d9;
-  background: #21262d;
-  border-color: rgba(139, 148, 158, 0.3);
-}
-
-/* Dropdown panel — rendered via portal, positioned with inline styles */
-.code-block-lang-dropdown {
-  background: #ffffff;
-  border: 1px solid #d0d7de;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.25);
-  padding: 0.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  animation: lang-drop-in 100ms ease;
-  overflow-y: auto;
-  max-height: 280px;
-}
-
-.dark .code-block-lang-dropdown {
-  background: #161b22;
-  border-color: #30363d;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-
-@keyframes lang-drop-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* Options */
-.code-block-lang-option {
-  width: 100%;
-  text-align: left;
-  font-family: ui-monospace, monospace;
-  font-size: 0.72rem;
-  padding: 0.3rem 0.65rem;
-  border-radius: 5px;
-  border: none;
-  background: transparent;
-  color: #24292f;
-  cursor: pointer;
-  transition: background 80ms;
-  white-space: nowrap;
-}
-
-.code-block-lang-option:hover  { background: #f3f4f6; }
-.code-block-lang-option.active {
-  background: #dbeafe;
-  color: #1d4ed8;
-  font-weight: 500;
-}
-
-.dark .code-block-lang-option         { color: #c9d1d9; }
-.dark .code-block-lang-option:hover   { background: #21262d; }
-.dark .code-block-lang-option.active  { background: #1e3a5f; color: #79c0ff; }
-
 /* ─── Toggle blocks ───────────────────────────────────────────────────────── */
-/*
-  Layout goal:
-    [▶] Title text here          ← arrow + summary on same line
-        Body content here        ← body indented below, hidden when closed
-
-  NodeViewWrapper (.toggle-block) uses position:relative.
-  .toggle-header holds the arrow button, positioned absolute top-left.
-  .toggle-children (NodeViewContent) has padding-left to clear the arrow,
-  so summary text and body content both start to the right of the arrow.
-
-  Body is hidden via height:0 + overflow:hidden (NOT display:none).
-  display:none removes the ProseMirror node from the DOM view, corrupting
-  content. height:0 keeps the DOM node present and ProseMirror happy.
-*/
-
 .tiptap .toggle-block {
   position: relative;
   margin-bottom: 0.3rem;
 }
 
-/* Arrow container — absolutely positioned top-left */
 .tiptap .toggle-header {
   position: absolute;
   top: 0;
@@ -588,11 +592,10 @@ html, body { overscroll-behavior: none; }
   width: 1.4rem;
   display: flex;
   align-items: flex-start;
-  padding-top: 0.18rem; /* align arrow with first text line */
-  pointer-events: none; /* let clicks through to button only */
+  padding-top: 0.18rem;
+  pointer-events: none;
 }
 
-/* Arrow button */
 .tiptap .toggle-arrow-btn {
   display: flex;
   align-items: center;
@@ -618,28 +621,24 @@ html, body { overscroll-behavior: none; }
 .dark .tiptap .toggle-arrow-btn       { color: #52525b; }
 .dark .tiptap .toggle-arrow-btn:hover { color: #a1a1aa; background: rgba(255,255,255,0.06); }
 
-/* Arrow icon — rotates 90° when parent has .toggle-open */
 .tiptap .toggle-arrow-icon {
   transition: transform 150ms ease;
   transform: rotate(0deg);
 }
+
 .tiptap .toggle-open .toggle-arrow-icon {
   transform: rotate(90deg);
 }
 
-/* NodeViewContent wrapper — left padding clears the arrow */
 .tiptap .toggle-children {
   padding-left: 1.5rem;
 }
 
-/* ── Summary row ─────────────────────────────────────────────────────────── */
-/* NodeViewWrapper for toggleSummary */
 .tiptap .toggle-summary-row {
   margin: 0;
-  min-height: 1.65em; /* match line-height so empty summary has height */
+  min-height: 1.65em;
 }
 
-/* NodeViewContent inside summary — the editable title area */
 .tiptap .toggle-summary-content {
   display: block;
 }
@@ -648,26 +647,16 @@ html, body { overscroll-behavior: none; }
   margin-bottom: 0;
 }
 
-/* ── Body ────────────────────────────────────────────────────────────────── */
-/* NodeViewWrapper for toggleBody */
-.tiptap .toggle-body {
-  overflow: hidden;
-  /* Open state — full height, visible */
-}
-
-/* Closed state — collapse without display:none */
 .tiptap .toggle-closed .toggle-body {
   height: 0;
   visibility: hidden;
 }
 
-/* Open state — natural height */
 .tiptap .toggle-open .toggle-body {
   height: auto;
   visibility: visible;
 }
 
-/* Body content padding */
 .tiptap .toggle-body-content {
   padding-top: 0.15rem;
   padding-bottom: 0.15rem;
@@ -681,13 +670,11 @@ html, body { overscroll-behavior: none; }
   margin-bottom: 0;
 }
 
-/* Nested toggles inside body */
 .tiptap .toggle-body-content > .toggle-block {
   margin-bottom: 0.2rem;
 }
 
 /* ─── Tables ──────────────────────────────────────────────────────────────── */
-
 .tiptap .tableWrapper {
   overflow-x: auto;
   margin-bottom: 0.75rem;
@@ -709,7 +696,6 @@ html, body { overscroll-behavior: none; }
   box-sizing: border-box;
 }
 
-/* Header row */
 .tiptap table th {
   background: rgba(128, 128, 128, 0.07);
   font-weight: 600;
@@ -725,7 +711,6 @@ html, body { overscroll-behavior: none; }
   background: rgba(255, 255, 255, 0.05);
 }
 
-/* Selected cell highlight */
 .tiptap table .selectedCell::after {
   content: "";
   position: absolute;
@@ -738,7 +723,6 @@ html, body { overscroll-behavior: none; }
   background: rgba(59, 130, 246, 0.2);
 }
 
-/* Column resize handle */
 .tiptap table .column-resize-handle {
   position: absolute;
   right: -2px;
@@ -762,18 +746,37 @@ html, body { overscroll-behavior: none; }
   opacity: 1;
 }
 
-/* Resize cursor on the wrapper when resizing */
 .tiptap.resize-cursor {
   cursor: col-resize;
 }
 
-/* Paragraph inside table cell — no bottom margin */
 .tiptap table td p,
 .tiptap table th p {
   margin-bottom: 0;
 }
 
-/* Table inside toggle body */
 .tiptap .toggle-body-content table {
   margin-bottom: 0.35rem;
+}
+
+/* ============================================================================
+   UI Components
+   ========================================================================== */
+
+/* ─── Find & Replace ──────────────────────────────────────────────────────── */
+.find-replace-match {
+  background-color: rgba(250, 204, 21, 0.35);
+  border-radius: 2px;
+}
+
+.find-replace-current {
+  background-color: rgba(249, 115, 22, 0.5);
+  border-radius: 2px;
+  outline: 1.5px solid rgba(249, 115, 22, 0.7);
+}
+
+.dark .find-replace-match   { background-color: rgba(250, 204, 21, 0.2); }
+.dark .find-replace-current {
+  background-color: rgba(249, 115, 22, 0.4);
+  outline-color: rgba(249, 115, 22, 0.6);
 }
