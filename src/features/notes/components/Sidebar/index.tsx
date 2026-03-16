@@ -210,33 +210,39 @@ export function Sidebar() {
         style={{ width: isVisible ? "288px" : "0px", opacity: isVisible ? 1 : 0 }}
         className={`flex flex-col h-full shrink-0 bg-zinc-50 dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 overflow-hidden transition-[width,opacity] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] ${isPeek ? "absolute left-0 top-0 z-40 shadow-2xl" : "relative"}`}
       >
-        {/* Top bar */}
-        <div className="flex items-center justify-end gap-1 px-3 pt-4 pb-3 shrink-0">
-          {isPeek && (
-            <button onClick={lock} title="Lock sidebar open" className="w-7 h-7 flex flex-col items-center justify-center gap-[4.5px] rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 mr-auto transition-colors duration-150">
-              <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
-              <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
-              <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
-            </button>
-          )}
-          {isOpen && <div className="flex-1" />}
-          {isOpen && (
-            <button onClick={close} title="Close sidebar (Ctrl+\)" className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M5 2L0 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.4"/>
-              </svg>
-            </button>
-          )}
-          <button onClick={() => createNote()} title="New note (Ctrl+N)" className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150">
+        {/* Top bar - Updated layout */}
+        <div className="flex items-center gap-2 px-3 pt-4 pb-3 shrink-0">
+          {/* Search takes most of the width */}
+          <div className="flex-1 min-w-0">
+            <SearchBar />
+          </div>
+          
+          {/* Close sidebar button (<) */}
+          <button 
+            onClick={close} 
+            title="Close sidebar (Ctrl+\)" 
+            className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink-0"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M5 2L0 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.4"/>
+            </svg>
+          </button>
+          
+          {/* New note button (✎) */}
+          <button 
+            onClick={() => createNote()} 
+            title="New note (Ctrl+N)" 
+            className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink-0"
+          >
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
               <path d="M9.5 2.5L12.5 5.5M2 13l1-4L10.5 1.5a1.414 1.414 0 012 2L5 11l-3 1z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
         </div>
 
-        {/* Search */}
-        <div className="px-3 pb-3 shrink-0"><SearchBar /></div>
+        {/* Removed the separate Search div since it's now in the top bar */}
+
         <div className="mx-3 border-t border-zinc-200 dark:border-zinc-800 shrink-0" />
 
         {/* Note tree */}
