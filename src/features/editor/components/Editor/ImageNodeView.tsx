@@ -3,8 +3,17 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { NodeViewErrorBoundary } from "./NodeViewErrorBoundary";
 
-export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProps) {
+function safeConvertFileSrc(src: string): string {
+  try {
+    return src ? convertFileSrc(src) : "";
+  } catch {
+    return "";
+  }
+}
+
+function ImageNodeViewInner({ node, selected, updateAttributes }: NodeViewProps) {
   const { src, alt, width, align } = node.attrs as {
     src: string;
     alt: string;
@@ -15,16 +24,29 @@ export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProp
   const imgRef       = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStart    = useRef<{ x: number; startWidth: number } | null>(null);
-  const [resizing, setResizing]     = useState(false);
+  const [resizing, setResizing]         = useState(false);
   const [naturalWidth, setNaturalWidth] = useState<number | null>(null);
-  const [imgError, setImgError]     = useState(false);
+  const [imgError, setImgError]         = useState(false);
+  const [visible, setVisible]           = useState(false); // controls fade-in
 
-  // Convert native path → webview-accessible URL
-  const src_url = src ? convertFileSrc(src) : "";
+  const src_url = safeConvertFileSrc(src);
 
-  // Track natural width once the image loads
+  // If no src at all, skip loading state entirely
+  useEffect(() => {
+    if (!src_url) {
+      setImgError(true);
+      setVisible(true);
+    }
+  }, [src_url]);
+
   function handleLoad() {
     if (imgRef.current) setNaturalWidth(imgRef.current.naturalWidth);
+    setVisible(true);
+  }
+
+  function handleError() {
+    setImgError(true);
+    setVisible(true);
   }
 
   // ── Resize logic ───────────────────────────────────────────────────────────
@@ -66,9 +88,7 @@ export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProp
     };
   }, [resizing, updateAttributes]);
 
-  // ── Alignment helper ───────────────────────────────────────────────────────
   const justifyMap = { left: "flex-start", center: "center", right: "flex-end" } as const;
-
   const displayWidth = width ?? naturalWidth ?? undefined;
 
   return (
@@ -85,6 +105,8 @@ export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProp
             width: displayWidth ? `${displayWidth}px` : undefined,
             maxWidth: "100%",
             userSelect: "none",
+            opacity: visible ? 1 : 0,
+            transition: "opacity 150ms ease",
           }}
           className={`image-node-container ${selected ? "image-node-selected" : ""}`}
         >
@@ -115,7 +137,7 @@ export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProp
               src={src_url}
               alt={alt ?? ""}
               onLoad={handleLoad}
-              onError={() => setImgError(true)}
+              onError={handleError}
               draggable={false}
               style={{
                 display: "block",
@@ -130,8 +152,8 @@ export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProp
             />
           )}
 
-          {/* Resize handle — bottom-right corner */}
-          {selected && !imgError && (
+          {/* Resize handle */}
+          {selected && !imgError && src_url && (
             <div
               onMouseDown={onResizeMouseDown}
               style={{
@@ -149,8 +171,8 @@ export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProp
             />
           )}
 
-          {/* Alignment toolbar — shows when selected */}
-          {selected && !imgError && (
+          {/* Alignment toolbar */}
+          {selected && !imgError && src_url && (
             <div
               style={{
                 position: "absolute",
@@ -190,7 +212,6 @@ export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProp
 
               <div style={{ width: "1px", height: "16px", margin: "0 2px" }} className="bg-zinc-200 dark:bg-zinc-600" />
 
-              {/* Reset width */}
               <button
                 onClick={() => updateAttributes({ width: null })}
                 title="Reset size"
@@ -216,6 +237,14 @@ export function ImageNodeView({ node, selected, updateAttributes }: NodeViewProp
         </div>
       </div>
     </NodeViewWrapper>
+  );
+}
+
+export function ImageNodeView(props: NodeViewProps) {
+  return (
+    <NodeViewErrorBoundary label="image">
+      <ImageNodeViewInner {...props} />
+    </NodeViewErrorBoundary>
   );
 }
 

@@ -24,6 +24,11 @@ fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn file_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
+#[tauri::command]
 async fn save_image(
     app: tauri::AppHandle,
     file_name: String,
@@ -90,6 +95,7 @@ pub fn run() {
             read_file,
             read_file_bytes,
             get_app_data_dir,
+            file_exists,
             save_image,
             save_attachment,
             delete_image,
