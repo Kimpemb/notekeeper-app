@@ -8,6 +8,7 @@ interface Props {
   query?: string;
   onCommand: (action: () => void) => void;
   onClose: () => void;
+  onImageUpload: () => Promise<void>;
 }
 
 interface Command {
@@ -18,7 +19,7 @@ interface Command {
   action: () => void;
 }
 
-export function SlashMenu({ position, editor, query = "", onCommand, onClose }: Props) {
+export function SlashMenu({ position, editor, query = "", onCommand, onClose, onImageUpload }: Props) {
   const menuRef  = useRef<HTMLDivElement>(null);
   const listRef  = useRef<HTMLUListElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
@@ -99,7 +100,6 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
       action: () => editor.chain().focus().toggleTaskList().run(),
     },
     // ── Blocks ──────────────────────────────────────────────────────────────
-    // Toggle is excluded when cursor is inside a toggleBody (no nesting supported)
     ...(!insideToggleBody ? [{
       id: "toggle",
       label: "Toggle",
@@ -144,6 +144,19 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose }: 
           .focus()
           .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
           .run(),
+    },
+    {
+      id: "image",
+      label: "Image",
+      description: "Upload an image from your device — photo, picture",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+          <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+          <circle cx="4" cy="4" r="1" fill="currentColor"/>
+          <path d="M1 8.5l3-3 2.5 2.5 1.5-1.5L11 9.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ),
+      action: () => { onImageUpload(); },
     },
     {
       id: "divider",

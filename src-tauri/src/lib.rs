@@ -11,11 +11,35 @@ fn read_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
     app.path()
         .app_data_dir()
         .map(|p| p.to_string_lossy().to_string())
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_image(
+    app: tauri::AppHandle,
+    file_name: String,
+    data: Vec<u8>,
+) -> Result<String, String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let images_dir = app_data.join("images");
+    std::fs::create_dir_all(&images_dir).map_err(|e| e.to_string())?;
+    let dest = images_dir.join(&file_name);
+    std::fs::write(&dest, data).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn delete_image(path: String) -> Result<(), String> {
+    std::fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,7 +51,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             write_file,
             read_file,
+            read_file_bytes,
             get_app_data_dir,
+            save_image,
+            delete_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

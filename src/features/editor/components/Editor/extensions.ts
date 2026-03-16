@@ -662,3 +662,6 @@ export function createFindReplaceShortcutExtension(onOpen: () => void) {
     },
   });
 }
+
+// ── Image ─────────────────────────────────────────────────────────────────────
+export { ImageExtension } from "./ImageExtension";

@@ -35,10 +35,25 @@ import {
   OrderedListBackspaceExtension,
   CodeBlockSelectAllExtension,
   createFindReplaceShortcutExtension,
+  ImageExtension,
 } from "./extensions";
 import { extractNoteLinkIds, scrollToHeadingText } from "./editorUtils";
+import { pickImageFile, readImageFile, saveImage } from "@/lib/tauri/fs";
 
 interface BubblePos { top: number; left: number; }
+
+// ── Upload helper (used by slash menu) ───────────────────────────────────────
+async function uploadImageFromDisk(): Promise<{ path: string; name: string } | null> {
+  const filePath = await pickImageFile();
+  if (!filePath) return null;
+  const bytes    = await readImageFile(filePath);
+  const fileName = filePath.split(/[\\/]/).pop() ?? "image.png";
+  const ext      = fileName.split(".").pop()?.toLowerCase() ?? "png";
+  const base     = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
+  const uniqueName = `${base}_${Date.now()}.${ext}`;
+  const savedPath  = await saveImage(uniqueName, bytes);
+  return { path: savedPath, name: fileName };
+}
 
 export function Editor() {
   const activeNote              = useNoteStore((s) => s.activeNote());
@@ -108,6 +123,8 @@ export function Editor() {
         name: "findReplacePlugin",
         addProseMirrorPlugins() { return [buildFindReplacePlugin()]; },
       }),
+      // Image — paste, drop, and NodeView all handled inside the extension
+      ImageExtension,
     ],
     content: activeNote?.content ? JSON.parse(activeNote.content) : "",
     editorProps: {
@@ -309,6 +326,17 @@ export function Editor() {
     action(); closeSlashMenuInternal();
   }
 
+  // ── Image upload action (called from slash menu) ──────────────────────────
+  async function handleImageUpload() {
+    if (!editor) return;
+    const result = await uploadImageFromDisk();
+    if (!result) return;
+    editor.chain().focus().insertContent({
+      type: "image",
+      attrs: { src: result.path, alt: result.name, width: null, align: "left" },
+    }).run();
+  }
+
   function handleThreeDots() {
     const pos = bubblePosRef.current ?? bubblePos;
     if (!pos) return;
@@ -418,7 +446,14 @@ export function Editor() {
       {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (
-        <SlashMenu position={slashPos} editor={editor} query={slashQuery} onCommand={handleSlashCommand} onClose={closeSlashMenu} />
+        <SlashMenu
+          position={slashPos}
+          editor={editor}
+          query={slashQuery}
+          onCommand={handleSlashCommand}
+          onClose={closeSlashMenu}
+          onImageUpload={handleImageUpload}
+        />
       )}
       {linkOpen && editor && linkBracketStart.current !== null && (
         <NoteLinkSuggest position={linkPos} editor={editor} query={linkQuery} bracketStart={linkBracketStart.current} onClose={closeLinkSuggest} />
