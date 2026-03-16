@@ -41,17 +41,17 @@ export function Sidebar() {
   const permanentlyDeleteNote = useNoteStore((s) => s.permanentlyDeleteNote);
   const emptyTrash            = useNoteStore((s) => s.emptyTrash);
 
-  const sidebarState    = useUIStore((s) => s.sidebarState);
-  const setSidebarState = useUIStore((s) => s.setSidebarState);
-  const activeTag       = useUIStore((s) => s.activeTag);
-  const setActiveTag    = useUIStore((s) => s.setActiveTag);
+  const sidebarState          = useUIStore((s) => s.sidebarState);
+  const setSidebarState       = useUIStore((s) => s.setSidebarState);
+  const activeTag             = useUIStore((s) => s.activeTag);
+  const setActiveTag          = useUIStore((s) => s.setActiveTag);
+  const focusSidebarSearch    = useUIStore((s) => s.focusSidebarSearch);
 
   const [trashOpen, setTrashOpen] = useState(false);
   const [tagsOpen, setTagsOpen]   = useState(false);
   const [confirm, setConfirm]     = useState<ConfirmState>(CONFIRM_CLOSED);
   const [allTags, setAllTags]     = useState<string[]>([]);
 
-  // Tag context menu
   const [tagMenu, setTagMenu]         = useState<TagMenu | null>(null);
   const [menuPos, setMenuPos]         = useState<{ x: number; y: number } | null>(null);
   const [renamingTag, setRenamingTag] = useState<string | null>(null);
@@ -69,7 +69,24 @@ export function Sidebar() {
     getAllTags().then(setAllTags).catch(console.error);
   }, [notes]);
 
-  // Close menu on outside click
+  // ── Global Cmd+F intercept ────────────────────────────────────────────────
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const isMac = navigator.platform.toUpperCase().includes("MAC");
+      const mod   = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && e.key === "f") {
+        e.preventDefault();   // block browser native find
+        e.stopPropagation();
+        // Open sidebar if needed, then focus the search input
+        if (sidebarState !== "open") setSidebarState("open");
+        focusSidebarSearch?.();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [sidebarState, setSidebarState, focusSidebarSearch]);
+
+  // ── Close tag menu on outside click ──────────────────────────────────────
   useEffect(() => {
     if (!tagMenu) return;
     function handleClick(e: MouseEvent) {
@@ -82,7 +99,7 @@ export function Sidebar() {
     return () => window.removeEventListener("mousedown", handleClick);
   }, [tagMenu]);
 
-  // Smart positioning — flip up/left if menu would overflow viewport
+  // ── Smart tag menu positioning ────────────────────────────────────────────
   useEffect(() => {
     if (!tagMenu || !menuRef.current) return;
     const menu = menuRef.current;
@@ -90,18 +107,15 @@ export function Sidebar() {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const MARGIN = 8;
-
     let x = tagMenu.x;
     let y = tagMenu.y;
-
     if (x + width + MARGIN > vw) x = vw - width - MARGIN;
     if (y + height + MARGIN > vh) y = tagMenu.y - height;
     if (y < MARGIN) y = MARGIN;
-
     setMenuPos({ x, y });
   }, [tagMenu]);
 
-  // Focus rename input when it appears
+  // ── Focus rename input ────────────────────────────────────────────────────
   useEffect(() => {
     if (renamingTag) setTimeout(() => renameInputRef.current?.focus(), 0);
   }, [renamingTag]);
@@ -146,7 +160,7 @@ export function Sidebar() {
   function handleTagContextMenu(e: React.MouseEvent, tag: string) {
     e.preventDefault();
     e.stopPropagation();
-    setMenuPos(null); // reset so positioning effect re-runs
+    setMenuPos(null);
     setTagMenu({ tag, x: e.clientX, y: e.clientY });
   }
 
@@ -205,21 +219,22 @@ export function Sidebar() {
       <aside
         id="sidebar-panel"
         onMouseEnter={() => cancelSidebarCollapse()}
-        onMouseLeave={() => { if (useUIStore.getState().sidebarState === "peek") scheduleSidebarCollapse(collapse); }}
+        onMouseLeave={() => {
+          if (useUIStore.getState().sidebarState === "peek") scheduleSidebarCollapse(collapse);
+        }}
         style={{ width: isVisible ? "288px" : "0px", opacity: isVisible ? 1 : 0 }}
         className={`flex flex-col h-full shrink-0 bg-zinc-50 dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 overflow-hidden transition-[width,opacity] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] ${isPeek ? "absolute left-0 top-0 z-40 shadow-2xl" : "relative"}`}
       >
-        {/* Top bar - Updated layout */}
+        {/* Top bar */}
         <div className="flex items-center gap-2 px-3 pt-4 pb-3 shrink-0">
-          {/* Search takes most of the width */}
           <div className="flex-1 min-w-0">
             <SearchBar />
           </div>
-          
-          {/* Close sidebar button (<) */}
-          <button 
-            onClick={close} 
-            title="Close sidebar (Ctrl+\)" 
+
+          {/* Close sidebar */}
+          <button
+            onClick={close}
+            title="Close sidebar (Ctrl+\)"
             className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink-0"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -227,11 +242,11 @@ export function Sidebar() {
               <path d="M5 2L0 7l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.4"/>
             </svg>
           </button>
-          
-          {/* New note button (✎) */}
-          <button 
-            onClick={() => createNote()} 
-            title="New note (Ctrl+N)" 
+
+          {/* New note */}
+          <button
+            onClick={() => createNote()}
+            title="New note (Ctrl+N)"
             className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink-0"
           >
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -240,11 +255,9 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Removed the separate Search div since it's now in the top bar */}
-
         <div className="mx-3 border-t border-zinc-200 dark:border-zinc-800 shrink-0" />
 
-        {/* Note tree */}
+        {/* Note tree / search results */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 min-h-0">
           <NoteTree />
         </div>
@@ -273,7 +286,7 @@ export function Sidebar() {
             {tagsOpen && (
               <div className="max-h-48 overflow-y-auto pb-1">
                 <div className="flex flex-wrap gap-1.5 px-3 py-2">
-                  {allTags.map((tag) => (
+                  {allTags.map((tag) =>
                     renamingTag === tag ? (
                       <input
                         key={tag}
@@ -301,7 +314,7 @@ export function Sidebar() {
                         </span>
                       </button>
                     )
-                  ))}
+                  )}
                 </div>
               </div>
             )}
@@ -405,7 +418,6 @@ export function Sidebar() {
             left: menuPos?.x ?? tagMenu.x,
             top: menuPos?.y ?? tagMenu.y,
             zIndex: 9999,
-            // keep invisible until position is calculated to avoid flash at wrong position
             opacity: menuPos ? 1 : 0,
             transition: "opacity 80ms ease",
           }}

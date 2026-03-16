@@ -25,6 +25,10 @@ interface UIStore {
   collapseNode: (id: string) => void;
   collapseAll: () => void;
 
+  // ─── Sidebar search focus (set by Sidebar, called by global shortcut) ─────
+  focusSidebarSearch: (() => void) | null;
+  setFocusSidebarSearch: (fn: (() => void) | null) => void;
+
   // ─── Command palette ──────────────────────────────────────────────────────
   paletteOpen: boolean;
   openPalette: () => void;
@@ -73,9 +77,11 @@ interface UIStore {
   setSearchQuery: (query: string) => void;
   clearSearch: () => void;
 
-  // ─── Pending scroll heading ───────────────────────────────────────────────
+  // ─── Pending scroll (heading from outline, query from search) ────────────
   pendingScrollHeading: string | null;
   setPendingScrollHeading: (heading: string | null) => void;
+  pendingScrollQuery: string | null;
+  setPendingScrollQuery: (query: string | null) => void;
 
   // ─── Tag filter ───────────────────────────────────────────────────────────
   activeTag: string | null;
@@ -161,6 +167,10 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     collapseAll: () => set({ expandedNodes: new Set() }),
 
+    // ─── Sidebar search focus ─────────────────────────────────────────────────
+    focusSidebarSearch: null,
+    setFocusSidebarSearch: (fn) => set({ focusSidebarSearch: fn }),
+
     // ─── Command palette ──────────────────────────────────────────────────────
     paletteOpen: false,
     openPalette: () => set({ paletteOpen: true }),
@@ -209,9 +219,11 @@ export const useUIStore = create<UIStore>((set, get) => {
     setSearchQuery: (query) => set({ searchQuery: query }),
     clearSearch: () => set({ searchQuery: "" }),
 
-    // ─── Pending scroll heading ───────────────────────────────────────────────
+    // ─── Pending scroll ───────────────────────────────────────────────────────
     pendingScrollHeading: null,
     setPendingScrollHeading: (heading) => set({ pendingScrollHeading: heading }),
+    pendingScrollQuery: null,
+    setPendingScrollQuery: (query) => set({ pendingScrollQuery: query }),
 
     // ─── Tag filter ───────────────────────────────────────────────────────────
     activeTag: null,

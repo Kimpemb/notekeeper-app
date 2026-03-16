@@ -333,7 +333,8 @@ export async function deleteTag(name: string): Promise<void> {
 export interface SearchResult {
   id: string;
   title: string;
-  plaintext: string;
+  snippet: string;      // sentence around the match, with **word** markers
+  offset: number;       // char position of first match in plaintext (0-based, -1 if title-only match)
   updated_at: number;
   parent_id: string | null;
 }
@@ -341,16 +342,26 @@ export interface SearchResult {
 export async function searchNotes(query: string, limit = 20): Promise<SearchResult[]> {
   if (!query.trim()) return [];
   const db = await getDb();
-  const sanitized = query.replace(/['"*^()]/g, " ").trim() + "*";
+ 
+  // Strip FTS5 special chars to avoid parse errors, then add prefix wildcard
+  const sanitized = query.trim().replace(/['"*^()]/g, " ").trim() + "*";
+  const bare      = query.trim();
+ 
   return db.select<SearchResult[]>(
-    `SELECT n.id, n.title, n.plaintext, n.updated_at, n.parent_id
+    `SELECT
+       n.id,
+       n.title,
+       snippet(notes_fts, 2, '**', '**', '…', 12) AS snippet,
+       n.updated_at,
+       n.parent_id,
+       instr(n.plaintext, $2) AS offset
      FROM notes_fts f
      JOIN notes n ON n.id = f.id
      WHERE notes_fts MATCH $1
        AND n.deleted_at IS NULL
      ORDER BY rank
-     LIMIT $2`,
-    [sanitized, limit]
+     LIMIT $3`,
+    [sanitized, bare, limit]
   );
 }
 

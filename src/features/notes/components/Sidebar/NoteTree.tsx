@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { NoteTreeItem } from "./NoteTreeItem";
+import { SearchResults } from "./SearchResults";
 import type { Note } from "@/types";
 
 function noteHasTag(tags: string | null, tag: string): boolean {
@@ -24,8 +25,13 @@ export function NoteTree() {
   const activeTag    = useUIStore((s) => s.activeTag);
   const setActiveTag = useUIStore((s) => s.setActiveTag);
 
-  const [drag, setDrag]           = useState<DragState | null>(null);
+  const [drag, setDrag]                 = useState<DragState | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  // ── FTS5 search results view ───────────────────────────────────────────────
+  if (searchQuery.trim()) {
+    return <SearchResults query={searchQuery} />;
+  }
 
   // ── Tag filter view ────────────────────────────────────────────────────────
   if (activeTag) {
@@ -56,28 +62,16 @@ export function NoteTree() {
     );
   }
 
-  // ── Search view ────────────────────────────────────────────────────────────
-  if (searchQuery.trim()) {
-    const lower    = searchQuery.toLowerCase();
-    const filtered = notes.filter(
-      (n) => n.title.toLowerCase().includes(lower) || n.plaintext.toLowerCase().includes(lower)
-    );
-    if (filtered.length === 0) {
-      return <p className="px-4 py-6 text-xs text-zinc-400 dark:text-zinc-500 text-center select-none">No notes match "{searchQuery}"</p>;
-    }
-    return (
-      <ul className="px-2 space-y-0.5">
-        {filtered.map((note) => <NoteTreeItem key={note.id} noteId={note.id} depth={0} />)}
-      </ul>
-    );
-  }
-
-  // ── Default view ───────────────────────────────────────────────────────────
+  // ── Default tree view ──────────────────────────────────────────────────────
   const pinnedNotes   = notes.filter((n) => n.parent_id === null && pinnedIds.has(n.id));
   const unpinnedNotes = notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
 
   if (pinnedNotes.length === 0 && unpinnedNotes.length === 0) {
-    return <p className="px-4 py-6 text-xs text-zinc-400 dark:text-zinc-500 text-center select-none">No notes yet.<br />Click + to create one.</p>;
+    return (
+      <p className="px-4 py-6 text-xs text-zinc-400 dark:text-zinc-500 text-center select-none">
+        No notes yet.<br />Click + to create one.
+      </p>
+    );
   }
 
   // ── Drag handlers ──────────────────────────────────────────────────────────
@@ -120,7 +114,6 @@ export function NoteTree() {
         style={{ opacity: isDragging ? 0.4 : 1 }}
         className={`relative transition-opacity duration-100 ${isDropTarget ? "drop-target" : ""}`}
       >
-        {/* Drop indicator line */}
         {isDropTarget && (
           <div className="absolute top-0 left-2 right-2 h-0.5 bg-blue-500 rounded-full z-10 pointer-events-none" />
         )}

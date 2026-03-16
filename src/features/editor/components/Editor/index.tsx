@@ -39,7 +39,13 @@ import {
   ImageExtension,
   AttachmentExtension,
 } from "./extensions";
-import { extractNoteLinkIds, scrollToHeadingText } from "./editorUtils";
+import {
+  extractNoteLinkIds,
+  scrollToHeadingText,
+  scrollToQuery,
+  buildSearchHighlightPlugin,
+  getScrollContainer,
+} from "./editorUtils";
 import { pickImageFile, readImageFile, saveImage, pickAttachmentFile, readImageFile as readFileBytes, saveAttachment } from "@/lib/tauri/fs";
 
 interface BubblePos { top: number; left: number; }
@@ -58,16 +64,20 @@ async function uploadImageFromDisk(): Promise<{ path: string; name: string } | n
 }
 
 export function Editor() {
-  const activeNote              = useNoteStore((s) => s.activeNote());
-  const updateNote              = useNoteStore((s) => s.updateNote);
-  const setActiveNote           = useNoteStore((s) => s.setActiveNote);
-  const versionHistoryOpen      = useUIStore((s) => s.versionHistoryOpen);
-  const backlinksOpen           = useUIStore((s) => s.backlinksOpen);
-  const toggleBacklinks         = useUIStore((s) => s.toggleBacklinks);
-  const outlineOpen             = useUIStore((s) => s.outlineOpen);
-  const toggleOutline           = useUIStore((s) => s.toggleOutline);
-  const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
-  const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
+  const activeNote               = useNoteStore((s) => s.activeNote());
+  const updateNote               = useNoteStore((s) => s.updateNote);
+  const setActiveNote            = useNoteStore((s) => s.setActiveNote);
+  const versionHistoryOpen       = useUIStore((s) => s.versionHistoryOpen);
+  const backlinksOpen            = useUIStore((s) => s.backlinksOpen);
+  const toggleBacklinks          = useUIStore((s) => s.toggleBacklinks);
+  const outlineOpen              = useUIStore((s) => s.outlineOpen);
+  const toggleOutline            = useUIStore((s) => s.toggleOutline);
+  const pendingScrollHeading     = useUIStore((s) => s.pendingScrollHeading);
+  const setPendingScrollHeading  = useUIStore((s) => s.setPendingScrollHeading);
+  const pendingScrollQuery       = useUIStore((s) => s.pendingScrollQuery);
+  const setPendingScrollQuery    = useUIStore((s) => s.setPendingScrollQuery);
+
+
 
   const titleRef         = useRef<HTMLHeadingElement>(null);
   const lastSavedContent = useRef<string | null>(null);
@@ -103,16 +113,13 @@ export function Editor() {
       Callout,
       CheckList,
       CheckItem,
-      // Table — registered before toggle nodes to avoid any schema ordering issues
       EditorTable,
       TableRow,
       TableHeader,
       TableCell,
-      // Toggle nodes — ToggleSummary and ToggleBody must be registered before Toggle
       ToggleSummary,
       ToggleBody,
       Toggle,
-      // Keyboard handlers
       TaskItemExitExtension,
       ToggleKeyboardExtension,
       CodeBlockSelectAllExtension,
@@ -125,9 +132,12 @@ export function Editor() {
         name: "findReplacePlugin",
         addProseMirrorPlugins() { return [buildFindReplacePlugin()]; },
       }),
-      // Image — paste, drop, and NodeView all handled inside the extension
+      // Search highlight decoration plugin
+      Extension.create({
+        name: "searchHighlightPlugin",
+        addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; },
+      }),
       ImageExtension,
-      // Attachments (PDF + Audio) — paste, drop, and NodeView all handled inside the extension
       AttachmentExtension,
     ],
     content: activeNote?.content ? JSON.parse(activeNote.content) : "",
@@ -146,7 +156,6 @@ export function Editor() {
       if (from === to) {
         setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
       }
-      // Suppress bubble menu for image, attachment node selections and table selections
       const selectedNodeType = $from.nodeAfter?.type.name ?? "";
       const insideTable = (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "table") return true; } return false; })();
       if (selectedNodeType === "image" || selectedNodeType === "attachment" || insideTable) {
@@ -226,7 +235,7 @@ export function Editor() {
     }
   }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Pending scroll ────────────────────────────────────────────────────────
+  // ── Pending scroll: heading (from outline panel) ──────────────────────────
   useEffect(() => {
     if (!editor || !activeNote || !pendingScrollHeading) return;
     const timer = setTimeout(() => {
@@ -235,6 +244,18 @@ export function Editor() {
     }, 100);
     return () => clearTimeout(timer);
   }, [activeNote?.id, pendingScrollHeading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Pending scroll: search offset (from search results click) ────────────
+  useEffect(() => {
+    if (!editor || !activeNote || !pendingScrollQuery) return;
+    // Wait for content to be fully rendered before scrolling
+    const timer = setTimeout(() => {
+      const container = getScrollContainer(editor);
+      scrollToQuery(editor, pendingScrollQuery, container);
+      setPendingScrollQuery(null);
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [activeNote?.id, pendingScrollQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── External content update (version restore) ────────────────────────────
   useEffect(() => {
@@ -336,7 +357,6 @@ export function Editor() {
     action(); closeSlashMenuInternal();
   }
 
-  // ── Image upload action (called from slash menu) ──────────────────────────
   async function handleImageUpload() {
     if (!editor) return;
     const result = await uploadImageFromDisk();
@@ -347,7 +367,6 @@ export function Editor() {
     }).run();
   }
 
-  // ── Attachment upload action (called from slash menu) ─────────────────────
   async function handleAttachmentUpload(kind: "pdf" | "audio") {
     if (!editor) return;
     const filePath = await pickAttachmentFile();
@@ -386,37 +405,33 @@ export function Editor() {
         )}
 
         {/* Top-right panel toggles */}
-        {/* Top-right panel toggles */}
-<div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
-  {/* Only show Outline button when outline is NOT open */}
-  {!outlineOpen && (
-    <button
-      onClick={toggleOutline}
-      title="Toggle outline (Ctrl+Shift+O)"
-      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-    >
-      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-        <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-      </svg>
-      Outline
-    </button>
-  )}
-  
-  {/* Only show Backlinks button when backlinks is NOT open */}
-  {!backlinksOpen && (
-    <button
-      onClick={toggleBacklinks}
-      title="Toggle backlinks (Ctrl+Shift+B)"
-      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-    >
-      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-        <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-        <path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-      Backlinks
-    </button>
-  )}
-</div>
+        <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
+          {!outlineOpen && (
+            <button
+              onClick={toggleOutline}
+              title="Toggle outline (Ctrl+Shift+O)"
+              className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+            >
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+              Outline
+            </button>
+          )}
+          {!backlinksOpen && (
+            <button
+              onClick={toggleBacklinks}
+              title="Toggle backlinks (Ctrl+Shift+B)"
+              className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+            >
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                <path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Backlinks
+            </button>
+          )}
+        </div>
 
         {/* Bubble menu */}
         {editor && hasSelection && bubblePos && (
@@ -470,7 +485,6 @@ export function Editor() {
       {outlineOpen   && editor && <OutlinePanel editor={editor} />}
       {backlinksOpen && <BacklinksPanel noteId={activeNote.id} />}
 
-      {/* Table toolbar — floats above the active table */}
       {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (

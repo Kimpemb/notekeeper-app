@@ -780,3 +780,14 @@ html, body {
   background-color: rgba(249, 115, 22, 0.4);
   outline-color: rgba(249, 115, 22, 0.6);
 }
+
+.search-match-highlight {
+  background-color: rgb(251 191 36 / 0.45); /* amber-400 at 45% opacity */
+  border-radius: 3px;
+  padding: 1px 0;
+  transition: background-color 0.6s ease;
+}
+ 
+.dark .search-match-highlight {
+  background-color: rgb(180 130 20 / 0.45);
+}
