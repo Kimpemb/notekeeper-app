@@ -1,5 +1,4 @@
 // src/types/index.ts
-// Add deleted_at to the Note interface
 
 export interface Note {
   id: string;
@@ -12,6 +11,7 @@ export interface Note {
   created_at: number;
   updated_at: number;
   deleted_at: number | null;  // null = live, timestamp = in trash
+  sort_order: number;
 }
 
 export interface NoteVersion {

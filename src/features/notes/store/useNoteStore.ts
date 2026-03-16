@@ -10,19 +10,22 @@ import {
   permanentlyDeleteNote as dbPermanentlyDeleteNote,
   emptyTrash as dbEmptyTrash,
   moveNote as dbMoveNote,
+  bulkUpdateSortOrder,
   getNoteById,
   recordVisit as dbRecordVisit,
   getRecentVisits,
+  getSetting,
+  setSetting,
   type CreateNoteInput,
   type UpdateNoteInput,
 } from "@/features/notes/db/queries";
 import type { Note } from "@/types";
 
-const PINNED_STORAGE_KEY = "notekeeper:pinned";
+const PINNED_SETTING_KEY = "pinned_ids";
 
-function loadPinnedIds(): Set<string> {
+async function loadPinnedIds(): Promise<Set<string>> {
   try {
-    const raw = localStorage.getItem(PINNED_STORAGE_KEY);
+    const raw = await getSetting(PINNED_SETTING_KEY);
     if (!raw) return new Set();
     return new Set(JSON.parse(raw) as string[]);
   } catch {
@@ -30,8 +33,8 @@ function loadPinnedIds(): Set<string> {
   }
 }
 
-function savePinnedIds(ids: Set<string>) {
-  localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify([...ids]));
+async function savePinnedIds(ids: Set<string>): Promise<void> {
+  await setSetting(PINNED_SETTING_KEY, JSON.stringify([...ids]));
 }
 
 interface NoteStore {
@@ -47,7 +50,7 @@ interface NoteStore {
   rootNotes: () => Note[];
   childrenOf: (parentId: string) => Note[];
   pinnedNotes: () => Note[];
-  recentNotes: () => Note[];
+  unpinnedNotes: () => Note[];
 
   loadNotes: () => Promise<void>;
   loadTrashedNotes: () => Promise<void>;
@@ -62,13 +65,14 @@ interface NoteStore {
   permanentlyDeleteNote: (id: string) => Promise<void>;
   emptyTrash: () => Promise<void>;
   moveNote: (id: string, newParentId: string | null) => Promise<void>;
+  reorderNote: (draggedId: string, targetId: string, section: "pinned" | "notes") => Promise<void>;
   refreshNote: (id: string) => Promise<void>;
-  pinNote: (id: string) => void;
-  unpinNote: (id: string) => void;
+  pinNote: (id: string) => Promise<void>;
+  unpinNote: (id: string) => Promise<void>;
   isPinned: (id: string) => boolean;
 }
 
-// ─── Untitled-X helper ────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function nextUntitledName(notes: Note[]): string {
   const pattern = /^Untitled-(\d+)$/;
@@ -80,10 +84,6 @@ function nextUntitledName(notes: Note[]): string {
   let n = 1;
   while (used.has(n)) n++;
   return `Untitled-${n}`;
-}
-
-function byRecency(a: Note, b: Note): number {
-  return b.updated_at - a.updated_at;
 }
 
 function collectDescendants(id: string, notes: Note[]): Set<string> {
@@ -106,7 +106,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   notes: [],
   trashedNotes: [],
   activeNoteId: null,
-  pinnedIds: loadPinnedIds(),
+  pinnedIds: new Set(),
   visitedNoteIds: [],
   isLoading: false,
   error: null,
@@ -123,24 +123,12 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
 
   pinnedNotes: () => {
     const { notes, pinnedIds } = get();
-    return notes
-      .filter((n) => n.parent_id === null && pinnedIds.has(n.id))
-      .sort(byRecency);
+    return notes.filter((n) => n.parent_id === null && pinnedIds.has(n.id));
   },
 
-  recentNotes: () => {
-    const { notes, pinnedIds, visitedNoteIds } = get();
-    const unpinned = notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
-    if (visitedNoteIds.length === 0) return unpinned.sort(byRecency);
-    const unpinnedMap = new Map(unpinned.map((n) => [n.id, n]));
-    const ordered: Note[] = [];
-    const seen = new Set<string>();
-    for (const id of visitedNoteIds) {
-      const note = unpinnedMap.get(id);
-      if (note) { ordered.push(note); seen.add(id); }
-    }
-    const unvisited = unpinned.filter((n) => !seen.has(n.id)).sort(byRecency);
-    return [...ordered, ...unvisited];
+  unpinnedNotes: () => {
+    const { notes, pinnedIds } = get();
+    return notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
   },
 
   // ─── Load ──────────────────────────────────────────────────────────────────
@@ -148,8 +136,8 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   loadNotes: async () => {
     set({ isLoading: true, error: null });
     try {
-      const notes = await getAllNotes();
-      set({ notes, isLoading: false });
+      const [notes, pinnedIds] = await Promise.all([getAllNotes(), loadPinnedIds()]);
+      set({ notes, pinnedIds, isLoading: false });
       await get().loadRecentVisits();
     } catch (err) {
       set({ error: String(err), isLoading: false });
@@ -189,7 +177,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   createNote: async (input = {}) => {
     const title = input.title ?? nextUntitledName(get().notes);
     const note = await dbCreateNote({ ...input, title });
-    set((state) => ({ notes: [note, ...state.notes] }));
+    set((state) => ({ notes: [...state.notes, note] }));
     get().setActiveNote(note.id);
     return note;
   },
@@ -197,7 +185,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   createChildNote: async (parentId) => {
     const title = nextUntitledName(get().notes);
     const note = await dbCreateNote({ parent_id: parentId, title });
-    set((state) => ({ notes: [note, ...state.notes] }));
+    set((state) => ({ notes: [...state.notes, note] }));
     get().setActiveNote(note.id);
     return note;
   },
@@ -213,6 +201,41 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }));
   },
 
+  // ─── Reorder (drag-and-drop) ───────────────────────────────────────────────
+
+  reorderNote: async (draggedId, targetId, section) => {
+    const { notes, pinnedIds } = get();
+
+    // Get the ordered list for the relevant section
+    const sectionNotes = notes.filter((n) =>
+      n.parent_id === null &&
+      (section === "pinned" ? pinnedIds.has(n.id) : !pinnedIds.has(n.id))
+    );
+
+    const draggedIndex = sectionNotes.findIndex((n) => n.id === draggedId);
+    const targetIndex  = sectionNotes.findIndex((n) => n.id === targetId);
+    if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) return;
+
+    // Reorder in memory
+    const reordered = [...sectionNotes];
+    const [dragged] = reordered.splice(draggedIndex, 1);
+    reordered.splice(targetIndex, 0, dragged);
+
+    // Assign new sort_order values (0-based, stepped by 1)
+    const updates = reordered.map((n, i) => ({ id: n.id, sort_order: i }));
+
+    // Optimistic update in store
+    const updatedMap = new Map(updates.map((u) => [u.id, u.sort_order]));
+    set((state) => ({
+      notes: state.notes.map((n) =>
+        updatedMap.has(n.id) ? { ...n, sort_order: updatedMap.get(n.id)! } : n
+      ).sort((a, b) => a.sort_order - b.sort_order),
+    }));
+
+    // Persist to DB
+    await bulkUpdateSortOrder(updates);
+  },
+
   // ─── Trash (soft delete) ───────────────────────────────────────────────────
 
   deleteNote: async (id) => {
@@ -221,13 +244,12 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     const allIds = new Set([id, ...descendants]);
 
     await dbTrashNote(id);
-
     const trashedNotes = await getTrashedNotes();
 
     set((state) => {
       const remaining = state.notes.filter((n) => !allIds.has(n.id));
       const newPinnedIds = new Set([...state.pinnedIds].filter((pid) => !allIds.has(pid)));
-      savePinnedIds(newPinnedIds);
+      savePinnedIds(newPinnedIds).catch(console.error);
       const newActiveId =
         state.activeNoteId && allIds.has(state.activeNoteId)
           ? remaining[0]?.id ?? null
@@ -285,20 +307,20 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
 
   // ─── Pin / Unpin ───────────────────────────────────────────────────────────
 
-  pinNote: (id) => {
+  pinNote: async (id) => {
     set((state) => {
       const newPinnedIds = new Set(state.pinnedIds);
       newPinnedIds.add(id);
-      savePinnedIds(newPinnedIds);
+      savePinnedIds(newPinnedIds).catch(console.error);
       return { pinnedIds: newPinnedIds };
     });
   },
 
-  unpinNote: (id) => {
+  unpinNote: async (id) => {
     set((state) => {
       const newPinnedIds = new Set(state.pinnedIds);
       newPinnedIds.delete(id);
-      savePinnedIds(newPinnedIds);
+      savePinnedIds(newPinnedIds).catch(console.error);
       return { pinnedIds: newPinnedIds };
     });
   },

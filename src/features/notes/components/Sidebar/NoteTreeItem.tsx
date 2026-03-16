@@ -95,7 +95,8 @@ export function NoteTreeItem({ noteId, depth }: Props) {
 
   function handlePinToggle(e: React.MouseEvent) {
     e.stopPropagation(); setContextMenu(null);
-    isPinned ? unpinNote(noteId) : pinNote(noteId);
+    if (isPinned) unpinNote(noteId).catch(console.error);
+    else pinNote(noteId).catch(console.error);
   }
 
   function handleTrashClick(e: React.MouseEvent) {
@@ -109,7 +110,7 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   }
 
   return (
-    <li className="select-none">
+    <div className="select-none">
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
@@ -174,7 +175,6 @@ export function NoteTreeItem({ noteId, depth }: Props) {
         </ul>
       )}
 
-      {/* Confirm trash modal */}
       <ConfirmModal
         open={confirmOpen}
         title="Move to Trash"
@@ -188,7 +188,7 @@ export function NoteTreeItem({ noteId, depth }: Props) {
         onConfirm={handleConfirmTrash}
         onCancel={() => setConfirmOpen(false)}
       />
-    </li>
+    </div>
   );
 }
 

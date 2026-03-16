@@ -110,4 +110,7 @@ export const ALL_MIGRATIONS: string[] = [
           LIMIT 50
         );
     END`,
+
+  // ── sort_order column (migration — safe to run on existing DBs) ───────────
+  `ALTER TABLE notes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
 ];
