@@ -13,6 +13,8 @@ import { ImportModal } from "@/features/ui/components/ImportModal";
 import { ThemeToggle } from "@/features/ui/components/ThemeToggle";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
 import { exportNotesToFile } from "@/lib/tauri/fs";
+import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
+import { exportToPdf } from "@/lib/exporters/pdf";
 import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 
@@ -61,7 +63,6 @@ export default function App() {
     initDb()
       .then(() => {
         setDbReady(true);
-        // Load DB-persisted settings (theme, etc.) after DB is ready
         useUIStore.getState().loadSettings().catch(console.error);
         return loadNotes();
       })
@@ -70,20 +71,12 @@ export default function App() {
 
   useEffect(() => {
     if (!exportOpen) return;
-
     function onMouseDown(e: MouseEvent) {
-      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
-        closeExport();
-      }
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) closeExport();
     }
-
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeExport();
-      }
+      if (e.key === "Escape") { e.preventDefault(); closeExport(); }
     }
-
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -138,6 +131,12 @@ export default function App() {
     setSidebarState("open");
   }
 
+  function noteSlug(title: string): string {
+    return title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+  }
+
+  // ── Export handlers ─────────────────────────────────────────────────────────
+
   async function handleExportAll() {
     setExporting(true); closeExport();
     try {
@@ -146,24 +145,43 @@ export default function App() {
     finally { setExporting(false); }
   }
 
-  async function handleExportNote() {
-    if (!activeNote) return;
-    setExporting(true); closeExport();
-    try {
-      const slug = activeNote.title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
-      await exportNotesToFile([`# ${activeNote.title}`, "", activeNote.plaintext ?? ""].join("\n"), `${slug}.md`);
-    } catch (err) { console.error("Export failed:", err); }
-    finally { setExporting(false); }
-  }
-
   async function handleExportNoteJson() {
     if (!activeNote) return;
     setExporting(true); closeExport();
     try {
-      const slug = activeNote.title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
-      await exportNotesToFile(JSON.stringify([activeNote], null, 2), `${slug}.json`);
+      await exportNotesToFile(JSON.stringify([activeNote], null, 2), `${noteSlug(activeNote.title)}.json`);
     } catch (err) { console.error("Export failed:", err); }
     finally { setExporting(false); }
+  }
+
+  async function handleExportNoteMarkdown() {
+    if (!activeNote) { console.log("[export-md] no active note"); return; }
+    setExporting(true); closeExport();
+    try {
+      console.log("[export-md] starting, note:", activeNote.title);
+      console.log("[export-md] content preview:", activeNote.content?.slice(0, 100));
+      const md = prosemirrorToMarkdown(activeNote.title, activeNote.content ?? "");
+      console.log("[export-md] markdown generated, length:", md.length);
+      console.log("[export-md] markdown preview:", md.slice(0, 200));
+      const slug = noteSlug(activeNote.title);
+      console.log("[export-md] saving as:", `${slug}.md`);
+      await exportNotesToFile(md, `${slug}.md`);
+      console.log("[export-md] done");
+    } catch (err) {
+      console.error("[export-md] error:", err);
+    } finally { setExporting(false); }
+  }
+
+  async function handleExportNotePdf() {
+    if (!activeNote) { console.log("[export-pdf] no active note"); return; }
+    closeExport();
+    try {
+      console.log("[export-pdf] starting, note:", activeNote.title);
+      await exportToPdf(activeNote.title, activeNote.content ?? "");
+      console.log("[export-pdf] exportToPdf returned");
+    } catch (err) {
+      console.error("[export-pdf] error:", err);
+    }
   }
 
   if (dbError) {
@@ -179,12 +197,12 @@ export default function App() {
   }
 
   if (!dbReady) {
-  return (
-    <div className="flex h-screen w-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-      <p className="text-base text-zinc-400 animate-pulse">Loading…</p>
-    </div>
-  );
-}
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <p className="text-base text-zinc-400 animate-pulse">Loading…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
@@ -239,7 +257,7 @@ export default function App() {
             )}
           </div>
 
-          {/* Right side — search | export | import | filetree | shortcuts | theme */}
+          {/* Right side */}
           <div className="flex items-center gap-2 shrink overflow-hidden min-w-0 transition-all duration-300 ease-in-out">
 
             {/* Search */}
@@ -276,8 +294,9 @@ export default function App() {
                   anchorRef={exportBtnRef}
                   activeNote={!!activeNote}
                   onExportAll={handleExportAll}
-                  onExportNote={handleExportNote}
                   onExportNoteJson={handleExportNoteJson}
+                  onExportNoteMarkdown={handleExportNoteMarkdown}
+                  onExportNotePdf={handleExportNotePdf}
                 />
               )}
             </div>
@@ -295,7 +314,7 @@ export default function App() {
               <span className="hidden sm:inline">Import</span>
             </button>
 
-            {/* Icon trio — after Import so they sink into it on shrink */}
+            {/* Icon trio */}
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={toggleFileTree}
@@ -326,7 +345,8 @@ export default function App() {
         </header>
 
         <main className="flex-1 flex overflow-hidden relative">
-{activeNote ? <Editor key={activeNote.id} /> : <EmptyState />}          {fileTreeOpen && <FileTreePanel />}
+          {activeNote ? <Editor key={activeNote.id} /> : <EmptyState />}
+          {fileTreeOpen && <FileTreePanel />}
         </main>
       </div>
 
@@ -337,21 +357,22 @@ export default function App() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// ExportDropdown — fixed-position so it escapes overflow-hidden clipping
-// ---------------------------------------------------------------------------
+// ─── Export dropdown ──────────────────────────────────────────────────────────
+
 function ExportDropdown({
   anchorRef,
   activeNote,
   onExportAll,
-  onExportNote,
   onExportNoteJson,
+  onExportNoteMarkdown,
+  onExportNotePdf,
 }: {
   anchorRef: RefObject<HTMLButtonElement | null>;
   activeNote: boolean;
   onExportAll: () => void;
-  onExportNote: () => void;
   onExportNoteJson: () => void;
+  onExportNoteMarkdown: () => void;
+  onExportNotePdf: () => void;
 }) {
   const rect = anchorRef.current?.getBoundingClientRect();
   if (!rect) return null;
@@ -362,44 +383,55 @@ function ExportDropdown({
     left: rect.left + rect.width / 2,
     transform: "translateX(-50%)",
     zIndex: 9999,
-    width: 192,
+    width: 210,
   };
+
+  const itemClass = "w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100";
+  const disabledClass = "disabled:opacity-40 disabled:cursor-not-allowed";
+  const divider = <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />;
 
   return (
     <div style={style} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl overflow-hidden">
-      <button
-        onClick={onExportAll}
-        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100"
-      >
+
+      {/* All notes */}
+      <button onClick={onExportAll} className={itemClass}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
           <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
           <path d="M4 6.5h5M4 4.5h5M4 8.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
         </svg>
         Export all notes (JSON)
       </button>
-      <div className="mx-3 border-t border-zinc-100 dark:border-zinc-800" />
-      <button
-        onClick={onExportNote}
-        disabled={!activeNote}
-        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-          <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-          <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-        </svg>
-        Export current note (MD)
-      </button>
-      <button
-        onClick={onExportNoteJson}
-        disabled={!activeNote}
-        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 disabled:opacity-40 disabled:cursor-not-allowed"
-      >
+
+      {divider}
+
+      {/* Current note — JSON */}
+      <button onClick={onExportNoteJson} disabled={!activeNote} className={`${itemClass} ${disabledClass}`}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
           <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
           <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
           <path d="M4 7h5M4 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
         </svg>
         Export current note (JSON)
+      </button>
+
+      {/* Current note — Markdown */}
+      <button onClick={onExportNoteMarkdown} disabled={!activeNote} className={`${itemClass} ${disabledClass}`}>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          <path d="M3.5 9V6.5L5 8l1.5-1.5V9M7.5 9V6.5h1.5a.75.75 0 010 1.5H7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        Export current note (MD)
+      </button>
+
+      {/* Current note — PDF */}
+      <button onClick={onExportNotePdf} disabled={!activeNote} className={`${itemClass} ${disabledClass}`}>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          <path d="M4 6.5h2a1 1 0 010 2H4V6.5z" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        Export current note (PDF)
       </button>
     </div>
   );
