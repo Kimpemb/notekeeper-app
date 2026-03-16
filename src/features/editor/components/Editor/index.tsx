@@ -386,37 +386,37 @@ export function Editor() {
         )}
 
         {/* Top-right panel toggles */}
-        <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
-          <button
-            onClick={toggleOutline}
-            title="Toggle outline (Ctrl+Shift+O)"
-            className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border ${
-              outlineOpen
-                ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 shadow-sm"
-                : "bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-            }`}
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
-            Outline
-          </button>
-          <button
-            onClick={toggleBacklinks}
-            title="Toggle backlinks (Ctrl+Shift+B)"
-            className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border ${
-              backlinksOpen
-                ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 shadow-sm"
-                : "bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-            }`}
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-              <path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Backlinks
-          </button>
-        </div>
+        {/* Top-right panel toggles */}
+<div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
+  {/* Only show Outline button when outline is NOT open */}
+  {!outlineOpen && (
+    <button
+      onClick={toggleOutline}
+      title="Toggle outline (Ctrl+Shift+O)"
+      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+    >
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+        <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      </svg>
+      Outline
+    </button>
+  )}
+  
+  {/* Only show Backlinks button when backlinks is NOT open */}
+  {!backlinksOpen && (
+    <button
+      onClick={toggleBacklinks}
+      title="Toggle backlinks (Ctrl+Shift+B)"
+      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+    >
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+        <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+        <path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      Backlinks
+    </button>
+  )}
+</div>
 
         {/* Bubble menu */}
         {editor && hasSelection && bubblePos && (
