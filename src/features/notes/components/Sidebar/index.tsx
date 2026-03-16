@@ -111,7 +111,6 @@ export function Sidebar() {
   const isVisible = isOpen || isPeek;
 
   function collapse() { if (useUIStore.getState().sidebarState === "peek") setSidebarState("closed"); }
-  function lock()     { cancelSidebarCollapse(); setSidebarState("open"); }
   function close()    { cancelSidebarCollapse(); setSidebarState("closed"); }
 
   function askConfirm(opts: Omit<ConfirmState, "open">) {
