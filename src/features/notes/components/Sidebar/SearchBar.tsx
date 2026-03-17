@@ -55,7 +55,7 @@ export function SearchBar() {
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Search…"
-        className="w-full h-8 pl-8 pr-7 rounded-md text-sm bg-zinc-100 dark:bg-zinc-800 border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 outline-none transition-colors duration-100"
+className="w-full h-8 pl-8 pr-7 rounded-md text-sm bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 focus:bg-zinc-100 dark:focus:bg-zinc-800 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 outline-none border-none transition-colors duration-100"
       />
       {searchQuery && (
         <button
