@@ -63,8 +63,14 @@ async function uploadImageFromDisk(): Promise<{ path: string; name: string } | n
   return { path: savedPath, name: fileName };
 }
 
-export function Editor() {
-  const activeNote               = useNoteStore((s) => s.activeNote());
+interface EditorProps {
+  /** The note this editor instance is bound to. */
+  noteId: string;
+}
+
+export function Editor({ noteId }: EditorProps) {
+  // Derive the note from the store by the prop, not from activeNote().
+  const note                     = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
   const updateNote               = useNoteStore((s) => s.updateNote);
   const setActiveNote            = useNoteStore((s) => s.setActiveNote);
   const versionHistoryOpen       = useUIStore((s) => s.versionHistoryOpen);
@@ -76,6 +82,10 @@ export function Editor() {
   const setPendingScrollHeading  = useUIStore((s) => s.setPendingScrollHeading);
   const pendingScrollQuery       = useUIStore((s) => s.pendingScrollQuery);
   const setPendingScrollQuery    = useUIStore((s) => s.setPendingScrollQuery);
+
+  // This editor instance is "active" when its note is the one currently shown.
+  const activeTabNoteId          = useUIStore((s) => s.activeTabNoteId());
+  const isActiveTab              = activeTabNoteId === noteId;
 
   const titleRef         = useRef<HTMLHeadingElement>(null);
   const lastSavedContent = useRef<string | null>(null);
@@ -123,8 +133,6 @@ export function Editor() {
       ImageExtension,
       AttachmentExtension,
 
-      // ── Block handle (after nodes, before behavior plugins) ──────────────
-
       // ── Behavior / keyboard extensions ───────────────────────────────────
       TaskItemExitExtension,
       ToggleKeyboardExtension,
@@ -143,7 +151,7 @@ export function Editor() {
         addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; },
       }),
     ],
-    content: activeNote?.content ? JSON.parse(activeNote.content) : "",
+    content: note?.content ? JSON.parse(note.content) : "",
     editorProps: {
       attributes: {
         class: "tiptap h-full outline-none",
@@ -225,62 +233,65 @@ export function Editor() {
   }
 
   // ── Note switch: load content ─────────────────────────────────────────────
+  // noteId prop won't change for a given Editor instance (each tab gets its own),
+  // but the note's content can change externally (version restore, etc.).
   useEffect(() => {
-    if (!editor || !activeNote) return;
-    const incoming = activeNote.content;
+    if (!editor || !note) return;
+    const incoming = note.content;
     lastSavedContent.current = incoming;
     editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
     setBubblePos(null); setHasSelection(false); bubblePosRef.current = null;
     closeSlashMenuInternal(); closeLinkSuggestInternal();
     if (titleRef.current) {
-      const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
-      titleRef.current.textContent = isUntitled ? "" : activeNote.title;
+      const isUntitled = /^Untitled-\d+$/.test(note.title);
+      titleRef.current.textContent = isUntitled ? "" : note.title;
     }
-  }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [noteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pending scroll: heading ───────────────────────────────────────────────
+  // Only act on scroll hints when this is the active tab.
   useEffect(() => {
-    if (!editor || !activeNote || !pendingScrollHeading) return;
+    if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
     const timer = setTimeout(() => {
       const success = scrollToHeadingText(editor, pendingScrollHeading);
       if (success) setPendingScrollHeading(null);
     }, 100);
     return () => clearTimeout(timer);
-  }, [activeNote?.id, pendingScrollHeading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [noteId, pendingScrollHeading, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pending scroll: search query ──────────────────────────────────────────
   useEffect(() => {
-    if (!editor || !activeNote || !pendingScrollQuery) return;
+    if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
     const timer = setTimeout(() => {
       const container = getScrollContainer(editor);
       scrollToQuery(editor, pendingScrollQuery, container);
       setPendingScrollQuery(null);
     }, 120);
     return () => clearTimeout(timer);
-  }, [activeNote?.id, pendingScrollQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [noteId, pendingScrollQuery, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── External content update (version restore) ────────────────────────────
   useEffect(() => {
-    if (!editor || !activeNote) return;
-    const incoming = activeNote.content;
+    if (!editor || !note) return;
+    const incoming = note.content;
     if (incoming === lastSavedContent.current) return;
     lastSavedContent.current = incoming;
     const { from, to } = editor.state.selection;
     editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
     try { editor.commands.setTextSelection({ from, to }); } catch { /**/ }
     if (titleRef.current) {
-      const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
-      titleRef.current.textContent = isUntitled ? "" : activeNote.title;
+      const isUntitled = /^Untitled-\d+$/.test(note.title);
+      titleRef.current.textContent = isUntitled ? "" : note.title;
     }
-  }, [activeNote?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onSaveComplete = useCallback((content: string, noteId: string) => {
+  const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
     lastSavedContent.current = content;
     if (!editor) return;
-    syncBacklinks(noteId, extractNoteLinkIds(editor)).catch(console.error);
+    syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
   }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useAutoSave({ editor: editor ?? null, noteId: activeNote?.id ?? null, onSaveComplete });
+  useAutoSave({ editor: editor ?? null, noteId, onSaveComplete });
 
   // ── Escape closes slash menu ──────────────────────────────────────────────
   useEffect(() => {
@@ -295,6 +306,7 @@ export function Editor() {
   // ── Cmd+H: open find & replace ───────────────────────────────────────────
   useEffect(() => {
     function handle(e: KeyboardEvent) {
+      if (!isActiveTab) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "h" && !e.shiftKey) {
         const inEditor = (e.target as HTMLElement).closest(".tiptap") !== null;
         if (!inEditor) { e.preventDefault(); setFindReplaceOpen(true); }
@@ -302,18 +314,18 @@ export function Editor() {
     }
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
-  }, []);
+  }, [isActiveTab]);
 
-  if (!activeNote) return null;
+  if (!note) return null;
 
   function closeSlashMenu() { closeSlashMenuInternal(); editor?.commands.focus(); }
   function closeLinkSuggest() { closeLinkSuggestInternal(); editor?.commands.focus(); }
 
   function handleTitleBlur() {
-    if (!activeNote) return;
+    if (!note) return;
     const title = titleRef.current?.textContent?.trim() ?? "";
-    if (!title || title === activeNote.title) return;
-    updateNote(activeNote.id, { title });
+    if (!title || title === note.title) return;
+    updateNote(note.id, { title });
   }
 
   function handleTitleKeyDown(e: React.KeyboardEvent<HTMLHeadingElement>) {
@@ -387,7 +399,7 @@ export function Editor() {
     setTimeout(() => setSlashOpen(true), 0);
   }
 
-  const isUntitled = /^Untitled-\d+$/.test(activeNote.title);
+  const isUntitled = /^Untitled-\d+$/.test(note.title);
 
   return (
     <div className="flex h-full w-full overflow-hidden">
@@ -400,34 +412,36 @@ export function Editor() {
           />
         )}
 
-        {/* Top-right panel toggles */}
-        <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
-          {!outlineOpen && (
-            <button
-              onClick={toggleOutline}
-              title="Toggle outline (Ctrl+')"
-              className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-            >
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-              </svg>
-              Outline
-            </button>
-          )}
-          {!backlinksOpen && (
-            <button
-              onClick={toggleBacklinks}
-              title="Toggle backlinks (Ctrl+;)"
-              className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-            >
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                <path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              Backlinks
-            </button>
-          )}
-        </div>
+        {/* Top-right panel toggles — only render for active tab to avoid duplicates */}
+        {isActiveTab && (
+          <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
+            {!outlineOpen && (
+              <button
+                onClick={toggleOutline}
+                title="Toggle outline (Ctrl+')"
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                </svg>
+                Outline
+              </button>
+            )}
+            {!backlinksOpen && (
+              <button
+                onClick={toggleBacklinks}
+                title="Toggle backlinks (Ctrl+;)"
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  <path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Backlinks
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Bubble menu */}
         {editor && hasSelection && bubblePos && (
@@ -463,23 +477,23 @@ export function Editor() {
               onBlur={handleTitleBlur} onKeyDown={handleTitleKeyDown} onPaste={handleTitlePaste}
               className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
               style={{ fontSize: "3rem", lineHeight: 1.2 }}
-              data-placeholder={isUntitled ? activeNote.title : "Untitled"}
+              data-placeholder={isUntitled ? note.title : "Untitled"}
             >
-              {isUntitled ? "" : activeNote.title}
+              {isUntitled ? "" : note.title}
             </h1>
-            <TagBar noteId={activeNote.id} tags={activeNote.tags} />
-            <div key={activeNote.id} ref={editorWrapRef}>
+            <TagBar noteId={note.id} tags={note.tags} />
+            <div key={note.id} ref={editorWrapRef}>
               <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
             </div>
           </div>
         </div>
 
         <StatusBar editor={editor ?? null} />
-        {versionHistoryOpen && <VersionHistory noteId={activeNote.id} />}
+        {versionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} />}
       </div>
 
-      {outlineOpen   && editor && <OutlinePanel editor={editor} />}
-      {backlinksOpen && <BacklinksPanel noteId={activeNote.id} />}
+      {outlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} />}
+      {backlinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} />}
 
       {editor && <TableToolbar editor={editor} />}
 

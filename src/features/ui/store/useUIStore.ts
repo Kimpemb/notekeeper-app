@@ -6,6 +6,15 @@ type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 export type SidebarState = "closed" | "peek" | "open";
 
+export interface Tab {
+  id: string;      // stable tab uuid
+  noteId: string;  // the note this tab displays
+}
+
+function makeTabId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
 interface UIStore {
   // ─── Theme ────────────────────────────────────────────────────────────────
   theme: Theme;
@@ -105,6 +114,18 @@ interface UIStore {
     exportNoteMarkdown: () => Promise<void>;
     exportNotePdf: () => Promise<void>;
   }) => void;
+
+  // ─── Tabs ─────────────────────────────────────────────────────────────────
+  tabs: Tab[];
+  activeTabId: string | null;
+  // Focus existing tab for noteId, or create a new one.
+  // Returns the tab that is now active.
+  openTab: (noteId: string) => Tab;
+  closeTab: (tabId: string) => void;
+  setActiveTab: (tabId: string) => void;
+  closeActiveTab: () => void;
+  // Convenience: the noteId currently visible (null when no tabs)
+  activeTabNoteId: () => string | null;
 }
 
 function getInitialTheme(): Theme {
@@ -256,5 +277,55 @@ export const useUIStore = create<UIStore>((set, get) => {
     // ─── Export handlers ──────────────────────────────────────────────────────
     exportHandlers: null,
     setExportHandlers: (handlers) => set({ exportHandlers: handlers }),
+
+    // ─── Tabs ─────────────────────────────────────────────────────────────────
+    tabs: [],
+    activeTabId: null,
+
+    openTab: (noteId) => {
+      const { tabs } = get();
+
+      // If a tab for this note already exists, just focus it.
+      const existing = tabs.find((t) => t.noteId === noteId);
+      if (existing) {
+        set({ activeTabId: existing.id });
+        return existing;
+      }
+
+      // Otherwise create a new tab.
+      const tab: Tab = { id: makeTabId(), noteId };
+      set({ tabs: [...tabs, tab], activeTabId: tab.id });
+      return tab;
+    },
+
+    closeTab: (tabId) => {
+      const { tabs, activeTabId } = get();
+      const idx = tabs.findIndex((t) => t.id === tabId);
+      if (idx === -1) return;
+
+      const next = tabs.filter((t) => t.id !== tabId);
+
+      // If closing the active tab, pick a neighbour to activate.
+      let nextActiveTabId: string | null = activeTabId;
+      if (activeTabId === tabId) {
+        // Prefer the tab to the right, fall back to left, fall back to null.
+        const neighbour = next[idx] ?? next[idx - 1] ?? null;
+        nextActiveTabId = neighbour?.id ?? null;
+      }
+
+      set({ tabs: next, activeTabId: nextActiveTabId });
+    },
+
+    setActiveTab: (tabId) => set({ activeTabId: tabId }),
+
+    closeActiveTab: () => {
+      const { activeTabId } = get();
+      if (activeTabId) get().closeTab(activeTabId);
+    },
+
+    activeTabNoteId: () => {
+      const { tabs, activeTabId } = get();
+      return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
+    },
   };
 });

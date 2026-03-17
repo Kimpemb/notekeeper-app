@@ -10,6 +10,7 @@ import { CommandPalette } from "@/features/ui/components/CommandPalette";
 import { KeyboardShortcuts } from "@/features/ui/components/KeyboardShortcuts";
 import { ImportModal } from "@/features/ui/components/ImportModal";
 import { TemplatePickerModal } from "@/features/ui/components/TemplatePickerModal";
+import { TabBar } from "@/features/ui/components/TabBar";
 import { ThemeToggle } from "@/features/ui/components/ThemeToggle";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
 import { exportNotesToFile } from "@/lib/tauri/fs";
@@ -40,38 +41,43 @@ function buildBreadcrumb(
 }
 
 export default function App() {
-  const loadNotes             = useNoteStore((s) => s.loadNotes);
-  const activeNote            = useNoteStore((s) => s.activeNote());
-  const notes                 = useNoteStore((s) => s.notes);
+  const loadNotes              = useNoteStore((s) => s.loadNotes);
+  const activeNoteId           = useNoteStore((s) => s.activeNoteId);
+  const notes                  = useNoteStore((s) => s.notes);
   const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
-  const setActive             = useNoteStore((s) => s.setActiveNote);
-  const goBack                = useNoteStore((s) => s.goBack);
-  const goForward             = useNoteStore((s) => s.goForward);
-  const canGoBack             = useNoteStore((s) => s.canGoBack());
-  const canGoForward          = useNoteStore((s) => s.canGoForward());
+  const setActive              = useNoteStore((s) => s.setActiveNote);
+  const goBack                 = useNoteStore((s) => s.goBack);
+  const goForward              = useNoteStore((s) => s.goForward);
+  const canGoBack              = useNoteStore((s) => s.canGoBack());
+  const canGoForward           = useNoteStore((s) => s.canGoForward());
 
-  const sidebarState          = useUIStore((s) => s.sidebarState);
-  const setSidebarState       = useUIStore((s) => s.setSidebarState);
-  const toggleSidebar         = useUIStore((s) => s.toggleSidebar);
-  const togglePalette         = useUIStore((s) => s.togglePalette);
-  const openShortcuts         = useUIStore((s) => s.openShortcuts);
-  const fileTreeOpen          = useUIStore((s) => s.fileTreeOpen);
-  const toggleFileTree        = useUIStore((s) => s.toggleFileTree);
-  const toggleBacklinks       = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline         = useUIStore((s) => s.toggleOutline);
-  const templatePickerOpen    = useUIStore((s) => s.templatePickerOpen);
-  const openTemplatePicker    = useUIStore((s) => s.openTemplatePicker);
-  const closeTemplatePicker   = useUIStore((s) => s.closeTemplatePicker);
+  const sidebarState           = useUIStore((s) => s.sidebarState);
+  const setSidebarState        = useUIStore((s) => s.setSidebarState);
+  const toggleSidebar          = useUIStore((s) => s.toggleSidebar);
+  const togglePalette          = useUIStore((s) => s.togglePalette);
+  const openShortcuts          = useUIStore((s) => s.openShortcuts);
+  const fileTreeOpen           = useUIStore((s) => s.fileTreeOpen);
+  const toggleFileTree         = useUIStore((s) => s.toggleFileTree);
+  const toggleBacklinks        = useUIStore((s) => s.toggleBacklinks);
+  const toggleOutline          = useUIStore((s) => s.toggleOutline);
+  const templatePickerOpen     = useUIStore((s) => s.templatePickerOpen);
+  const openTemplatePicker     = useUIStore((s) => s.openTemplatePicker);
+  const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
+  const tabs                   = useUIStore((s) => s.tabs);
+  const activeTabId            = useUIStore((s) => s.activeTabId);
+  const openTab                = useUIStore((s) => s.openTab);
+  const setActiveTab           = useUIStore((s) => s.setActiveTab);
+  const closeActiveTab         = useUIStore((s) => s.closeActiveTab);
 
-  const [dbReady, setDbReady] = useState(false);
-  const [dbError, setDbError] = useState<string | null>(null);
+  const [dbReady, setDbReady]     = useState(false);
+  const [dbError, setDbError]     = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
   const slideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
+  // ── DB init ───────────────────────────────────────────────────────────────
   useEffect(() => {
     initDb()
       .then(() => {
@@ -82,11 +88,26 @@ export default function App() {
       .catch((err) => setDbError(String(err)));
   }, [loadNotes]);
 
-  function triggerSlide(dir: "left" | "right", action: () => void) {
+  // ── Tab auto-open: whenever activeNoteId changes, ensure a tab is open ───
+  useEffect(() => {
+    if (!activeNoteId) return;
+    const tab = openTab(activeNoteId);
+    setActiveTab(tab.id);
+  }, [activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── When a tab becomes active, sync activeNoteId back to the note store ──
+  useEffect(() => {
+    const noteId = useUIStore.getState().activeTabNoteId();
+    if (noteId && noteId !== useNoteStore.getState().activeNoteId) {
+      setActive(noteId, true);
+    }
+  }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // triggerSlide kept as a debounce wrapper for back/forward — animation removed.
+  function triggerSlide(_dir: "left" | "right", action: () => void) {
     if (slideTimeout.current) clearTimeout(slideTimeout.current);
-    setSlideDir(dir);
     action();
-    slideTimeout.current = setTimeout(() => setSlideDir(null), 300);
+    slideTimeout.current = setTimeout(() => {}, 300);
   }
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -101,8 +122,9 @@ export default function App() {
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
     if (ctrl && e.key === "[")               { e.preventDefault(); triggerSlide("right", goBack); }
     if (ctrl && e.key === "]")               { e.preventDefault(); triggerSlide("left", goForward); }
+    if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
   }, [dbReady, togglePalette, openTemplatePicker, toggleSidebar, toggleFileTree,
-      toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward]);
+      toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward, closeActiveTab]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -117,6 +139,8 @@ export default function App() {
   function noteSlug(title: string): string {
     return title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
   }
+
+  const activeNote = notes.find((n) => n.id === activeNoteId) ?? null;
 
   useEffect(() => {
     useUIStore.getState().setExportHandlers({
@@ -150,7 +174,7 @@ export default function App() {
     });
   }, [notes, activeNote]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const breadcrumb = buildBreadcrumb(activeNote?.id ?? null, notes);
+  const breadcrumb = buildBreadcrumb(activeNoteId, notes);
   const isUntitled = activeNote ? /^Untitled-\d+$/.test(activeNote.title) : false;
 
   function handleHamburgerEnter() {
@@ -194,28 +218,12 @@ export default function App() {
     );
   }
 
-  const slideStyle: React.CSSProperties = slideDir
-    ? {
-        animation: `slideIn${slideDir === "left" ? "Right" : "Left"} 220ms cubic-bezier(0.25,0.46,0.45,0.94) both`,
-      }
-    : {};
-
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <style>{`
-        @keyframes slideInRight {
-          from { opacity: 0; transform: translateX(-18px); }
-          to   { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideInLeft {
-          from { opacity: 0; transform: translateX(18px); }
-          to   { opacity: 1; transform: translateX(0); }
-        }
-      `}</style>
-
       <Sidebar />
 
       <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
+        {/* ── Top header ─────────────────────────────────────────────────── */}
         <header
           className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
           onMouseEnter={() => {
@@ -329,11 +337,24 @@ export default function App() {
           </div>
         </header>
 
+        {/* ── Tab bar ────────────────────────────────────────────────────── */}
+        <TabBar />
+
+        {/* ── Main editor area ───────────────────────────────────────────── */}
         <main className="flex-1 flex overflow-hidden relative">
-          {activeNote
-            ? <div key={activeNote.id} style={slideStyle} className="flex-1 flex overflow-hidden"><Editor /></div>
-            : <EmptyState />
-          }
+          {tabs.length === 0 ? (
+            <EmptyState />
+          ) : (
+            tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className="flex-1 flex overflow-hidden"
+                style={{ display: activeTabId === tab.id ? "flex" : "none" }}
+              >
+                <Editor noteId={tab.noteId} />
+              </div>
+            ))
+          )}
           {fileTreeOpen && <FileTreePanel />}
         </main>
       </div>
