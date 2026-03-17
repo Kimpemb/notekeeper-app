@@ -20,6 +20,7 @@ import {
   type UpdateNoteInput,
 } from "@/features/notes/db/queries";
 import type { Note } from "@/types";
+import type { Template } from "@/lib/templates";
 
 const PINNED_SETTING_KEY = "pinned_ids";
 
@@ -35,6 +36,15 @@ async function loadPinnedIds(): Promise<Set<string>> {
 
 async function savePinnedIds(ids: Set<string>): Promise<void> {
   await setSetting(PINNED_SETTING_KEY, JSON.stringify([...ids]));
+}
+
+// ─── Daily note helpers ───────────────────────────────────────────────────────
+
+export function getDailyNoteTitle(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 interface NoteStore {
@@ -65,7 +75,14 @@ interface NoteStore {
   loadRecentVisits: () => Promise<void>;
   setActiveNote: (id: string | null, skipHistory?: boolean) => void;
   recordVisit: (id: string) => Promise<void>;
+
+  // createNote: skips template picker (used internally / for child notes / import)
   createNote: (input?: CreateNoteInput) => Promise<Note>;
+  // createNoteFromTemplate: applies a template's content and default title
+  createNoteFromTemplate: (template: Template, input?: CreateNoteInput) => Promise<Note>;
+  // createOrOpenDailyNote: opens today's note if it exists, else creates it from the daily template
+  createOrOpenDailyNote: () => Promise<Note>;
+
   createChildNote: (parentId: string) => Promise<Note>;
   updateNote: (id: string, input: UpdateNoteInput) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
@@ -194,9 +211,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   setActiveNote: (id, skipHistory = false) => {
     if (!skipHistory && id) {
       set((state) => {
-        // Truncate forward history on new navigation
         const trimmed = state.navHistory.slice(0, state.navIndex + 1);
-        // Don't push the same note twice in a row
         if (trimmed[trimmed.length - 1] === id) {
           return { activeNoteId: id };
         }
@@ -217,12 +232,37 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     await get().loadRecentVisits();
   },
 
+  // Plain create — no template, no picker. Used by child note creation, import, etc.
   createNote: async (input = {}) => {
     const title = input.title ?? nextUntitledName(get().notes);
     const note = await dbCreateNote({ ...input, title });
     set((state) => ({ notes: [...state.notes, note] }));
     get().setActiveNote(note.id);
     return note;
+  },
+
+  // Create from a specific template
+  createNoteFromTemplate: async (template, input = {}) => {
+    const baseTitle = input.title ?? (template.defaultTitle || nextUntitledName(get().notes));
+    const content = JSON.stringify(template.content);
+    const note = await dbCreateNote({ ...input, title: baseTitle, content });
+    set((state) => ({ notes: [...state.notes, note] }));
+    get().setActiveNote(note.id);
+    return note;
+  },
+
+  // Open today's daily note, or create one if it doesn't exist
+  createOrOpenDailyNote: async () => {
+    const { notes } = get();
+    const title = getDailyNoteTitle();
+    const existing = notes.find((n) => n.title === title && !n.deleted_at);
+    if (existing) {
+      get().setActiveNote(existing.id);
+      return existing;
+    }
+    // Lazy import to avoid circular deps at module load time
+    const { daily } = await import("@/lib/templates/daily");
+    return get().createNoteFromTemplate(daily, { title });
   },
 
   createChildNote: async (parentId) => {
@@ -278,7 +318,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
         state.activeNoteId && allIds.has(state.activeNoteId)
           ? remaining[0]?.id ?? null
           : state.activeNoteId;
-      // Remove deleted notes from nav history and clamp index
       const newHistory = state.navHistory.filter((hid) => !allIds.has(hid));
       const newIndex = Math.min(state.navIndex, newHistory.length - 1);
       return {

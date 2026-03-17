@@ -9,11 +9,13 @@ import { EmptyState } from "@/features/ui/components/EmptyState";
 import { CommandPalette } from "@/features/ui/components/CommandPalette";
 import { KeyboardShortcuts } from "@/features/ui/components/KeyboardShortcuts";
 import { ImportModal } from "@/features/ui/components/ImportModal";
+import { TemplatePickerModal } from "@/features/ui/components/TemplatePickerModal";
 import { ThemeToggle } from "@/features/ui/components/ThemeToggle";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
 import { exportNotesToFile } from "@/lib/tauri/fs";
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
+import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 
@@ -38,31 +40,33 @@ function buildBreadcrumb(
 }
 
 export default function App() {
-  const loadNotes    = useNoteStore((s) => s.loadNotes);
-  const activeNote   = useNoteStore((s) => s.activeNote());
-  const notes        = useNoteStore((s) => s.notes);
-  const createNote   = useNoteStore((s) => s.createNote);
-  const setActive    = useNoteStore((s) => s.setActiveNote);
-  const goBack       = useNoteStore((s) => s.goBack);
-  const goForward    = useNoteStore((s) => s.goForward);
-  const canGoBack    = useNoteStore((s) => s.canGoBack());
-  const canGoForward = useNoteStore((s) => s.canGoForward());
+  const loadNotes             = useNoteStore((s) => s.loadNotes);
+  const activeNote            = useNoteStore((s) => s.activeNote());
+  const notes                 = useNoteStore((s) => s.notes);
+  const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
+  const setActive             = useNoteStore((s) => s.setActiveNote);
+  const goBack                = useNoteStore((s) => s.goBack);
+  const goForward             = useNoteStore((s) => s.goForward);
+  const canGoBack             = useNoteStore((s) => s.canGoBack());
+  const canGoForward          = useNoteStore((s) => s.canGoForward());
 
-  const sidebarState    = useUIStore((s) => s.sidebarState);
-  const setSidebarState = useUIStore((s) => s.setSidebarState);
-  const toggleSidebar   = useUIStore((s) => s.toggleSidebar);
-  const togglePalette   = useUIStore((s) => s.togglePalette);
-  const openShortcuts   = useUIStore((s) => s.openShortcuts);
-  const fileTreeOpen    = useUIStore((s) => s.fileTreeOpen);
-  const toggleFileTree  = useUIStore((s) => s.toggleFileTree);
-  const toggleBacklinks = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline   = useUIStore((s) => s.toggleOutline);
+  const sidebarState          = useUIStore((s) => s.sidebarState);
+  const setSidebarState       = useUIStore((s) => s.setSidebarState);
+  const toggleSidebar         = useUIStore((s) => s.toggleSidebar);
+  const togglePalette         = useUIStore((s) => s.togglePalette);
+  const openShortcuts         = useUIStore((s) => s.openShortcuts);
+  const fileTreeOpen          = useUIStore((s) => s.fileTreeOpen);
+  const toggleFileTree        = useUIStore((s) => s.toggleFileTree);
+  const toggleBacklinks       = useUIStore((s) => s.toggleBacklinks);
+  const toggleOutline         = useUIStore((s) => s.toggleOutline);
+  const templatePickerOpen    = useUIStore((s) => s.templatePickerOpen);
+  const openTemplatePicker    = useUIStore((s) => s.openTemplatePicker);
+  const closeTemplatePicker   = useUIStore((s) => s.closeTemplatePicker);
 
   const [dbReady, setDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  // Slide transition state: "left" = sliding in from left, "right" = from right, null = no transition
   const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
   const slideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -89,7 +93,7 @@ export default function App() {
     if (!dbReady) return;
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && e.key === "k")               { e.preventDefault(); togglePalette(); }
-    if (ctrl && e.key === "n")               { e.preventDefault(); createNote().catch(console.error); }
+    if (ctrl && e.key === "n")               { e.preventDefault(); openTemplatePicker(); }
     if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
     if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
     if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(); }
@@ -97,13 +101,18 @@ export default function App() {
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
     if (ctrl && e.key === "[")               { e.preventDefault(); triggerSlide("right", goBack); }
     if (ctrl && e.key === "]")               { e.preventDefault(); triggerSlide("left", goForward); }
-  }, [dbReady, togglePalette, createNote, toggleSidebar, toggleFileTree,
+  }, [dbReady, togglePalette, openTemplatePicker, toggleSidebar, toggleFileTree,
       toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
+
+  async function handleTemplateSelect(template: Template) {
+    closeTemplatePicker();
+    await createNoteFromTemplate(template);
+  }
 
   function noteSlug(title: string): string {
     return title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
@@ -185,7 +194,6 @@ export default function App() {
     );
   }
 
-  // Slide animation: back = new note slides in from left, forward = from right
   const slideStyle: React.CSSProperties = slideDir
     ? {
         animation: `slideIn${slideDir === "left" ? "Right" : "Left"} 220ms cubic-bezier(0.25,0.46,0.45,0.94) both`,
@@ -239,27 +247,26 @@ export default function App() {
               </button>
             </div>
 
-            {/* Back / Forward — plain text chevrons, no button background */}
-              <button
-                onClick={() => triggerSlide("right", goBack)}
-                disabled={!canGoBack}
-                title="Go back (Ctrl+'[')"
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-              <button
-                onClick={() => triggerSlide("left", goForward)}
-                disabled={!canGoForward}
-                title="Go forward (Ctrl+']')"
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
+            <button
+              onClick={() => triggerSlide("right", goBack)}
+              disabled={!canGoBack}
+              title="Go back (Ctrl+'[')"
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <button
+              onClick={() => triggerSlide("left", goForward)}
+              disabled={!canGoForward}
+              title="Go forward (Ctrl+']')"
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
 
             {breadcrumb.length > 0 && (
               <div className="flex items-center gap-1 min-w-0 overflow-hidden">
@@ -334,6 +341,11 @@ export default function App() {
       <CommandPalette />
       <KeyboardShortcuts />
       <ImportModal />
+      <TemplatePickerModal
+        open={templatePickerOpen}
+        onSelect={handleTemplateSelect}
+        onCancel={closeTemplatePicker}
+      />
       {exporting && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
           Exporting…

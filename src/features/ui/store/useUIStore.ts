@@ -25,7 +25,7 @@ interface UIStore {
   collapseNode: (id: string) => void;
   collapseAll: () => void;
 
-  // ─── Sidebar search focus (set by Sidebar, called by global shortcut) ─────
+  // ─── Sidebar search focus ─────────────────────────────────────────────────
   focusSidebarSearch: (() => void) | null;
   setFocusSidebarSearch: (fn: (() => void) | null) => void;
 
@@ -72,12 +72,17 @@ interface UIStore {
   openShortcuts: () => void;
   closeShortcuts: () => void;
 
+  // ─── Template picker ──────────────────────────────────────────────────────
+  templatePickerOpen: boolean;
+  openTemplatePicker: () => void;
+  closeTemplatePicker: () => void;
+
   // ─── Search ───────────────────────────────────────────────────────────────
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   clearSearch: () => void;
 
-  // ─── Pending scroll (heading from outline, query from search) ────────────
+  // ─── Pending scroll ───────────────────────────────────────────────────────
   pendingScrollHeading: string | null;
   setPendingScrollHeading: (heading: string | null) => void;
   pendingScrollQuery: string | null;
@@ -87,7 +92,7 @@ interface UIStore {
   activeTag: string | null;
   setActiveTag: (tag: string | null) => void;
 
-  // ─── Export handlers (set by App, called by CommandPalette) ──────────────
+  // ─── Export handlers ──────────────────────────────────────────────────────
   exportHandlers: {
     exportAll: () => Promise<void>;
     exportNoteJson: () => Promise<void>;
@@ -227,6 +232,11 @@ export const useUIStore = create<UIStore>((set, get) => {
     shortcutsOpen: false,
     openShortcuts: () => set({ shortcutsOpen: true }),
     closeShortcuts: () => set({ shortcutsOpen: false }),
+
+    // ─── Template picker ──────────────────────────────────────────────────────
+    templatePickerOpen: false,
+    openTemplatePicker: () => set({ templatePickerOpen: true }),
+    closeTemplatePicker: () => set({ templatePickerOpen: false }),
 
     // ─── Search ───────────────────────────────────────────────────────────────
     searchQuery: "",

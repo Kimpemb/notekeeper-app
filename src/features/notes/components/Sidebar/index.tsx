@@ -32,20 +32,21 @@ interface TagMenu {
 }
 
 export function Sidebar() {
-  const loadNotes             = useNoteStore((s) => s.loadNotes);
-  const loadTrashedNotes      = useNoteStore((s) => s.loadTrashedNotes);
-  const createNote            = useNoteStore((s) => s.createNote);
-  const trashedNotes          = useNoteStore((s) => s.trashedNotes);
-  const notes                 = useNoteStore((s) => s.notes);
-  const restoreNote           = useNoteStore((s) => s.restoreNote);
-  const permanentlyDeleteNote = useNoteStore((s) => s.permanentlyDeleteNote);
-  const emptyTrash            = useNoteStore((s) => s.emptyTrash);
+  const loadNotes               = useNoteStore((s) => s.loadNotes);
+  const loadTrashedNotes        = useNoteStore((s) => s.loadTrashedNotes);
+  const createOrOpenDailyNote   = useNoteStore((s) => s.createOrOpenDailyNote);
+  const trashedNotes            = useNoteStore((s) => s.trashedNotes);
+  const notes                   = useNoteStore((s) => s.notes);
+  const restoreNote             = useNoteStore((s) => s.restoreNote);
+  const permanentlyDeleteNote   = useNoteStore((s) => s.permanentlyDeleteNote);
+  const emptyTrash              = useNoteStore((s) => s.emptyTrash);
 
   const sidebarState          = useUIStore((s) => s.sidebarState);
   const setSidebarState       = useUIStore((s) => s.setSidebarState);
   const activeTag             = useUIStore((s) => s.activeTag);
   const setActiveTag          = useUIStore((s) => s.setActiveTag);
   const focusSidebarSearch    = useUIStore((s) => s.focusSidebarSearch);
+  const openTemplatePicker    = useUIStore((s) => s.openTemplatePicker);
 
   const [trashOpen, setTrashOpen] = useState(false);
   const [tagsOpen, setTagsOpen]   = useState(false);
@@ -75,9 +76,8 @@ export function Sidebar() {
       const isMac = navigator.platform.toUpperCase().includes("MAC");
       const mod   = isMac ? e.metaKey : e.ctrlKey;
       if (mod && e.key === "f") {
-        e.preventDefault();   // block browser native find
+        e.preventDefault();
         e.stopPropagation();
-        // Open sidebar if needed, then focus the search input
         if (sidebarState !== "open") setSidebarState("open");
         focusSidebarSearch?.();
       }
@@ -243,9 +243,25 @@ export function Sidebar() {
             </svg>
           </button>
 
-          {/* New note */}
+          {/* Today — daily note shortcut */}
           <button
-            onClick={() => createNote()}
+            onClick={() => createOrOpenDailyNote().catch(console.error)}
+            title="Today's note"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink-0"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <rect x="1.5" y="2.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M4.5 1.5v2M9.5 1.5v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              <path d="M1.5 5.5h11" stroke="currentColor" strokeWidth="1.1"/>
+              <text x="7" y="11" textAnchor="middle" fontSize="4.5" fontWeight="600" fill="currentColor">
+                {new Date().getDate()}
+              </text>
+            </svg>
+          </button>
+
+          {/* New note — opens template picker */}
+          <button
+            onClick={openTemplatePicker}
             title="New note (Ctrl+N)"
             className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink-0"
           >

@@ -148,7 +148,7 @@ export function SearchResults({ query }: Props) {
         return (
           <li
             key={result.id}
-ref={(el) => void (itemRefs.current[index] = el)}          >
+            ref={(el) => void (itemRefs.current[index] = el)}          >
             <button
               onClick={() => handleResultClick(result)}
               className={`w-full text-left px-2.5 py-2 rounded-md transition-colors duration-75 group ${
