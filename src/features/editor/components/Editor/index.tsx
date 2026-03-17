@@ -50,7 +50,7 @@ import { pickImageFile, readImageFile, saveImage, pickAttachmentFile, readImageF
 
 interface BubblePos { top: number; left: number; }
 
-// ── Upload helper (used by slash menu) ───────────────────────────────────────
+// ── Upload helper ─────────────────────────────────────────────────────────────
 async function uploadImageFromDisk(): Promise<{ path: string; name: string } | null> {
   const filePath = await pickImageFile();
   if (!filePath) return null;
@@ -76,8 +76,6 @@ export function Editor() {
   const setPendingScrollHeading  = useUIStore((s) => s.setPendingScrollHeading);
   const pendingScrollQuery       = useUIStore((s) => s.pendingScrollQuery);
   const setPendingScrollQuery    = useUIStore((s) => s.setPendingScrollQuery);
-
-
 
   const titleRef         = useRef<HTMLHeadingElement>(null);
   const lastSavedContent = useRef<string | null>(null);
@@ -109,6 +107,8 @@ export function Editor() {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
+
+      // ── Node extensions ──────────────────────────────────────────────────
       CodeBlock,
       Callout,
       CheckList,
@@ -120,6 +120,12 @@ export function Editor() {
       ToggleSummary,
       ToggleBody,
       Toggle,
+      ImageExtension,
+      AttachmentExtension,
+
+      // ── Block handle (after nodes, before behavior plugins) ──────────────
+
+      // ── Behavior / keyboard extensions ───────────────────────────────────
       TaskItemExitExtension,
       ToggleKeyboardExtension,
       CodeBlockSelectAllExtension,
@@ -132,13 +138,10 @@ export function Editor() {
         name: "findReplacePlugin",
         addProseMirrorPlugins() { return [buildFindReplacePlugin()]; },
       }),
-      // Search highlight decoration plugin
       Extension.create({
         name: "searchHighlightPlugin",
         addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; },
       }),
-      ImageExtension,
-      AttachmentExtension,
     ],
     content: activeNote?.content ? JSON.parse(activeNote.content) : "",
     editorProps: {
@@ -235,7 +238,7 @@ export function Editor() {
     }
   }, [activeNote?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Pending scroll: heading (from outline panel) ──────────────────────────
+  // ── Pending scroll: heading ───────────────────────────────────────────────
   useEffect(() => {
     if (!editor || !activeNote || !pendingScrollHeading) return;
     const timer = setTimeout(() => {
@@ -245,10 +248,9 @@ export function Editor() {
     return () => clearTimeout(timer);
   }, [activeNote?.id, pendingScrollHeading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Pending scroll: search offset (from search results click) ────────────
+  // ── Pending scroll: search query ──────────────────────────────────────────
   useEffect(() => {
     if (!editor || !activeNote || !pendingScrollQuery) return;
-    // Wait for content to be fully rendered before scrolling
     const timer = setTimeout(() => {
       const container = getScrollContainer(editor);
       scrollToQuery(editor, pendingScrollQuery, container);
@@ -290,7 +292,7 @@ export function Editor() {
     return () => document.removeEventListener("keydown", handle, true);
   }, [slashOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Cmd+H: open find & replace (only when not in editor) ───────────────────
+  // ── Cmd+H: open find & replace ───────────────────────────────────────────
   useEffect(() => {
     function handle(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "h" && !e.shiftKey) {
@@ -403,7 +405,7 @@ export function Editor() {
           {!outlineOpen && (
             <button
               onClick={toggleOutline}
-              title="Toggle outline (Ctrl+Shift+O)"
+              title="Toggle outline (Ctrl+')"
               className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
             >
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -415,7 +417,7 @@ export function Editor() {
           {!backlinksOpen && (
             <button
               onClick={toggleBacklinks}
-              title="Toggle backlinks (Ctrl+Shift+B)"
+              title="Toggle backlinks (Ctrl+;)"
               className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
             >
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
