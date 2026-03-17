@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { initDb } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
@@ -62,6 +62,10 @@ export default function App() {
   const [dbError, setDbError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
+  // Slide transition state: "left" = sliding in from left, "right" = from right, null = no transition
+  const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
+  const slideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
   useEffect(() => {
@@ -74,6 +78,13 @@ export default function App() {
       .catch((err) => setDbError(String(err)));
   }, [loadNotes]);
 
+  function triggerSlide(dir: "left" | "right", action: () => void) {
+    if (slideTimeout.current) clearTimeout(slideTimeout.current);
+    setSlideDir(dir);
+    action();
+    slideTimeout.current = setTimeout(() => setSlideDir(null), 300);
+  }
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!dbReady) return;
     const ctrl = e.ctrlKey || e.metaKey;
@@ -84,8 +95,8 @@ export default function App() {
     if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(); }
     if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
-    if (ctrl && e.key === "[")               { e.preventDefault(); goBack(); }
-    if (ctrl && e.key === "]")               { e.preventDefault(); goForward(); }
+    if (ctrl && e.key === "[")               { e.preventDefault(); triggerSlide("right", goBack); }
+    if (ctrl && e.key === "]")               { e.preventDefault(); triggerSlide("left", goForward); }
   }, [dbReady, togglePalette, createNote, toggleSidebar, toggleFileTree,
       toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward]);
 
@@ -174,8 +185,26 @@ export default function App() {
     );
   }
 
+  // Slide animation: back = new note slides in from left, forward = from right
+  const slideStyle: React.CSSProperties = slideDir
+    ? {
+        animation: `slideIn${slideDir === "left" ? "Right" : "Left"} 220ms cubic-bezier(0.25,0.46,0.45,0.94) both`,
+      }
+    : {};
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+      <style>{`
+        @keyframes slideInRight {
+          from { opacity: 0; transform: translateX(-18px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes slideInLeft {
+          from { opacity: 0; transform: translateX(18px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+      `}</style>
+
       <Sidebar />
 
       <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
@@ -186,7 +215,7 @@ export default function App() {
           }}
         >
           {/* Left — hamburger + back/forward + breadcrumb */}
-          <div className="flex items-center gap-1 min-w-0 flex-1">
+          <div className="flex items-center gap-0 min-w-0 flex-1">
             <div
               className="overflow-hidden shrink-0"
               style={{
@@ -210,30 +239,30 @@ export default function App() {
               </button>
             </div>
 
-            {/* Back / Forward */}
-            <button
-              onClick={goBack}
-              disabled={!canGoBack}
-              title="Go back (Ctrl+[)"
-              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            <button
-              onClick={goForward}
-              disabled={!canGoForward}
-              title="Go forward (Ctrl+])"
-              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+            {/* Back / Forward — plain text chevrons, no button background */}
+              <button
+                onClick={() => triggerSlide("right", goBack)}
+                disabled={!canGoBack}
+                title="Go back (Ctrl+[)"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                onClick={() => triggerSlide("left", goForward)}
+                disabled={!canGoForward}
+                title="Go forward (Ctrl+])"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
 
             {breadcrumb.length > 0 && (
-              <div className="flex items-center gap-1 min-w-0 overflow-hidden ml-1">
+              <div className="flex items-center gap-1 min-w-0 overflow-hidden">
                 {breadcrumb.map((segment, i) => {
                   const isLast = i === breadcrumb.length - 1;
                   const displayTitle = isLast && isUntitled ? "Untitled" : segment.title;
@@ -294,7 +323,10 @@ export default function App() {
         </header>
 
         <main className="flex-1 flex overflow-hidden relative">
-          {activeNote ? <Editor key={activeNote.id} /> : <EmptyState />}
+          {activeNote
+            ? <div key={activeNote.id} style={slideStyle} className="flex-1 flex overflow-hidden"><Editor /></div>
+            : <EmptyState />
+          }
           {fileTreeOpen && <FileTreePanel />}
         </main>
       </div>
