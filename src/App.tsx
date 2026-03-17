@@ -243,7 +243,7 @@ export default function App() {
               <button
                 onClick={() => triggerSlide("right", goBack)}
                 disabled={!canGoBack}
-                title="Go back (Ctrl+[)"
+                title="Go back (Ctrl+'[')"
                 className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -253,7 +253,7 @@ export default function App() {
               <button
                 onClick={() => triggerSlide("left", goForward)}
                 disabled={!canGoForward}
-                title="Go forward (Ctrl+])"
+                title="Go forward (Ctrl+']')"
                 className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">

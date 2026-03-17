@@ -18,6 +18,13 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: "Navigation",
+    shortcuts: [
+      { keys: ["Ctrl", "["],          label: "Go back" },
+      { keys: ["Ctrl", "]"],          label: "Go forward" },
+    ],
+  },
+  {
     title: "Editor",
     shortcuts: [
       { keys: ["Ctrl", "B"],          label: "Bold" },
@@ -25,22 +32,22 @@ const GROUPS: Group[] = [
       { keys: ["Ctrl", "Shift", "S"], label: "Strikethrough" },
       { keys: ["Ctrl", "E"],          label: "Inline code" },
       { keys: ["Ctrl", "H"],          label: "Find & replace" },
-      { keys: ["/"],                   label: "Open slash menu" },
-      { keys: ["Esc"],                 label: "Dismiss slash / search menu" },
+      { keys: ["/"],                  label: "Open slash menu" },
+      { keys: ["Esc"],                label: "Dismiss slash / search menu" },
     ],
   },
   {
     title: "Panels",
     shortcuts: [
       { keys: ["Ctrl", ";"],          label: "Toggle backlinks panel" },
-      { keys: ["Ctrl", "'"],         label: "Toggle outline panel" },
+      { keys: ["Ctrl", "'"],          label: "Toggle outline panel" },
     ],
   },
   {
     title: "Notes",
     shortcuts: [
-      { keys: ["Ctrl", "Z"],           label: "Undo" },
-      { keys: ["Ctrl", "Shift", "Z"],  label: "Redo" },
+      { keys: ["Ctrl", "Z"],          label: "Undo" },
+      { keys: ["Ctrl", "Shift", "Z"], label: "Redo" },
     ],
   },
 ];

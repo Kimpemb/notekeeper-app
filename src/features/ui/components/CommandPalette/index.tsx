@@ -20,6 +20,14 @@ function buildBreadcrumb(noteId: string, notes: Note[]): string {
   return `${parts[0]} / … / ${parts[parts.length - 1]}`;
 }
 
+// ── Time helpers ──────────────────────────────────────────────────────────────
+function getTodayStart(): number {
+  const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
+}
+function getYesterdayStart(): number {
+  const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 1); return d.getTime();
+}
+
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const NoteIcon = () => (
   <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-400">
@@ -65,7 +73,7 @@ const ActionIcon = ({ id }: { id: string }) => {
       <rect x="8" y="7.5" width="4" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
     </svg>
   );
-    if (id === "export-all") return (
+  if (id === "export-all") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
       <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
       <path d="M4 6.5h5M4 4.5h5M4 8.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -114,16 +122,54 @@ function highlightMatch(text: string, q: string) {
   );
 }
 
+// ── Note row ──────────────────────────────────────────────────────────────────
+function NoteRow({
+  note, isSelected, query, notes, onClick, onMouseEnter, refCallback,
+}: {
+  note: Note; index: number; isSelected: boolean; query: string;
+  notes: Note[]; onClick: () => void; onMouseEnter: () => void;
+  refCallback: (el: HTMLLIElement | null) => void;
+}) {
+  return (
+    <li
+      ref={refCallback}
+      onMouseEnter={onMouseEnter}
+      onClick={onClick}
+      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors duration-75 ${
+        isSelected ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+      }`}
+    >
+      <NoteIcon />
+      <div className="flex-1 min-w-0 flex items-baseline gap-2">
+        <span className="text-base text-zinc-800 dark:text-zinc-200 truncate shrink-0">
+          {highlightMatch(note.title, query)}
+        </span>
+        {buildBreadcrumb(note.id, notes) && (
+          <span className="text-sm text-zinc-400 dark:text-zinc-600 truncate">
+            — {buildBreadcrumb(note.id, notes)}
+          </span>
+        )}
+      </div>
+      {isSelected && (
+        <kbd className="text-sm text-zinc-400 bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded font-mono shrink-0">↵</kbd>
+      )}
+    </li>
+  );
+}
+
 // ── Shortcuts reference ───────────────────────────────────────────────────────
 const SHORTCUTS = [
-  { label: "New note",            keys: ["Ctrl", "N"] },
-  { label: "Command palette",     keys: ["Ctrl", "K"] },
-  { label: "Search notes",        keys: ["Ctrl", "F"] },
-  { label: "Find & replace",      keys: ["Ctrl", "H"] },
-  { label: "Toggle sidebar",      keys: ["Ctrl", "\\"] },
-  { label: "Toggle backlinks",    keys: ["Ctrl", "Shift", "B"] },
-  { label: "Toggle outline",      keys: ["Ctrl", "Shift", "O"] },
-  { label: "Save note",           keys: ["Ctrl", "S"] },
+  { label: "Command palette",    keys: ["Ctrl", "K"] },
+  { label: "New note",           keys: ["Ctrl", "N"] },
+  { label: "Toggle sidebar",     keys: ["Ctrl", "\\"] },
+  { label: "Search notes",       keys: ["Ctrl", "F"] },
+  { label: "Toggle file tree",   keys: ["Ctrl", "T"] },
+  { label: "Go back",            keys: ["Ctrl", "["] },
+  { label: "Go forward",         keys: ["Ctrl", "]"] },
+  { label: "Find & replace",     keys: ["Ctrl", "H"] },
+  { label: "Toggle backlinks",   keys: ["Ctrl", ";"] },
+  { label: "Toggle outline",     keys: ["Ctrl", "'"] },
+  { label: "Keyboard shortcuts", keys: ["Ctrl", "Shift", "?"] },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -133,25 +179,25 @@ export function CommandPalette() {
   const toggleTheme     = useUIStore((s) => s.toggleTheme);
   const theme           = useUIStore((s) => s.theme);
   const toggleBacklinks = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline    = useUIStore((s) => s.toggleOutline);
-  const toggleFileTree   = useUIStore((s) => s.toggleFileTree);
-  const openShortcuts    = useUIStore((s) => s.openShortcuts);
-  const openImport       = useUIStore((s) => s.openImport);
-  const exportHandlers   = useUIStore((s) => s.exportHandlers);
-  const activeNoteId     = useNoteStore((s) => s.activeNoteId);
+  const toggleOutline   = useUIStore((s) => s.toggleOutline);
+  const toggleFileTree  = useUIStore((s) => s.toggleFileTree);
+  const openShortcuts   = useUIStore((s) => s.openShortcuts);
+  const openImport      = useUIStore((s) => s.openImport);
+  const exportHandlers  = useUIStore((s) => s.exportHandlers);
+  const activeNoteId    = useNoteStore((s) => s.activeNoteId);
   const notes           = useNoteStore((s) => s.notes);
   const visitedNoteIds  = useNoteStore((s) => s.visitedNoteIds);
   const createNote      = useNoteStore((s) => s.createNote);
   const setActiveNote   = useNoteStore((s) => s.setActiveNote);
 
-  const [query, setQuery]             = useState("");
+  const [query, setQuery]                   = useState("");
   const [selectedNote, setSelectedNote]     = useState(0);
   const [selectedAction, setSelectedAction] = useState(0);
   const [activeSide, setActiveSide]         = useState<"notes" | "actions">("notes");
 
-  const inputRef      = useRef<HTMLInputElement>(null);
-  const panelRef      = useRef<HTMLDivElement>(null);
-  const noteItemRefs  = useRef<(HTMLLIElement | null)[]>([]);
+  const inputRef       = useRef<HTMLInputElement>(null);
+  const panelRef       = useRef<HTMLDivElement>(null);
+  const noteItemRefs   = useRef<(HTMLLIElement | null)[]>([]);
   const actionItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
@@ -187,30 +233,44 @@ export function CommandPalette() {
     actionItemRefs.current[selectedAction]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedAction]);
 
-  // ── Actions list ────────────────────────────────────────────────────────────
+  // ── Actions ─────────────────────────────────────────────────────────────────
   const actions: ActionItem[] = useMemo(() => [
-    { kind: "action", id: "new-note",          label: "New Note",              hint: "Ctrl+N",         action: async () => { await createNote(); closePalette(); } },
-    { kind: "action", id: "toggle-theme",      label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "Toggle theme", action: () => { toggleTheme(); closePalette(); } },
-    { kind: "action", id: "toggle-backlinks",  label: "Toggle Backlinks",      hint: "Ctrl+;",         action: () => { toggleBacklinks(); closePalette(); } },
-    { kind: "action", id: "toggle-outline",    label: "Toggle Outline",        hint: "Ctrl+'",        action: () => { toggleOutline(); closePalette(); } },
-    { kind: "action", id: "toggle-file-tree",   label: "Toggle File Tree",       hint: "Ctrl+T",         action: () => { toggleFileTree(); closePalette(); } },
-    { kind: "action", id: "open-shortcuts",    label: "Keyboard Shortcuts",    hint: "View all",       action: () => { openShortcuts(); closePalette(); } },
-    { kind: "action", id: "export-all",        label: "Export All Notes",       hint: "JSON",           action: async () => { await exportHandlers?.exportAll(); closePalette(); } },
-    { kind: "action", id: "export-json",       label: "Export Current Note",    hint: "JSON",           action: async () => { await exportHandlers?.exportNoteJson(); closePalette(); } },
-    { kind: "action", id: "export-md",         label: "Export Current Note",    hint: "Markdown",       action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); } },
-    { kind: "action", id: "export-pdf",        label: "Export Current Note",    hint: "PDF",            action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); } },
-    { kind: "action", id: "import",            label: "Import Notes",           hint: "JSON file",      action: () => { openImport(); closePalette(); } },
+    { kind: "action", id: "new-note",         label: "New Note",            hint: "Ctrl+N",       action: async () => { await createNote(); closePalette(); } },
+    { kind: "action", id: "toggle-theme",     label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "Toggle theme", action: () => { toggleTheme(); closePalette(); } },
+    { kind: "action", id: "toggle-backlinks", label: "Toggle Backlinks",    hint: "Ctrl+;",       action: () => { toggleBacklinks(); closePalette(); } },
+    { kind: "action", id: "toggle-outline",   label: "Toggle Outline",      hint: "Ctrl+'",       action: () => { toggleOutline(); closePalette(); } },
+    { kind: "action", id: "toggle-file-tree", label: "Toggle File Tree",    hint: "Ctrl+T",       action: () => { toggleFileTree(); closePalette(); } },
+    { kind: "action", id: "open-shortcuts",   label: "Keyboard Shortcuts",  hint: "Ctrl+Shift+?", action: () => { openShortcuts(); closePalette(); } },
+    { kind: "action", id: "export-all",       label: "Export All Notes",    hint: "JSON",         action: async () => { await exportHandlers?.exportAll(); closePalette(); } },
+    { kind: "action", id: "export-json",      label: "Export Current Note", hint: "JSON",         action: async () => { await exportHandlers?.exportNoteJson(); closePalette(); } },
+    { kind: "action", id: "export-md",        label: "Export Current Note", hint: "Markdown",     action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); } },
+    { kind: "action", id: "export-pdf",       label: "Export Current Note", hint: "PDF",          action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); } },
+    { kind: "action", id: "import",           label: "Import Notes",        hint: "JSON file",    action: () => { openImport(); closePalette(); } },
   ], [theme, createNote, closePalette, toggleTheme, toggleBacklinks, toggleOutline, toggleFileTree, openShortcuts, openImport, exportHandlers, activeNoteId]);
 
-  // ── Note lists ──────────────────────────────────────────────────────────────
-  const recentNotes = useMemo(() =>
-    visitedNoteIds
-      .map((id) => notes.find((n) => n.id === id))
-      .filter((n): n is Note => !!n && !n.deleted_at)
-      .slice(0, 6),
-    [visitedNoteIds, notes]
-  );
+  // ── Recent notes split by Today / Yesterday ──────────────────────────────
+  const { todayNotes, yesterdayNotes } = useMemo(() => {
+    const todayStart     = getTodayStart();
+    const yesterdayStart = getYesterdayStart();
 
+    const visited = visitedNoteIds
+      .map((id) => notes.find((n) => n.id === id))
+      .filter((n): n is Note => !!n && !n.deleted_at);
+
+    // De-duplicate (visitedNoteIds can have repeats; first occurrence = most recent)
+    const seen = new Set<string>();
+    const deduped = visited.filter((n) => { if (seen.has(n.id)) return false; seen.add(n.id); return true; });
+
+    return {
+      todayNotes:     deduped.filter((n) => n.updated_at >= todayStart).slice(0, 8),
+      yesterdayNotes: deduped.filter((n) => n.updated_at >= yesterdayStart && n.updated_at < todayStart).slice(0, 4),
+    };
+  }, [visitedNoteIds, notes]);
+
+  // Flat list for keyboard navigation (today first, then yesterday)
+  const recentNotes = useMemo(() => [...todayNotes, ...yesterdayNotes], [todayNotes, yesterdayNotes]);
+
+  // ── Search ──────────────────────────────────────────────────────────────────
   const searchedNotes = useMemo(() => {
     const trimmed = query.trim().toLowerCase();
     if (!trimmed) return [];
@@ -236,7 +296,8 @@ export function CommandPalette() {
     );
   }, [query, actions]);
 
-  // ── Keyboard nav — Tab switches sides, arrows navigate within ───────────────
+  const noteList = query.trim() ? searchedNotes : recentNotes;
+
   function handleInputKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Tab") {
       e.preventDefault();
@@ -245,12 +306,8 @@ export function CommandPalette() {
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (activeSide === "notes") {
-        const list = query.trim() ? searchedNotes : recentNotes;
-        setSelectedNote((s) => Math.min(s + 1, list.length - 1));
-      } else {
-        setSelectedAction((s) => Math.min(s + 1, filteredActions.length - 1));
-      }
+      if (activeSide === "notes") setSelectedNote((s) => Math.min(s + 1, noteList.length - 1));
+      else setSelectedAction((s) => Math.min(s + 1, filteredActions.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       if (activeSide === "notes") setSelectedNote((s) => Math.max(s - 1, 0));
@@ -258,8 +315,7 @@ export function CommandPalette() {
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (activeSide === "notes") {
-        const list = query.trim() ? searchedNotes : recentNotes;
-        const note = list[selectedNote];
+        const note = noteList[selectedNote];
         if (note) { setActiveNote(note.id); closePalette(); }
       } else {
         filteredActions[selectedAction]?.action();
@@ -269,8 +325,7 @@ export function CommandPalette() {
 
   if (!paletteOpen) return null;
 
-  const noteList = query.trim() ? searchedNotes : recentNotes;
-  const notesSectionLabel = query.trim() ? "Notes" : "Recent";
+  const isSearching = !!query.trim();
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 sm:px-6 lg:px-0">
@@ -278,7 +333,7 @@ export function CommandPalette() {
         ref={panelRef}
         className="relative w-full max-w-5xl h-[85vh] rounded-t-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 border-b-0 shadow-2xl flex flex-col"
       >
-        {/* ── Search input ────────────────────────────────────────────────── */}
+        {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
           <svg className="shrink-0 text-zinc-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.4"/>
@@ -305,62 +360,90 @@ export function CommandPalette() {
           <kbd className="text-sm text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">ESC</kbd>
         </div>
 
-        {/* ── Body: left notes | right actions ────────────────────────────── */}
+        {/* Body */}
         <div className="flex flex-1 min-h-0 divide-x divide-zinc-100 dark:divide-zinc-800">
 
-          {/* ── LEFT: Notes (top = recent, bottom = search results) ───────── */}
+          {/* LEFT: Notes */}
           <div
-            className={`flex flex-col w-1/2 min-h-0 cursor-pointer ${activeSide === "notes" ? "" : "opacity-60"}`}
+            className={`flex flex-col w-1/2 min-h-0 ${activeSide === "notes" ? "" : "opacity-60"}`}
             onMouseEnter={() => setActiveSide("notes")}
           >
             <div className="flex-1 overflow-y-auto">
-              <SectionLabel label={notesSectionLabel} />
-              {noteList.length === 0 && (
-                <p className="px-4 py-6 text-sm text-zinc-400 dark:text-zinc-500 text-center">
-                  {query.trim() ? `No notes matching "${query}"` : "No recent notes"}
-                </p>
+              {isSearching ? (
+                <>
+                  <SectionLabel label="Notes" />
+                  {searchedNotes.length === 0 && (
+                    <p className="px-4 py-6 text-sm text-zinc-400 dark:text-zinc-500 text-center">
+                      No notes matching "{query}"
+                    </p>
+                  )}
+                  <ul>
+                    {searchedNotes.map((note, i) => (
+                      <NoteRow
+                        key={note.id} note={note} index={i} query={query} notes={notes}
+                        isSelected={activeSide === "notes" && i === selectedNote}
+                        onClick={() => { setActiveNote(note.id); closePalette(); }}
+                        onMouseEnter={() => setSelectedNote(i)}
+                        refCallback={(el) => { noteItemRefs.current[i] = el; }}
+                      />
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <>
+                  {/* Today */}
+                  {todayNotes.length > 0 && (
+                    <>
+                      <SectionLabel label="Today" />
+                      <ul>
+                        {todayNotes.map((note, i) => (
+                          <NoteRow
+                            key={note.id} note={note} index={i} query="" notes={notes}
+                            isSelected={activeSide === "notes" && i === selectedNote}
+                            onClick={() => { setActiveNote(note.id); closePalette(); }}
+                            onMouseEnter={() => setSelectedNote(i)}
+                            refCallback={(el) => { noteItemRefs.current[i] = el; }}
+                          />
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {/* Yesterday */}
+                  {yesterdayNotes.length > 0 && (
+                    <>
+                      <SectionLabel label="Yesterday" />
+                      <ul>
+                        {yesterdayNotes.map((note, i) => {
+                          const globalIndex = todayNotes.length + i;
+                          return (
+                            <NoteRow
+                              key={note.id} note={note} index={globalIndex} query="" notes={notes}
+                              isSelected={activeSide === "notes" && globalIndex === selectedNote}
+                              onClick={() => { setActiveNote(note.id); closePalette(); }}
+                              onMouseEnter={() => setSelectedNote(globalIndex)}
+                              refCallback={(el) => { noteItemRefs.current[globalIndex] = el; }}
+                            />
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
+                  {todayNotes.length === 0 && yesterdayNotes.length === 0 && (
+                    <p className="px-4 py-6 text-sm text-zinc-400 dark:text-zinc-500 text-center">
+                      No recent notes
+                    </p>
+                  )}
+                </>
               )}
-              <ul>
-                {noteList.map((note, i) => {
-                  const isSelected = activeSide === "notes" && i === selectedNote;
-                  return (
-                    <li
-                      key={note.id}
-                      ref={(el) => { noteItemRefs.current[i] = el; }}
-                      onMouseEnter={() => setSelectedNote(i)}
-                      onClick={() => { setActiveNote(note.id); closePalette(); }}
-                      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors duration-75 ${
-                        isSelected ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-                      }`}
-                    >
-                      <NoteIcon />
-                      <div className="flex-1 min-w-0 flex items-baseline gap-2">
-                        <span className="text-base text-zinc-800 dark:text-zinc-200 truncate shrink-0">
-                          {highlightMatch(note.title, query)}
-                        </span>
-                        {buildBreadcrumb(note.id, notes) && (
-                          <span className="text-sm text-zinc-400 dark:text-zinc-600 truncate">
-                            — {buildBreadcrumb(note.id, notes)}
-                          </span>
-                        )}
-                      </div>
-                      {isSelected && (
-                        <kbd className="text-sm text-zinc-400 bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded font-mono shrink-0">↵</kbd>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
             </div>
           </div>
 
-          {/* ── RIGHT: Actions (top) + Shortcuts (bottom) ─────────────────── */}
+          {/* RIGHT: Actions + Shortcuts */}
           <div
             className={`flex flex-col w-1/2 min-h-0 ${activeSide === "actions" ? "" : "opacity-60"}`}
             onMouseEnter={() => setActiveSide("actions")}
           >
-            {/* Actions */}
-            <div className="border-b border-zinc-100 dark:border-zinc-800 overflow-y-auto" style={{maxHeight: "55%"}}>
+            <div className="border-b border-zinc-100 dark:border-zinc-800 overflow-y-auto" style={{ maxHeight: "55%" }}>
               <SectionLabel label="Commands" />
               <ul>
                 {filteredActions.map((action, i) => {
@@ -376,9 +459,7 @@ export function CommandPalette() {
                         }`}
                       >
                         <ActionIcon id={action.id} />
-                        <span className="flex-1 text-base text-zinc-800 dark:text-zinc-200 truncate">
-                          {action.label}
-                        </span>
+                        <span className="flex-1 text-base text-zinc-800 dark:text-zinc-200 truncate">{action.label}</span>
                         <span className="text-xs text-zinc-400 dark:text-zinc-600 shrink-0">{action.hint}</span>
                         {isSelected && (
                           <kbd className="text-sm text-zinc-400 bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded font-mono shrink-0 ml-1">↵</kbd>
@@ -390,7 +471,6 @@ export function CommandPalette() {
               </ul>
             </div>
 
-            {/* Shortcuts reference */}
             <div className="flex-1 overflow-y-auto">
               <SectionLabel label="Shortcuts" />
               <ul className="pb-2">
@@ -409,7 +489,7 @@ export function CommandPalette() {
           </div>
         </div>
 
-        {/* ── Footer hints ─────────────────────────────────────────────────── */}
+        {/* Footer */}
         <div className="shrink-0 flex justify-end items-center gap-4 px-4 py-2 border-t border-zinc-100 dark:border-zinc-800">
           <span className="text-[10px] text-zinc-300 dark:text-zinc-700 flex items-center gap-1">
             <kbd className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 px-1 py-0.5 rounded font-mono">↑↓</kbd> navigate
