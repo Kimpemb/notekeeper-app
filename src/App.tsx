@@ -38,11 +38,15 @@ function buildBreadcrumb(
 }
 
 export default function App() {
-  const loadNotes   = useNoteStore((s) => s.loadNotes);
-  const activeNote  = useNoteStore((s) => s.activeNote());
-  const notes       = useNoteStore((s) => s.notes);
-  const createNote  = useNoteStore((s) => s.createNote);
-  const setActive   = useNoteStore((s) => s.setActiveNote);
+  const loadNotes    = useNoteStore((s) => s.loadNotes);
+  const activeNote   = useNoteStore((s) => s.activeNote());
+  const notes        = useNoteStore((s) => s.notes);
+  const createNote   = useNoteStore((s) => s.createNote);
+  const setActive    = useNoteStore((s) => s.setActiveNote);
+  const goBack       = useNoteStore((s) => s.goBack);
+  const goForward    = useNoteStore((s) => s.goForward);
+  const canGoBack    = useNoteStore((s) => s.canGoBack());
+  const canGoForward = useNoteStore((s) => s.canGoForward());
 
   const sidebarState    = useUIStore((s) => s.sidebarState);
   const setSidebarState = useUIStore((s) => s.setSidebarState);
@@ -73,22 +77,22 @@ export default function App() {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!dbReady) return;
     const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.key === "k")           { e.preventDefault(); togglePalette(); }
-    if (ctrl && e.key === "n")           { e.preventDefault(); createNote().catch(console.error); }
-    if (ctrl && e.key === "\\")          { e.preventDefault(); toggleSidebar(); }
-    if (ctrl && e.key === "t")           { e.preventDefault(); toggleFileTree(); }
-    if (ctrl && e.key === ";")           { e.preventDefault(); toggleBacklinks(); }
-    if (ctrl && e.key === "'")           { e.preventDefault(); toggleOutline(); }
+    if (ctrl && e.key === "k")               { e.preventDefault(); togglePalette(); }
+    if (ctrl && e.key === "n")               { e.preventDefault(); createNote().catch(console.error); }
+    if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
+    if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
+    if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(); }
+    if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
+    if (ctrl && e.key === "[")               { e.preventDefault(); goBack(); }
+    if (ctrl && e.key === "]")               { e.preventDefault(); goForward(); }
   }, [dbReady, togglePalette, createNote, toggleSidebar, toggleFileTree,
-      toggleBacklinks, toggleOutline, openShortcuts]);
+      toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
-
-  // ── Export handlers (called from CommandPalette) ───────────────────────────
 
   function noteSlug(title: string): string {
     return title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
@@ -181,8 +185,8 @@ export default function App() {
             if (useUIStore.getState().sidebarState === "peek") cancelSidebarCollapse();
           }}
         >
-          {/* Left — hamburger + breadcrumb */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* Left — hamburger + back/forward + breadcrumb */}
+          <div className="flex items-center gap-1 min-w-0 flex-1">
             <div
               className="overflow-hidden shrink-0"
               style={{
@@ -206,8 +210,30 @@ export default function App() {
               </button>
             </div>
 
+            {/* Back / Forward */}
+            <button
+              onClick={goBack}
+              disabled={!canGoBack}
+              title="Go back (Ctrl+[)"
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <button
+              onClick={goForward}
+              disabled={!canGoForward}
+              title="Go forward (Ctrl+])"
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+
             {breadcrumb.length > 0 && (
-              <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+              <div className="flex items-center gap-1 min-w-0 overflow-hidden ml-1">
                 {breadcrumb.map((segment, i) => {
                   const isLast = i === breadcrumb.length - 1;
                   const displayTitle = isLast && isUntitled ? "Untitled" : segment.title;
@@ -215,12 +241,10 @@ export default function App() {
                     <div key={segment.id} className="flex items-center gap-1 min-w-0">
                       {i > 0 && <span className="shrink-0 text-zinc-300 dark:text-zinc-600 text-xs">/</span>}
                       {isLast ? (
-                        // Last segment — not clickable, just display
                         <span className={`truncate text-sm ${isUntitled ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-600 dark:text-zinc-400"}`}>
                           {displayTitle}
                         </span>
                       ) : (
-                        // Parent segments — clickable to navigate
                         <button
                           onClick={() => setActive(segment.id)}
                           title={`Open "${segment.title}"`}
@@ -236,7 +260,7 @@ export default function App() {
             )}
           </div>
 
-          {/* Right — file tree, shortcuts, theme toggle only */}
+          {/* Right — file tree, shortcuts, theme toggle */}
           <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={toggleFileTree}
@@ -278,7 +302,6 @@ export default function App() {
       <CommandPalette />
       <KeyboardShortcuts />
       <ImportModal />
-      {/* Exporting indicator */}
       {exporting && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
           Exporting…

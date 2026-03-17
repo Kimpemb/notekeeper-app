@@ -46,6 +46,14 @@ interface NoteStore {
   isLoading: boolean;
   error: string | null;
 
+  // Navigation history
+  navHistory: string[];
+  navIndex: number;
+  canGoBack: () => boolean;
+  canGoForward: () => boolean;
+  goBack: () => void;
+  goForward: () => void;
+
   activeNote: () => Note | null;
   rootNotes: () => Note[];
   childrenOf: (parentId: string) => Note[];
@@ -55,7 +63,7 @@ interface NoteStore {
   loadNotes: () => Promise<void>;
   loadTrashedNotes: () => Promise<void>;
   loadRecentVisits: () => Promise<void>;
-  setActiveNote: (id: string | null) => void;
+  setActiveNote: (id: string | null, skipHistory?: boolean) => void;
   recordVisit: (id: string) => Promise<void>;
   createNote: (input?: CreateNoteInput) => Promise<Note>;
   createChildNote: (parentId: string) => Promise<Note>;
@@ -71,8 +79,6 @@ interface NoteStore {
   unpinNote: (id: string) => Promise<void>;
   isPinned: (id: string) => boolean;
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function nextUntitledName(notes: Note[]): string {
   const pattern = /^Untitled-(\d+)$/;
@@ -100,8 +106,6 @@ function collectDescendants(id: string, notes: Note[]): Set<string> {
   return result;
 }
 
-// ─── Store ────────────────────────────────────────────────────────────────────
-
 export const useNoteStore = create<NoteStore>((set, get) => ({
   notes: [],
   trashedNotes: [],
@@ -111,6 +115,34 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   isLoading: false,
   error: null,
 
+  navHistory: [],
+  navIndex: -1,
+
+  canGoBack: () => get().navIndex > 0,
+
+  canGoForward: () => {
+    const { navHistory, navIndex } = get();
+    return navIndex < navHistory.length - 1;
+  },
+
+  goBack: () => {
+    const { navHistory, navIndex } = get();
+    if (navIndex <= 0) return;
+    const newIndex = navIndex - 1;
+    const id = navHistory[newIndex];
+    set({ navIndex: newIndex, activeNoteId: id });
+    get().recordVisit(id).catch(console.error);
+  },
+
+  goForward: () => {
+    const { navHistory, navIndex } = get();
+    if (navIndex >= navHistory.length - 1) return;
+    const newIndex = navIndex + 1;
+    const id = navHistory[newIndex];
+    set({ navIndex: newIndex, activeNoteId: id });
+    get().recordVisit(id).catch(console.error);
+  },
+
   activeNote: () => {
     const { notes, activeNoteId } = get();
     if (!activeNoteId) return null;
@@ -118,7 +150,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   },
 
   rootNotes: () => get().notes.filter((n) => n.parent_id === null),
-
   childrenOf: (parentId) => get().notes.filter((n) => n.parent_id === parentId),
 
   pinnedNotes: () => {
@@ -130,8 +161,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     const { notes, pinnedIds } = get();
     return notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
   },
-
-  // ─── Load ──────────────────────────────────────────────────────────────────
 
   loadNotes: async () => {
     set({ isLoading: true, error: null });
@@ -162,8 +191,24 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }
   },
 
-  setActiveNote: (id) => {
-    set({ activeNoteId: id });
+  setActiveNote: (id, skipHistory = false) => {
+    if (!skipHistory && id) {
+      set((state) => {
+        // Truncate forward history on new navigation
+        const trimmed = state.navHistory.slice(0, state.navIndex + 1);
+        // Don't push the same note twice in a row
+        if (trimmed[trimmed.length - 1] === id) {
+          return { activeNoteId: id };
+        }
+        return {
+          activeNoteId: id,
+          navHistory: [...trimmed, id],
+          navIndex: trimmed.length,
+        };
+      });
+    } else {
+      set({ activeNoteId: id });
+    }
     if (id) get().recordVisit(id).catch(console.error);
   },
 
@@ -171,8 +216,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     await dbRecordVisit(id);
     await get().loadRecentVisits();
   },
-
-  // ─── Create ────────────────────────────────────────────────────────────────
 
   createNote: async (input = {}) => {
     const title = input.title ?? nextUntitledName(get().notes);
@@ -190,8 +233,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     return note;
   },
 
-  // ─── Update ────────────────────────────────────────────────────────────────
-
   updateNote: async (id, input) => {
     await dbUpdateNote(id, input);
     const updated = await getNoteById(id);
@@ -201,51 +242,34 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }));
   },
 
-  // ─── Reorder (drag-and-drop) ───────────────────────────────────────────────
-
   reorderNote: async (draggedId, targetId, section) => {
     const { notes, pinnedIds } = get();
-
-    // Get the ordered list for the relevant section
     const sectionNotes = notes.filter((n) =>
       n.parent_id === null &&
       (section === "pinned" ? pinnedIds.has(n.id) : !pinnedIds.has(n.id))
     );
-
     const draggedIndex = sectionNotes.findIndex((n) => n.id === draggedId);
     const targetIndex  = sectionNotes.findIndex((n) => n.id === targetId);
     if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) return;
-
-    // Reorder in memory
     const reordered = [...sectionNotes];
     const [dragged] = reordered.splice(draggedIndex, 1);
     reordered.splice(targetIndex, 0, dragged);
-
-    // Assign new sort_order values (0-based, stepped by 1)
     const updates = reordered.map((n, i) => ({ id: n.id, sort_order: i }));
-
-    // Optimistic update in store
     const updatedMap = new Map(updates.map((u) => [u.id, u.sort_order]));
     set((state) => ({
       notes: state.notes.map((n) =>
         updatedMap.has(n.id) ? { ...n, sort_order: updatedMap.get(n.id)! } : n
       ).sort((a, b) => a.sort_order - b.sort_order),
     }));
-
-    // Persist to DB
     await bulkUpdateSortOrder(updates);
   },
-
-  // ─── Trash (soft delete) ───────────────────────────────────────────────────
 
   deleteNote: async (id) => {
     const { notes } = get();
     const descendants = collectDescendants(id, notes);
     const allIds = new Set([id, ...descendants]);
-
     await dbTrashNote(id);
     const trashedNotes = await getTrashedNotes();
-
     set((state) => {
       const remaining = state.notes.filter((n) => !allIds.has(n.id));
       const newPinnedIds = new Set([...state.pinnedIds].filter((pid) => !allIds.has(pid)));
@@ -254,19 +278,25 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
         state.activeNoteId && allIds.has(state.activeNoteId)
           ? remaining[0]?.id ?? null
           : state.activeNoteId;
-      return { notes: remaining, trashedNotes, activeNoteId: newActiveId, pinnedIds: newPinnedIds };
+      // Remove deleted notes from nav history and clamp index
+      const newHistory = state.navHistory.filter((hid) => !allIds.has(hid));
+      const newIndex = Math.min(state.navIndex, newHistory.length - 1);
+      return {
+        notes: remaining,
+        trashedNotes,
+        activeNoteId: newActiveId,
+        pinnedIds: newPinnedIds,
+        navHistory: newHistory,
+        navIndex: newIndex,
+      };
     });
   },
-
-  // ─── Restore from trash ────────────────────────────────────────────────────
 
   restoreNote: async (id) => {
     await dbRestoreNote(id);
     const [notes, trashedNotes] = await Promise.all([getAllNotes(), getTrashedNotes()]);
     set({ notes, trashedNotes });
   },
-
-  // ─── Permanently delete ────────────────────────────────────────────────────
 
   permanentlyDeleteNote: async (id) => {
     await dbPermanentlyDeleteNote(id);
@@ -277,14 +307,10 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }));
   },
 
-  // ─── Empty trash ───────────────────────────────────────────────────────────
-
   emptyTrash: async () => {
     await dbEmptyTrash();
     set({ trashedNotes: [] });
   },
-
-  // ─── Move ──────────────────────────────────────────────────────────────────
 
   moveNote: async (id, newParentId) => {
     await dbMoveNote(id, newParentId);
@@ -295,8 +321,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }));
   },
 
-  // ─── Refresh single note ───────────────────────────────────────────────────
-
   refreshNote: async (id) => {
     const updated = await getNoteById(id);
     if (!updated) return;
@@ -304,8 +328,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       notes: state.notes.map((n) => (n.id === id ? updated : n)),
     }));
   },
-
-  // ─── Pin / Unpin ───────────────────────────────────────────────────────────
 
   pinNote: async (id) => {
     set((state) => {
