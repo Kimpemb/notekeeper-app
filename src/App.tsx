@@ -61,12 +61,10 @@ export default function App() {
   const toggleBacklinks        = useUIStore((s) => s.toggleBacklinks);
   const toggleOutline          = useUIStore((s) => s.toggleOutline);
   const templatePickerOpen     = useUIStore((s) => s.templatePickerOpen);
-  const openTemplatePicker     = useUIStore((s) => s.openTemplatePicker);
   const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
   const tabs                   = useUIStore((s) => s.tabs);
   const activeTabId            = useUIStore((s) => s.activeTabId);
   const replaceTab             = useUIStore((s) => s.replaceTab);
-  const openTab                = useUIStore((s) => s.openTab);
   const closeActiveTab         = useUIStore((s) => s.closeActiveTab);
   const cycleTab               = useUIStore((s) => s.cycleTab);
 
@@ -74,7 +72,8 @@ export default function App() {
   const [dbError, setDbError]     = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const slideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const slideTimeout    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openInNewTabRef = useRef(false);
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
@@ -117,21 +116,28 @@ export default function App() {
     const ctrl = e.ctrlKey || e.metaKey;
 
     // Ctrl+Tab / Ctrl+Shift+Tab — cycle through tabs.
-    // Must be checked before other Ctrl shortcuts to prevent browser tab switch.
     if (ctrl && e.key === "Tab") {
       e.preventDefault();
       cycleTab(e.shiftKey ? -1 : 1);
       return;
     }
 
-    if (ctrl && e.key === "k")               { e.preventDefault(); togglePalette(); }
-    if (ctrl && e.key === "n")               { e.preventDefault(); openTemplatePicker(); }
-    // Ctrl+Shift+N — open current note in a new tab
-    if (ctrl && e.shiftKey && e.key === "N") {
+    if (ctrl && e.key === "k") { e.preventDefault(); togglePalette(); }
+
+    // Ctrl+Shift+N — new note in a brand new tab (must come before Ctrl+N).
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
-      if (activeNoteId) openTab(activeNoteId);
+      openInNewTabRef.current = true;
+      useUIStore.getState().openTemplatePicker();
       return;
     }
+    // Ctrl+N — new note in the current tab.
+    if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      openInNewTabRef.current = false;
+      useUIStore.getState().openTemplatePicker();
+    }
+
     if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
     if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
     if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(); }
@@ -140,9 +146,9 @@ export default function App() {
     if (ctrl && e.key === "[")               { e.preventDefault(); triggerNav(goBack); }
     if (ctrl && e.key === "]")               { e.preventDefault(); triggerNav(goForward); }
     if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
-  }, [dbReady, togglePalette, openTemplatePicker, toggleSidebar, toggleFileTree,
+  }, [dbReady, togglePalette, toggleSidebar, toggleFileTree,
       toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward,
-      closeActiveTab, cycleTab, openTab, activeNoteId]);
+      closeActiveTab, cycleTab]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -152,9 +158,19 @@ export default function App() {
   async function handleTemplateSelect(template: Template) {
     closeTemplatePicker();
     const note = await createNoteFromTemplate(template);
-    // New note → navigate current tab (or open first tab if none exist).
-    setActive(note.id);
-    replaceTab(note.id);
+
+    if (openInNewTabRef.current) {
+      // Ctrl+Shift+N path — open in a fresh tab.
+      // Do NOT call setActive here — it would trigger the activeNoteId effect
+      // which calls replaceTab and clobbers the new tab.
+      // openTab handles everything: creates the tab and sets it as active.
+      useUIStore.getState().openTab(note.id);
+      openInNewTabRef.current = false;
+    } else {
+      // Ctrl+N path — navigate current tab.
+      setActive(note.id);
+      useUIStore.getState().replaceTab(note.id);
+    }
   }
 
   function noteSlug(title: string): string {
@@ -386,7 +402,7 @@ export default function App() {
       <TemplatePickerModal
         open={templatePickerOpen}
         onSelect={handleTemplateSelect}
-        onCancel={closeTemplatePicker}
+        onCancel={() => { openInNewTabRef.current = false; closeTemplatePicker(); }}
       />
       {exporting && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
