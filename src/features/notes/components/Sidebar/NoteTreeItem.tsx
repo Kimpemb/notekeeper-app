@@ -68,8 +68,20 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   if (!note) return null;
   const indentPx = depth * 14;
 
-  function handleClick()        { setActive(noteId); if (hasChildren) toggleNode(noteId); }
-  function handleChevronClick(e: React.MouseEvent) { e.stopPropagation(); toggleNode(noteId); }
+  function handleClick() {
+    if (isActive) {
+      // Second click on the already-active note → toggle children
+      if (hasChildren) toggleNode(noteId);
+    } else {
+      // First click → just open the note, leave expand state untouched
+      setActive(noteId);
+    }
+  }
+
+  function handleChevronClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    toggleNode(noteId);
+  }
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();

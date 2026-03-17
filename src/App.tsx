@@ -17,15 +17,20 @@ import { exportToPdf } from "@/lib/exporters/pdf";
 import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 
+interface BreadcrumbSegment {
+  id: string;
+  title: string;
+}
+
 function buildBreadcrumb(
   noteId: string | null,
   notes: Array<{ id: string; title: string; parent_id: string | null }>
-): string[] {
+): BreadcrumbSegment[] {
   if (!noteId) return [];
-  const path: string[] = [];
+  const path: BreadcrumbSegment[] = [];
   let current = notes.find((n) => n.id === noteId);
   while (current) {
-    path.unshift(current.title);
+    path.unshift({ id: current.id, title: current.title });
     if (!current.parent_id) break;
     current = notes.find((n) => n.id === current!.parent_id);
   }
@@ -37,6 +42,7 @@ export default function App() {
   const activeNote  = useNoteStore((s) => s.activeNote());
   const notes       = useNoteStore((s) => s.notes);
   const createNote  = useNoteStore((s) => s.createNote);
+  const setActive   = useNoteStore((s) => s.setActiveNote);
 
   const sidebarState    = useUIStore((s) => s.sidebarState);
   const setSidebarState = useUIStore((s) => s.setSidebarState);
@@ -83,7 +89,6 @@ export default function App() {
   }, [handleKeyDown]);
 
   // ── Export handlers (called from CommandPalette) ───────────────────────────
-  // These are exposed via useUIStore so the palette can call them without prop drilling
 
   function noteSlug(title: string): string {
     return title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
@@ -205,12 +210,25 @@ export default function App() {
               <div className="flex items-center gap-1 min-w-0 overflow-hidden">
                 {breadcrumb.map((segment, i) => {
                   const isLast = i === breadcrumb.length - 1;
+                  const displayTitle = isLast && isUntitled ? "Untitled" : segment.title;
                   return (
-                    <div key={i} className="flex items-center gap-1 min-w-0">
+                    <div key={segment.id} className="flex items-center gap-1 min-w-0">
                       {i > 0 && <span className="shrink-0 text-zinc-300 dark:text-zinc-600 text-xs">/</span>}
-                      <span className={`truncate text-sm ${isLast ? isUntitled ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-600 dark:text-zinc-400" : "text-zinc-400 dark:text-zinc-600"}`}>
-                        {isLast && isUntitled ? "Untitled" : segment}
-                      </span>
+                      {isLast ? (
+                        // Last segment — not clickable, just display
+                        <span className={`truncate text-sm ${isUntitled ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-600 dark:text-zinc-400"}`}>
+                          {displayTitle}
+                        </span>
+                      ) : (
+                        // Parent segments — clickable to navigate
+                        <button
+                          onClick={() => setActive(segment.id)}
+                          title={`Open "${segment.title}"`}
+                          className="truncate text-sm text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100"
+                        >
+                          {displayTitle}
+                        </button>
+                      )}
                     </div>
                   );
                 })}

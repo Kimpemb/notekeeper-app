@@ -159,8 +159,14 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
 
   if (fields.length === 0) return;
 
-  fields.push(`updated_at = $${idx++}`);
-  values.push(now());
+  // Only bump updated_at when actual note content changes — not for title
+  // renames, tag edits, reordering, or reparenting.
+  const isContentEdit = input.content !== undefined || input.plaintext !== undefined;
+  if (isContentEdit) {
+    fields.push(`updated_at = $${idx++}`);
+    values.push(now());
+  }
+
   values.push(id);
 
   await db.execute(
