@@ -64,6 +64,7 @@ export default function App() {
   const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
   const tabs                   = useUIStore((s) => s.tabs);
   const activeTabId            = useUIStore((s) => s.activeTabId);
+  const openTab = useUIStore((s) => s.openTab);
   const replaceTab             = useUIStore((s) => s.replaceTab);
   const closeActiveTab         = useUIStore((s) => s.closeActiveTab);
   const cycleTab               = useUIStore((s) => s.cycleTab);
@@ -156,22 +157,19 @@ export default function App() {
   }, [handleKeyDown]);
 
   async function handleTemplateSelect(template: Template) {
-    closeTemplatePicker();
-    const note = await createNoteFromTemplate(template);
+  closeTemplatePicker();
 
-    if (openInNewTabRef.current) {
-      // Ctrl+Shift+N path — open in a fresh tab.
-      // Do NOT call setActive here — it would trigger the activeNoteId effect
-      // which calls replaceTab and clobbers the new tab.
-      // openTab handles everything: creates the tab and sets it as active.
-      useUIStore.getState().openTab(note.id);
-      openInNewTabRef.current = false;
-    } else {
-      // Ctrl+N path — navigate current tab.
-      setActive(note.id);
-      useUIStore.getState().replaceTab(note.id);
-    }
+  const note = await createNoteFromTemplate(template);
+
+  if (openInNewTabRef.current) {
+    openTab(note.id);
+  } else {
+    replaceTab(note.id);
+    setActive(note.id);
   }
+
+  openInNewTabRef.current = false;
+}
 
   function noteSlug(title: string): string {
     return title.replace(/[^a-z0-9]/gi, "-").toLowerCase();

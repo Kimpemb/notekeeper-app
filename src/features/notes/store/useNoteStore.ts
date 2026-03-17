@@ -243,13 +243,16 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
 
   // Create from a specific template
   createNoteFromTemplate: async (template, input = {}) => {
-    const baseTitle = input.title ?? (template.defaultTitle || nextUntitledName(get().notes));
-    const content = JSON.stringify(template.content);
-    const note = await dbCreateNote({ ...input, title: baseTitle, content });
-    set((state) => ({ notes: [...state.notes, note] }));
-    get().setActiveNote(note.id);
-    return note;
-  },
+  const baseTitle = input.title ?? (template.defaultTitle || nextUntitledName(get().notes));
+  const content = JSON.stringify(template.content);
+
+  const note = await dbCreateNote({ ...input, title: baseTitle, content });
+
+  set((state) => ({ notes: [...state.notes, note] }));
+
+  // ❌ DO NOT set active note here
+  return note;
+},
 
   // Open today's daily note, or create one if it doesn't exist
   createOrOpenDailyNote: async () => {
