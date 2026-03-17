@@ -1,6 +1,6 @@
 // src/features/editor/components/Editor/extensions.ts
 import { Extension, Node } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, NodeSelection } from "@tiptap/pm/state";
 import { DecorationSet, Decoration } from "@tiptap/pm/view";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { ReactNodeViewRenderer } from "@tiptap/react";
@@ -662,6 +662,82 @@ export function createFindReplaceShortcutExtension(onOpen: () => void) {
     },
   });
 }
+
+// ── Block node click-to-select (code block, callout, table) ──────────────────
+// Clicking on these block nodes sets a NodeSelection so they can be selected,
+// copied, and deleted as a unit — instead of the browser trying to place a
+// text cursor inside a non-text area and selecting nothing.
+const blockSelectKey = new PluginKey("blockSelect");
+
+const SELECTABLE_BLOCK_NODES = new Set([
+  "codeBlock",
+  "callout",
+  "table",
+  "toggle",
+]);
+
+export const BlockSelectExtension = Extension.create({
+  name: "blockSelect",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: blockSelectKey,
+        props: {
+          handleClick(view, _pos, event) {
+            // Only handle plain left-clicks (no modifier = not range-select)
+            if (event.button !== 0) return false;
+            if (event.shiftKey || event.ctrlKey || event.metaKey) return false;
+
+            const target = event.target as HTMLElement;
+
+            // Walk up the DOM to find if we clicked inside a selectable block node
+            const editorDom = view.dom;
+            let el: HTMLElement | null = target;
+
+            while (el && el !== editorDom) {
+              const pos = view.posAtDOM(el, 0);
+              if (pos >= 0) {
+                try {
+                  const $pos = view.state.doc.resolve(pos);
+                  // Check the node at this position and its parents
+                  for (let d = $pos.depth; d >= 0; d--) {
+                    const node = d === 0 ? view.state.doc : $pos.node(d);
+                    if (SELECTABLE_BLOCK_NODES.has(node.type.name)) {
+                      const nodePos = d === 0 ? 0 : $pos.before(d);
+                      // Only select if clicking on the block's outer chrome,
+                      // not inside an editable child (paragraph, etc.)
+                      const targetNode = view.state.doc.nodeAt(nodePos);
+                      if (!targetNode) break;
+
+                      // Don't intercept clicks that land inside a text node —
+                      // let ProseMirror place the cursor normally
+                      const clickedPos = view.posAtCoords({ left: event.clientX, top: event.clientY });
+                      if (clickedPos) {
+                        const $clicked = view.state.doc.resolve(clickedPos.pos);
+                        if ($clicked.parent.isTextblock) return false;
+                      }
+
+                      const tr = view.state.tr.setSelection(
+                        NodeSelection.create(view.state.doc, nodePos)
+                      );
+                      view.dispatch(tr);
+                      view.focus();
+                      return true;
+                    }
+                  }
+                } catch {
+                  // posAtDOM can throw for some elements — safe to ignore
+                }
+              }
+              el = el.parentElement;
+            }
+            return false;
+          },
+        },
+      }),
+    ];
+  },
+});
 
 // ── Image ─────────────────────────────────────────────────────────────────────
 export { ImageExtension } from "./ImageExtension";

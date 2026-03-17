@@ -29,7 +29,7 @@ todayStart.setHours(0, 0, 0, 0);
   if (date >= yesterdayStart) return `Edited yesterday at ${time}`;
 
   const diffDays = Math.floor((todayStart.getTime() - date.getTime()) / 86_400_000);
-  if (diffDays < 7) return `Edited ${diffDays} days ago at ${time}`;
+  if (diffDays < 7) return `Edited ${diffDays} day(s) ago at ${time}`;
 
   return `Edited ${date.toLocaleDateString([], { month: "short", day: "numeric" })}`;
 }
