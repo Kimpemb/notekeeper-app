@@ -118,13 +118,20 @@ interface UIStore {
   // ─── Tabs ─────────────────────────────────────────────────────────────────
   tabs: Tab[];
   activeTabId: string | null;
-  // Focus existing tab for noteId, or create a new one.
-  // Returns the tab that is now active.
+
+  // Navigate the active tab to a different note (replaces its noteId in place).
+  // If no tabs exist yet, creates the first one.
+  replaceTab: (noteId: string) => void;
+
+  // Explicitly open noteId in a brand-new tab (right-click → "Open in new tab").
+  // If the note already has a tab, just focuses it.
   openTab: (noteId: string) => Tab;
+
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   closeActiveTab: () => void;
-  // Convenience: the noteId currently visible (null when no tabs)
+
+  // Convenience: the noteId currently visible (null when no tabs).
   activeTabNoteId: () => string | null;
 }
 
@@ -282,6 +289,24 @@ export const useUIStore = create<UIStore>((set, get) => {
     tabs: [],
     activeTabId: null,
 
+    replaceTab: (noteId) => {
+      const { tabs, activeTabId } = get();
+
+      // No tabs yet — create the first one.
+      if (tabs.length === 0 || activeTabId === null) {
+        const tab: Tab = { id: makeTabId(), noteId };
+        set({ tabs: [tab], activeTabId: tab.id });
+        return;
+      }
+
+      // Swap the noteId of the active tab in place.
+      set({
+        tabs: tabs.map((t) =>
+          t.id === activeTabId ? { ...t, noteId } : t
+        ),
+      });
+    },
+
     openTab: (noteId) => {
       const { tabs } = get();
 
@@ -308,7 +333,6 @@ export const useUIStore = create<UIStore>((set, get) => {
       // If closing the active tab, pick a neighbour to activate.
       let nextActiveTabId: string | null = activeTabId;
       if (activeTabId === tabId) {
-        // Prefer the tab to the right, fall back to left, fall back to null.
         const neighbour = next[idx] ?? next[idx - 1] ?? null;
         nextActiveTabId = neighbour?.id ?? null;
       }

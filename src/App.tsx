@@ -65,8 +65,7 @@ export default function App() {
   const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
   const tabs                   = useUIStore((s) => s.tabs);
   const activeTabId            = useUIStore((s) => s.activeTabId);
-  const openTab                = useUIStore((s) => s.openTab);
-  const setActiveTab           = useUIStore((s) => s.setActiveTab);
+  const replaceTab             = useUIStore((s) => s.replaceTab);
   const closeActiveTab         = useUIStore((s) => s.closeActiveTab);
 
   const [dbReady, setDbReady]     = useState(false);
@@ -88,23 +87,22 @@ export default function App() {
       .catch((err) => setDbError(String(err)));
   }, [loadNotes]);
 
-  // ── Tab auto-open: whenever activeNoteId changes, ensure a tab is open ───
+  // ── Back / forward: navigate the active tab in place ─────────────────────
+  // goBack/goForward update activeNoteId in the note store; we mirror that
+  // into the active tab so the correct editor is shown.
   useEffect(() => {
     if (!activeNoteId) return;
-    const tab = openTab(activeNoteId);
-    setActiveTab(tab.id);
+    // Only act when a navigation gesture was the trigger, not a sidebar click
+    // (sidebar clicks call replaceTab themselves). We detect this by checking
+    // whether the active tab is already showing this note — if not, it means
+    // a back/forward or wiki-link jump happened and we should follow it.
+    const currentTabNoteId = useUIStore.getState().activeTabNoteId();
+    if (currentTabNoteId !== activeNoteId) {
+      replaceTab(activeNoteId);
+    }
   }, [activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── When a tab becomes active, sync activeNoteId back to the note store ──
-  useEffect(() => {
-    const noteId = useUIStore.getState().activeTabNoteId();
-    if (noteId && noteId !== useNoteStore.getState().activeNoteId) {
-      setActive(noteId, true);
-    }
-  }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // triggerSlide kept as a debounce wrapper for back/forward — animation removed.
-  function triggerSlide(_dir: "left" | "right", action: () => void) {
+  function triggerNav(action: () => void) {
     if (slideTimeout.current) clearTimeout(slideTimeout.current);
     action();
     slideTimeout.current = setTimeout(() => {}, 300);
@@ -120,8 +118,8 @@ export default function App() {
     if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(); }
     if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
-    if (ctrl && e.key === "[")               { e.preventDefault(); triggerSlide("right", goBack); }
-    if (ctrl && e.key === "]")               { e.preventDefault(); triggerSlide("left", goForward); }
+    if (ctrl && e.key === "[")               { e.preventDefault(); triggerNav(goBack); }
+    if (ctrl && e.key === "]")               { e.preventDefault(); triggerNav(goForward); }
     if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
   }, [dbReady, togglePalette, openTemplatePicker, toggleSidebar, toggleFileTree,
       toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward, closeActiveTab]);
@@ -133,7 +131,10 @@ export default function App() {
 
   async function handleTemplateSelect(template: Template) {
     closeTemplatePicker();
-    await createNoteFromTemplate(template);
+    const note = await createNoteFromTemplate(template);
+    // New note → navigate current tab (or open first tab if none exist).
+    setActive(note.id);
+    replaceTab(note.id);
   }
 
   function noteSlug(title: string): string {
@@ -256,7 +257,7 @@ export default function App() {
             </div>
 
             <button
-              onClick={() => triggerSlide("right", goBack)}
+              onClick={() => triggerNav(goBack)}
               disabled={!canGoBack}
               title="Go back (Ctrl+'[')"
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
@@ -266,7 +267,7 @@ export default function App() {
               </svg>
             </button>
             <button
-              onClick={() => triggerSlide("left", goForward)}
+              onClick={() => triggerNav(goForward)}
               disabled={!canGoForward}
               title="Go forward (Ctrl+']')"
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
