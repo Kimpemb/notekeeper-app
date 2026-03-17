@@ -48,6 +48,8 @@ export default function App() {
   const openImport      = useUIStore((s) => s.openImport);
   const fileTreeOpen    = useUIStore((s) => s.fileTreeOpen);
   const toggleFileTree  = useUIStore((s) => s.toggleFileTree);
+  const toggleBacklinks = useUIStore((s) => s.toggleBacklinks);
+  const toggleOutline   = useUIStore((s) => s.toggleOutline);
 
   const [dbReady, setDbReady]       = useState(false);
   const [dbError, setDbError]       = useState<string | null>(null);
@@ -92,15 +94,19 @@ export default function App() {
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!dbReady) return;
-    const target = e.target as HTMLElement;
-    const isEditing = target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA";
-    const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.key === "k")       { e.preventDefault(); togglePalette(); }
-    if (ctrl && e.key === "n")       { e.preventDefault(); createNote().catch(console.error); }
-    if (ctrl && e.key === "\\")      { e.preventDefault(); toggleSidebar(); }
-    if (ctrl && e.key === "t")       { e.preventDefault(); toggleFileTree(); }
-    if (e.key === "?" && !isEditing) { e.preventDefault(); openShortcuts(); }
-  }, [dbReady, togglePalette, createNote, toggleSidebar, toggleFileTree, openShortcuts]);
+    const ctrl      = e.ctrlKey || e.metaKey;
+
+    // ── Global shortcuts ────────────────────────────────────────────────────
+    if (ctrl && e.key === "k")                          { e.preventDefault(); togglePalette(); }
+    if (ctrl && e.key === "n")                          { e.preventDefault(); createNote().catch(console.error); }
+    if (ctrl && e.key === "\\")                         { e.preventDefault(); toggleSidebar(); }
+    if (ctrl && e.key === "t")                          { e.preventDefault(); toggleFileTree(); }
+    if (ctrl && e.key === ";")                          { e.preventDefault(); toggleBacklinks(); }
+    if (ctrl && e.key === "'")                          { e.preventDefault(); toggleOutline(); }
+    if (ctrl && e.shiftKey && e.key === "?")            { e.preventDefault(); openShortcuts(); }
+
+  }, [dbReady, togglePalette, createNote, toggleSidebar, toggleFileTree,
+      toggleBacklinks, toggleOutline, openShortcuts]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -158,27 +164,19 @@ export default function App() {
     if (!activeNote) { console.log("[export-md] no active note"); return; }
     setExporting(true); closeExport();
     try {
-      console.log("[export-md] starting, note:", activeNote.title);
-      console.log("[export-md] content preview:", activeNote.content?.slice(0, 100));
-      const md = prosemirrorToMarkdown(activeNote.title, activeNote.content ?? "");
-      console.log("[export-md] markdown generated, length:", md.length);
-      console.log("[export-md] markdown preview:", md.slice(0, 200));
+      const md   = prosemirrorToMarkdown(activeNote.title, activeNote.content ?? "");
       const slug = noteSlug(activeNote.title);
-      console.log("[export-md] saving as:", `${slug}.md`);
       await exportNotesToFile(md, `${slug}.md`);
-      console.log("[export-md] done");
     } catch (err) {
       console.error("[export-md] error:", err);
     } finally { setExporting(false); }
   }
 
   async function handleExportNotePdf() {
-    if (!activeNote) { console.log("[export-pdf] no active note"); return; }
+    if (!activeNote) return;
     closeExport();
     try {
-      console.log("[export-pdf] starting, note:", activeNote.title);
       await exportToPdf(activeNote.title, activeNote.content ?? "");
-      console.log("[export-pdf] exportToPdf returned");
     } catch (err) {
       console.error("[export-pdf] error:", err);
     }
@@ -329,7 +327,7 @@ export default function App() {
 
               <button
                 onClick={openShortcuts}
-                title="Keyboard shortcuts (?)"
+                title="Keyboard shortcuts (Ctrl+Shift+?)"
                 className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -392,8 +390,6 @@ function ExportDropdown({
 
   return (
     <div style={style} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl overflow-hidden">
-
-      {/* All notes */}
       <button onClick={onExportAll} className={itemClass}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
           <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -401,10 +397,7 @@ function ExportDropdown({
         </svg>
         Export all notes (JSON)
       </button>
-
       {divider}
-
-      {/* Current note — JSON */}
       <button onClick={onExportNoteJson} disabled={!activeNote} className={`${itemClass} ${disabledClass}`}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
           <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -413,8 +406,6 @@ function ExportDropdown({
         </svg>
         Export current note (JSON)
       </button>
-
-      {/* Current note — Markdown */}
       <button onClick={onExportNoteMarkdown} disabled={!activeNote} className={`${itemClass} ${disabledClass}`}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
           <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -423,8 +414,6 @@ function ExportDropdown({
         </svg>
         Export current note (MD)
       </button>
-
-      {/* Current note — PDF */}
       <button onClick={onExportNotePdf} disabled={!activeNote} className={`${itemClass} ${disabledClass}`}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
           <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>

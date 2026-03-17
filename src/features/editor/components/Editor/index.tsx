@@ -69,9 +69,9 @@ export function Editor() {
   const setActiveNote            = useNoteStore((s) => s.setActiveNote);
   const versionHistoryOpen       = useUIStore((s) => s.versionHistoryOpen);
   const backlinksOpen            = useUIStore((s) => s.backlinksOpen);
-  const toggleBacklinks          = useUIStore((s) => s.toggleBacklinks);
   const outlineOpen              = useUIStore((s) => s.outlineOpen);
   const toggleOutline            = useUIStore((s) => s.toggleOutline);
+  const toggleBacklinks          = useUIStore((s) => s.toggleBacklinks);
   const pendingScrollHeading     = useUIStore((s) => s.pendingScrollHeading);
   const setPendingScrollHeading  = useUIStore((s) => s.setPendingScrollHeading);
   const pendingScrollQuery       = useUIStore((s) => s.pendingScrollQuery);
@@ -290,15 +290,9 @@ export function Editor() {
     return () => document.removeEventListener("keydown", handle, true);
   }, [slashOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Global keyboard shortcuts ─────────────────────────────────────────────
+  // ── Cmd+H: open find & replace (only when not in editor) ───────────────────
   useEffect(() => {
     function handle(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "b") {
-        e.preventDefault(); toggleBacklinks();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "o") {
-        e.preventDefault(); toggleOutline();
-      }
       if ((e.ctrlKey || e.metaKey) && e.key === "h" && !e.shiftKey) {
         const inEditor = (e.target as HTMLElement).closest(".tiptap") !== null;
         if (!inEditor) { e.preventDefault(); setFindReplaceOpen(true); }
@@ -306,7 +300,7 @@ export function Editor() {
     }
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
-  }, [toggleBacklinks, toggleOutline]);
+  }, []);
 
   if (!activeNote) return null;
 

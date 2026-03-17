@@ -161,8 +161,8 @@ export function CommandPalette() {
   const actions: ActionItem[] = useMemo(() => [
     { kind: "action", id: "new-note",          label: "New Note",              hint: "Ctrl+N",         action: async () => { await createNote(); closePalette(); } },
     { kind: "action", id: "toggle-theme",      label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "Toggle theme", action: () => { toggleTheme(); closePalette(); } },
-    { kind: "action", id: "toggle-backlinks",  label: "Toggle Backlinks",      hint: "Ctrl+Shift+B",   action: () => { toggleBacklinks(); closePalette(); } },
-    { kind: "action", id: "toggle-outline",    label: "Toggle Outline",        hint: "Ctrl+Shift+O",   action: () => { toggleOutline(); closePalette(); } },
+    { kind: "action", id: "toggle-backlinks",  label: "Toggle Backlinks",      hint: "Ctrl+;",         action: () => { toggleBacklinks(); closePalette(); } },
+    { kind: "action", id: "toggle-outline",    label: "Toggle Outline",        hint: "Ctrl+'",        action: () => { toggleOutline(); closePalette(); } },
     { kind: "action", id: "open-shortcuts",    label: "Keyboard Shortcuts",    hint: "View all",       action: () => { openShortcuts(); closePalette(); } },
   ], [theme, createNote, closePalette, toggleTheme, toggleBacklinks, toggleOutline, openShortcuts]);
 
