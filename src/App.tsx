@@ -66,7 +66,9 @@ export default function App() {
   const tabs                   = useUIStore((s) => s.tabs);
   const activeTabId            = useUIStore((s) => s.activeTabId);
   const replaceTab             = useUIStore((s) => s.replaceTab);
+  const openTab                = useUIStore((s) => s.openTab);
   const closeActiveTab         = useUIStore((s) => s.closeActiveTab);
+  const cycleTab               = useUIStore((s) => s.cycleTab);
 
   const [dbReady, setDbReady]     = useState(false);
   const [dbError, setDbError]     = useState<string | null>(null);
@@ -88,19 +90,21 @@ export default function App() {
   }, [loadNotes]);
 
   // ── Back / forward: navigate the active tab in place ─────────────────────
-  // goBack/goForward update activeNoteId in the note store; we mirror that
-  // into the active tab so the correct editor is shown.
   useEffect(() => {
     if (!activeNoteId) return;
-    // Only act when a navigation gesture was the trigger, not a sidebar click
-    // (sidebar clicks call replaceTab themselves). We detect this by checking
-    // whether the active tab is already showing this note — if not, it means
-    // a back/forward or wiki-link jump happened and we should follow it.
     const currentTabNoteId = useUIStore.getState().activeTabNoteId();
     if (currentTabNoteId !== activeNoteId) {
       replaceTab(activeNoteId);
     }
   }, [activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Ctrl+Tab: sync activeNoteId when tab focus changes via keyboard ───────
+  useEffect(() => {
+    const noteId = useUIStore.getState().activeTabNoteId();
+    if (noteId && noteId !== useNoteStore.getState().activeNoteId) {
+      setActive(noteId, true);
+    }
+  }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function triggerNav(action: () => void) {
     if (slideTimeout.current) clearTimeout(slideTimeout.current);
@@ -111,8 +115,23 @@ export default function App() {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!dbReady) return;
     const ctrl = e.ctrlKey || e.metaKey;
+
+    // Ctrl+Tab / Ctrl+Shift+Tab — cycle through tabs.
+    // Must be checked before other Ctrl shortcuts to prevent browser tab switch.
+    if (ctrl && e.key === "Tab") {
+      e.preventDefault();
+      cycleTab(e.shiftKey ? -1 : 1);
+      return;
+    }
+
     if (ctrl && e.key === "k")               { e.preventDefault(); togglePalette(); }
     if (ctrl && e.key === "n")               { e.preventDefault(); openTemplatePicker(); }
+    // Ctrl+Shift+N — open current note in a new tab
+    if (ctrl && e.shiftKey && e.key === "N") {
+      e.preventDefault();
+      if (activeNoteId) openTab(activeNoteId);
+      return;
+    }
     if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
     if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
     if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(); }
@@ -122,7 +141,8 @@ export default function App() {
     if (ctrl && e.key === "]")               { e.preventDefault(); triggerNav(goForward); }
     if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
   }, [dbReady, togglePalette, openTemplatePicker, toggleSidebar, toggleFileTree,
-      toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward, closeActiveTab]);
+      toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward,
+      closeActiveTab, cycleTab, openTab, activeNoteId]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);

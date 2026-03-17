@@ -3,12 +3,12 @@ import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 export function TabBar() {
-  const tabs         = useUIStore((s) => s.tabs);
-  const activeTabId  = useUIStore((s) => s.activeTabId);
-  const setActiveTab = useUIStore((s) => s.setActiveTab);
-  const closeTab     = useUIStore((s) => s.closeTab);
+  const tabs          = useUIStore((s) => s.tabs);
+  const activeTabId   = useUIStore((s) => s.activeTabId);
+  const setActiveTab  = useUIStore((s) => s.setActiveTab);
+  const closeTab      = useUIStore((s) => s.closeTab);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
-  const notes        = useNoteStore((s) => s.notes);
+  const notes         = useNoteStore((s) => s.notes);
 
   if (tabs.length === 0) return null;
 
@@ -31,16 +31,14 @@ export function TabBar() {
 
   return (
     <div
-      className="flex items-center h-9 shrink-0 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 overflow-x-auto scrollbar-none select-none"
+      className="flex items-center h-7 shrink-0 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 overflow-x-auto select-none"
       style={{ scrollbarWidth: "none" }}
     >
       {tabs.map((tab) => {
-        const note   = notes.find((n) => n.id === tab.noteId);
+        const note       = notes.find((n) => n.id === tab.noteId);
         const isUntitled = note ? /^Untitled-\d+$/.test(note.title) : false;
-        const title  = note
-          ? isUntitled ? "Untitled" : note.title
-          : "…";
-        const isActive = tab.id === activeTabId;
+        const title      = note ? (isUntitled ? "Untitled" : note.title) : "…";
+        const isActive   = tab.id === activeTabId;
 
         return (
           <div
@@ -49,8 +47,9 @@ export function TabBar() {
             onAuxClick={(e) => handleAuxClick(e, tab.id)}
             title={note?.title}
             className={`
-              group relative flex items-center gap-1.5 h-full px-3 shrink-0 cursor-pointer
-              text-xs font-medium transition-colors duration-100 max-w-[180px]
+              group relative flex items-center gap-2 h-full px-4 shrink-0 cursor-pointer
+              text-xs font-medium transition-colors duration-100
+              min-w-[140px] max-w-[240px]
               border-r border-zinc-200 dark:border-zinc-800
               ${isActive
                 ? "bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200"
@@ -63,13 +62,13 @@ export function TabBar() {
               <span className="absolute top-0 left-0 right-0 h-[2px] bg-blue-500 dark:bg-blue-400 rounded-b-sm" />
             )}
 
-            <span className="truncate">{title}</span>
+            <span className="flex-1 truncate">{title}</span>
 
             <button
               onClick={(e) => handleClose(e, tab.id)}
               title="Close tab"
               className={`
-                shrink-0 w-4 h-4 flex items-center justify-center rounded
+                shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded
                 transition-colors duration-75
                 ${isActive
                   ? "text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
@@ -85,7 +84,7 @@ export function TabBar() {
         );
       })}
 
-      {/* Trailing spacer so the last tab's right border isn't flush against nothing */}
+      {/* Trailing spacer */}
       <div className="flex-1 min-w-4" />
     </div>
   );

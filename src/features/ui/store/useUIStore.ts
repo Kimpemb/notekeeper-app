@@ -120,6 +120,7 @@ interface UIStore {
   activeTabId: string | null;
 
   // Navigate the active tab to a different note (replaces its noteId in place).
+  // If the target note already has its own tab, focus that tab instead.
   // If no tabs exist yet, creates the first one.
   replaceTab: (noteId: string) => void;
 
@@ -128,8 +129,11 @@ interface UIStore {
   openTab: (noteId: string) => Tab;
 
   closeTab: (tabId: string) => void;
+  // Close all tabs whose noteId is in the given set (orphan cleanup).
+  closeTabsForNotes: (noteIds: Set<string>) => void;
   setActiveTab: (tabId: string) => void;
   closeActiveTab: () => void;
+  cycleTab: (dir: 1 | -1) => void;
 
   // Convenience: the noteId currently visible (null when no tabs).
   activeTabNoteId: () => string | null;
@@ -299,6 +303,14 @@ export const useUIStore = create<UIStore>((set, get) => {
         return;
       }
 
+      // Duplicate guard: if another tab already shows this note, focus it
+      // instead of loading the same note into two tabs.
+      const existing = tabs.find((t) => t.noteId === noteId);
+      if (existing) {
+        set({ activeTabId: existing.id });
+        return;
+      }
+
       // Swap the noteId of the active tab in place.
       set({
         tabs: tabs.map((t) =>
@@ -340,11 +352,36 @@ export const useUIStore = create<UIStore>((set, get) => {
       set({ tabs: next, activeTabId: nextActiveTabId });
     },
 
+    closeTabsForNotes: (noteIds) => {
+      const { tabs, activeTabId } = get();
+      const next = tabs.filter((t) => !noteIds.has(t.noteId));
+
+      // If the active tab was among the closed ones, pick the nearest survivor.
+      let nextActiveTabId = activeTabId;
+      if (activeTabId) {
+        const activeStillExists = next.some((t) => t.id === activeTabId);
+        if (!activeStillExists) {
+          nextActiveTabId = next[next.length - 1]?.id ?? null;
+        }
+      }
+
+      set({ tabs: next, activeTabId: nextActiveTabId });
+    },
+
     setActiveTab: (tabId) => set({ activeTabId: tabId }),
 
     closeActiveTab: () => {
       const { activeTabId } = get();
       if (activeTabId) get().closeTab(activeTabId);
+    },
+
+    cycleTab: (dir) => {
+      const { tabs, activeTabId } = get();
+      if (tabs.length < 2) return;
+      const idx = tabs.findIndex((t) => t.id === activeTabId);
+      if (idx === -1) return;
+      const next = (idx + dir + tabs.length) % tabs.length;
+      set({ activeTabId: tabs[next].id });
     },
 
     activeTabNoteId: () => {

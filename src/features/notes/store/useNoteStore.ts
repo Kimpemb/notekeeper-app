@@ -310,6 +310,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     const allIds = new Set([id, ...descendants]);
     await dbTrashNote(id);
     const trashedNotes = await getTrashedNotes();
+
     set((state) => {
       const remaining = state.notes.filter((n) => !allIds.has(n.id));
       const newPinnedIds = new Set([...state.pinnedIds].filter((pid) => !allIds.has(pid)));
@@ -329,6 +330,11 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
         navIndex: newIndex,
       };
     });
+
+    // Close any background tabs that were showing the deleted notes.
+    // Import lazily to avoid a circular module dependency.
+    const { useUIStore } = await import("@/features/ui/store/useUIStore");
+    useUIStore.getState().closeTabsForNotes(allIds);
   },
 
   restoreNote: async (id) => {
