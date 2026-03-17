@@ -51,12 +51,38 @@ const ActionIcon = ({ id }: { id: string }) => {
       <path d="M2 3.5h9M2 6.5h6M2 9.5h7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   );
+  if (id === "toggle-file-tree") return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+      <path d="M1 3.5a1 1 0 011-1h3l1 1.5h6a1 1 0 011 1V11a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M4 8.5h3M4 6.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+    </svg>
+  );
   if (id === "open-shortcuts") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
       <rect x="1" y="2.5" width="4" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
       <rect x="7" y="2.5" width="5" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
       <rect x="1" y="7.5" width="5" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
       <rect x="8" y="7.5" width="4" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
+    </svg>
+  );
+    if (id === "export-all") return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+      <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M4 6.5h5M4 4.5h5M4 8.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  );
+  if (id === "export-json" || id === "export-md" || id === "export-pdf") return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+      <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M6.5 5.5v4M4.5 7.5l2 2 2-2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+  if (id === "import") return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+      <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M6.5 9.5v-4M4.5 7.5l2-2 2 2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   return null;
@@ -107,8 +133,12 @@ export function CommandPalette() {
   const toggleTheme     = useUIStore((s) => s.toggleTheme);
   const theme           = useUIStore((s) => s.theme);
   const toggleBacklinks = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline   = useUIStore((s) => s.toggleOutline);
-  const openShortcuts   = useUIStore((s) => s.openShortcuts);
+  const toggleOutline    = useUIStore((s) => s.toggleOutline);
+  const toggleFileTree   = useUIStore((s) => s.toggleFileTree);
+  const openShortcuts    = useUIStore((s) => s.openShortcuts);
+  const openImport       = useUIStore((s) => s.openImport);
+  const exportHandlers   = useUIStore((s) => s.exportHandlers);
+  const activeNoteId     = useNoteStore((s) => s.activeNoteId);
   const notes           = useNoteStore((s) => s.notes);
   const visitedNoteIds  = useNoteStore((s) => s.visitedNoteIds);
   const createNote      = useNoteStore((s) => s.createNote);
@@ -163,8 +193,14 @@ export function CommandPalette() {
     { kind: "action", id: "toggle-theme",      label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "Toggle theme", action: () => { toggleTheme(); closePalette(); } },
     { kind: "action", id: "toggle-backlinks",  label: "Toggle Backlinks",      hint: "Ctrl+;",         action: () => { toggleBacklinks(); closePalette(); } },
     { kind: "action", id: "toggle-outline",    label: "Toggle Outline",        hint: "Ctrl+'",        action: () => { toggleOutline(); closePalette(); } },
+    { kind: "action", id: "toggle-file-tree",   label: "Toggle File Tree",       hint: "Ctrl+T",         action: () => { toggleFileTree(); closePalette(); } },
     { kind: "action", id: "open-shortcuts",    label: "Keyboard Shortcuts",    hint: "View all",       action: () => { openShortcuts(); closePalette(); } },
-  ], [theme, createNote, closePalette, toggleTheme, toggleBacklinks, toggleOutline, openShortcuts]);
+    { kind: "action", id: "export-all",        label: "Export All Notes",       hint: "JSON",           action: async () => { await exportHandlers?.exportAll(); closePalette(); } },
+    { kind: "action", id: "export-json",       label: "Export Current Note",    hint: "JSON",           action: async () => { await exportHandlers?.exportNoteJson(); closePalette(); } },
+    { kind: "action", id: "export-md",         label: "Export Current Note",    hint: "Markdown",       action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); } },
+    { kind: "action", id: "export-pdf",        label: "Export Current Note",    hint: "PDF",            action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); } },
+    { kind: "action", id: "import",            label: "Import Notes",           hint: "JSON file",      action: () => { openImport(); closePalette(); } },
+  ], [theme, createNote, closePalette, toggleTheme, toggleBacklinks, toggleOutline, toggleFileTree, openShortcuts, openImport, exportHandlers, activeNoteId]);
 
   // ── Note lists ──────────────────────────────────────────────────────────────
   const recentNotes = useMemo(() =>
@@ -324,7 +360,7 @@ export function CommandPalette() {
             onMouseEnter={() => setActiveSide("actions")}
           >
             {/* Actions */}
-            <div className="shrink-0 border-b border-zinc-100 dark:border-zinc-800">
+            <div className="border-b border-zinc-100 dark:border-zinc-800 overflow-y-auto" style={{maxHeight: "55%"}}>
               <SectionLabel label="Commands" />
               <ul>
                 {filteredActions.map((action, i) => {

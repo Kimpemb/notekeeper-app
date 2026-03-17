@@ -86,6 +86,20 @@ interface UIStore {
   // ─── Tag filter ───────────────────────────────────────────────────────────
   activeTag: string | null;
   setActiveTag: (tag: string | null) => void;
+
+  // ─── Export handlers (set by App, called by CommandPalette) ──────────────
+  exportHandlers: {
+    exportAll: () => Promise<void>;
+    exportNoteJson: () => Promise<void>;
+    exportNoteMarkdown: () => Promise<void>;
+    exportNotePdf: () => Promise<void>;
+  } | null;
+  setExportHandlers: (handlers: {
+    exportAll: () => Promise<void>;
+    exportNoteJson: () => Promise<void>;
+    exportNoteMarkdown: () => Promise<void>;
+    exportNotePdf: () => Promise<void>;
+  }) => void;
 }
 
 function getInitialTheme(): Theme {
@@ -228,5 +242,9 @@ export const useUIStore = create<UIStore>((set, get) => {
     // ─── Tag filter ───────────────────────────────────────────────────────────
     activeTag: null,
     setActiveTag: (tag) => set({ activeTag: tag }),
+
+    // ─── Export handlers ──────────────────────────────────────────────────────
+    exportHandlers: null,
+    setExportHandlers: (handlers) => set({ exportHandlers: handlers }),
   };
 });
