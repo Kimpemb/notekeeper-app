@@ -98,6 +98,15 @@ export default function App() {
     }
   }, [activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+useEffect(() => {
+  function handle() {
+    openInNewTabRef.current = true;
+    useUIStore.getState().openTemplatePicker();
+  }
+  window.addEventListener("notekeeper:new-note-new-tab", handle);
+  return () => window.removeEventListener("notekeeper:new-note-new-tab", handle);
+}, []);
+
   // ── Ctrl+Tab: sync activeNoteId when tab focus changes via keyboard ───────
   useEffect(() => {
     const noteId = useUIStore.getState().activeTabNoteId();

@@ -18,6 +18,15 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: "Tabs",
+    shortcuts: [
+      { keys: ["Ctrl", "Shift", "N"], label: "New note in new tab" },
+      { keys: ["Ctrl", "W"],          label: "Close current tab" },
+      { keys: ["Ctrl", "Tab"],        label: "Next tab" },
+      { keys: ["Ctrl", "Shift", "Tab"], label: "Previous tab" },
+    ],
+  },
+  {
     title: "Navigation",
     shortcuts: [
       { keys: ["Ctrl", "["],          label: "Go back" },
@@ -79,7 +88,8 @@ export function KeyboardShortcuts() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/30 dark:bg-black/50 backdrop-blur-sm" />
+      {/* No backdrop blur — intentional, matches command palette */}
+      <div className="absolute inset-0 bg-black/20 dark:bg-black/40" />
       <div ref={panelRef} className="relative w-full max-w-md mx-4 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
           <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">Keyboard Shortcuts</h2>

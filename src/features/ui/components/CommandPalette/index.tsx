@@ -42,6 +42,18 @@ const ActionIcon = ({ id }: { id: string }) => {
       <path d="M6.5 2v9M2 6.5h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
     </svg>
   );
+  if (id === "new-note-new-tab") return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+      <path d="M6.5 2v9M2 6.5h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <path d="M10 1h2v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+  if (id === "open-in-new-tab") return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+      <rect x="1" y="3" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M5 1h7v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
   if (id === "toggle-theme") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
       <circle cx="6.5" cy="6.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
@@ -159,17 +171,21 @@ function NoteRow({
 
 // ── Shortcuts reference ───────────────────────────────────────────────────────
 const SHORTCUTS = [
-  { label: "Command palette",    keys: ["Ctrl", "K"] },
-  { label: "New note",           keys: ["Ctrl", "N"] },
-  { label: "Toggle sidebar",     keys: ["Ctrl", "\\"] },
-  { label: "Search notes",       keys: ["Ctrl", "F"] },
-  { label: "Toggle file tree",   keys: ["Ctrl", "T"] },
-  { label: "Go back",            keys: ["Ctrl", "["] },
-  { label: "Go forward",         keys: ["Ctrl", "]"] },
-  { label: "Find & replace",     keys: ["Ctrl", "H"] },
-  { label: "Toggle backlinks",   keys: ["Ctrl", ";"] },
-  { label: "Toggle outline",     keys: ["Ctrl", "'"] },
-  { label: "Keyboard shortcuts", keys: ["Ctrl", "Shift", "?"] },
+  { label: "Command palette",       keys: ["Ctrl", "K"] },
+  { label: "New note",              keys: ["Ctrl", "N"] },
+  { label: "New note in new tab",   keys: ["Ctrl", "Shift", "N"] },
+  { label: "Close tab",             keys: ["Ctrl", "W"] },
+  { label: "Next tab",              keys: ["Ctrl", "Tab"] },
+  { label: "Previous tab",          keys: ["Ctrl", "Shift", "Tab"] },
+  { label: "Toggle sidebar",        keys: ["Ctrl", "\\"] },
+  { label: "Search notes",          keys: ["Ctrl", "F"] },
+  { label: "Toggle file tree",      keys: ["Ctrl", "T"] },
+  { label: "Go back",               keys: ["Ctrl", "["] },
+  { label: "Go forward",            keys: ["Ctrl", "]"] },
+  { label: "Find & replace",        keys: ["Ctrl", "H"] },
+  { label: "Toggle backlinks",      keys: ["Ctrl", ";"] },
+  { label: "Toggle outline",        keys: ["Ctrl", "'"] },
+  { label: "Keyboard shortcuts",    keys: ["Ctrl", "Shift", "?"] },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -183,17 +199,21 @@ export function CommandPalette() {
   const toggleFileTree  = useUIStore((s) => s.toggleFileTree);
   const openShortcuts   = useUIStore((s) => s.openShortcuts);
   const openImport      = useUIStore((s) => s.openImport);
+  const openTemplatePicker = useUIStore((s) => s.openTemplatePicker);
   const exportHandlers  = useUIStore((s) => s.exportHandlers);
   const activeNoteId    = useNoteStore((s) => s.activeNoteId);
   const notes           = useNoteStore((s) => s.notes);
   const visitedNoteIds  = useNoteStore((s) => s.visitedNoteIds);
-  const createNote      = useNoteStore((s) => s.createNote);
   const setActiveNote   = useNoteStore((s) => s.setActiveNote);
 
   const [query, setQuery]                   = useState("");
   const [selectedNote, setSelectedNote]     = useState(0);
   const [selectedAction, setSelectedAction] = useState(0);
   const [activeSide, setActiveSide]         = useState<"notes" | "actions">("notes");
+
+  // Ref to signal handleTemplateSelect (via App.tsx) to open in new tab.
+  // We set this before opening the picker, same pattern as App.tsx.
+  const openInNewTabRef = useRef(false);
 
   const inputRef       = useRef<HTMLInputElement>(null);
   const panelRef       = useRef<HTMLDivElement>(null);
@@ -203,6 +223,7 @@ export function CommandPalette() {
   useEffect(() => {
     if (paletteOpen) {
       setQuery(""); setSelectedNote(0); setSelectedAction(0); setActiveSide("notes");
+      openInNewTabRef.current = false;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [paletteOpen]);
@@ -233,9 +254,29 @@ export function CommandPalette() {
     actionItemRefs.current[selectedAction]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedAction]);
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
+  // ── Actions ──────────────────────────────────────────────────────────────────
   const actions: ActionItem[] = useMemo(() => [
-    { kind: "action", id: "new-note",         label: "New Note",            hint: "Ctrl+N",       action: async () => { await createNote(); closePalette(); } },
+    {
+      kind: "action", id: "new-note", label: "New Note", hint: "Ctrl+N",
+      action: () => { closePalette(); openTemplatePicker(); },
+    },
+    {
+      kind: "action", id: "new-note-new-tab", label: "New Note in New Tab", hint: "Ctrl+Shift+N",
+      action: () => {
+        // Signal App.tsx's openInNewTabRef by writing to the store indirectly.
+        // We dispatch a custom event that App.tsx listens for, keeping the
+        // logic centralised there.
+        closePalette();
+        window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab"));
+      },
+    },
+    {
+      kind: "action", id: "open-in-new-tab", label: "Open Current Note in New Tab", hint: "",
+      action: () => {
+        if (activeNoteId) useUIStore.getState().openTab(activeNoteId);
+        closePalette();
+      },
+    },
     { kind: "action", id: "toggle-theme",     label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "Toggle theme", action: () => { toggleTheme(); closePalette(); } },
     { kind: "action", id: "toggle-backlinks", label: "Toggle Backlinks",    hint: "Ctrl+;",       action: () => { toggleBacklinks(); closePalette(); } },
     { kind: "action", id: "toggle-outline",   label: "Toggle Outline",      hint: "Ctrl+'",       action: () => { toggleOutline(); closePalette(); } },
@@ -246,9 +287,10 @@ export function CommandPalette() {
     { kind: "action", id: "export-md",        label: "Export Current Note", hint: "Markdown",     action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); } },
     { kind: "action", id: "export-pdf",       label: "Export Current Note", hint: "PDF",          action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); } },
     { kind: "action", id: "import",           label: "Import Notes",        hint: "JSON file",    action: () => { openImport(); closePalette(); } },
-  ], [theme, createNote, closePalette, toggleTheme, toggleBacklinks, toggleOutline, toggleFileTree, openShortcuts, openImport, exportHandlers, activeNoteId]);
+  ], [theme, closePalette, openTemplatePicker, toggleTheme, toggleBacklinks, toggleOutline,
+      toggleFileTree, openShortcuts, openImport, exportHandlers, activeNoteId]);
 
-  // ── Recent notes split by Today / Yesterday ──────────────────────────────
+  // ── Recent notes split by Today / Yesterday ───────────────────────────────
   const { todayNotes, yesterdayNotes } = useMemo(() => {
     const todayStart     = getTodayStart();
     const yesterdayStart = getYesterdayStart();
@@ -257,7 +299,6 @@ export function CommandPalette() {
       .map((id) => notes.find((n) => n.id === id))
       .filter((n): n is Note => !!n && !n.deleted_at);
 
-    // De-duplicate (visitedNoteIds can have repeats; first occurrence = most recent)
     const seen = new Set<string>();
     const deduped = visited.filter((n) => { if (seen.has(n.id)) return false; seen.add(n.id); return true; });
 
@@ -267,10 +308,9 @@ export function CommandPalette() {
     };
   }, [visitedNoteIds, notes]);
 
-  // Flat list for keyboard navigation (today first, then yesterday)
   const recentNotes = useMemo(() => [...todayNotes, ...yesterdayNotes], [todayNotes, yesterdayNotes]);
 
-  // ── Search ──────────────────────────────────────────────────────────────────
+  // ── Search ────────────────────────────────────────────────────────────────
   const searchedNotes = useMemo(() => {
     const trimmed = query.trim().toLowerCase();
     if (!trimmed) return [];
@@ -391,7 +431,6 @@ export function CommandPalette() {
                 </>
               ) : (
                 <>
-                  {/* Today */}
                   {todayNotes.length > 0 && (
                     <>
                       <SectionLabel label="Today" />
@@ -408,7 +447,6 @@ export function CommandPalette() {
                       </ul>
                     </>
                   )}
-                  {/* Yesterday */}
                   {yesterdayNotes.length > 0 && (
                     <>
                       <SectionLabel label="Yesterday" />

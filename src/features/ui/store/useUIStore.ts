@@ -319,21 +319,14 @@ export const useUIStore = create<UIStore>((set, get) => {
       });
     },
 
-    openTab: (noteId) => {
-      const { tabs } = get();
+ openTab: (noteId) => {
+  const { tabs } = get();
 
-      // If a tab for this note already exists, just focus it.
-      const existing = tabs.find((t) => t.noteId === noteId);
-      if (existing) {
-        set({ activeTabId: existing.id });
-        return existing;
-      }
-
-      // Otherwise create a new tab.
-      const tab: Tab = { id: makeTabId(), noteId };
-      set({ tabs: [...tabs, tab], activeTabId: tab.id });
-      return tab;
-    },
+  // Always create a new tab, even if the note is already open
+  const tab: Tab = { id: makeTabId(), noteId };
+  set({ tabs: [...tabs, tab], activeTabId: tab.id });
+  return tab;
+},
 
     closeTab: (tabId) => {
       const { tabs, activeTabId } = get();

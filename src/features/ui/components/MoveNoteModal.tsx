@@ -13,13 +13,13 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
   const notes    = useNoteStore((s) => s.notes);
   const moveNote = useNoteStore((s) => s.moveNote);
 
-  const [query, setQuery]         = useState("");
+  const [query, setQuery]             = useState("");
   const [selectedIdx, setSelectedIdx] = useState(0);
 
-  const inputRef      = useRef<HTMLInputElement>(null);
-  const listRef       = useRef<HTMLUListElement>(null);
+  const inputRef       = useRef<HTMLInputElement>(null);
+  const listRef        = useRef<HTMLUListElement>(null);
   const selectedIdxRef = useRef(0);
-  const onCloseRef    = useRef(onClose);
+  const onCloseRef     = useRef(onClose);
 
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => { selectedIdxRef.current = selectedIdx; }, [selectedIdx]);
@@ -74,7 +74,6 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
     );
   }, [getCandidates, query]);
 
-  // Keep a ref to filtered so the keydown handler can read it without stale closure
   const filteredRef = useRef(getFiltered());
   useEffect(() => { filteredRef.current = getFiltered(); }, [getFiltered]);
 
@@ -133,7 +132,7 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 dark:bg-black/50"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/20 dark:bg-black/40"
       onClick={onClose}
     >
       <div
