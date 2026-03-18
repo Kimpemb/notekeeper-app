@@ -33,7 +33,6 @@ export function NoteTree() {
 
   const [drag, setDrag]                 = useState<DragState | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  const [confirmBulkTrash, setConfirmBulkTrash] = useState(false);
 
   // Keyboard nav state — which item currently has sidebar focus.
   const [focusedNoteId, setFocusedNoteId] = useState<string | null>(null);
@@ -43,10 +42,26 @@ export function NoteTree() {
 
   // Refs kept current for keydown handler to avoid stale closures.
   const focusedNoteIdRef    = useRef<string | null>(null);
-  const confirmBulkTrashRef = useRef(false);
 
   useEffect(() => { focusedNoteIdRef.current = focusedNoteId; }, [focusedNoteId]);
-  useEffect(() => { confirmBulkTrashRef.current = confirmBulkTrash; }, [confirmBulkTrash]);
+
+  // ── Delete selected notes ──────────────────────────────────────────────────
+  const deleteSelectedNotes = useCallback(async () => {
+    const ids = [...selectedNoteIds];
+    if (ids.length === 0) return;
+    
+    // Clear selection first to prevent any UI glitches
+    clearSelection();
+    
+    // Delete all selected notes
+    for (const id of ids) {
+      try {
+        await deleteNote(id);
+      } catch (error) {
+        console.error(`Failed to delete note ${id}:`, error);
+      }
+    }
+  }, [selectedNoteIds, clearSelection, deleteNote]);
 
   // ── Keyboard handler ───────────────────────────────────────────────────────
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -66,15 +81,24 @@ export function NoteTree() {
     // ── Delete ───────────────────────────────────────────────────────────────
     if (e.key === "Delete" && sel.size > 0) {
       e.preventDefault();
-      // Don't double-open if confirm dialog already showing.
-      if (!confirmBulkTrashRef.current) setConfirmBulkTrash(true);
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      // Delete immediately on first press
+      deleteSelectedNotes();
       return;
     }
 
     // ── Escape ───────────────────────────────────────────────────────────────
     if (e.key === "Escape") {
-      if (sel.size > 0) { useUIStore.getState().clearSelection(); return; }
-      if (focusedNoteIdRef.current) { setFocusedNoteId(null); return; }
+      if (sel.size > 0) { 
+        useUIStore.getState().clearSelection(); 
+        return; 
+      }
+      if (focusedNoteIdRef.current) { 
+        setFocusedNoteId(null); 
+        return; 
+      }
     }
 
     // ── Arrow navigation — only when sidebar has logical focus ───────────────
@@ -108,7 +132,7 @@ export function NoteTree() {
     // Always move focus.
     setFocusedNoteId(nextId);
 
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [deleteSelectedNotes]);
 
   // Separate handler for Enter and Space — needs focusedNoteId in scope.
   const handleEnterSpace = useCallback((e: KeyboardEvent) => {
@@ -135,10 +159,10 @@ export function NoteTree() {
   }, [setActive, replaceTab, toggleNoteSelection]);
 
   useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("keydown", handleEnterSpace);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("keydown", handleEnterSpace);
     };
   }, [handleKeyDown, handleEnterSpace]);
@@ -277,7 +301,7 @@ export function NoteTree() {
             {selectionCount} selected
           </span>
           <button
-            onClick={() => setConfirmBulkTrash(true)}
+            onClick={deleteSelectedNotes}
             title="Move selected to trash (Del)"
             className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-500 hover:bg-red-100 dark:hover:bg-red-950 transition-colors duration-75"
           >
@@ -295,34 +319,6 @@ export function NoteTree() {
               <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
           </button>
-        </div>
-      )}
-
-      {/* ── Bulk trash confirm ───────────────────────────────────────────────── */}
-      {confirmBulkTrash && (
-        <div className="mx-2 mb-1 px-3 py-2.5 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-xs text-red-600 dark:text-red-400 space-y-2">
-          <p>Move {selectionCount} note{selectionCount !== 1 ? "s" : ""} to trash?</p>
-          <div className="flex gap-2">
-            <button
-              onClick={async () => {
-                const ids = [...selectedNoteIds];
-                clearSelection();
-                setConfirmBulkTrash(false);
-                for (const id of ids) {
-                  await deleteNote(id).catch(console.error);
-                }
-              }}
-              className="px-2.5 py-1 rounded bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors duration-75"
-            >
-              Confirm
-            </button>
-            <button
-              onClick={() => setConfirmBulkTrash(false)}
-              className="px-2.5 py-1 rounded text-xs text-red-400 hover:bg-red-100 dark:hover:bg-red-900 transition-colors duration-75"
-            >
-              Cancel
-            </button>
-          </div>
         </div>
       )}
 
