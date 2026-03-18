@@ -14,10 +14,18 @@ type ContextItemId =
   | "move"
   | "trash";
 
-interface Props { noteId: string; depth: number; }
+interface Props {
+  noteId: string;
+  depth: number;
+  // Flat ordered list of all visible root-level note IDs — used for Shift+click range.
+  flatOrderedIds: string[];
+  // Ref to the last note that was individually clicked — used as the range anchor.
+  lastSelectedIdRef: React.MutableRefObject<string | null>;
+}
+
 interface ContextMenuPos { x: number; y: number; flip: boolean; }
 
-export function NoteTreeItem({ noteId, depth }: Props) {
+export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef }: Props) {
   const notes        = useNoteStore((s) => s.notes);
   const activeNoteId = useNoteStore((s) => s.activeNoteId);
   const setActive    = useNoteStore((s) => s.setActiveNote);
@@ -28,10 +36,15 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   const unpinNote    = useNoteStore((s) => s.unpinNote);
   const isPinned     = useNoteStore((s) => s.isPinned(noteId));
 
-  const expandedNodes = useUIStore((s) => s.expandedNodes);
-  const toggleNode    = useUIStore((s) => s.toggleNode);
-  const replaceTab    = useUIStore((s) => s.replaceTab);
-  const openTab       = useUIStore((s) => s.openTab);
+  const expandedNodes      = useUIStore((s) => s.expandedNodes);
+  const toggleNode         = useUIStore((s) => s.toggleNode);
+  const replaceTab         = useUIStore((s) => s.replaceTab);
+  const openTab            = useUIStore((s) => s.openTab);
+  const isSelected         = useUIStore((s) => s.isNoteSelected(noteId));
+  const toggleNoteSelection = useUIStore((s) => s.toggleNoteSelection);
+  const selectNoteRange    = useUIStore((s) => s.selectNoteRange);
+  const clearSelection     = useUIStore((s) => s.clearSelection);
+  const selectedNoteIds    = useUIStore((s) => s.selectedNoteIds);
 
   const [contextMenu, setContextMenu] = useState<ContextMenuPos | null>(null);
   const [renaming, setRenaming]       = useState(false);
@@ -44,7 +57,6 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   const menuRef        = useRef<HTMLDivElement>(null);
   const focusedItemRef = useRef<ContextItemId>("new-sub-note");
 
-  // Keep ref in sync so keydown handler never reads stale value.
   useEffect(() => { focusedItemRef.current = focusedItem; }, [focusedItem]);
 
   const note        = notes.find((n) => n.id === noteId);
@@ -102,31 +114,24 @@ export function NoteTreeItem({ noteId, depth }: Props) {
         setContextMenu(null);
         createChild(noteId).then(() => { if (!isExpanded) toggleNode(noteId); }).catch(console.error);
         break;
-
       case "open-in-new-tab":
         setContextMenu(null);
-        // openTab focuses an existing tab for this note, or creates a new one.
         openTab(noteId);
-        // Also sync the note store so breadcrumb / panels stay consistent.
         setActive(noteId, true);
         break;
-
       case "rename":
         setContextMenu(null);
         setRenameValue(note!.title);
         setRenaming(true);
         break;
-
       case "pin":
         setContextMenu(null);
         isPinned ? unpinNote(noteId).catch(console.error) : pinNote(noteId).catch(console.error);
         break;
-
       case "move":
         setContextMenu(null);
         setMoveOpen(true);
         break;
-
       case "trash":
         setContextMenu(null);
         setConfirmOpen(true);
@@ -150,13 +155,34 @@ export function NoteTreeItem({ noteId, depth }: Props) {
   if (!note) return null;
   const indentPx = depth * 14;
 
-  function handleClick() {
+  function handleClick(e: React.MouseEvent) {
+    const isMac  = navigator.platform.toUpperCase().includes("MAC");
+    const isCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+    if (isCtrl) {
+      // Ctrl/Cmd+click — toggle this note in selection, do not navigate.
+      e.preventDefault();
+      toggleNoteSelection(noteId);
+      lastSelectedIdRef.current = noteId;
+      return;
+    }
+
+    if (e.shiftKey && lastSelectedIdRef.current && flatOrderedIds.length > 0) {
+      // Shift+click — range select from last touched note to this one.
+      e.preventDefault();
+      selectNoteRange(lastSelectedIdRef.current, noteId, flatOrderedIds);
+      return;
+    }
+
+    // Plain click — clear any selection and navigate.
+    if (selectedNoteIds.size > 0) clearSelection();
+
     if (isActive) {
       if (hasChildren) toggleNode(noteId);
     } else {
-      // Navigate the current tab to this note — no new tab created.
       setActive(noteId);
       replaceTab(noteId);
+      lastSelectedIdRef.current = noteId;
     }
   }
 
@@ -176,17 +202,21 @@ export function NoteTreeItem({ noteId, depth }: Props) {
     setRenaming(false);
   }
 
+  // Visual state: selected takes precedence over active for background colour
+  // so multi-select is always clearly visible.
+  const rowClass = isSelected
+    ? "bg-blue-100 dark:bg-blue-950/60 text-zinc-900 dark:text-zinc-100"
+    : isActive
+      ? "bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-medium"
+      : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100";
+
   return (
     <div className="select-none">
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         style={{ paddingLeft: `${indentPx + 10}px` }}
-        className={`group flex items-center gap-1.5 h-10 pr-2 rounded-md cursor-pointer transition-colors duration-100 ${
-          isActive
-            ? "bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-medium"
-            : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100"
-        }`}
+        className={`group flex items-center gap-1.5 h-10 pr-2 rounded-md cursor-pointer transition-colors duration-100 ${rowClass}`}
       >
         <span
           onClick={handleChevronClick}
@@ -252,55 +282,17 @@ export function NoteTreeItem({ noteId, depth }: Props) {
           }}
           className="z-50 min-w-[192px] py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
         >
-          <CtxItem
-            label="New sub-note"
-            id="new-sub-note"
-            focused={focusedItem === "new-sub-note"}
-            onHover={() => setFocusedItem("new-sub-note")}
-            onClick={() => triggerItem("new-sub-note")}
-          />
-          <CtxItem
-            label="Open in new tab"
-            id="open-in-new-tab"
-            focused={focusedItem === "open-in-new-tab"}
-            onHover={() => setFocusedItem("open-in-new-tab")}
-            onClick={() => triggerItem("open-in-new-tab")}
-          />
+          <CtxItem label="New sub-note"    id="new-sub-note"    focused={focusedItem === "new-sub-note"}    onHover={() => setFocusedItem("new-sub-note")}    onClick={() => triggerItem("new-sub-note")} />
+          <CtxItem label="Open in new tab" id="open-in-new-tab" focused={focusedItem === "open-in-new-tab"} onHover={() => setFocusedItem("open-in-new-tab")} onClick={() => triggerItem("open-in-new-tab")} />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem
-            label="Rename"
-            id="rename"
-            focused={focusedItem === "rename"}
-            onHover={() => setFocusedItem("rename")}
-            onClick={() => triggerItem("rename")}
-          />
+          <CtxItem label="Rename"          id="rename"          focused={focusedItem === "rename"}          onHover={() => setFocusedItem("rename")}          onClick={() => triggerItem("rename")} />
           {isRoot && (
-            <CtxItem
-              label={isPinned ? "Unpin" : "Pin to top"}
-              id="pin"
-              focused={focusedItem === "pin"}
-              onHover={() => setFocusedItem("pin")}
-              onClick={() => triggerItem("pin")}
-            />
+            <CtxItem label={isPinned ? "Unpin" : "Pin to top"} id="pin" focused={focusedItem === "pin"} onHover={() => setFocusedItem("pin")} onClick={() => triggerItem("pin")} />
           )}
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem
-            label="Move"
-            id="move"
-            focused={focusedItem === "move"}
-            onHover={() => setFocusedItem("move")}
-            onClick={() => triggerItem("move")}
-            suffix="›"
-          />
+          <CtxItem label="Move"           id="move"  focused={focusedItem === "move"}  onHover={() => setFocusedItem("move")}  onClick={() => triggerItem("move")} suffix="›" />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem
-            label="Move to Trash"
-            id="trash"
-            focused={focusedItem === "trash"}
-            onHover={() => setFocusedItem("trash")}
-            onClick={() => triggerItem("trash")}
-            danger
-          />
+          <CtxItem label="Move to Trash"  id="trash" focused={focusedItem === "trash"} onHover={() => setFocusedItem("trash")} onClick={() => triggerItem("trash")} danger />
         </div>
       )}
 
@@ -309,7 +301,13 @@ export function NoteTreeItem({ noteId, depth }: Props) {
       {hasChildren && isExpanded && (
         <ul className="space-y-0.5 mt-0.5">
           {children.map((child: Note) => (
-            <NoteTreeItem key={child.id} noteId={child.id} depth={depth + 1} />
+            <NoteTreeItem
+              key={child.id}
+              noteId={child.id}
+              depth={depth + 1}
+              flatOrderedIds={flatOrderedIds}
+              lastSelectedIdRef={lastSelectedIdRef}
+            />
           ))}
         </ul>
       )}

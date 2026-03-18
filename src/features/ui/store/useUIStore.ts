@@ -118,25 +118,26 @@ interface UIStore {
   // ─── Tabs ─────────────────────────────────────────────────────────────────
   tabs: Tab[];
   activeTabId: string | null;
-
-  // Navigate the active tab to a different note (replaces its noteId in place).
-  // If the target note already has its own tab, focus that tab instead.
-  // If no tabs exist yet, creates the first one.
   replaceTab: (noteId: string) => void;
-
-  // Explicitly open noteId in a brand-new tab (right-click → "Open in new tab").
-  // If the note already has a tab, just focuses it.
   openTab: (noteId: string) => Tab;
-
   closeTab: (tabId: string) => void;
-  // Close all tabs whose noteId is in the given set (orphan cleanup).
   closeTabsForNotes: (noteIds: Set<string>) => void;
   setActiveTab: (tabId: string) => void;
   closeActiveTab: () => void;
   cycleTab: (dir: 1 | -1) => void;
-
-  // Convenience: the noteId currently visible (null when no tabs).
   activeTabNoteId: () => string | null;
+
+  // ─── Sidebar note selection ───────────────────────────────────────────────
+  // Set of noteIds currently selected in the sidebar.
+  selectedNoteIds: Set<string>;
+  // Toggle a single note in/out of the selection (Ctrl+click).
+  toggleNoteSelection: (id: string) => void;
+  // Select all notes between fromId and toId in the given flat ordered list (Shift+click).
+  selectNoteRange: (fromId: string, toId: string, orderedIds: string[]) => void;
+  // Clear the entire selection.
+  clearSelection: () => void;
+  // Convenience selector used by NoteTreeItem.
+  isNoteSelected: (id: string) => boolean;
 }
 
 function getInitialTheme(): Theme {
@@ -295,69 +296,47 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     replaceTab: (noteId) => {
       const { tabs, activeTabId } = get();
-
-      // No tabs yet — create the first one.
       if (tabs.length === 0 || activeTabId === null) {
         const tab: Tab = { id: makeTabId(), noteId };
         set({ tabs: [tab], activeTabId: tab.id });
         return;
       }
-
-      // Duplicate guard: if another tab already shows this note, focus it
-      // instead of loading the same note into two tabs.
       const existing = tabs.find((t) => t.noteId === noteId);
       if (existing) {
         set({ activeTabId: existing.id });
         return;
       }
-
-      // Swap the noteId of the active tab in place.
-      set({
-        tabs: tabs.map((t) =>
-          t.id === activeTabId ? { ...t, noteId } : t
-        ),
-      });
+      set({ tabs: tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t) });
     },
 
- openTab: (noteId) => {
-  const { tabs } = get();
-
-  // Always create a new tab, even if the note is already open
-  const tab: Tab = { id: makeTabId(), noteId };
-  set({ tabs: [...tabs, tab], activeTabId: tab.id });
-  return tab;
-},
+    openTab: (noteId) => {
+      const { tabs } = get();
+      const tab: Tab = { id: makeTabId(), noteId };
+      set({ tabs: [...tabs, tab], activeTabId: tab.id });
+      return tab;
+    },
 
     closeTab: (tabId) => {
       const { tabs, activeTabId } = get();
       const idx = tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
-
       const next = tabs.filter((t) => t.id !== tabId);
-
-      // If closing the active tab, pick a neighbour to activate.
       let nextActiveTabId: string | null = activeTabId;
       if (activeTabId === tabId) {
         const neighbour = next[idx] ?? next[idx - 1] ?? null;
         nextActiveTabId = neighbour?.id ?? null;
       }
-
       set({ tabs: next, activeTabId: nextActiveTabId });
     },
 
     closeTabsForNotes: (noteIds) => {
       const { tabs, activeTabId } = get();
       const next = tabs.filter((t) => !noteIds.has(t.noteId));
-
-      // If the active tab was among the closed ones, pick the nearest survivor.
       let nextActiveTabId = activeTabId;
       if (activeTabId) {
         const activeStillExists = next.some((t) => t.id === activeTabId);
-        if (!activeStillExists) {
-          nextActiveTabId = next[next.length - 1]?.id ?? null;
-        }
+        if (!activeStillExists) nextActiveTabId = next[next.length - 1]?.id ?? null;
       }
-
       set({ tabs: next, activeTabId: nextActiveTabId });
     },
 
@@ -381,5 +360,29 @@ export const useUIStore = create<UIStore>((set, get) => {
       const { tabs, activeTabId } = get();
       return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
     },
+
+    // ─── Sidebar note selection ───────────────────────────────────────────────
+    selectedNoteIds: new Set(),
+
+    toggleNoteSelection: (id) =>
+      set((s) => {
+        const next = new Set(s.selectedNoteIds);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return { selectedNoteIds: next };
+      }),
+
+    selectNoteRange: (fromId, toId, orderedIds) => {
+      const fromIdx = orderedIds.indexOf(fromId);
+      const toIdx   = orderedIds.indexOf(toId);
+      if (fromIdx === -1 || toIdx === -1) return;
+      const start = Math.min(fromIdx, toIdx);
+      const end   = Math.max(fromIdx, toIdx);
+      const range = new Set(orderedIds.slice(start, end + 1));
+      set((s) => ({ selectedNoteIds: new Set([...s.selectedNoteIds, ...range]) }));
+    },
+
+    clearSelection: () => set({ selectedNoteIds: new Set() }),
+
+    isNoteSelected: (id) => get().selectedNoteIds.has(id),
   };
 });
