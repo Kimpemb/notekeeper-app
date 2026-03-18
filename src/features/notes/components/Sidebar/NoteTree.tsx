@@ -1,5 +1,5 @@
 // src/features/notes/components/Sidebar/NoteTree.tsx
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { NoteTreeItem } from "./NoteTreeItem";
@@ -22,29 +22,138 @@ export function NoteTree() {
   const pinnedIds    = useNoteStore((s) => s.pinnedIds);
   const reorderNote  = useNoteStore((s) => s.reorderNote);
   const deleteNote   = useNoteStore((s) => s.deleteNote);
+  const setActive    = useNoteStore((s) => s.setActiveNote);
   const searchQuery  = useUIStore((s) => s.searchQuery);
   const activeTag    = useUIStore((s) => s.activeTag);
   const setActiveTag = useUIStore((s) => s.setActiveTag);
-  const selectedNoteIds = useUIStore((s) => s.selectedNoteIds);
-  const clearSelection  = useUIStore((s) => s.clearSelection);
+  const selectedNoteIds    = useUIStore((s) => s.selectedNoteIds);
+  const clearSelection     = useUIStore((s) => s.clearSelection);
+  const toggleNoteSelection = useUIStore((s) => s.toggleNoteSelection);
+  const replaceTab         = useUIStore((s) => s.replaceTab);
 
   const [drag, setDrag]                 = useState<DragState | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [confirmBulkTrash, setConfirmBulkTrash] = useState(false);
 
+  // Keyboard nav state — which item currently has sidebar focus.
+  const [focusedNoteId, setFocusedNoteId] = useState<string | null>(null);
+
   // Ref shared across all NoteTreeItems for Shift+click range anchor.
   const lastSelectedIdRef = useRef<string | null>(null);
 
-  // Clear selection on Escape.
+  // Refs kept current for keydown handler to avoid stale closures.
+  const focusedNoteIdRef    = useRef<string | null>(null);
+  const confirmBulkTrashRef = useRef(false);
+
+  useEffect(() => { focusedNoteIdRef.current = focusedNoteId; }, [focusedNoteId]);
+  useEffect(() => { confirmBulkTrashRef.current = confirmBulkTrash; }, [confirmBulkTrash]);
+
+  // ── Keyboard handler ───────────────────────────────────────────────────────
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    // Don't intercept when typing in an input or the editor.
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+
+    const { selectedNoteIds: sel } = useUIStore.getState();
+    const { notes: allNotes, pinnedIds: pins } = useNoteStore.getState();
+
+    const pinnedList   = allNotes.filter((n) => n.parent_id === null && pins.has(n.id));
+    const unpinnedList = allNotes.filter((n) => n.parent_id === null && !pins.has(n.id));
+    const flat         = [...pinnedList, ...unpinnedList].map((n) => n.id);
+
+    if (flat.length === 0) return;
+
+    // ── Delete ───────────────────────────────────────────────────────────────
+    if (e.key === "Delete" && sel.size > 0) {
+      e.preventDefault();
+      // Don't double-open if confirm dialog already showing.
+      if (!confirmBulkTrashRef.current) setConfirmBulkTrash(true);
+      return;
+    }
+
+    // ── Escape ───────────────────────────────────────────────────────────────
+    if (e.key === "Escape") {
+      if (sel.size > 0) { useUIStore.getState().clearSelection(); return; }
+      if (focusedNoteIdRef.current) { setFocusedNoteId(null); return; }
+    }
+
+    // ── Arrow navigation — only when sidebar has logical focus ───────────────
+    // Sidebar has focus when focusedNoteId is set OR when a note is active.
+    const currentFocus = focusedNoteIdRef.current ?? useNoteStore.getState().activeNoteId;
+    if (!currentFocus) return;
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+
+    e.preventDefault();
+
+    const currentIdx = flat.indexOf(currentFocus);
+    if (currentIdx === -1) return;
+
+    const nextIdx = e.key === "ArrowDown"
+      ? Math.min(currentIdx + 1, flat.length - 1)
+      : Math.max(currentIdx - 1, 0);
+
+    const nextId = flat[nextIdx];
+    if (!nextId || nextId === currentFocus) return;
+
+    if (e.shiftKey && sel.size > 0) {
+      // Shift+Arrow — extend selection.
+      useUIStore.getState().toggleNoteSelection(nextId);
+      lastSelectedIdRef.current = nextId;
+    } else if (e.shiftKey) {
+      // Shift+Arrow from a non-selected state — select current + next.
+      useUIStore.getState().toggleNoteSelection(currentFocus);
+      useUIStore.getState().toggleNoteSelection(nextId);
+      lastSelectedIdRef.current = nextId;
+    }
+    // Always move focus.
+    setFocusedNoteId(nextId);
+
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Separate handler for Enter and Space — needs focusedNoteId in scope.
+  const handleEnterSpace = useCallback((e: KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+
+    const focused = focusedNoteIdRef.current;
+    if (!focused) return;
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      // Open the focused note in the current tab.
+      setActive(focused);
+      replaceTab(focused);
+      lastSelectedIdRef.current = focused;
+    }
+
+    if (e.key === " ") {
+      e.preventDefault();
+      // Space toggles selection of the focused note (like Ctrl+click).
+      toggleNoteSelection(focused);
+      lastSelectedIdRef.current = focused;
+    }
+  }, [setActive, replaceTab, toggleNoteSelection]);
+
   useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && selectedNoteIds.size > 0) {
-        clearSelection();
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleEnterSpace);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleEnterSpace);
+    };
+  }, [handleKeyDown, handleEnterSpace]);
+
+  // Drop focus when user clicks outside the sidebar.
+  useEffect(() => {
+    function handleMouseDown(e: MouseEvent) {
+      const sidebar = document.getElementById("sidebar-panel");
+      if (sidebar && !sidebar.contains(e.target as Node)) {
+        setFocusedNoteId(null);
       }
     }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [selectedNoteIds.size, clearSelection]);
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, []);
 
   // ── FTS5 search results view ───────────────────────────────────────────────
   if (searchQuery.trim()) {
@@ -53,7 +162,7 @@ export function NoteTree() {
 
   // ── Tag filter view ────────────────────────────────────────────────────────
   if (activeTag) {
-    const tagged = notes.filter((n) => noteHasTag(n.tags, activeTag));
+    const tagged    = notes.filter((n) => noteHasTag(n.tags, activeTag));
     const taggedIds = tagged.map((n) => n.id);
     return (
       <div className="px-2">
@@ -81,6 +190,8 @@ export function NoteTree() {
                 depth={0}
                 flatOrderedIds={taggedIds}
                 lastSelectedIdRef={lastSelectedIdRef}
+                focusedNoteId={focusedNoteId}
+                setFocusedNoteId={setFocusedNoteId}
               />
             ))}
           </ul>
@@ -92,10 +203,7 @@ export function NoteTree() {
   // ── Default tree view ──────────────────────────────────────────────────────
   const pinnedNotes   = notes.filter((n) => n.parent_id === null && pinnedIds.has(n.id));
   const unpinnedNotes = notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
-
-  // Flat ordered list of all visible root-level IDs for Shift+click range.
   const flatOrderedIds = [...pinnedNotes, ...unpinnedNotes].map((n) => n.id);
-
   const selectionCount = selectedNoteIds.size;
 
   if (pinnedNotes.length === 0 && unpinnedNotes.length === 0) {
@@ -153,6 +261,8 @@ export function NoteTree() {
           depth={0}
           flatOrderedIds={flatOrderedIds}
           lastSelectedIdRef={lastSelectedIdRef}
+          focusedNoteId={focusedNoteId}
+          setFocusedNoteId={setFocusedNoteId}
         />
       </li>
     );
@@ -160,17 +270,15 @@ export function NoteTree() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* ── Bulk action bar — shown when notes are selected ─────────────────── */}
+      {/* ── Bulk action bar ──────────────────────────────────────────────────── */}
       {selectionCount > 0 && (
         <div className="mx-2 mb-1 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 flex items-center gap-2">
           <span className="flex-1 text-xs font-medium text-blue-700 dark:text-blue-300">
             {selectionCount} selected
           </span>
-
-          {/* Trash selected */}
           <button
             onClick={() => setConfirmBulkTrash(true)}
-            title="Move selected to trash"
+            title="Move selected to trash (Del)"
             className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-500 hover:bg-red-100 dark:hover:bg-red-950 transition-colors duration-75"
           >
             <svg width="11" height="11" viewBox="0 0 13 13" fill="none">
@@ -178,8 +286,6 @@ export function NoteTree() {
             </svg>
             Trash
           </button>
-
-          {/* Clear selection */}
           <button
             onClick={clearSelection}
             title="Clear selection (Esc)"
@@ -192,7 +298,7 @@ export function NoteTree() {
         </div>
       )}
 
-      {/* Bulk trash confirm */}
+      {/* ── Bulk trash confirm ───────────────────────────────────────────────── */}
       {confirmBulkTrash && (
         <div className="mx-2 mb-1 px-3 py-2.5 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-xs text-red-600 dark:text-red-400 space-y-2">
           <p>Move {selectionCount} note{selectionCount !== 1 ? "s" : ""} to trash?</p>

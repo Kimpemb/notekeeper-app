@@ -17,15 +17,18 @@ type ContextItemId =
 interface Props {
   noteId: string;
   depth: number;
-  // Flat ordered list of all visible root-level note IDs — used for Shift+click range.
   flatOrderedIds: string[];
-  // Ref to the last note that was individually clicked — used as the range anchor.
   lastSelectedIdRef: React.MutableRefObject<string | null>;
+  // Keyboard nav: which noteId currently has sidebar focus (null = none)
+  focusedNoteId: string | null;
+  setFocusedNoteId: (id: string | null) => void;
 }
 
 interface ContextMenuPos { x: number; y: number; flip: boolean; }
 
-export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef }: Props) {
+export function NoteTreeItem({
+  noteId, depth, flatOrderedIds, lastSelectedIdRef, focusedNoteId, setFocusedNoteId,
+}: Props) {
   const notes        = useNoteStore((s) => s.notes);
   const activeNoteId = useNoteStore((s) => s.activeNoteId);
   const setActive    = useNoteStore((s) => s.setActiveNote);
@@ -36,15 +39,15 @@ export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef 
   const unpinNote    = useNoteStore((s) => s.unpinNote);
   const isPinned     = useNoteStore((s) => s.isPinned(noteId));
 
-  const expandedNodes      = useUIStore((s) => s.expandedNodes);
-  const toggleNode         = useUIStore((s) => s.toggleNode);
-  const replaceTab         = useUIStore((s) => s.replaceTab);
-  const openTab            = useUIStore((s) => s.openTab);
-  const isSelected         = useUIStore((s) => s.isNoteSelected(noteId));
+  const expandedNodes       = useUIStore((s) => s.expandedNodes);
+  const toggleNode          = useUIStore((s) => s.toggleNode);
+  const replaceTab          = useUIStore((s) => s.replaceTab);
+  const openTab             = useUIStore((s) => s.openTab);
+  const isSelected          = useUIStore((s) => s.isNoteSelected(noteId));
   const toggleNoteSelection = useUIStore((s) => s.toggleNoteSelection);
-  const selectNoteRange    = useUIStore((s) => s.selectNoteRange);
-  const clearSelection     = useUIStore((s) => s.clearSelection);
-  const selectedNoteIds    = useUIStore((s) => s.selectedNoteIds);
+  const selectNoteRange     = useUIStore((s) => s.selectNoteRange);
+  const clearSelection      = useUIStore((s) => s.clearSelection);
+  const selectedNoteIds     = useUIStore((s) => s.selectedNoteIds);
 
   const [contextMenu, setContextMenu] = useState<ContextMenuPos | null>(null);
   const [renaming, setRenaming]       = useState(false);
@@ -65,6 +68,7 @@ export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef 
   const isExpanded  = expandedNodes.has(noteId);
   const hasChildren = children.length > 0;
   const isRoot      = note?.parent_id === null;
+  const isFocused   = focusedNoteId === noteId;
 
   const navItems: ContextItemId[] = isRoot
     ? ["new-sub-note", "open-in-new-tab", "rename", "pin", "move", "trash"]
@@ -141,11 +145,16 @@ export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef 
 
   useEffect(() => { if (renaming) renameRef.current?.select(); }, [renaming]);
 
+  // Single-note Delete key — only fires when:
+  // 1. This note is the active note
+  // 2. There is NO multi-selection active (multi-selection Delete is handled by NoteTree)
   useEffect(() => {
     if (!isActive) return;
     function handleKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      // If a multi-selection exists, let NoteTree's handler take it — don't double-fire.
+      if (useUIStore.getState().selectedNoteIds.size > 0) return;
       if (e.key === "Delete") { e.preventDefault(); setConfirmOpen(true); }
     }
     document.addEventListener("keydown", handleKeyDown);
@@ -160,22 +169,23 @@ export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef 
     const isCtrl = isMac ? e.metaKey : e.ctrlKey;
 
     if (isCtrl) {
-      // Ctrl/Cmd+click — toggle this note in selection, do not navigate.
       e.preventDefault();
       toggleNoteSelection(noteId);
       lastSelectedIdRef.current = noteId;
+      setFocusedNoteId(noteId);
       return;
     }
 
     if (e.shiftKey && lastSelectedIdRef.current && flatOrderedIds.length > 0) {
-      // Shift+click — range select from last touched note to this one.
       e.preventDefault();
       selectNoteRange(lastSelectedIdRef.current, noteId, flatOrderedIds);
+      setFocusedNoteId(noteId);
       return;
     }
 
-    // Plain click — clear any selection and navigate.
+    // Plain click — clear selection, navigate, set keyboard focus.
     if (selectedNoteIds.size > 0) clearSelection();
+    setFocusedNoteId(noteId);
 
     if (isActive) {
       if (hasChildren) toggleNode(noteId);
@@ -202,13 +212,13 @@ export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef 
     setRenaming(false);
   }
 
-  // Visual state: selected takes precedence over active for background colour
-  // so multi-select is always clearly visible.
   const rowClass = isSelected
     ? "bg-blue-100 dark:bg-blue-950/60 text-zinc-900 dark:text-zinc-100"
     : isActive
       ? "bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-medium"
-      : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100";
+      : isFocused
+        ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 ring-1 ring-inset ring-zinc-300 dark:ring-zinc-600"
+        : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100";
 
   return (
     <div className="select-none">
@@ -269,7 +279,6 @@ export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef 
         )}
       </div>
 
-      {/* Context menu */}
       {contextMenu && (
         <div
           ref={menuRef}
@@ -290,9 +299,9 @@ export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef 
             <CtxItem label={isPinned ? "Unpin" : "Pin to top"} id="pin" focused={focusedItem === "pin"} onHover={() => setFocusedItem("pin")} onClick={() => triggerItem("pin")} />
           )}
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem label="Move"           id="move"  focused={focusedItem === "move"}  onHover={() => setFocusedItem("move")}  onClick={() => triggerItem("move")} suffix="›" />
+          <CtxItem label="Move"          id="move"  focused={focusedItem === "move"}  onHover={() => setFocusedItem("move")}  onClick={() => triggerItem("move")} suffix="›" />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem label="Move to Trash"  id="trash" focused={focusedItem === "trash"} onHover={() => setFocusedItem("trash")} onClick={() => triggerItem("trash")} danger />
+          <CtxItem label="Move to Trash" id="trash" focused={focusedItem === "trash"} onHover={() => setFocusedItem("trash")} onClick={() => triggerItem("trash")} danger />
         </div>
       )}
 
@@ -307,6 +316,8 @@ export function NoteTreeItem({ noteId, depth, flatOrderedIds, lastSelectedIdRef 
               depth={depth + 1}
               flatOrderedIds={flatOrderedIds}
               lastSelectedIdRef={lastSelectedIdRef}
+              focusedNoteId={focusedNoteId}
+              setFocusedNoteId={setFocusedNoteId}
             />
           ))}
         </ul>
