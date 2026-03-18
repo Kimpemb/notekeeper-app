@@ -100,68 +100,63 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
       ),
       action: () => editor.chain().focus().toggleTaskList().run(),
     },
+
     // ── Blocks ──────────────────────────────────────────────────────────────
-    ...(!insideToggleBody ? [{
-      id: "toggle",
-      label: "Toggle",
-      description: "Collapsible block — toggle, collapsible, expand, details",
-      icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
-          <path
-            d="M3 4l3 3 3-3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.1"/>
-          <path d="M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-        </svg>
-      ),
-      action: () => {
-        // Insert a properly structured toggle node
-        editor
-          .chain()
-          .focus()
-          .insertContent({
-            type: "toggle",
+...(!insideToggleBody ? [{
+  id: "toggle",
+  label: "Toggle",
+  description: "Collapsible block — toggle, collapsible, expand, details",
+  icon: (
+    <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+      <path
+        d="M3 4l3 3 3-3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.1"/>
+      <path d="M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+    </svg>
+  ),
+  action: () => {
+    // Insert a properly structured toggle node with empty summary
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "toggle",
+        attrs: { open: false },
+        content: [
+          {
+            type: "toggleSummary",
             attrs: { open: false },
-            content: [
-              {
-                type: "toggleSummary",
-                attrs: { open: false },
-                content: [
-                  {
-                    type: "text",
-                    text: "Toggle title"
-                  }
-                ]
-              }
-            ]
-          })
-          .run();
-        
-        // Move cursor into the summary to edit the title
-        setTimeout(() => {
-          const { state } = editor;
-          const { selection } = state;
-          const $pos = selection.$from;
-          
-          // Find the toggle we just inserted and set cursor inside the summary
-          for (let d = $pos.depth; d > 0; d--) {
-            const node = $pos.node(d);
-            if (node.type.name === "toggle") {
-              const togglePos = $pos.before(d);
-              // Position cursor inside the summary (after the toggle and summary tags)
-              // +1 for toggle start, +1 for summary start, then inside the text content
-              const summaryPos = togglePos + 2; // This puts cursor at the beginning of the summary content
-              editor.commands.setTextSelection({ from: summaryPos, to: summaryPos });
-              break;
-            }
+            content: [] // Empty content array for no placeholder text
           }
-        }, 10);
-      },
-    }] as Command[] : []),
+        ]
+      })
+      .run();
+    
+    // Move cursor into the empty summary to start typing
+    setTimeout(() => {
+      const { state } = editor;
+      const { selection } = state;
+      const $pos = selection.$from;
+      
+      // Find the toggle we just inserted and set cursor inside the summary
+      for (let d = $pos.depth; d > 0; d--) {
+        const node = $pos.node(d);
+        if (node.type.name === "toggle") {
+          const togglePos = $pos.before(d);
+          // Position cursor inside the empty summary
+          const summaryPos = togglePos + 2; // +1 for toggle start, +1 for summary start
+          editor.commands.setTextSelection({ from: summaryPos, to: summaryPos });
+          break;
+        }
+      }
+    }, 10);
+  },
+}] as Command[] : []),
     {
       id: "table",
       label: "Table",
