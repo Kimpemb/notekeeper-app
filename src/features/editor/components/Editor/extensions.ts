@@ -651,6 +651,48 @@ export const CodeBlockSelectAllExtension = Extension.create({
   },
 });
 
+// ── Ctrl+A inside list items, task items, and blockquotes ────────────────────
+// First press selects content of the innermost scoped container.
+// Second press falls through (returns false) → browser/TipTap selects all.
+const LIST_SCOPE_NODES = new Set([
+  "listItem",
+  "taskItem",
+  "blockquote",
+]);
+
+export const ListSelectAllExtension = Extension.create({
+  name: "listSelectAll",
+  addKeyboardShortcuts() {
+    return {
+      "Mod-a": ({ editor }) => {
+        const { $from, from, to } = editor.state.selection;
+        const docSize = editor.state.doc.content.size;
+
+        // Walk up from cursor looking for a scoped container.
+        let depth = $from.depth;
+        while (depth > 0) {
+          const node = $from.node(depth);
+          if (LIST_SCOPE_NODES.has(node.type.name)) {
+            const pos      = $from.before(depth);
+            const scopeFrom = Math.max(1, pos + 1);
+            const scopeTo   = Math.min(docSize, pos + node.nodeSize - 1);
+
+            // If the selection already covers this scope exactly,
+            // return false so the next Ctrl+A selects the whole doc.
+            if (from === scopeFrom && to === scopeTo) return false;
+
+            editor.commands.setTextSelection({ from: scopeFrom, to: scopeTo });
+            return true;
+          }
+          depth--;
+        }
+
+        return false;
+      },
+    };
+  },
+});
+
 // ── Find & Replace keyboard shortcut (Mod+H) ─────────────────────────────────
 export function createFindReplaceShortcutExtension(onOpen: () => void) {
   return Extension.create({

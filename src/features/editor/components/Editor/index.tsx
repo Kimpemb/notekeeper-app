@@ -35,6 +35,7 @@ import {
   SlashPlaceholderExtension,
   OrderedListBackspaceExtension,
   CodeBlockSelectAllExtension,
+  ListSelectAllExtension,
   createFindReplaceShortcutExtension,
   ImageExtension,
   AttachmentExtension,
@@ -69,7 +70,6 @@ interface EditorProps {
 }
 
 export function Editor({ noteId }: EditorProps) {
-  // Derive the note from the store by the prop, not from activeNote().
   const note                     = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
   const updateNote               = useNoteStore((s) => s.updateNote);
   const setActiveNote            = useNoteStore((s) => s.setActiveNote);
@@ -83,7 +83,6 @@ export function Editor({ noteId }: EditorProps) {
   const pendingScrollQuery       = useUIStore((s) => s.pendingScrollQuery);
   const setPendingScrollQuery    = useUIStore((s) => s.setPendingScrollQuery);
 
-  // This editor instance is "active" when its note is the one currently shown.
   const activeTabNoteId          = useUIStore((s) => s.activeTabNoteId());
   const isActiveTab              = activeTabNoteId === noteId;
 
@@ -136,7 +135,10 @@ export function Editor({ noteId }: EditorProps) {
       // ── Behavior / keyboard extensions ───────────────────────────────────
       TaskItemExitExtension,
       ToggleKeyboardExtension,
+      // Order matters for Mod-a: most specific scope first.
+      // CodeBlock → Toggle (via ToggleKeyboardExtension) → List/blockquote → Callout
       CodeBlockSelectAllExtension,
+      ListSelectAllExtension,
       SlashPlaceholderExtension,
       EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
@@ -233,8 +235,6 @@ export function Editor({ noteId }: EditorProps) {
   }
 
   // ── Note switch: load content ─────────────────────────────────────────────
-  // noteId prop won't change for a given Editor instance (each tab gets its own),
-  // but the note's content can change externally (version restore, etc.).
   useEffect(() => {
     if (!editor || !note) return;
     const incoming = note.content;
@@ -249,7 +249,6 @@ export function Editor({ noteId }: EditorProps) {
   }, [noteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pending scroll: heading ───────────────────────────────────────────────
-  // Only act on scroll hints when this is the active tab.
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
     const timer = setTimeout(() => {
@@ -412,7 +411,6 @@ export function Editor({ noteId }: EditorProps) {
           />
         )}
 
-        {/* Top-right panel toggles — only render for active tab to avoid duplicates */}
         {isActiveTab && (
           <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
             {!outlineOpen && (
@@ -443,7 +441,6 @@ export function Editor({ noteId }: EditorProps) {
           </div>
         )}
 
-        {/* Bubble menu */}
         {editor && hasSelection && bubblePos && (
           <div
             style={{ position: "fixed", top: bubblePos.top, left: bubblePos.left, zIndex: 40 }}

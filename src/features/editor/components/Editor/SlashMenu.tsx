@@ -1,4 +1,4 @@
-// src/components/Editor/SlashMenu.tsx
+// src/features/editor/components/Editor/SlashMenu.tsx
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 
@@ -26,7 +26,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
   const [selected, setSelected] = useState(0);
 
-  // Detect if cursor is inside a toggleBody — if so, hide the toggle command
+  // Detect if cursor is inside a toggleBody — if so, hide the toggle command.
   const insideToggleBody = (() => {
     const { $from } = editor.state.selection;
     for (let d = $from.depth; d > 0; d--) {
@@ -118,16 +118,49 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
           <path d="M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
         </svg>
       ),
-      action: () =>
+      action: () => {
+        // Insert a properly structured toggle node
         editor
           .chain()
           .focus()
           .insertContent({
             type: "toggle",
             attrs: { open: false },
-            content: [{ type: "toggleSummary", content: [] }],
+            content: [
+              {
+                type: "toggleSummary",
+                attrs: { open: false },
+                content: [
+                  {
+                    type: "text",
+                    text: "Toggle title"
+                  }
+                ]
+              }
+            ]
           })
-          .run(),
+          .run();
+        
+        // Move cursor into the summary to edit the title
+        setTimeout(() => {
+          const { state } = editor;
+          const { selection } = state;
+          const $pos = selection.$from;
+          
+          // Find the toggle we just inserted and set cursor inside the summary
+          for (let d = $pos.depth; d > 0; d--) {
+            const node = $pos.node(d);
+            if (node.type.name === "toggle") {
+              const togglePos = $pos.before(d);
+              // Position cursor inside the summary (after the toggle and summary tags)
+              // +1 for toggle start, +1 for summary start, then inside the text content
+              const summaryPos = togglePos + 2; // This puts cursor at the beginning of the summary content
+              editor.commands.setTextSelection({ from: summaryPos, to: summaryPos });
+              break;
+            }
+          }
+        }, 10);
+      },
     }] as Command[] : []),
     {
       id: "table",
@@ -234,7 +267,9 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout", attrs: { type: "info" }, content: [{ type: "paragraph" }],
+        type: "callout", 
+        attrs: { type: "info" }, 
+        content: [{ type: "paragraph" }],
       }).run(),
     },
     {
@@ -249,7 +284,9 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout", attrs: { type: "warning" }, content: [{ type: "paragraph" }],
+        type: "callout", 
+        attrs: { type: "warning" }, 
+        content: [{ type: "paragraph" }],
       }).run(),
     },
     {
@@ -263,7 +300,9 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout", attrs: { type: "tip" }, content: [{ type: "paragraph" }],
+        type: "callout", 
+        attrs: { type: "tip" }, 
+        content: [{ type: "paragraph" }],
       }).run(),
     },
     {
@@ -277,7 +316,9 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout", attrs: { type: "danger" }, content: [{ type: "paragraph" }],
+        type: "callout", 
+        attrs: { type: "danger" }, 
+        content: [{ type: "paragraph" }],
       }).run(),
     },
   ];

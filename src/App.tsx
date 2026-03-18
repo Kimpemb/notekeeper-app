@@ -64,7 +64,7 @@ export default function App() {
   const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
   const tabs                   = useUIStore((s) => s.tabs);
   const activeTabId            = useUIStore((s) => s.activeTabId);
-  const openTab = useUIStore((s) => s.openTab);
+  const openTab                = useUIStore((s) => s.openTab);
   const replaceTab             = useUIStore((s) => s.replaceTab);
   const closeActiveTab         = useUIStore((s) => s.closeActiveTab);
   const cycleTab               = useUIStore((s) => s.cycleTab);
@@ -75,6 +75,9 @@ export default function App() {
 
   const slideTimeout    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openInNewTabRef = useRef(false);
+  // Captures the active note at the moment Ctrl+N is pressed.
+  // Used to create the new note as a child of that note.
+  const newNoteParentRef = useRef<string | null>(null);
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
@@ -98,14 +101,16 @@ export default function App() {
     }
   }, [activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-useEffect(() => {
-  function handle() {
-    openInNewTabRef.current = true;
-    useUIStore.getState().openTemplatePicker();
-  }
-  window.addEventListener("notekeeper:new-note-new-tab", handle);
-  return () => window.removeEventListener("notekeeper:new-note-new-tab", handle);
-}, []);
+  // ── Custom event: new note in new tab (from command palette) ─────────────
+  useEffect(() => {
+    function handle() {
+      openInNewTabRef.current = true;
+      newNoteParentRef.current = useNoteStore.getState().activeNoteId;
+      useUIStore.getState().openTemplatePicker();
+    }
+    window.addEventListener("notekeeper:new-note-new-tab", handle);
+    return () => window.removeEventListener("notekeeper:new-note-new-tab", handle);
+  }, []);
 
   // ── Ctrl+Tab: sync activeNoteId when tab focus changes via keyboard ───────
   useEffect(() => {
@@ -134,17 +139,19 @@ useEffect(() => {
 
     if (ctrl && e.key === "k") { e.preventDefault(); togglePalette(); }
 
-    // Ctrl+Shift+N — new note in a brand new tab (must come before Ctrl+N).
+    // Ctrl+Shift+N — new note in a brand new tab.
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       openInNewTabRef.current = true;
+      newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
       return;
     }
-    // Ctrl+N — new note in the current tab.
+    // Ctrl+N — new note in the current tab, as child of active note.
     if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       openInNewTabRef.current = false;
+      newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
     }
 
@@ -166,19 +173,22 @@ useEffect(() => {
   }, [handleKeyDown]);
 
   async function handleTemplateSelect(template: Template) {
-  closeTemplatePicker();
+    closeTemplatePicker();
 
-  const note = await createNoteFromTemplate(template);
+    // Pass the captured parent_id so the new note is created as a child.
+    const parentId = newNoteParentRef.current ?? undefined;
+    const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
 
-  if (openInNewTabRef.current) {
-    openTab(note.id);
-  } else {
-    replaceTab(note.id);
-    setActive(note.id);
+    if (openInNewTabRef.current) {
+      openTab(note.id);
+    } else {
+      setActive(note.id);
+      replaceTab(note.id);
+    }
+
+    openInNewTabRef.current  = false;
+    newNoteParentRef.current = null;
   }
-
-  openInNewTabRef.current = false;
-}
 
   function noteSlug(title: string): string {
     return title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
@@ -274,7 +284,6 @@ useEffect(() => {
             if (useUIStore.getState().sidebarState === "peek") cancelSidebarCollapse();
           }}
         >
-          {/* Left — hamburger + back/forward + breadcrumb */}
           <div className="flex items-center gap-0 min-w-0 flex-1">
             <div
               className="overflow-hidden shrink-0"
@@ -348,7 +357,6 @@ useEffect(() => {
             )}
           </div>
 
-          {/* Right — file tree, shortcuts, theme toggle */}
           <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={toggleFileTree}
@@ -409,7 +417,11 @@ useEffect(() => {
       <TemplatePickerModal
         open={templatePickerOpen}
         onSelect={handleTemplateSelect}
-        onCancel={() => { openInNewTabRef.current = false; closeTemplatePicker(); }}
+        onCancel={() => {
+          openInNewTabRef.current  = false;
+          newNoteParentRef.current = null;
+          closeTemplatePicker();
+        }}
       />
       {exporting && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
