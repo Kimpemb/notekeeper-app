@@ -8,9 +8,30 @@ export type SidebarState = "closed" | "peek" | "open";
 export type SplitDirection = "horizontal" | "vertical";
 
 export interface Tab {
-  id: string;      // stable tab uuid
-  noteId: string;  // the note this tab displays
+  id: string;
+  noteId: string;
 }
+
+// Persisted graph view state — survives open/close cycles
+export interface GraphViewState {
+  zoomX: number;
+  zoomY: number;
+  zoomK: number;
+  focusNodeId: string | null;
+  searchQuery: string;
+  showOrphans: boolean;
+  showTagColors: boolean;
+  depth: number;
+}
+
+const DEFAULT_GRAPH_STATE: GraphViewState = {
+  zoomX: 0, zoomY: 0, zoomK: 0.85, // 0,0 means "use default" on restore
+  focusNodeId: null,
+  searchQuery: "",
+  showOrphans: true,
+  showTagColors: true,
+  depth: 4,
+};
 
 function makeTabId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -93,6 +114,13 @@ interface UIStore {
   openGraph: () => void;
   closeGraph: () => void;
   toggleGraph: () => void;
+  graphFocusNoteId: string | null;
+  openGraphForNote: (noteId: string) => void;
+  clearGraphFocusNoteId: () => void;
+  // Persisted state across open/close
+  graphViewState: GraphViewState;
+  saveGraphViewState: (state: Partial<GraphViewState>) => void;
+  resetGraphViewState: () => void;
 
   // ─── Template picker ──────────────────────────────────────────────────────
   templatePickerOpen: boolean;
@@ -128,7 +156,7 @@ interface UIStore {
     exportNotePdf: () => Promise<void>;
   }) => void;
 
-  // ─── Pane 1 tabs (primary — always exists) ────────────────────────────────
+  // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
   tabs: Tab[];
   activeTabId: string | null;
   replaceTab: (noteId: string) => void;
@@ -140,21 +168,18 @@ interface UIStore {
   cycleTab: (dir: 1 | -1) => void;
   activeTabNoteId: () => string | null;
 
-  // ─── Pane 2 tabs (split — optional) ──────────────────────────────────────
+  // ─── Pane 2 tabs ─────────────────────────────────────────────────────────
   pane2Tabs: Tab[];
   pane2ActiveTabId: string | null;
   splitOpen: boolean;
   splitDirection: SplitDirection;
-
   openInSplit: (noteId: string) => void;
   closePane2: () => void;
   toggleSplitDirection: () => void;
   swapPanes: () => void;
-
   setPane2ActiveTab: (tabId: string) => void;
   closePane2Tab: (tabId: string) => void;
   openTabInPane2: (noteId: string) => void;
-
   activePaneId: 1 | 2;
   setActivePaneId: (pane: 1 | 2) => void;
   paneActiveNoteId: (pane: 1 | 2) => string | null;
@@ -188,62 +213,24 @@ export const useUIStore = create<UIStore>((set, get) => {
   return {
     // ─── Theme ────────────────────────────────────────────────────────────────
     theme: initialTheme,
-
-    toggleTheme: () => {
-      const next = get().theme === "dark" ? "light" : "dark";
-      applyTheme(next, true);
-      set({ theme: next });
-    },
-
-    setTheme: (theme) => {
-      applyTheme(theme, true);
-      set({ theme });
-    },
-
+    toggleTheme: () => { const next = get().theme === "dark" ? "light" : "dark"; applyTheme(next, true); set({ theme: next }); },
+    setTheme: (theme) => { applyTheme(theme, true); set({ theme }); },
     loadSettings: async () => {
       const theme = await getSetting("theme");
-      if (theme === "light" || theme === "dark") {
-        applyTheme(theme);
-        set({ theme });
-      }
+      if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
     },
 
     // ─── Sidebar ──────────────────────────────────────────────────────────────
-    sidebarState: "open",
-    sidebarOpen: true,
-    sidebarWidth: 288,
-    expandedNodes: new Set(),
-
-    setSidebarState: (state) =>
-      set({ sidebarState: state, sidebarOpen: state === "open" }),
-
+    sidebarState: "open", sidebarOpen: true, sidebarWidth: 288, expandedNodes: new Set(),
+    setSidebarState: (state) => set({ sidebarState: state, sidebarOpen: state === "open" }),
     toggleSidebar: () => {
       const { sidebarState } = get();
       const next: SidebarState = sidebarState === "open" ? "closed" : "open";
       set({ sidebarState: next, sidebarOpen: next === "open" });
     },
-
-    toggleNode: (id) =>
-      set((s) => {
-        const next = new Set(s.expandedNodes);
-        next.has(id) ? next.delete(id) : next.add(id);
-        return { expandedNodes: next };
-      }),
-
-    expandNode: (id) =>
-      set((s) => {
-        const next = new Set(s.expandedNodes);
-        next.add(id);
-        return { expandedNodes: next };
-      }),
-
-    collapseNode: (id) =>
-      set((s) => {
-        const next = new Set(s.expandedNodes);
-        next.delete(id);
-        return { expandedNodes: next };
-      }),
-
+    toggleNode: (id) => set((s) => { const next = new Set(s.expandedNodes); next.has(id) ? next.delete(id) : next.add(id); return { expandedNodes: next }; }),
+    expandNode: (id) => set((s) => { const next = new Set(s.expandedNodes); next.add(id); return { expandedNodes: next }; }),
+    collapseNode: (id) => set((s) => { const next = new Set(s.expandedNodes); next.delete(id); return { expandedNodes: next }; }),
     collapseAll: () => set({ expandedNodes: new Set() }),
 
     // ─── Sidebar search focus ─────────────────────────────────────────────────
@@ -260,50 +247,57 @@ export const useUIStore = create<UIStore>((set, get) => {
     saveStatus: "idle",
     setSaveStatus: (status) => set({ saveStatus: status }),
 
-    // ─── Version history panel ────────────────────────────────────────────────
+    // ─── Version history ──────────────────────────────────────────────────────
     versionHistoryOpen: false,
     openVersionHistory: () => set({ versionHistoryOpen: true }),
     closeVersionHistory: () => set({ versionHistoryOpen: false }),
 
-    // ─── Backlinks panel ──────────────────────────────────────────────────────
+    // ─── Backlinks ────────────────────────────────────────────────────────────
     backlinksOpen: false,
     openBacklinks: () => set({ backlinksOpen: true }),
     closeBacklinks: () => set({ backlinksOpen: false }),
     toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
 
-    // ─── File tree panel ──────────────────────────────────────────────────────
+    // ─── File tree ────────────────────────────────────────────────────────────
     fileTreeOpen: false,
     openFileTree: () => set({ fileTreeOpen: true }),
     closeFileTree: () => set({ fileTreeOpen: false }),
     toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
 
-    // ─── Outline panel ────────────────────────────────────────────────────────
+    // ─── Outline ──────────────────────────────────────────────────────────────
     outlineOpen: false,
     openOutline: () => set({ outlineOpen: true }),
     closeOutline: () => set({ outlineOpen: false }),
     toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
 
-    // ─── Import modal ─────────────────────────────────────────────────────────
+    // ─── Import ───────────────────────────────────────────────────────────────
     importOpen: false,
     openImport: () => set({ importOpen: true }),
     closeImport: () => set({ importOpen: false }),
 
-    // ─── Keyboard shortcuts ───────────────────────────────────────────────────
+    // ─── Shortcuts ────────────────────────────────────────────────────────────
     shortcutsOpen: false,
     openShortcuts: () => set({ shortcutsOpen: true }),
     closeShortcuts: () => set({ shortcutsOpen: false }),
 
-    // ─── Tips panel ───────────────────────────────────────────────────────────
+    // ─── Tips ─────────────────────────────────────────────────────────────────
     tipsOpen: false,
-    openTips:   () => set({ tipsOpen: true }),
-    closeTips:  () => set({ tipsOpen: false }),
+    openTips: () => set({ tipsOpen: true }),
+    closeTips: () => set({ tipsOpen: false }),
     toggleTips: () => set((s) => ({ tipsOpen: !s.tipsOpen })),
 
-    // ─── Graph view ───────────────────────────────────────────────────────────
+    // ─── Graph ────────────────────────────────────────────────────────────────
     graphOpen: false,
-    openGraph:   () => set({ graphOpen: true }),
-    closeGraph:  () => set({ graphOpen: false }),
+    openGraph: () => set({ graphOpen: true }),
+    closeGraph: () => set({ graphOpen: false, graphFocusNoteId: null }),
     toggleGraph: () => set((s) => ({ graphOpen: !s.graphOpen })),
+    graphFocusNoteId: null,
+    openGraphForNote: (noteId) => set({ graphOpen: true, graphFocusNoteId: noteId }),
+    clearGraphFocusNoteId: () => set({ graphFocusNoteId: null }),
+    // Persisted graph view state
+    graphViewState: { ...DEFAULT_GRAPH_STATE },
+    saveGraphViewState: (state) => set((s) => ({ graphViewState: { ...s.graphViewState, ...state } })),
+    resetGraphViewState: () => set({ graphViewState: { ...DEFAULT_GRAPH_STATE } }),
 
     // ─── Template picker ──────────────────────────────────────────────────────
     templatePickerOpen: false,
@@ -330,135 +324,67 @@ export const useUIStore = create<UIStore>((set, get) => {
     setExportHandlers: (handlers) => set({ exportHandlers: handlers }),
 
     // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
-    tabs: [],
-    activeTabId: null,
-
+    tabs: [], activeTabId: null,
     replaceTab: (noteId) => {
       const { tabs, activeTabId } = get();
-      if (tabs.length === 0 || activeTabId === null) {
-        const tab: Tab = { id: makeTabId(), noteId };
-        set({ tabs: [tab], activeTabId: tab.id });
-        return;
-      }
+      if (tabs.length === 0 || activeTabId === null) { const tab: Tab = { id: makeTabId(), noteId }; set({ tabs: [tab], activeTabId: tab.id }); return; }
       const existing = tabs.find((t) => t.noteId === noteId);
-      if (existing) {
-        set({ activeTabId: existing.id });
-        return;
-      }
+      if (existing) { set({ activeTabId: existing.id }); return; }
       set({ tabs: tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t) });
     },
-
-    openTab: (noteId) => {
-      const { tabs } = get();
-      const tab: Tab = { id: makeTabId(), noteId };
-      set({ tabs: [...tabs, tab], activeTabId: tab.id });
-      return tab;
-    },
-
+    openTab: (noteId) => { const { tabs } = get(); const tab: Tab = { id: makeTabId(), noteId }; set({ tabs: [...tabs, tab], activeTabId: tab.id }); return tab; },
     closeTab: (tabId) => {
       const { tabs, activeTabId } = get();
       const idx = tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
       const next = tabs.filter((t) => t.id !== tabId);
       let nextActiveTabId: string | null = activeTabId;
-      if (activeTabId === tabId) {
-        const neighbour = next[idx] ?? next[idx - 1] ?? null;
-        nextActiveTabId = neighbour?.id ?? null;
-      }
+      if (activeTabId === tabId) { const neighbour = next[idx] ?? next[idx - 1] ?? null; nextActiveTabId = neighbour?.id ?? null; }
       set({ tabs: next, activeTabId: nextActiveTabId });
     },
-
     closeTabsForNotes: (noteIds) => {
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
-
       const next1 = tabs.filter((t) => !noteIds.has(t.noteId));
       let nextActive1 = activeTabId;
-      if (activeTabId && !next1.some((t) => t.id === activeTabId)) {
-        nextActive1 = next1[next1.length - 1]?.id ?? null;
-      }
-
+      if (activeTabId && !next1.some((t) => t.id === activeTabId)) nextActive1 = next1[next1.length - 1]?.id ?? null;
       const next2 = pane2Tabs.filter((t) => !noteIds.has(t.noteId));
       let nextActive2 = pane2ActiveTabId;
-      if (pane2ActiveTabId && !next2.some((t) => t.id === pane2ActiveTabId)) {
-        nextActive2 = next2[next2.length - 1]?.id ?? null;
-      }
-
-      set({
-        tabs: next1,
-        activeTabId: nextActive1,
-        pane2Tabs: next2,
-        pane2ActiveTabId: nextActive2,
-        splitOpen: next2.length > 0 ? get().splitOpen : false,
-      });
+      if (pane2ActiveTabId && !next2.some((t) => t.id === pane2ActiveTabId)) nextActive2 = next2[next2.length - 1]?.id ?? null;
+      set({ tabs: next1, activeTabId: nextActive1, pane2Tabs: next2, pane2ActiveTabId: nextActive2, splitOpen: next2.length > 0 ? get().splitOpen : false });
     },
-
     setActiveTab: (tabId) => set({ activeTabId: tabId }),
-
     closeActiveTab: () => {
       const { activePaneId, activeTabId, pane2ActiveTabId } = get();
-      if (activePaneId === 2 && pane2ActiveTabId) {
-        get().closePane2Tab(pane2ActiveTabId);
-      } else if (activeTabId) {
-        get().closeTab(activeTabId);
-      }
+      if (activePaneId === 2 && pane2ActiveTabId) { get().closePane2Tab(pane2ActiveTabId); }
+      else if (activeTabId) { get().closeTab(activeTabId); }
     },
-
     cycleTab: (dir) => {
       const { activePaneId, tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
       if (activePaneId === 2) {
         if (pane2Tabs.length < 2) return;
         const idx = pane2Tabs.findIndex((t) => t.id === pane2ActiveTabId);
         if (idx === -1) return;
-        const next = (idx + dir + pane2Tabs.length) % pane2Tabs.length;
-        set({ pane2ActiveTabId: pane2Tabs[next].id });
+        set({ pane2ActiveTabId: pane2Tabs[(idx + dir + pane2Tabs.length) % pane2Tabs.length].id });
       } else {
         if (tabs.length < 2) return;
         const idx = tabs.findIndex((t) => t.id === activeTabId);
         if (idx === -1) return;
-        const next = (idx + dir + tabs.length) % tabs.length;
-        set({ activeTabId: tabs[next].id });
+        set({ activeTabId: tabs[(idx + dir + tabs.length) % tabs.length].id });
       }
     },
-
-    activeTabNoteId: () => {
-      const { tabs, activeTabId } = get();
-      return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
-    },
+    activeTabNoteId: () => { const { tabs, activeTabId } = get(); return tabs.find((t) => t.id === activeTabId)?.noteId ?? null; },
 
     // ─── Pane 2 tabs ─────────────────────────────────────────────────────────
-    pane2Tabs: [],
-    pane2ActiveTabId: null,
-    splitOpen: false,
-    splitDirection: "horizontal",
-
+    pane2Tabs: [], pane2ActiveTabId: null, splitOpen: false, splitDirection: "horizontal",
     openInSplit: (noteId) => {
       const { splitOpen, pane2Tabs } = get();
-      if (!splitOpen) {
-        const tab: Tab = { id: makeTabId(), noteId };
-        set({ splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id, activePaneId: 2 });
-      } else {
-        const tab: Tab = { id: makeTabId(), noteId };
-        set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id, activePaneId: 2 });
-      }
+      if (!splitOpen) { const tab: Tab = { id: makeTabId(), noteId }; set({ splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id, activePaneId: 2 }); }
+      else { const tab: Tab = { id: makeTabId(), noteId }; set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id, activePaneId: 2 }); }
     },
-
-    closePane2: () => {
-      set({ splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1 });
-    },
-
-    toggleSplitDirection: () => {
-      set((s) => ({
-        splitDirection: s.splitDirection === "horizontal" ? "vertical" : "horizontal",
-      }));
-    },
-
-    swapPanes: () => {
-      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
-      set({ tabs: pane2Tabs, activeTabId: pane2ActiveTabId, pane2Tabs: tabs, pane2ActiveTabId: activeTabId });
-    },
-
+    closePane2: () => set({ splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1 }),
+    toggleSplitDirection: () => set((s) => ({ splitDirection: s.splitDirection === "horizontal" ? "vertical" : "horizontal" })),
+    swapPanes: () => { const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get(); set({ tabs: pane2Tabs, activeTabId: pane2ActiveTabId, pane2Tabs: tabs, pane2ActiveTabId: activeTabId }); },
     setPane2ActiveTab: (tabId) => set({ pane2ActiveTabId: tabId }),
-
     closePane2Tab: (tabId) => {
       const { pane2Tabs, pane2ActiveTabId } = get();
       const idx = pane2Tabs.findIndex((t) => t.id === tabId);
@@ -466,22 +392,12 @@ export const useUIStore = create<UIStore>((set, get) => {
       const next = pane2Tabs.filter((t) => t.id !== tabId);
       if (next.length === 0) { get().closePane2(); return; }
       let nextActiveTabId = pane2ActiveTabId;
-      if (pane2ActiveTabId === tabId) {
-        nextActiveTabId = (next[idx] ?? next[idx - 1])?.id ?? null;
-      }
+      if (pane2ActiveTabId === tabId) nextActiveTabId = (next[idx] ?? next[idx - 1])?.id ?? null;
       set({ pane2Tabs: next, pane2ActiveTabId: nextActiveTabId });
     },
-
-    openTabInPane2: (noteId) => {
-      const { pane2Tabs } = get();
-      const tab: Tab = { id: makeTabId(), noteId };
-      set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id });
-    },
-
-    // ─── Active pane ─────────────────────────────────────────────────────────
+    openTabInPane2: (noteId) => { const { pane2Tabs } = get(); const tab: Tab = { id: makeTabId(), noteId }; set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id }); },
     activePaneId: 1,
     setActivePaneId: (pane) => set({ activePaneId: pane }),
-
     paneActiveNoteId: (pane) => {
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
       if (pane === 2) return pane2Tabs.find((t) => t.id === pane2ActiveTabId)?.noteId ?? null;
@@ -490,26 +406,14 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     // ─── Sidebar note selection ───────────────────────────────────────────────
     selectedNoteIds: new Set(),
-
-    toggleNoteSelection: (id) =>
-      set((s) => {
-        const next = new Set(s.selectedNoteIds);
-        next.has(id) ? next.delete(id) : next.add(id);
-        return { selectedNoteIds: next };
-      }),
-
+    toggleNoteSelection: (id) => set((s) => { const next = new Set(s.selectedNoteIds); next.has(id) ? next.delete(id) : next.add(id); return { selectedNoteIds: next }; }),
     selectNoteRange: (fromId, toId, orderedIds) => {
-      const fromIdx = orderedIds.indexOf(fromId);
-      const toIdx   = orderedIds.indexOf(toId);
+      const fromIdx = orderedIds.indexOf(fromId), toIdx = orderedIds.indexOf(toId);
       if (fromIdx === -1 || toIdx === -1) return;
-      const start = Math.min(fromIdx, toIdx);
-      const end   = Math.max(fromIdx, toIdx);
-      const range = new Set(orderedIds.slice(start, end + 1));
+      const range = new Set(orderedIds.slice(Math.min(fromIdx, toIdx), Math.max(fromIdx, toIdx) + 1));
       set((s) => ({ selectedNoteIds: new Set([...s.selectedNoteIds, ...range]) }));
     },
-
     clearSelection: () => set({ selectedNoteIds: new Set() }),
-
     isNoteSelected: (id) => get().selectedNoteIds.has(id),
   };
 });

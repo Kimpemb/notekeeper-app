@@ -11,10 +11,6 @@
 // component on noteId. Every note navigation remounts a fresh Editor with
 // content passed to useEditor({ content }) at construction time — before
 // any React commit phase — so flushSync is never triggered during effects.
-//
-// Scroll position is preserved externally: App.tsx holds a Map<noteId, scrollTop>
-// and passes it in as initialScrollTop. On unmount the editor saves its current
-// scroll via onScrollChange so App.tsx can restore it on the next mount.
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -35,42 +31,19 @@ import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 import { TableToolbar } from "./TableToolbar";
 import { TagBar } from "./TagBar";
 import {
-  CodeBlock,
-  Callout,
-  CheckList,
-  CheckItem,
-  Toggle,
-  ToggleSummary,
-  ToggleBody,
-  EditorTable,
-  TableRow,
-  TableHeader,
-  TableCell,
-  TaskItemExitExtension,
-  ToggleKeyboardExtension,
-  EmptyLinePlaceholderExtension,
-  SlashPlaceholderExtension,
-  OrderedListBackspaceExtension,
-  CodeBlockSelectAllExtension,
-  ListSelectAllExtension,
-  createFindReplaceShortcutExtension,
-  ImageExtension,
-  AttachmentExtension,
+  CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
+  EditorTable, TableRow, TableHeader, TableCell,
+  TaskItemExitExtension, ToggleKeyboardExtension, EmptyLinePlaceholderExtension,
+  SlashPlaceholderExtension, OrderedListBackspaceExtension, CodeBlockSelectAllExtension,
+  ListSelectAllExtension, createFindReplaceShortcutExtension, ImageExtension, AttachmentExtension,
 } from "./extensions";
 import {
-  extractNoteLinkIds,
-  scrollToHeadingText,
-  scrollToQuery,
-  buildSearchHighlightPlugin,
-  getScrollContainer,
+  extractNoteLinkIds, scrollToHeadingText, scrollToQuery,
+  buildSearchHighlightPlugin, getScrollContainer,
 } from "./editorUtils";
 import {
-  pickImageFile,
-  readImageFile,
-  saveImage,
-  pickAttachmentFile,
-  readImageFile as readFileBytes,
-  saveAttachment,
+  pickImageFile, readImageFile, saveImage,
+  pickAttachmentFile, readImageFile as readFileBytes, saveAttachment,
 } from "@/lib/tauri/fs";
 
 interface BubblePos { top: number; left: number; }
@@ -89,11 +62,8 @@ async function uploadImageFromDisk(): Promise<{ path: string; name: string } | n
 
 interface EditorProps {
   noteId: string;
-  /** Whether the pane containing this editor is the focused pane. */
   isActivePane?: boolean;
-  /** Scroll position to restore on mount (pixels from top). */
   initialScrollTop?: number;
-  /** Called whenever scroll position changes, so App.tsx can persist it. */
   onScrollChange?: (scrollTop: number) => void;
 }
 
@@ -106,6 +76,7 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
   const outlineOpen             = useUIStore((s) => s.outlineOpen);
   const toggleOutline           = useUIStore((s) => s.toggleOutline);
   const toggleBacklinks         = useUIStore((s) => s.toggleBacklinks);
+  const openGraphForNote        = useUIStore((s) => s.openGraphForNote);
   const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
   const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
   const pendingScrollQuery      = useUIStore((s) => s.pendingScrollQuery);
@@ -117,95 +88,56 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
   const titleRef      = useRef<HTMLHeadingElement>(null);
   const editorWrapRef = useRef<HTMLDivElement>(null);
   const scrollRef     = useRef<HTMLDivElement>(null);
-
-  // Track last saved content to avoid redundant saves
   const lastSavedContent = useRef<string | null>(note?.content ?? null);
 
-  // ── Bubble menu ──────────────────────────────────────────────────────────
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const bubblePosRef                    = useRef<BubblePos | null>(null);
   const slashFromBubble                 = useRef(false);
 
-  // ── Slash menu ───────────────────────────────────────────────────────────
   const [slashOpen, setSlashOpen]   = useState(false);
   const [slashPos, setSlashPos]     = useState<{ top: number; left: number; caretTop: number }>({ top: 0, left: 0, caretTop: 0 });
   const [slashQuery, setSlashQuery] = useState("");
   const slashStartPos               = useRef<number | null>(null);
 
-  // ── Note link suggest ────────────────────────────────────────────────────
   const [linkOpen, setLinkOpen]   = useState(false);
   const [linkPos, setLinkPos]     = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [linkQuery, setLinkQuery] = useState("");
   const linkBracketStart          = useRef<number | null>(null);
 
-  // ── Find & Replace ───────────────────────────────────────────────────────
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
 
-  // Content is set ONCE at construction via useEditor({ content }).
-  // Never updated via setContent after mount — see architecture note at top.
   const initialContent = note?.content ? JSON.parse(note.content) : "";
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
-      CodeBlock,
-      Callout,
-      CheckList,
-      CheckItem,
-      EditorTable,
-      TableRow,
-      TableHeader,
-      TableCell,
-      ToggleSummary,
-      ToggleBody,
-      Toggle,
-      ImageExtension,
-      AttachmentExtension,
-      TaskItemExitExtension,
-      ToggleKeyboardExtension,
-      CodeBlockSelectAllExtension,
-      ListSelectAllExtension,
-      SlashPlaceholderExtension,
-      EmptyLinePlaceholderExtension,
+      CodeBlock, Callout, CheckList, CheckItem, EditorTable, TableRow, TableHeader, TableCell,
+      ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
+      TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
+      ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
-      Extension.create({
-        name: "findReplacePlugin",
-        addProseMirrorPlugins() { return [buildFindReplacePlugin()]; },
-      }),
-      Extension.create({
-        name: "searchHighlightPlugin",
-        addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; },
-      }),
+      Extension.create({ name: "findReplacePlugin", addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
+      Extension.create({ name: "searchHighlightPlugin", addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
     ],
-    // Content set at construction — never via setContent after mount.
     content: initialContent,
     editorProps: {
       attributes: {
         class: "tiptap h-full outline-none",
         "data-placeholder": "Start writing…",
-        spellcheck: "false",
-        autocorrect: "off",
-        autocapitalize: "off",
+        spellcheck: "false", autocorrect: "off", autocapitalize: "off",
       },
     },
     onSelectionUpdate: ({ editor: e }) => {
       if (slashFromBubble.current) return;
       const { from, to, $from } = e.state.selection;
-      if (from === to) {
-        setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
-      }
+      if (from === to) { setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return; }
       const selectedNodeType = $from.nodeAfter?.type.name ?? "";
-      const insideTable = (() => {
-        for (let d = $from.depth; d > 0; d--) {
-          if ($from.node(d).type.name === "table") return true;
-        }
-        return false;
-      })();
+      const insideTable = (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "table") return true; } return false; })();
       if (selectedNodeType === "image" || selectedNodeType === "attachment" || insideTable) {
         setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
       }
@@ -216,7 +148,6 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
     onUpdate: ({ editor: e }) => {
       const { state } = e;
       const { from }  = state.selection;
-
       if (slashStartPos.current !== null && !slashFromBubble.current) {
         const slashStart = slashStartPos.current;
         if (from >= slashStart) {
@@ -228,54 +159,37 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
           } else { closeSlashMenuInternal(); return; }
         }
       }
-
       if (linkBracketStart.current !== null) {
         const bracketStart = linkBracketStart.current;
         if (from >= bracketStart + 2) {
           const textAfter = state.doc.textBetween(bracketStart + 2, from, "\n");
-          if (!textAfter.includes("]") && !textAfter.includes("\n")) {
-            setLinkQuery(textAfter); return;
-          }
+          if (!textAfter.includes("]") && !textAfter.includes("\n")) { setLinkQuery(textAfter); return; }
         }
         closeLinkSuggestInternal();
       }
-
       const textBefore2 = from >= 2 ? state.doc.textBetween(from - 2, from, "\n") : "";
       const textBefore1 = from >= 1 ? state.doc.textBetween(from - 1, from, "\n") : "";
-
       if (textBefore2 === "[[") {
-        linkBracketStart.current = from - 2;
-        setLinkQuery("");
+        linkBracketStart.current = from - 2; setLinkQuery("");
         const coords = e.view.coordsAtPos(from);
-        setLinkPos({ top: coords.bottom, left: coords.left });
-        setLinkOpen(true);
-        return;
+        setLinkPos({ top: coords.bottom, left: coords.left }); setLinkOpen(true); return;
       }
-
       if (textBefore1 === "/") {
-        slashStartPos.current = from - 1;
-        setSlashQuery("");
+        slashStartPos.current = from - 1; setSlashQuery("");
         const coords = e.view.coordsAtPos(from);
-        setSlashPos({ top: coords.bottom + 6, left: coords.left, caretTop: coords.top - 6 });
-        setSlashOpen(true);
+        setSlashPos({ top: coords.bottom + 6, left: coords.left, caretTop: coords.top - 6 }); setSlashOpen(true);
       }
     },
   });
 
-  function closeSlashMenuInternal() {
-    setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false;
-  }
-  function closeLinkSuggestInternal() {
-    setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null;
-  }
+  function closeSlashMenuInternal() { setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false; }
+  function closeLinkSuggestInternal() { setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null; }
 
-  // ── Restore scroll position on mount ─────────────────────────────────────
   useEffect(() => {
     if (!scrollRef.current || initialScrollTop === 0) return;
     scrollRef.current.scrollTop = initialScrollTop;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Persist scroll position on scroll ────────────────────────────────────
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !onScrollChange) return;
@@ -284,14 +198,6 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
     return () => el.removeEventListener("scroll", handleScroll);
   }, [onScrollChange]);
 
-  // ── External content update (version restore only) ───────────────────────
-  // This is the ONLY remaining setContent call. It only fires when note.content
-  // changes externally after mount (e.g. version history restore), not on
-  // normal navigation (navigation remounts via key). The version restore flow
-  // triggers this from a button click handler, not from a passive effect of
-  // its own — but it does propagate through note store → note.content change
-  // → this effect. We accept the flushSync warning here as an edge case for
-  // version restore; it does not affect the common navigation path.
   useEffect(() => {
     if (!editor || !note) return;
     const incoming = note.content ?? null;
@@ -306,7 +212,6 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
     }
   }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Pending scroll: heading ───────────────────────────────────────────────
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
     const timer = setTimeout(() => {
@@ -316,7 +221,6 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
     return () => clearTimeout(timer);
   }, [noteId, pendingScrollHeading, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Pending scroll: search query ──────────────────────────────────────────
   useEffect(() => {
     if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
     const timer = setTimeout(() => {
@@ -335,17 +239,13 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
 
   useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete });
 
-  // ── Escape closes slash menu ──────────────────────────────────────────────
   useEffect(() => {
     if (!slashOpen) return;
-    function handle(e: KeyboardEvent) {
-      if (e.key === "Escape") { e.preventDefault(); closeSlashMenu(); }
-    }
+    function handle(e: KeyboardEvent) { if (e.key === "Escape") { e.preventDefault(); closeSlashMenu(); } }
     document.addEventListener("keydown", handle, true);
     return () => document.removeEventListener("keydown", handle, true);
   }, [slashOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Cmd+H: open find & replace ───────────────────────────────────────────
   useEffect(() => {
     function handle(e: KeyboardEvent) {
       if (!isActiveTab) return;
@@ -411,10 +311,7 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
     if (!editor) return;
     const result = await uploadImageFromDisk();
     if (!result) return;
-    editor.chain().focus().insertContent({
-      type: "image",
-      attrs: { src: result.path, alt: result.name, width: null, align: "left" },
-    }).run();
+    editor.chain().focus().insertContent({ type: "image", attrs: { src: result.path, alt: result.name, width: null, align: "left" } }).run();
   }
 
   async function handleAttachmentUpload(kind: "pdf" | "audio") {
@@ -427,10 +324,7 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
     const base       = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
     const uniqueName = `${base}_${Date.now()}.${ext}`;
     const savedPath  = await saveAttachment(uniqueName, bytes);
-    editor.chain().focus().insertContent({
-      type: "attachment",
-      attrs: { src: savedPath, filename: fileName, kind, size: bytes.length },
-    }).run();
+    editor.chain().focus().insertContent({ type: "attachment", attrs: { src: savedPath, filename: fileName, kind, size: bytes.length } }).run();
   }
 
   function handleThreeDots() {
@@ -448,14 +342,28 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
       <div className="flex flex-col flex-1 h-full overflow-hidden">
 
         {findReplaceOpen && editor && (
-          <FindReplace
-            editor={editor}
-            onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }}
-          />
+          <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
         )}
 
         {isActiveTab && (
           <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
+            {/* Local Graph button */}
+            <button
+              onClick={() => openGraphForNote(noteId)}
+              title="Open local graph for this note"
+              className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+            >
+              <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+                <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+                <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+                <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              </svg>
+              Local Graph
+            </button>
+
             {!outlineOpen && (
               <button
                 onClick={toggleOutline}
@@ -495,21 +403,14 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
             <BubbleBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive("strike")} title="Strikethrough"><span className="line-through text-sm">S</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleCode().run()}   active={editor.isActive("code")}   title="Inline code"><span className="font-mono text-sm">{"<>"}</span></BubbleBtn>
             <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
-            <button
-              onClick={handleThreeDots}
-              title="More commands"
-              className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75"
-            >
+            <button onClick={handleThreeDots} title="More commands" className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75">
               <span className="text-sm tracking-widest">···</span>
             </button>
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
-          <div
-            className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text"
-            onClick={handleEditorAreaClick}
-          >
+          <div className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text" onClick={handleEditorAreaClick}>
             <h1
               ref={titleRef}
               contentEditable suppressContentEditableWarning spellCheck={false}
@@ -538,43 +439,24 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
       {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (
-        <SlashMenu
-          position={slashPos}
-          editor={editor}
-          query={slashQuery}
-          onCommand={handleSlashCommand}
-          onClose={closeSlashMenu}
-          onImageUpload={handleImageUpload}
-          onAttachmentUpload={handleAttachmentUpload}
-        />
+        <SlashMenu position={slashPos} editor={editor} query={slashQuery} onCommand={handleSlashCommand} onClose={closeSlashMenu} onImageUpload={handleImageUpload} onAttachmentUpload={handleAttachmentUpload} />
       )}
       {linkOpen && editor && linkBracketStart.current !== null && (
-        <NoteLinkSuggest
-          position={linkPos}
-          editor={editor}
-          query={linkQuery}
-          bracketStart={linkBracketStart.current}
-          onClose={closeLinkSuggest}
-        />
+        <NoteLinkSuggest position={linkPos} editor={editor} query={linkQuery} bracketStart={linkBracketStart.current} onClose={closeLinkSuggest} />
       )}
     </div>
   );
 }
 
 function BubbleBtn({ onClick, active, title, children }: {
-  onClick: () => void;
-  active: boolean;
-  title: string;
-  children: React.ReactNode;
+  onClick: () => void; active: boolean; title: string; children: React.ReactNode;
 }) {
   return (
     <button
       onMouseDown={(e) => { e.preventDefault(); onClick(); }}
       title={title}
       className={`w-8 h-7 flex items-center justify-center rounded-md transition-colors duration-75 ${
-        active
-          ? "bg-zinc-200 dark:bg-zinc-600 text-zinc-900 dark:text-zinc-100"
-          : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+        active ? "bg-zinc-200 dark:bg-zinc-600 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
       }`}
     >
       {children}

@@ -22,7 +22,6 @@ const DEFAULT_WIDTH_PCT = 0.66;
 const MIN_WIDTH         = 320;
 const TRANSITION_MS     = 280;
 
-// Tag colour palette — distinct, readable on dark backgrounds
 const TAG_PALETTE = [
   "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#3b82f6",
   "#ec4899", "#14b8a6", "#f97316", "#8b5cf6", "#84cc16",
@@ -48,6 +47,10 @@ export interface GraphViewHandle {
   animatedClose: () => void;
 }
 
+interface GraphViewProps {
+  initialFocusNoteId?: string | null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildTagColorMap(nodes: GraphNode[]): Map<string, string> {
@@ -59,21 +62,13 @@ function buildTagColorMap(nodes: GraphNode[]): Map<string, string> {
 
 function getNodeColor(node: GraphNode, tagColorMap: Map<string, string>): string {
   if (node.linkCount === 0) return NODE_ISOLATED;
-  if (node.tags.length > 0) {
-    return tagColorMap.get(node.tags[0]) ?? TAG_PALETTE[0];
-  }
-  return TAG_PALETTE[0]; // untagged connected nodes use first palette colour
+  if (node.tags.length > 0) return tagColorMap.get(node.tags[0]) ?? TAG_PALETTE[0];
+  return TAG_PALETTE[0];
 }
 
-/** Returns set of node IDs reachable from focusId within `depth` hops */
-function getNeighbourhood(
-  focusId: string,
-  edges: GraphEdge[],
-  depth: number
-): Set<string> {
+function getNeighbourhood(focusId: string, edges: GraphEdge[], depth: number): Set<string> {
   const result = new Set<string>([focusId]);
   let frontier = new Set<string>([focusId]);
-
   for (let d = 0; d < depth; d++) {
     const next = new Set<string>();
     for (const e of edges) {
@@ -90,11 +85,16 @@ function getNeighbourhood(
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) {
+export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
+  function GraphView({ initialFocusNoteId }, ref) {
+
   const { data, isLoading, error, refresh, lastUpdated } = useGraphData();
-  const setActiveNote = useNoteStore((s) => s.setActiveNote);
-  const closeGraph    = useUIStore((s) => s.closeGraph);
-  const openTab       = useUIStore((s) => s.openTab);
+  const setActiveNote         = useNoteStore((s) => s.setActiveNote);
+  const closeGraph            = useUIStore((s) => s.closeGraph);
+  const openTab               = useUIStore((s) => s.openTab);
+  const clearGraphFocusNoteId = useUIStore((s) => s.clearGraphFocusNoteId);
+  const savedState            = useUIStore((s) => s.graphViewState);
+  const saveGraphViewState    = useUIStore((s) => s.saveGraphViewState);
 
   const svgRef        = useRef<SVGSVGElement>(null);
   const minimapRef    = useRef<SVGSVGElement>(null);
@@ -104,56 +104,59 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
   const zoomRef       = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const simNodesRef   = useRef<GraphNode[]>([]);
   const toastCountRef = useRef(0);
+  // tracks whether simulation has settled enough to trust node positions
+  const simSettledRef = useRef(false);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [panelWidth, setPanelWidth]   = useState<number>(() => Math.round(window.innerWidth * DEFAULT_WIDTH_PCT));
-  const [isFullscreen, setFullscreen] = useState(false);
-  const [mounted, setMounted]         = useState(false);
+  const [panelWidth, setPanelWidth]       = useState<number>(() => Math.round(window.innerWidth * DEFAULT_WIDTH_PCT));
+  const [isFullscreen, setFullscreen]     = useState(false);
+  const [mounted, setMounted]             = useState(false);
 
-  const [searchQuery, setSearch]   = useState("");
-  const [stats, setStats]          = useState({ nodes: 0, edges: 0 });
-  const [tooltip, setTooltip]      = useState<TooltipState>({ visible: false, x: 0, y: 0, title: "", linkCount: 0, tags: [] });
-  const [toasts, setToasts]        = useState<Toast[]>([]);
+  // Restore non-positional state only — zoom always starts at default
+  const [searchQuery, setSearch]          = useState(savedState.searchQuery);
+  const [stats, setStats]                 = useState({ nodes: 0, edges: 0 });
+  const [tooltip, setTooltip]             = useState<TooltipState>({ visible: false, x: 0, y: 0, title: "", linkCount: 0, tags: [] });
+  const [toasts, setToasts]               = useState<Toast[]>([]);
+  const [showOrphans, setShowOrphans]     = useState(savedState.showOrphans);
+  const [showTagColors, setShowTagColors] = useState(savedState.showTagColors);
+  const [depth, setDepth]                 = useState(savedState.depth);
+  const [focusNodeId, setFocusNodeId]     = useState<string | null>(
+    initialFocusNoteId ?? savedState.focusNodeId
+  );
 
-  // ── Tier 2 state ──────────────────────────────────────────────────────────
-  const [showOrphans, setShowOrphans]   = useState(true);
-  const [showTagColors, setShowTagColors] = useState(true);
-  const [depth, setDepth]               = useState(4);         // 1–6
-  const [focusNodeId, setFocusNodeId]   = useState<string | null>(null);
+  const isLocalGraph = !!initialFocusNoteId;
 
-  // ── Tag colour map — derived from data ────────────────────────────────────
+  useEffect(() => {
+    if (initialFocusNoteId) clearGraphFocusNoteId();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist non-positional state
+  useEffect(() => {
+    saveGraphViewState({ searchQuery, showOrphans, showTagColors, depth, focusNodeId });
+  }, [searchQuery, showOrphans, showTagColors, depth, focusNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const tagColorMap = useMemo(() => {
     if (!data) return new Map<string, string>();
     return buildTagColorMap(data.nodes);
   }, [data]);
 
-  // ── All unique tags for legend ─────────────────────────────────────────────
   const allTags = useMemo(() => Array.from(tagColorMap.keys()), [tagColorMap]);
 
-  // ── Filtered nodes/edges (orphan filter + depth/focus) ───────────────────
   const { visibleNodes, visibleEdges } = useMemo(() => {
     if (!data) return { visibleNodes: [], visibleEdges: [] };
-
     let nodes = data.nodes;
     let edges = data.edges;
-
-    // Orphan filter
-    if (!showOrphans) {
-      nodes = nodes.filter((n) => n.linkCount > 0);
-    }
-
-    // Focus mode + depth
+    if (!showOrphans) nodes = nodes.filter((n) => n.linkCount > 0);
     if (focusNodeId) {
       const neighbourhood = getNeighbourhood(focusNodeId, edges, depth);
       nodes = nodes.filter((n) => neighbourhood.has(n.id));
     }
-
     const nodeIds = new Set(nodes.map((n) => n.id));
     edges = edges.filter((e) => {
       const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
       const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
       return nodeIds.has(sid) && nodeIds.has(tid);
     });
-
     return { visibleNodes: nodes, visibleEdges: edges };
   }, [data, showOrphans, focusNodeId, depth]);
 
@@ -171,14 +174,12 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
 
   useImperativeHandle(ref, () => ({ animatedClose: handleClose }), [handleClose]);
 
-  // ── Toast helper ──────────────────────────────────────────────────────────
   const showToast = useCallback((message: string) => {
     const id = ++toastCountRef.current;
     setToasts((prev) => [...prev, { id, message }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2000);
   }, []);
 
-  // ── Escape: exit focus mode first, then close ─────────────────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -192,20 +193,15 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
 
   const toggleFullscreen = useCallback(() => setFullscreen((f) => !f), []);
 
-  // ── Resize handle ─────────────────────────────────────────────────────────
   const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX     = e.clientX;
     const startWidth = panelRef.current?.offsetWidth ?? window.innerWidth * DEFAULT_WIDTH_PCT;
     function onMove(ev: MouseEvent) {
       const newWidth = Math.max(MIN_WIDTH, Math.min(window.innerWidth - 60, startWidth + (startX - ev.clientX)));
-      setPanelWidth(newWidth);
-      setFullscreen(false);
+      setPanelWidth(newWidth); setFullscreen(false);
     }
-    function onUp() {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    }
+    function onUp() { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, []);
@@ -214,11 +210,13 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current || !minimapRef.current) return;
     if (visibleNodes.length === 0 && !isLoading) {
-      // Clear canvas if nothing to show
       d3.select(svgRef.current).selectAll("*").remove();
       return;
     }
     if (visibleNodes.length === 0) return;
+
+    // Reset settled flag on every rebuild
+    simSettledRef.current = false;
 
     const simNodes: GraphNode[] = visibleNodes.map((n) => ({ ...n }));
     const simEdges: GraphEdge[] = visibleEdges.map((e) => ({ ...e }));
@@ -238,27 +236,17 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
     // ── Minimap ───────────────────────────────────────────────────────────
     const minimap = d3.select(minimapRef.current);
     minimap.selectAll("*").remove();
-    minimap.append("rect")
-      .attr("width", MINIMAP_W).attr("height", MINIMAP_H)
-      .attr("fill", "rgba(0,0,0,0.5)").attr("rx", 6);
+    minimap.append("rect").attr("width", MINIMAP_W).attr("height", MINIMAP_H).attr("fill", "rgba(0,0,0,0.5)").attr("rx", 6);
     const mmG = minimap.append("g").attr("class", "mm-nodes");
-    minimap.append("rect")
-      .attr("class", "mm-viewport")
-      .attr("fill", "rgba(255,255,255,0.06)")
-      .attr("stroke", "rgba(255,255,255,0.2)")
-      .attr("stroke-width", 1).attr("rx", 2);
+    minimap.append("rect").attr("class", "mm-viewport").attr("fill", "rgba(255,255,255,0.06)").attr("stroke", "rgba(255,255,255,0.2)").attr("stroke-width", 1).attr("rx", 2);
 
     function getMinimapScale(ns: GraphNode[]): { scale: number; minX: number; minY: number } {
-      const xs = ns.map((n) => n.x ?? 0);
-      const ys = ns.map((n) => n.y ?? 0);
+      const xs = ns.map((n) => n.x ?? 0), ys = ns.map((n) => n.y ?? 0);
       if (xs.length === 0) return { scale: 1, minX: 0, minY: 0 };
       const minX = Math.min(...xs), maxX = Math.max(...xs);
       const minY = Math.min(...ys), maxY = Math.max(...ys);
-      const pad  = 10;
-      const scale: number = Math.min(
-        (MINIMAP_W - pad * 2) / (maxX - minX || 1),
-        (MINIMAP_H - pad * 2) / (maxY - minY || 1)
-      );
+      const pad = 10;
+      const scale: number = Math.min((MINIMAP_W - pad * 2) / (maxX - minX || 1), (MINIMAP_H - pad * 2) / (maxY - minY || 1));
       return { scale, minX, minY };
     }
 
@@ -266,8 +254,7 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
       const ns = simNodesRef.current;
       const { scale, minX, minY } = getMinimapScale(ns);
       const pad = 10;
-      mmG.selectAll<SVGCircleElement, GraphNode>("circle")
-        .data(ns, (d) => d.id).join("circle")
+      mmG.selectAll<SVGCircleElement, GraphNode>("circle").data(ns, (d) => d.id).join("circle")
         .attr("cx", (d) => ((d.x ?? 0) - minX) * scale + pad)
         .attr("cy", (d) => ((d.y ?? 0) - minY) * scale + pad)
         .attr("r", 2)
@@ -278,9 +265,8 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
     function updateMinimapViewport(transform: d3.ZoomTransform, w: number, h: number) {
       const ns = simNodesRef.current;
       const { scale, minX, minY } = getMinimapScale(ns);
-      const pad         = 10;
-      const topLeft     = transform.invert([0, 0]);
-      const bottomRight = transform.invert([w, h]);
+      const pad = 10;
+      const topLeft = transform.invert([0, 0]), bottomRight = transform.invert([w, h]);
       minimap.select(".mm-viewport")
         .attr("x", Math.max(0, (topLeft[0] - minX) * scale + pad))
         .attr("y", Math.max(0, (topLeft[1] - minY) * scale + pad))
@@ -294,17 +280,13 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
       if (scale === 0) return;
       const pad = 10;
       const [mmX, mmY] = d3.pointer(event);
-      const graphX = (mmX - pad) / scale + minX;
-      const graphY = (mmY - pad) / scale + minY;
+      const graphX = (mmX - pad) / scale + minX, graphY = (mmY - pad) / scale + minY;
       const current = d3.zoomTransform(svgRef.current!);
       svg.transition().duration(300).call(zoom.transform,
-        d3.zoomIdentity
-          .translate(width / 2 - graphX * current.k, height / 2 - graphY * current.k)
-          .scale(current.k)
+        d3.zoomIdentity.translate(width / 2 - graphX * current.k, height / 2 - graphY * current.k).scale(current.k)
       );
     });
 
-    // ── Zoom ──────────────────────────────────────────────────────────────
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
       .on("zoom", (event) => {
@@ -314,41 +296,30 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
 
     zoomRef.current = zoom;
     svg.call(zoom);
+    // Always start with default centred view — no zoom restore
     svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85));
 
-    // ── Scales ────────────────────────────────────────────────────────────
     const maxLinks = Math.max(1, d3.max(simNodes, (n) => n.linkCount) ?? 1);
     const rScale   = d3.scaleSqrt().domain([0, maxLinks]).range([NODE_BASE_RADIUS, NODE_MAX_RADIUS]);
 
-    // ── Edges ─────────────────────────────────────────────────────────────
-    const link = g.append("g").attr("class", "edges")
-      .selectAll("line").data(simEdges).join("line")
-      .attr("stroke", LINK_STROKE).attr("stroke-width", 1);
+    const link = g.append("g").attr("class", "edges").selectAll("line").data(simEdges).join("line").attr("stroke", LINK_STROKE).attr("stroke-width", 1);
 
-    // ── Nodes ─────────────────────────────────────────────────────────────
     const node = g.append("g").attr("class", "nodes")
-      .selectAll<SVGCircleElement, GraphNode>("circle")
-      .data(simNodes, (d) => d.id).join("circle")
+      .selectAll<SVGCircleElement, GraphNode>("circle").data(simNodes, (d) => d.id).join("circle")
       .attr("r", (d) => rScale(d.linkCount))
       .attr("fill", (d) => showTagColors ? getNodeColor(d, tagColorMap) : (d.linkCount === 0 ? NODE_ISOLATED : TAG_PALETTE[0]))
       .attr("fill-opacity", (d) => focusNodeId === d.id ? 1 : 0.85)
       .attr("stroke", (d) => focusNodeId === d.id ? "#fff" : "transparent")
-      .attr("stroke-width", 2)
-      .style("cursor", "pointer");
+      .attr("stroke-width", 2).style("cursor", "pointer");
 
-    // ── Labels ────────────────────────────────────────────────────────────
     const label = g.append("g").attr("class", "labels")
-      .selectAll<SVGTextElement, GraphNode>("text")
-      .data(simNodes, (d) => d.id).join("text")
+      .selectAll<SVGTextElement, GraphNode>("text").data(simNodes, (d) => d.id).join("text")
       .text((d) => d.title)
-      .attr("font-size", 11).attr("fill", LABEL_COLOR)
-      .attr("text-anchor", "middle")
+      .attr("font-size", 11).attr("fill", LABEL_COLOR).attr("text-anchor", "middle")
       .attr("dy", (d) => -(rScale(d.linkCount) + 4))
       .attr("pointer-events", "none")
-      // In focus mode always show the focus node label
       .attr("opacity", (d) => focusNodeId === d.id ? 1 : 0);
 
-    // ── Drag ──────────────────────────────────────────────────────────────
     const drag = d3.drag<SVGCircleElement, GraphNode>()
       .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
       .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
@@ -356,7 +327,6 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
 
     node.call(drag);
 
-    // ── Hover / click ─────────────────────────────────────────────────────
     node
       .on("mouseenter", function (event, d) {
         const neighbourIds = new Set<string>();
@@ -380,12 +350,7 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
           });
         label.attr("opacity", (n) => n.id === d.id || neighbourIds.has(n.id) ? 1 : 0);
         const rect = containerRef.current!.getBoundingClientRect();
-        setTooltip({
-          visible: true,
-          x: event.clientX - rect.left + 14,
-          y: event.clientY - rect.top - 14,
-          title: d.title, linkCount: d.linkCount, tags: d.tags,
-        });
+        setTooltip({ visible: true, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 14, title: d.title, linkCount: d.linkCount, tags: d.tags });
       })
       .on("mousemove", function (event) {
         const rect = containerRef.current!.getBoundingClientRect();
@@ -399,11 +364,9 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
       })
       .on("click", (event, d) => {
         if (event.ctrlKey || event.metaKey) {
-          openTab(d.id);
-          setActiveNote(d.id);
+          openTab(d.id); setActiveNote(d.id);
           showToast(`Opened "${d.title}" in new tab`);
         } else if (event.shiftKey) {
-          // Shift+click = focus mode on this node
           setFocusNodeId((prev) => prev === d.id ? null : d.id);
         } else {
           setActiveNote(d.id);
@@ -412,7 +375,6 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
         }
       });
 
-    // ── Simulation ────────────────────────────────────────────────────────
     const simulation = d3.forceSimulation<GraphNode>(simNodes)
       .force("link", d3.forceLink<GraphNode, GraphEdge>(simEdges).id((d) => d.id).distance(80).strength(0.4))
       .force("charge", d3.forceManyBody().strength(-180))
@@ -420,209 +382,157 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
       .force("collide", d3.forceCollide<GraphNode>().radius((d) => rScale(d.linkCount) + 6))
       .on("tick", () => {
         link
-          .attr("x1", (e) => (e.source as GraphNode).x ?? 0)
-          .attr("y1", (e) => (e.source as GraphNode).y ?? 0)
-          .attr("x2", (e) => (e.target as GraphNode).x ?? 0)
-          .attr("y2", (e) => (e.target as GraphNode).y ?? 0);
+          .attr("x1", (e) => (e.source as GraphNode).x ?? 0).attr("y1", (e) => (e.source as GraphNode).y ?? 0)
+          .attr("x2", (e) => (e.target as GraphNode).x ?? 0).attr("y2", (e) => (e.target as GraphNode).y ?? 0);
         node.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
         label.attr("x", (d) => d.x ?? 0).attr("y", (d) => d.y ?? 0);
         updateMinimapNodes();
+      })
+      .on("end", () => {
+        // Simulation has fully settled — positions are now trustworthy
+        simSettledRef.current = true;
       });
 
     simulationRef.current = simulation;
     return () => { simulation.stop(); };
   }, [visibleNodes, visibleEdges, isLoading, showTagColors, tagColorMap, focusNodeId, setActiveNote, handleClose, openTab, showToast]);
 
-  // ── Search highlight ──────────────────────────────────────────────────────
+  // ── Search highlight + debounced scroll to first match ────────────────────
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     const q   = searchQuery.trim().toLowerCase();
+
+    // Update visual highlight immediately on every keystroke
     svg.selectAll<SVGCircleElement, GraphNode>("circle")
-      .attr("stroke", (d) => {
-        if (focusNodeId === d.id) return "#fff";
-        return q && d.title.toLowerCase().includes(q) ? "#fff" : "transparent";
-      })
-      .attr("fill-opacity", (d) => {
-        if (!q) return focusNodeId === d.id ? 1 : 0.85;
-        return d.title.toLowerCase().includes(q) ? 1 : 0.2;
-      });
+      .attr("stroke", (d) => { if (focusNodeId === d.id) return "#fff"; return q && d.title.toLowerCase().includes(q) ? "#fff" : "transparent"; })
+      .attr("fill-opacity", (d) => { if (!q) return focusNodeId === d.id ? 1 : 0.85; return d.title.toLowerCase().includes(q) ? 1 : 0.2; });
     svg.selectAll<SVGTextElement, GraphNode>("text")
-      .attr("opacity", (d) => {
-        if (focusNodeId === d.id) return 1;
-        return q && d.title.toLowerCase().includes(q) ? 1 : 0;
-      });
+      .attr("opacity", (d) => { if (focusNodeId === d.id) return 1; return q && d.title.toLowerCase().includes(q) ? 1 : 0; });
+
+    // Debounce the pan — only fires 400ms after the user stops typing
+    // AND only if simulation has settled (positions are trustworthy)
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+
+    if (!q) return; // nothing to scroll to if query is empty
+
+    scrollTimerRef.current = setTimeout(() => {
+      if (!svgRef.current || !zoomRef.current || !containerRef.current) return;
+      if (!simSettledRef.current) return; // simulation still running, skip
+
+      const firstMatch = simNodesRef.current.find((n) => n.title.toLowerCase().includes(q));
+      if (!firstMatch) return;
+
+      const nx = firstMatch.x ?? 0;
+      const ny = firstMatch.y ?? 0;
+
+      // Guard: if node is still near origin, simulation hasn't spread yet
+      if (Math.abs(nx) < 1 && Math.abs(ny) < 1) return;
+
+      const width  = containerRef.current.clientWidth;
+      const height = containerRef.current.clientHeight;
+      const k      = d3.zoomTransform(svgRef.current).k;
+
+      d3.select(svgRef.current)
+        .transition()
+        .duration(500)
+        .call(
+          zoomRef.current.transform,
+          d3.zoomIdentity.translate(width / 2 - nx * k, height / 2 - ny * k).scale(k)
+        );
+    }, 400);
+
+    return () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    };
   }, [searchQuery, focusNodeId]);
 
-  // ── Fit to screen ─────────────────────────────────────────────────────────
   const handleFit = useCallback(() => {
     if (!svgRef.current || !containerRef.current || !zoomRef.current) return;
-    const svg    = d3.select(svgRef.current);
-    const width  = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight;
-    svg.transition().duration(400).call(
-      zoomRef.current.transform,
-      d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85)
-    );
+    const svg = d3.select(svgRef.current);
+    const width = containerRef.current.clientWidth, height = containerRef.current.clientHeight;
+    svg.transition().duration(400).call(zoomRef.current.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85));
   }, []);
 
-  const lastUpdatedLabel = lastUpdated
-    ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : null;
-
-  const currentWidth = isFullscreen ? window.innerWidth : panelWidth;
-  const orphanCount  = data ? data.nodes.filter((n) => n.linkCount === 0).length : 0;
-  const focusedNode  = focusNodeId ? data?.nodes.find((n) => n.id === focusNodeId) : null;
+  const lastUpdatedLabel = lastUpdated ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+  const currentWidth     = isFullscreen ? window.innerWidth : panelWidth;
+  const orphanCount      = data ? data.nodes.filter((n) => n.linkCount === 0).length : 0;
+  const focusedNode      = focusNodeId ? data?.nodes.find((n) => n.id === focusNodeId) : null;
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Backdrop */}
-      <div onClick={handleClose} style={{
+      {/* Backdrop — visual only, never closes on click */}
+      <div style={{
         position: "fixed", inset: 0, zIndex: 49,
         background: "rgba(0,0,0,0.4)",
         opacity: mounted ? 1 : 0,
         transition: `opacity ${TRANSITION_MS}ms ease`,
-        pointerEvents: mounted ? "auto" : "none",
+        pointerEvents: "none",
       }} />
 
       {/* Panel */}
       <div ref={panelRef} style={{
         position: "fixed", top: 0, bottom: 0, right: 0, zIndex: 50,
         display: "flex", flexDirection: "column",
-        background: BG_COLOR,
-        boxShadow: "-4px 0 32px rgba(0,0,0,0.5)",
+        background: BG_COLOR, boxShadow: "-4px 0 32px rgba(0,0,0,0.5)",
         transform: mounted ? "translateX(0)" : "translateX(100%)",
         transition: `transform ${TRANSITION_MS}ms cubic-bezier(0.32, 0.72, 0, 1), width 220ms cubic-bezier(0.32, 0.72, 0, 1)`,
         width: currentWidth,
       }}>
-        {/* Resize handle */}
         {!isFullscreen && (
-          <div onMouseDown={onResizeMouseDown} style={{
-            position: "absolute", left: 0, top: 0, bottom: 0, width: 5,
-            cursor: "ew-resize", zIndex: 10, background: "transparent",
-          }}
+          <div onMouseDown={onResizeMouseDown}
+            style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 5, cursor: "ew-resize", zIndex: 10, background: "transparent" }}
             onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
             onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
           />
         )}
 
         {/* Header */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "10px 16px",
-          borderBottom: "1px solid var(--color-border, #2a2a2a)",
-          flexShrink: 0, flexWrap: "wrap",
-        }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--color-border, #2a2a2a)", flexShrink: 0, flexWrap: "wrap" }}>
           <span style={{ fontWeight: 600, fontSize: 14, color: LABEL_COLOR, opacity: 0.9 }}>
-            Graph
+            {isLocalGraph ? "Local Graph" : "Graph"}
           </span>
-
-          {!isLoading && (
-            <span style={{ fontSize: 12, color: LABEL_COLOR, opacity: 0.4 }}>
-              {stats.nodes} notes · {stats.edges} links
-            </span>
-          )}
-
+          {!isLoading && <span style={{ fontSize: 12, color: LABEL_COLOR, opacity: 0.4 }}>{stats.nodes} notes · {stats.edges} links</span>}
           {focusedNode && (
-            <span style={{
-              fontSize: 11, color: TAG_PALETTE[0], opacity: 0.9,
-              background: "rgba(99,102,241,0.15)", borderRadius: 4, padding: "2px 7px",
-            }}>
-              Focus: {focusedNode.title}
+            <span style={{ fontSize: 11, color: TAG_PALETTE[0], opacity: 0.9, background: "rgba(99,102,241,0.15)", borderRadius: 4, padding: "2px 7px" }}>
+              {isLocalGraph && focusNodeId === initialFocusNoteId ? "Local: " : "Focus: "}{focusedNode.title}
             </span>
           )}
+          {lastUpdatedLabel && <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.3 }}>updated {lastUpdatedLabel}</span>}
 
-          {lastUpdatedLabel && (
-            <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.3 }}>
-              updated {lastUpdatedLabel}
-            </span>
-          )}
-
-          {/* Controls row */}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-
-            {/* Search */}
-            <input type="text" placeholder="Filter…" value={searchQuery}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{
-                background: "var(--color-bg, #1e1e1e)",
-                border: "1px solid var(--color-border, #2a2a2a)",
-                borderRadius: 6, padding: "4px 10px",
-                fontSize: 13, color: LABEL_COLOR, outline: "none", width: 130,
-              }}
+            <input type="text" placeholder="Filter…" value={searchQuery} onChange={(e) => setSearch(e.target.value)}
+              style={{ background: "var(--color-bg, #1e1e1e)", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 10px", fontSize: 13, color: LABEL_COLOR, outline: "none", width: 130 }}
             />
-
-            {/* Depth slider */}
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, whiteSpace: "nowrap" }}>
-                Depth {depth}
-              </span>
-              <input type="range" min={1} max={6} value={depth}
-                onChange={(e) => setDepth(Number(e.target.value))}
-                style={{ width: 70, accentColor: TAG_PALETTE[0] }}
-                title="Depth — only active in focus mode"
+              <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, whiteSpace: "nowrap" }}>Depth {depth}</span>
+              <input type="range" min={1} max={6} value={depth} onChange={(e) => setDepth(Number(e.target.value))}
+                style={{ width: 70, accentColor: TAG_PALETTE[0] }} title="Depth — active in focus mode"
               />
             </div>
-
-            {/* Orphan toggle */}
-            <button
-              onClick={() => setShowOrphans((v) => !v)}
-              title={showOrphans ? "Hide isolated notes" : "Show isolated notes"}
-              style={{
-                background: showOrphans ? "rgba(255,255,255,0.08)" : "transparent",
-                border: "1px solid var(--color-border, #2a2a2a)",
-                borderRadius: 6, padding: "4px 8px", fontSize: 11,
-                color: LABEL_COLOR, cursor: "pointer",
-                opacity: showOrphans ? 1 : 0.5,
-                whiteSpace: "nowrap",
-              }}
-            >
+            <button onClick={() => setShowOrphans((v) => !v)}
+              style={{ background: showOrphans ? "rgba(255,255,255,0.08)" : "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: LABEL_COLOR, cursor: "pointer", opacity: showOrphans ? 1 : 0.5, whiteSpace: "nowrap" }}>
               {showOrphans ? `⬡ ${orphanCount}` : "⬡ off"}
             </button>
-
-            {/* Tag colour toggle */}
-            <button
-              onClick={() => setShowTagColors((v) => !v)}
-              title={showTagColors ? "Disable tag colours" : "Enable tag colours"}
-              style={{
-                background: showTagColors ? "rgba(255,255,255,0.08)" : "transparent",
-                border: "1px solid var(--color-border, #2a2a2a)",
-                borderRadius: 6, padding: "4px 8px", fontSize: 11,
-                color: LABEL_COLOR, cursor: "pointer",
-                opacity: showTagColors ? 1 : 0.5,
-              }}
-            >
+            <button onClick={() => setShowTagColors((v) => !v)}
+              style={{ background: showTagColors ? "rgba(255,255,255,0.08)" : "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: LABEL_COLOR, cursor: "pointer", opacity: showTagColors ? 1 : 0.5 }}>
               🎨
             </button>
-
-            <button onClick={refresh} title="Refresh" disabled={isLoading} style={{
-              background: "transparent", border: "1px solid var(--color-border, #2a2a2a)",
-              borderRadius: 6, padding: "4px 8px", fontSize: 13, color: LABEL_COLOR,
-              cursor: isLoading ? "not-allowed" : "pointer", opacity: isLoading ? 0.3 : 0.7,
-            }}>
+            <button onClick={refresh} disabled={isLoading}
+              style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 13, color: LABEL_COLOR, cursor: isLoading ? "not-allowed" : "pointer", opacity: isLoading ? 0.3 : 0.7 }}>
               {isLoading ? "…" : "↺"}
             </button>
-
-            <button onClick={handleFit} title="Fit to screen" style={{
-              background: "transparent", border: "1px solid var(--color-border, #2a2a2a)",
-              borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7,
-            }}>
+            <button onClick={handleFit}
+              style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7 }}>
               Fit
             </button>
-
-            <button onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "Fullscreen"} style={{
-              background: "transparent", border: "1px solid var(--color-border, #2a2a2a)",
-              borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR,
-              cursor: "pointer", opacity: 0.7, lineHeight: 1,
-            }}>
+            <button onClick={toggleFullscreen}
+              style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7, lineHeight: 1 }}>
               {isFullscreen ? "⊡" : "⊞"}
             </button>
-
-            <button onClick={handleClose} title="Close (Esc)" style={{
-              background: "transparent", border: "none", fontSize: 18,
-              color: LABEL_COLOR, cursor: "pointer", opacity: 0.5, lineHeight: 1, padding: "0 4px",
-            }}>
+            <button onClick={handleClose} title="Close (Esc)"
+              style={{ background: "transparent", border: "none", fontSize: 18, color: LABEL_COLOR, cursor: "pointer", opacity: 0.5, lineHeight: 1, padding: "0 4px" }}>
               ✕
             </button>
           </div>
@@ -630,16 +540,8 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
 
         {/* Canvas */}
         <div ref={containerRef} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-          {isLoading && (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
-              Loading graph…
-            </div>
-          )}
-          {error && (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 14 }}>
-              {error}
-            </div>
-          )}
+          {isLoading && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>Loading graph…</div>}
+          {error && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 14 }}>{error}</div>}
           {!isLoading && visibleNodes.length === 0 && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
               {data?.nodes.length === 0 ? "No notes yet." : "No notes match current filters."}
@@ -648,106 +550,56 @@ export const GraphView = forwardRef<GraphViewHandle>(function GraphView(_, ref) 
 
           <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block" }} />
 
-          {/* Tooltip */}
           {tooltip.visible && (
-            <div style={{
-              position: "absolute", left: tooltip.x, top: tooltip.y,
-              background: "rgba(24,24,24,0.95)", border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 8, padding: "8px 12px", pointerEvents: "none", zIndex: 10, minWidth: 140,
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: LABEL_COLOR, marginBottom: 4 }}>
-                {tooltip.title}
-              </div>
+            <div style={{ position: "absolute", left: tooltip.x, top: tooltip.y, background: "rgba(24,24,24,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", pointerEvents: "none", zIndex: 10, minWidth: 140 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: LABEL_COLOR, marginBottom: 4 }}>{tooltip.title}</div>
               <div style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, display: "flex", flexDirection: "column", gap: 2 }}>
                 <span>{tooltip.linkCount} {tooltip.linkCount === 1 ? "link" : "links"}</span>
                 {tooltip.tags.length > 0 && (
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
                     {tooltip.tags.map((t) => (
-                      <span key={t} style={{
-                        background: tagColorMap.get(t) ? `${tagColorMap.get(t)}33` : "rgba(255,255,255,0.08)",
-                        border: `1px solid ${tagColorMap.get(t) ?? "rgba(255,255,255,0.15)"}`,
-                        borderRadius: 3, padding: "1px 5px", fontSize: 10,
-                        color: tagColorMap.get(t) ?? LABEL_COLOR,
-                      }}>
-                        {t}
-                      </span>
+                      <span key={t} style={{ background: tagColorMap.get(t) ? `${tagColorMap.get(t)}33` : "rgba(255,255,255,0.08)", border: `1px solid ${tagColorMap.get(t) ?? "rgba(255,255,255,0.15)"}`, borderRadius: 3, padding: "1px 5px", fontSize: 10, color: tagColorMap.get(t) ?? LABEL_COLOR }}>{t}</span>
                     ))}
                   </div>
                 )}
-                <span style={{ marginTop: 4, opacity: 0.6, fontSize: 10 }}>
-                  Click to open · Shift+click to focus · Ctrl+click new tab
-                </span>
+                <span style={{ marginTop: 4, opacity: 0.6, fontSize: 10 }}>Click to open · Shift+click to focus · Ctrl+click new tab</span>
               </div>
             </div>
           )}
 
-          {/* Minimap */}
           {!isLoading && visibleNodes.length > 0 && (
-            <svg ref={minimapRef} width={MINIMAP_W} height={MINIMAP_H} style={{
-              position: "absolute", bottom: 16, right: 16,
-              borderRadius: 8, overflow: "hidden",
-              border: "1px solid rgba(255,255,255,0.08)", cursor: "crosshair",
-            }} />
+            <svg ref={minimapRef} width={MINIMAP_W} height={MINIMAP_H} style={{ position: "absolute", bottom: 16, right: 16, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", cursor: "crosshair" }} />
           )}
 
-          {/* Toasts */}
-          <div style={{
-            position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-            pointerEvents: "none", zIndex: 20,
-          }}>
+          <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, pointerEvents: "none", zIndex: 20 }}>
             {toasts.map((t) => (
-              <div key={t.id} style={{
-                background: "rgba(30,30,30,0.95)", border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 8, padding: "7px 14px", fontSize: 12, color: LABEL_COLOR,
-                animation: "graphToastIn 200ms ease", whiteSpace: "nowrap",
-              }}>
-                {t.message}
-              </div>
+              <div key={t.id} style={{ background: "rgba(30,30,30,0.95)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "7px 14px", fontSize: 12, color: LABEL_COLOR, animation: "graphToastIn 200ms ease", whiteSpace: "nowrap" }}>{t.message}</div>
             ))}
           </div>
 
-          {/* Legend */}
-          <div style={{
-            position: "absolute", bottom: 16, left: 16,
-            display: "flex", flexDirection: "column", gap: 5,
-            fontSize: 11, color: LABEL_COLOR, opacity: 0.45, pointerEvents: "none",
-            maxWidth: 160,
-          }}>
+          <div style={{ position: "absolute", bottom: 16, left: 16, display: "flex", flexDirection: "column", gap: 5, fontSize: 11, color: LABEL_COLOR, opacity: 0.45, pointerEvents: "none", maxWidth: 160 }}>
             {showTagColors && allTags.length > 0 ? (
               <>
                 {allTags.slice(0, 6).map((tag) => (
                   <div key={tag} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <svg width="10" height="10">
-                      <circle cx="5" cy="5" r="5" fill={tagColorMap.get(tag)} fillOpacity={0.85} />
-                    </svg>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {tag}
-                    </span>
+                    <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill={tagColorMap.get(tag)} fillOpacity={0.85} /></svg>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tag}</span>
                   </div>
                 ))}
-                {allTags.length > 6 && (
-                  <span style={{ opacity: 0.6 }}>+{allTags.length - 6} more tags</span>
-                )}
+                {allTags.length > 6 && <span style={{ opacity: 0.6 }}>+{allTags.length - 6} more tags</span>}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                  <svg width="10" height="10">
-                    <circle cx="5" cy="5" r="5" fill={NODE_ISOLATED} fillOpacity={0.85} />
-                  </svg>
+                  <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill={NODE_ISOLATED} fillOpacity={0.85} /></svg>
                   Isolated
                 </div>
               </>
             ) : (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg width="10" height="10">
-                    <circle cx="5" cy="5" r="5" fill={TAG_PALETTE[0]} fillOpacity={0.85} />
-                  </svg>
+                  <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill={TAG_PALETTE[0]} fillOpacity={0.85} /></svg>
                   Connected
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg width="10" height="10">
-                    <circle cx="5" cy="5" r="5" fill={NODE_ISOLATED} fillOpacity={0.85} />
-                  </svg>
+                  <svg width="10" height="10"><circle cx="5" cy="5" r="5" fill={NODE_ISOLATED} fillOpacity={0.85} /></svg>
                   Isolated
                 </div>
               </>

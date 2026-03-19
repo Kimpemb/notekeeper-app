@@ -10,6 +10,7 @@ type ContextItemId =
   | "new-sub-note"
   | "open-in-new-tab"
   | "open-in-split"
+  | "open-in-local-graph"
   | "rename"
   | "pin"
   | "move"
@@ -39,16 +40,17 @@ export function NoteTreeItem({
   const unpinNote    = useNoteStore((s) => s.unpinNote);
   const isPinned     = useNoteStore((s) => s.isPinned(noteId));
 
-  const expandedNodes       = useUIStore((s) => s.expandedNodes);
-  const toggleNode          = useUIStore((s) => s.toggleNode);
-  const replaceTab          = useUIStore((s) => s.replaceTab);
-  const openTab             = useUIStore((s) => s.openTab);
-  const openInSplit         = useUIStore((s) => s.openInSplit);
-  const isSelected          = useUIStore((s) => s.isNoteSelected(noteId));
-  const toggleNoteSelection = useUIStore((s) => s.toggleNoteSelection);
-  const selectNoteRange     = useUIStore((s) => s.selectNoteRange);
-  const clearSelection      = useUIStore((s) => s.clearSelection);
-  const selectedNoteIds     = useUIStore((s) => s.selectedNoteIds);
+  const expandedNodes        = useUIStore((s) => s.expandedNodes);
+  const toggleNode           = useUIStore((s) => s.toggleNode);
+  const replaceTab           = useUIStore((s) => s.replaceTab);
+  const openTab              = useUIStore((s) => s.openTab);
+  const openInSplit          = useUIStore((s) => s.openInSplit);
+  const openGraphForNote     = useUIStore((s) => s.openGraphForNote);
+  const isSelected           = useUIStore((s) => s.isNoteSelected(noteId));
+  const toggleNoteSelection  = useUIStore((s) => s.toggleNoteSelection);
+  const selectNoteRange      = useUIStore((s) => s.selectNoteRange);
+  const clearSelection       = useUIStore((s) => s.clearSelection);
+  const selectedNoteIds      = useUIStore((s) => s.selectedNoteIds);
 
   const [contextMenu, setContextMenu] = useState<ContextMenuPos | null>(null);
   const [renaming, setRenaming]       = useState(false);
@@ -72,8 +74,8 @@ export function NoteTreeItem({
   const isFocused   = focusedNoteId === noteId;
 
   const navItems: ContextItemId[] = isRoot
-    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "rename", "pin", "move", "trash"]
-    : ["new-sub-note", "open-in-new-tab", "open-in-split", "rename", "move", "trash"];
+    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "pin", "move", "trash"]
+    : ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "move", "trash"];
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -87,22 +89,13 @@ export function NoteTreeItem({
       if (e.key === "Escape") { setContextMenu(null); return; }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setFocusedItem((cur) => {
-          const idx = navItems.indexOf(cur);
-          return navItems[Math.min(idx + 1, navItems.length - 1)];
-        });
+        setFocusedItem((cur) => { const idx = navItems.indexOf(cur); return navItems[Math.min(idx + 1, navItems.length - 1)]; });
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setFocusedItem((cur) => {
-          const idx = navItems.indexOf(cur);
-          return navItems[Math.max(idx - 1, 0)];
-        });
+        setFocusedItem((cur) => { const idx = navItems.indexOf(cur); return navItems[Math.max(idx - 1, 0)]; });
       }
-      if (e.key === "Enter") {
-        e.preventDefault();
-        triggerItem(focusedItemRef.current);
-      }
+      if (e.key === "Enter") { e.preventDefault(); triggerItem(focusedItemRef.current); }
     }
 
     document.addEventListener("mousedown", handleMouse);
@@ -127,6 +120,10 @@ export function NoteTreeItem({
       case "open-in-split":
         setContextMenu(null);
         openInSplit(noteId);
+        break;
+      case "open-in-local-graph":
+        setContextMenu(null);
+        openGraphForNote(noteId);
         break;
       case "rename":
         setContextMenu(null);
@@ -203,7 +200,7 @@ export function NoteTreeItem({
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, flip: window.innerHeight - e.clientY < 260 });
+    setContextMenu({ x: e.clientX, y: e.clientY, flip: window.innerHeight - e.clientY < 280 });
   }
 
   async function commitRename() {
@@ -291,18 +288,19 @@ export function NoteTreeItem({
           }}
           className="z-50 min-w-[192px] py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
         >
-          <CtxItem label="New sub-note"     id="new-sub-note"    focused={focusedItem === "new-sub-note"}    onHover={() => setFocusedItem("new-sub-note")}    onClick={() => triggerItem("new-sub-note")} />
-          <CtxItem label="Open in new tab"  id="open-in-new-tab" focused={focusedItem === "open-in-new-tab"} onHover={() => setFocusedItem("open-in-new-tab")} onClick={() => triggerItem("open-in-new-tab")} />
-          <CtxItem label="Open in split"    id="open-in-split"   focused={focusedItem === "open-in-split"}   onHover={() => setFocusedItem("open-in-split")}   onClick={() => triggerItem("open-in-split")} />
+          <CtxItem label="New sub-note"        id="new-sub-note"         focused={focusedItem === "new-sub-note"}         onHover={() => setFocusedItem("new-sub-note")}         onClick={() => triggerItem("new-sub-note")} />
+          <CtxItem label="Open in new tab"     id="open-in-new-tab"      focused={focusedItem === "open-in-new-tab"}      onHover={() => setFocusedItem("open-in-new-tab")}      onClick={() => triggerItem("open-in-new-tab")} />
+          <CtxItem label="Open in split"       id="open-in-split"        focused={focusedItem === "open-in-split"}        onHover={() => setFocusedItem("open-in-split")}        onClick={() => triggerItem("open-in-split")} />
+          <CtxItem label="Open in local graph" id="open-in-local-graph"  focused={focusedItem === "open-in-local-graph"}  onHover={() => setFocusedItem("open-in-local-graph")}  onClick={() => triggerItem("open-in-local-graph")} />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem label="Rename"           id="rename"          focused={focusedItem === "rename"}          onHover={() => setFocusedItem("rename")}          onClick={() => triggerItem("rename")} />
+          <CtxItem label="Rename"              id="rename"               focused={focusedItem === "rename"}               onHover={() => setFocusedItem("rename")}               onClick={() => triggerItem("rename")} />
           {isRoot && (
             <CtxItem label={isPinned ? "Unpin" : "Pin to top"} id="pin" focused={focusedItem === "pin"} onHover={() => setFocusedItem("pin")} onClick={() => triggerItem("pin")} />
           )}
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem label="Move"             id="move"  focused={focusedItem === "move"}  onHover={() => setFocusedItem("move")}  onClick={() => triggerItem("move")} suffix="›" />
+          <CtxItem label="Move"                id="move"                 focused={focusedItem === "move"}                 onHover={() => setFocusedItem("move")}                 onClick={() => triggerItem("move")} suffix="›" />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem label="Move to Trash"    id="trash" focused={focusedItem === "trash"} onHover={() => setFocusedItem("trash")} onClick={() => triggerItem("trash")} danger />
+          <CtxItem label="Move to Trash"       id="trash"                focused={focusedItem === "trash"}                onHover={() => setFocusedItem("trash")}                onClick={() => triggerItem("trash")} danger />
         </div>
       )}
 
