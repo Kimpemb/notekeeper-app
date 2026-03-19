@@ -123,7 +123,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
       // placement atomically so React never sees a flushSync conflict.
       action: () => {
         const { state } = editor;
-        const { schema, selection } = state;
+        const { schema } = state;
 
         const summaryNode = schema.nodes.toggleSummary.create(
           {},
@@ -161,7 +161,6 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
             return false;
           })
           .run();
-          console.log("DOC AFTER INSERT:", JSON.stringify(editor.getJSON(), null, 2));
       },
     }] as Command[] : []),
     {
