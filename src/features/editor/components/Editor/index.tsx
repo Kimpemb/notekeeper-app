@@ -89,13 +89,15 @@ async function uploadImageFromDisk(): Promise<{ path: string; name: string } | n
 
 interface EditorProps {
   noteId: string;
+  /** Whether the pane containing this editor is the focused pane. */
+  isActivePane?: boolean;
   /** Scroll position to restore on mount (pixels from top). */
   initialScrollTop?: number;
   /** Called whenever scroll position changes, so App.tsx can persist it. */
   onScrollChange?: (scrollTop: number) => void;
 }
 
-export function Editor({ noteId, initialScrollTop = 0, onScrollChange }: EditorProps) {
+export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onScrollChange }: EditorProps) {
   const note                    = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
   const updateNote              = useNoteStore((s) => s.updateNote);
   const setActiveNote           = useNoteStore((s) => s.setActiveNote);
@@ -110,7 +112,7 @@ export function Editor({ noteId, initialScrollTop = 0, onScrollChange }: EditorP
   const setPendingScrollQuery   = useUIStore((s) => s.setPendingScrollQuery);
 
   const activeTabNoteId = useUIStore((s) => s.activeTabNoteId());
-  const isActiveTab     = activeTabNoteId === noteId;
+  const isActiveTab     = isActivePane && activeTabNoteId === noteId;
 
   const titleRef      = useRef<HTMLHeadingElement>(null);
   const editorWrapRef = useRef<HTMLDivElement>(null);

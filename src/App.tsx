@@ -11,6 +11,7 @@ import { KeyboardShortcuts } from "@/features/ui/components/KeyboardShortcuts";
 import { ImportModal } from "@/features/ui/components/ImportModal";
 import { TemplatePickerModal } from "@/features/ui/components/TemplatePickerModal";
 import { TabBar } from "@/features/ui/components/TabBar";
+import { SplitDivider } from "@/features/ui/components/SplitDivider";
 import { ThemeToggle } from "@/features/ui/components/ThemeToggle";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
 import { exportNotesToFile } from "@/lib/tauri/fs";
@@ -62,12 +63,20 @@ export default function App() {
   const toggleOutline          = useUIStore((s) => s.toggleOutline);
   const templatePickerOpen     = useUIStore((s) => s.templatePickerOpen);
   const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
-  const tabs                   = useUIStore((s) => s.tabs);
-  const activeTabId            = useUIStore((s) => s.activeTabId);
-  const openTab                = useUIStore((s) => s.openTab);
-  const replaceTab             = useUIStore((s) => s.replaceTab);
-  const closeActiveTab         = useUIStore((s) => s.closeActiveTab);
-  const cycleTab               = useUIStore((s) => s.cycleTab);
+
+  const tabs         = useUIStore((s) => s.tabs);
+  const activeTabId  = useUIStore((s) => s.activeTabId);
+  const openTab      = useUIStore((s) => s.openTab);
+  const replaceTab   = useUIStore((s) => s.replaceTab);
+  const closeActiveTab = useUIStore((s) => s.closeActiveTab);
+  const cycleTab     = useUIStore((s) => s.cycleTab);
+
+  const pane2Tabs         = useUIStore((s) => s.pane2Tabs);
+  const pane2ActiveTabId  = useUIStore((s) => s.pane2ActiveTabId);
+  const splitOpen         = useUIStore((s) => s.splitOpen);
+  const splitDirection    = useUIStore((s) => s.splitDirection);
+  const activePaneId      = useUIStore((s) => s.activePaneId);
+  const setActivePaneId   = useUIStore((s) => s.setActivePaneId);
 
   const [dbReady, setDbReady]     = useState(false);
   const [dbError, setDbError]     = useState<string | null>(null);
@@ -77,9 +86,7 @@ export default function App() {
   const openInNewTabRef  = useRef(false);
   const newNoteParentRef = useRef<string | null>(null);
 
-  // ── Scroll position memory ────────────────────────────────────────────────
-  // Keyed by noteId. Saved when a tab becomes inactive, restored when it
-  // becomes active. Passed down to Editor so it can save/restore itself.
+  // Scroll position memory keyed by noteId
   const scrollPositions = useRef<Map<string, number>>(new Map());
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
@@ -250,6 +257,49 @@ export default function App() {
     setSidebarState("open");
   }
 
+  // ── Pane renderer — reused for both pane 1 and pane 2 ────────────────────
+  function renderPane(paneId: 1 | 2) {
+    const paneTabs    = paneId === 1 ? tabs : pane2Tabs;
+    const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
+    const isPaneFocused   = activePaneId === paneId;
+
+    return (
+      <div
+        className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0"
+        onMouseDown={() => { if (!isPaneFocused) setActivePaneId(paneId); }}
+      >
+        <TabBar paneId={paneId} />
+
+        <div className="flex-1 flex overflow-hidden relative">
+          {paneTabs.length === 0 ? (
+            <EmptyState />
+          ) : (
+            paneTabs.map((tab) => {
+              const isActive = tab.id === paneActiveTabId;
+              return (
+                <div
+                  key={tab.id}
+                  className="flex-1 flex overflow-hidden"
+                  style={{ display: isActive ? "flex" : "none" }}
+                >
+                  <Editor
+                    key={tab.noteId}
+                    noteId={tab.noteId}
+                    isActivePane={isPaneFocused}
+                    initialScrollTop={scrollPositions.current.get(tab.noteId) ?? 0}
+                    onScrollChange={(top) => scrollPositions.current.set(tab.noteId, top)}
+                  />
+                </div>
+              );
+            })
+          )}
+          {/* File tree only shown in pane 1 */}
+          {paneId === 1 && fileTreeOpen && <FileTreePanel />}
+        </div>
+      </div>
+    );
+  }
+
   if (dbError) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-white dark:bg-zinc-950 p-8">
@@ -387,52 +437,19 @@ export default function App() {
           </div>
         </header>
 
-        {/* ── Tab bar ────────────────────────────────────────────────────── */}
-        <TabBar />
-
-        {/* ── Main editor area ───────────────────────────────────────────── */}
-        <main className="flex-1 flex overflow-hidden relative">
-          {tabs.length === 0 ? (
-            <EmptyState />
-          ) : (
-            tabs.map((tab) => {
-              const isActive = activeTabId === tab.id;
-              return (
-                <div
-                  key={tab.id}
-                  className="flex-1 flex overflow-hidden"
-                  style={{ display: isActive ? "flex" : "none" }}
-                >
-                  {/*
-                    KEY ON noteId, NOT tab.id
-                    ─────────────────────────
-                    Keying on tab.id would reuse the same Editor instance when
-                    the tab's noteId changes (sidebar navigation). That forces
-                    content to be loaded via setContent() from a useEffect,
-                    which collides with TipTap 3's internal flushSync() calls
-                    during ReactNodeViewRenderer mount — React 18 blocks flushSync
-                    inside passive effects, NodeViews silently fail to render.
-
-                    Keying on noteId means every note navigation remounts a
-                    fresh Editor. Content is passed as the initial `content`
-                    prop to useEditor() — set at construction time, before any
-                    React commit phase, so flushSync is never an issue.
-
-                    Tradeoff: undo history resets on navigation (acceptable).
-                    Scroll position is preserved separately via scrollPositions
-                    ref map in App.tsx, passed as initialScrollTop to Editor.
-                  */}
-                  <Editor
-                    key={tab.noteId}
-                    noteId={tab.noteId}
-                    initialScrollTop={scrollPositions.current.get(tab.noteId) ?? 0}
-                    onScrollChange={(top) => scrollPositions.current.set(tab.noteId, top)}
-                  />
-                </div>
-              );
-            })
+        {/* ── Main content area: pane(s) ─────────────────────────────────── */}
+        <main
+          className={`flex-1 flex overflow-hidden ${
+            splitOpen && splitDirection === "vertical" ? "flex-col" : "flex-row"
+          }`}
+        >
+          {renderPane(1)}
+          {splitOpen && (
+            <>
+              <SplitDivider />
+              {renderPane(2)}
+            </>
           )}
-          {fileTreeOpen && <FileTreePanel />}
         </main>
       </div>
 

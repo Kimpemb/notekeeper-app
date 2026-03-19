@@ -5,6 +5,7 @@ import { getSetting, setSetting } from "@/features/notes/db/queries";
 type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 export type SidebarState = "closed" | "peek" | "open";
+export type SplitDirection = "horizontal" | "vertical";
 
 export interface Tab {
   id: string;      // stable tab uuid
@@ -115,7 +116,7 @@ interface UIStore {
     exportNotePdf: () => Promise<void>;
   }) => void;
 
-  // ─── Tabs ─────────────────────────────────────────────────────────────────
+  // ─── Pane 1 tabs (primary — always exists) ────────────────────────────────
   tabs: Tab[];
   activeTabId: string | null;
   replaceTab: (noteId: string) => void;
@@ -127,16 +128,40 @@ interface UIStore {
   cycleTab: (dir: 1 | -1) => void;
   activeTabNoteId: () => string | null;
 
+  // ─── Pane 2 tabs (split — optional) ──────────────────────────────────────
+  // pane2Tabs is empty when no split is open.
+  // All pane-2 tab actions mirror pane-1 actions but operate on pane2 state.
+  pane2Tabs: Tab[];
+  pane2ActiveTabId: string | null;
+  splitOpen: boolean;
+  splitDirection: SplitDirection;
+
+  // Open noteId in a new split pane. If split already open, opens a new tab
+  // in pane 2. If split is closed, opens pane 2 with this note.
+  openInSplit: (noteId: string) => void;
+  // Close the entire pane 2 (and all its tabs).
+  closePane2: () => void;
+  // Toggle between horizontal (side by side) and vertical (top/bottom).
+  toggleSplitDirection: () => void;
+  // Swap: move pane 1's active tab into pane 2 and vice versa.
+  swapPanes: () => void;
+
+  setPane2ActiveTab: (tabId: string) => void;
+  closePane2Tab: (tabId: string) => void;
+  openTabInPane2: (noteId: string) => void;
+
+  // Which pane is currently focused (for keyboard shortcuts, save status, etc.)
+  activePaneId: 1 | 2;
+  setActivePaneId: (pane: 1 | 2) => void;
+
+  // Returns the active noteId for a given pane (or either pane's active note)
+  paneActiveNoteId: (pane: 1 | 2) => string | null;
+
   // ─── Sidebar note selection ───────────────────────────────────────────────
-  // Set of noteIds currently selected in the sidebar.
   selectedNoteIds: Set<string>;
-  // Toggle a single note in/out of the selection (Ctrl+click).
   toggleNoteSelection: (id: string) => void;
-  // Select all notes between fromId and toId in the given flat ordered list (Shift+click).
   selectNoteRange: (fromId: string, toId: string, orderedIds: string[]) => void;
-  // Clear the entire selection.
   clearSelection: () => void;
-  // Convenience selector used by NoteTreeItem.
   isNoteSelected: (id: string) => boolean;
 }
 
@@ -290,7 +315,7 @@ export const useUIStore = create<UIStore>((set, get) => {
     exportHandlers: null,
     setExportHandlers: (handlers) => set({ exportHandlers: handlers }),
 
-    // ─── Tabs ─────────────────────────────────────────────────────────────────
+    // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
     tabs: [],
     activeTabId: null,
 
@@ -330,34 +355,150 @@ export const useUIStore = create<UIStore>((set, get) => {
     },
 
     closeTabsForNotes: (noteIds) => {
-      const { tabs, activeTabId } = get();
-      const next = tabs.filter((t) => !noteIds.has(t.noteId));
-      let nextActiveTabId = activeTabId;
-      if (activeTabId) {
-        const activeStillExists = next.some((t) => t.id === activeTabId);
-        if (!activeStillExists) nextActiveTabId = next[next.length - 1]?.id ?? null;
+      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
+
+      // Pane 1
+      const next1 = tabs.filter((t) => !noteIds.has(t.noteId));
+      let nextActive1 = activeTabId;
+      if (activeTabId && !next1.some((t) => t.id === activeTabId)) {
+        nextActive1 = next1[next1.length - 1]?.id ?? null;
       }
-      set({ tabs: next, activeTabId: nextActiveTabId });
+
+      // Pane 2
+      const next2 = pane2Tabs.filter((t) => !noteIds.has(t.noteId));
+      let nextActive2 = pane2ActiveTabId;
+      if (pane2ActiveTabId && !next2.some((t) => t.id === pane2ActiveTabId)) {
+        nextActive2 = next2[next2.length - 1]?.id ?? null;
+      }
+
+      set({
+        tabs: next1,
+        activeTabId: nextActive1,
+        pane2Tabs: next2,
+        pane2ActiveTabId: nextActive2,
+        // Auto-close pane 2 if it has no tabs left
+        splitOpen: next2.length > 0 ? get().splitOpen : false,
+      });
     },
 
     setActiveTab: (tabId) => set({ activeTabId: tabId }),
 
     closeActiveTab: () => {
-      const { activeTabId } = get();
-      if (activeTabId) get().closeTab(activeTabId);
+      const { activePaneId, activeTabId, pane2ActiveTabId } = get();
+      if (activePaneId === 2 && pane2ActiveTabId) {
+        get().closePane2Tab(pane2ActiveTabId);
+      } else if (activeTabId) {
+        get().closeTab(activeTabId);
+      }
     },
 
     cycleTab: (dir) => {
-      const { tabs, activeTabId } = get();
-      if (tabs.length < 2) return;
-      const idx = tabs.findIndex((t) => t.id === activeTabId);
-      if (idx === -1) return;
-      const next = (idx + dir + tabs.length) % tabs.length;
-      set({ activeTabId: tabs[next].id });
+      const { activePaneId, tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
+      if (activePaneId === 2) {
+        if (pane2Tabs.length < 2) return;
+        const idx = pane2Tabs.findIndex((t) => t.id === pane2ActiveTabId);
+        if (idx === -1) return;
+        const next = (idx + dir + pane2Tabs.length) % pane2Tabs.length;
+        set({ pane2ActiveTabId: pane2Tabs[next].id });
+      } else {
+        if (tabs.length < 2) return;
+        const idx = tabs.findIndex((t) => t.id === activeTabId);
+        if (idx === -1) return;
+        const next = (idx + dir + tabs.length) % tabs.length;
+        set({ activeTabId: tabs[next].id });
+      }
     },
 
     activeTabNoteId: () => {
       const { tabs, activeTabId } = get();
+      return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
+    },
+
+    // ─── Pane 2 tabs ─────────────────────────────────────────────────────────
+    pane2Tabs: [],
+    pane2ActiveTabId: null,
+    splitOpen: false,
+    splitDirection: "horizontal",
+
+    openInSplit: (noteId) => {
+      const { splitOpen, pane2Tabs } = get();
+      if (!splitOpen) {
+        // Open pane 2 with this note
+        const tab: Tab = { id: makeTabId(), noteId };
+        set({
+          splitOpen: true,
+          pane2Tabs: [tab],
+          pane2ActiveTabId: tab.id,
+          activePaneId: 2,
+        });
+      } else {
+        // Pane 2 already open — add a new tab in it
+        const tab: Tab = { id: makeTabId(), noteId };
+        set({
+          pane2Tabs: [...pane2Tabs, tab],
+          pane2ActiveTabId: tab.id,
+          activePaneId: 2,
+        });
+      }
+    },
+
+    closePane2: () => {
+      set({
+        splitOpen: false,
+        pane2Tabs: [],
+        pane2ActiveTabId: null,
+        activePaneId: 1,
+      });
+    },
+
+    toggleSplitDirection: () => {
+      set((s) => ({
+        splitDirection: s.splitDirection === "horizontal" ? "vertical" : "horizontal",
+      }));
+    },
+
+    swapPanes: () => {
+      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
+      set({
+        tabs: pane2Tabs,
+        activeTabId: pane2ActiveTabId,
+        pane2Tabs: tabs,
+        pane2ActiveTabId: activeTabId,
+      });
+    },
+
+    setPane2ActiveTab: (tabId) => set({ pane2ActiveTabId: tabId }),
+
+    closePane2Tab: (tabId) => {
+      const { pane2Tabs, pane2ActiveTabId } = get();
+      const idx = pane2Tabs.findIndex((t) => t.id === tabId);
+      if (idx === -1) return;
+      const next = pane2Tabs.filter((t) => t.id !== tabId);
+      if (next.length === 0) {
+        // Last tab in pane 2 closed — close the pane entirely
+        get().closePane2();
+        return;
+      }
+      let nextActiveTabId = pane2ActiveTabId;
+      if (pane2ActiveTabId === tabId) {
+        nextActiveTabId = (next[idx] ?? next[idx - 1])?.id ?? null;
+      }
+      set({ pane2Tabs: next, pane2ActiveTabId: nextActiveTabId });
+    },
+
+    openTabInPane2: (noteId) => {
+      const { pane2Tabs } = get();
+      const tab: Tab = { id: makeTabId(), noteId };
+      set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id });
+    },
+
+    // ─── Active pane ─────────────────────────────────────────────────────────
+    activePaneId: 1,
+    setActivePaneId: (pane) => set({ activePaneId: pane }),
+
+    paneActiveNoteId: (pane) => {
+      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
+      if (pane === 2) return pane2Tabs.find((t) => t.id === pane2ActiveTabId)?.noteId ?? null;
       return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
     },
 

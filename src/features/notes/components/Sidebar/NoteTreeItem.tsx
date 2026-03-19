@@ -9,6 +9,7 @@ import type { Note } from "@/types";
 type ContextItemId =
   | "new-sub-note"
   | "open-in-new-tab"
+  | "open-in-split"
   | "rename"
   | "pin"
   | "move"
@@ -19,7 +20,6 @@ interface Props {
   depth: number;
   flatOrderedIds: string[];
   lastSelectedIdRef: React.MutableRefObject<string | null>;
-  // Keyboard nav: which noteId currently has sidebar focus (null = none)
   focusedNoteId: string | null;
   setFocusedNoteId: (id: string | null) => void;
 }
@@ -43,6 +43,7 @@ export function NoteTreeItem({
   const toggleNode          = useUIStore((s) => s.toggleNode);
   const replaceTab          = useUIStore((s) => s.replaceTab);
   const openTab             = useUIStore((s) => s.openTab);
+  const openInSplit         = useUIStore((s) => s.openInSplit);
   const isSelected          = useUIStore((s) => s.isNoteSelected(noteId));
   const toggleNoteSelection = useUIStore((s) => s.toggleNoteSelection);
   const selectNoteRange     = useUIStore((s) => s.selectNoteRange);
@@ -71,8 +72,8 @@ export function NoteTreeItem({
   const isFocused   = focusedNoteId === noteId;
 
   const navItems: ContextItemId[] = isRoot
-    ? ["new-sub-note", "open-in-new-tab", "rename", "pin", "move", "trash"]
-    : ["new-sub-note", "open-in-new-tab", "rename", "move", "trash"];
+    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "rename", "pin", "move", "trash"]
+    : ["new-sub-note", "open-in-new-tab", "open-in-split", "rename", "move", "trash"];
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -123,6 +124,10 @@ export function NoteTreeItem({
         openTab(noteId);
         setActive(noteId, true);
         break;
+      case "open-in-split":
+        setContextMenu(null);
+        openInSplit(noteId);
+        break;
       case "rename":
         setContextMenu(null);
         setRenameValue(note!.title);
@@ -145,15 +150,11 @@ export function NoteTreeItem({
 
   useEffect(() => { if (renaming) renameRef.current?.select(); }, [renaming]);
 
-  // Single-note Delete key — only fires when:
-  // 1. This note is the active note
-  // 2. There is NO multi-selection active (multi-selection Delete is handled by NoteTree)
   useEffect(() => {
     if (!isActive) return;
     function handleKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
-      // If a multi-selection exists, let NoteTree's handler take it — don't double-fire.
       if (useUIStore.getState().selectedNoteIds.size > 0) return;
       if (e.key === "Delete") { e.preventDefault(); setConfirmOpen(true); }
     }
@@ -183,7 +184,6 @@ export function NoteTreeItem({
       return;
     }
 
-    // Plain click — clear selection, navigate, set keyboard focus.
     if (selectedNoteIds.size > 0) clearSelection();
     setFocusedNoteId(noteId);
 
@@ -203,7 +203,7 @@ export function NoteTreeItem({
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, flip: window.innerHeight - e.clientY < 220 });
+    setContextMenu({ x: e.clientX, y: e.clientY, flip: window.innerHeight - e.clientY < 260 });
   }
 
   async function commitRename() {
@@ -291,17 +291,18 @@ export function NoteTreeItem({
           }}
           className="z-50 min-w-[192px] py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
         >
-          <CtxItem label="New sub-note"    id="new-sub-note"    focused={focusedItem === "new-sub-note"}    onHover={() => setFocusedItem("new-sub-note")}    onClick={() => triggerItem("new-sub-note")} />
-          <CtxItem label="Open in new tab" id="open-in-new-tab" focused={focusedItem === "open-in-new-tab"} onHover={() => setFocusedItem("open-in-new-tab")} onClick={() => triggerItem("open-in-new-tab")} />
+          <CtxItem label="New sub-note"     id="new-sub-note"    focused={focusedItem === "new-sub-note"}    onHover={() => setFocusedItem("new-sub-note")}    onClick={() => triggerItem("new-sub-note")} />
+          <CtxItem label="Open in new tab"  id="open-in-new-tab" focused={focusedItem === "open-in-new-tab"} onHover={() => setFocusedItem("open-in-new-tab")} onClick={() => triggerItem("open-in-new-tab")} />
+          <CtxItem label="Open in split"    id="open-in-split"   focused={focusedItem === "open-in-split"}   onHover={() => setFocusedItem("open-in-split")}   onClick={() => triggerItem("open-in-split")} />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem label="Rename"          id="rename"          focused={focusedItem === "rename"}          onHover={() => setFocusedItem("rename")}          onClick={() => triggerItem("rename")} />
+          <CtxItem label="Rename"           id="rename"          focused={focusedItem === "rename"}          onHover={() => setFocusedItem("rename")}          onClick={() => triggerItem("rename")} />
           {isRoot && (
             <CtxItem label={isPinned ? "Unpin" : "Pin to top"} id="pin" focused={focusedItem === "pin"} onHover={() => setFocusedItem("pin")} onClick={() => triggerItem("pin")} />
           )}
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem label="Move"          id="move"  focused={focusedItem === "move"}  onHover={() => setFocusedItem("move")}  onClick={() => triggerItem("move")} suffix="›" />
+          <CtxItem label="Move"             id="move"  focused={focusedItem === "move"}  onHover={() => setFocusedItem("move")}  onClick={() => triggerItem("move")} suffix="›" />
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
-          <CtxItem label="Move to Trash" id="trash" focused={focusedItem === "trash"} onHover={() => setFocusedItem("trash")} onClick={() => triggerItem("trash")} danger />
+          <CtxItem label="Move to Trash"    id="trash" focused={focusedItem === "trash"} onHover={() => setFocusedItem("trash")} onClick={() => triggerItem("trash")} danger />
         </div>
       )}
 
