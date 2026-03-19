@@ -73,11 +73,14 @@ export default function App() {
   const [dbError, setDbError]     = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const slideTimeout    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const openInNewTabRef = useRef(false);
-  // Captures the active note at the moment Ctrl+N is pressed.
-  // Used to create the new note as a child of that note.
+  const slideTimeout     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openInNewTabRef  = useRef(false);
   const newNoteParentRef = useRef<string | null>(null);
+
+  // ── Scroll position memory ────────────────────────────────────────────────
+  // Keyed by noteId. Saved when a tab becomes inactive, restored when it
+  // becomes active. Passed down to Editor so it can save/restore itself.
+  const scrollPositions = useRef<Map<string, number>>(new Map());
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
@@ -104,7 +107,7 @@ export default function App() {
   // ── Custom event: new note in new tab (from command palette) ─────────────
   useEffect(() => {
     function handle() {
-      openInNewTabRef.current = true;
+      openInNewTabRef.current  = true;
       newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
     }
@@ -130,7 +133,6 @@ export default function App() {
     if (!dbReady) return;
     const ctrl = e.ctrlKey || e.metaKey;
 
-    // Ctrl+Tab / Ctrl+Shift+Tab — cycle through tabs.
     if (ctrl && e.key === "Tab") {
       e.preventDefault();
       cycleTab(e.shiftKey ? -1 : 1);
@@ -139,18 +141,16 @@ export default function App() {
 
     if (ctrl && e.key === "k") { e.preventDefault(); togglePalette(); }
 
-    // Ctrl+Shift+N — new note in a brand new tab.
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
-      openInNewTabRef.current = true;
+      openInNewTabRef.current  = true;
       newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
       return;
     }
-    // Ctrl+N — new note in the current tab, as child of active note.
     if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
-      openInNewTabRef.current = false;
+      openInNewTabRef.current  = false;
       newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
     }
@@ -174,8 +174,6 @@ export default function App() {
 
   async function handleTemplateSelect(template: Template) {
     closeTemplatePicker();
-
-    // Pass the captured parent_id so the new note is created as a child.
     const parentId = newNoteParentRef.current ?? undefined;
     const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
 
@@ -397,15 +395,42 @@ export default function App() {
           {tabs.length === 0 ? (
             <EmptyState />
           ) : (
-            tabs.map((tab) => (
-              <div
-                key={tab.id}
-                className="flex-1 flex overflow-hidden"
-                style={{ display: activeTabId === tab.id ? "flex" : "none" }}
-              >
-                <Editor noteId={tab.noteId} />
-              </div>
-            ))
+            tabs.map((tab) => {
+              const isActive = activeTabId === tab.id;
+              return (
+                <div
+                  key={tab.id}
+                  className="flex-1 flex overflow-hidden"
+                  style={{ display: isActive ? "flex" : "none" }}
+                >
+                  {/*
+                    KEY ON noteId, NOT tab.id
+                    ─────────────────────────
+                    Keying on tab.id would reuse the same Editor instance when
+                    the tab's noteId changes (sidebar navigation). That forces
+                    content to be loaded via setContent() from a useEffect,
+                    which collides with TipTap 3's internal flushSync() calls
+                    during ReactNodeViewRenderer mount — React 18 blocks flushSync
+                    inside passive effects, NodeViews silently fail to render.
+
+                    Keying on noteId means every note navigation remounts a
+                    fresh Editor. Content is passed as the initial `content`
+                    prop to useEditor() — set at construction time, before any
+                    React commit phase, so flushSync is never an issue.
+
+                    Tradeoff: undo history resets on navigation (acceptable).
+                    Scroll position is preserved separately via scrollPositions
+                    ref map in App.tsx, passed as initialScrollTop to Editor.
+                  */}
+                  <Editor
+                    key={tab.noteId}
+                    noteId={tab.noteId}
+                    initialScrollTop={scrollPositions.current.get(tab.noteId) ?? 0}
+                    onScrollChange={(top) => scrollPositions.current.set(tab.noteId, top)}
+                  />
+                </div>
+              );
+            })
           )}
           {fileTreeOpen && <FileTreePanel />}
         </main>

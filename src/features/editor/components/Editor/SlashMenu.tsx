@@ -118,48 +118,50 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
           <path d="M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
         </svg>
       ),
+      // Insert toggle entirely via a ProseMirror transaction — no setTimeout,
+      // no post-render cursor manipulation. The chain handles focus and cursor
+      // placement atomically so React never sees a flushSync conflict.
       action: () => {
-        // Insert a properly structured toggle node
+        const { state } = editor;
+        const { schema, selection } = state;
+
+        const summaryNode = schema.nodes.toggleSummary.create(
+          {},
+          schema.text("Toggle title"),
+        );
+        const toggleNode = schema.nodes.toggle.create(
+          { open: false },
+          summaryNode,
+        );
+
         editor
           .chain()
           .focus()
-          .insertContent({
-            type: "toggle",
-            attrs: { open: false },
-            content: [
-              {
-                type: "toggleSummary",
-                attrs: { open: false },
-                content: [
-                  {
-                    type: "text",
-                    text: "Toggle title"
-                  }
-                ]
+          .insertContent(toggleNode.toJSON())
+          .command(({ tr, state: s }) => {
+            // Walk backwards from the current cursor to find the toggleSummary
+            // we just inserted, then place the cursor inside it so the user
+            // can immediately rename the title without a second click.
+            const { $from } = s.selection;
+            for (let depth = $from.depth; depth > 0; depth--) {
+              if ($from.node(depth).type.name === "toggleSummary") {
+                const start = $from.start(depth);
+                const end   = $from.end(depth);
+                // Select "Toggle title" so typing immediately replaces it
+                tr.setSelection(
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  (s.selection as any).constructor.between(
+                    tr.doc.resolve(start),
+                    tr.doc.resolve(end),
+                  ),
+                );
+                return true;
               }
-            ]
+            }
+            return false;
           })
           .run();
-        
-        // Move cursor into the summary to edit the title
-        setTimeout(() => {
-          const { state } = editor;
-          const { selection } = state;
-          const $pos = selection.$from;
-          
-          // Find the toggle we just inserted and set cursor inside the summary
-          for (let d = $pos.depth; d > 0; d--) {
-            const node = $pos.node(d);
-            if (node.type.name === "toggle") {
-              const togglePos = $pos.before(d);
-              // Position cursor inside the summary (after the toggle and summary tags)
-              // +1 for toggle start, +1 for summary start, then inside the text content
-              const summaryPos = togglePos + 2; // This puts cursor at the beginning of the summary content
-              editor.commands.setTextSelection({ from: summaryPos, to: summaryPos });
-              break;
-            }
-          }
-        }, 10);
+          console.log("DOC AFTER INSERT:", JSON.stringify(editor.getJSON(), null, 2));
       },
     }] as Command[] : []),
     {
@@ -267,8 +269,8 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout", 
-        attrs: { type: "info" }, 
+        type: "callout",
+        attrs: { type: "info" },
         content: [{ type: "paragraph" }],
       }).run(),
     },
@@ -284,8 +286,8 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout", 
-        attrs: { type: "warning" }, 
+        type: "callout",
+        attrs: { type: "warning" },
         content: [{ type: "paragraph" }],
       }).run(),
     },
@@ -300,8 +302,8 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout", 
-        attrs: { type: "tip" }, 
+        type: "callout",
+        attrs: { type: "tip" },
         content: [{ type: "paragraph" }],
       }).run(),
     },
@@ -316,8 +318,8 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
         </svg>
       ),
       action: () => editor.chain().focus().insertContent({
-        type: "callout", 
-        attrs: { type: "danger" }, 
+        type: "callout",
+        attrs: { type: "danger" },
         content: [{ type: "paragraph" }],
       }).run(),
     },

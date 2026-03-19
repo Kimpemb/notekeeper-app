@@ -1,0 +1,31 @@
+/* src/styles/ui.css */
+
+/* ─── Find & Replace ─────────────────────────────────────────────────────── */
+.find-replace-match {
+  background-color: rgba(250, 204, 21, 0.35);
+  border-radius: 2px;
+}
+
+.find-replace-current {
+  background-color: rgba(249, 115, 22, 0.5);
+  border-radius: 2px;
+  outline: 1.5px solid rgba(249, 115, 22, 0.7);
+}
+
+.dark .find-replace-match { background-color: rgba(250, 204, 21, 0.2); }
+.dark .find-replace-current {
+  background-color: rgba(249, 115, 22, 0.4);
+  outline-color: rgba(249, 115, 22, 0.6);
+}
+
+/* ─── Search match highlight ─────────────────────────────────────────────── */
+.search-match-highlight {
+  background-color: rgb(251 191 36 / 0.45);
+  border-radius: 3px;
+  padding: 1px 0;
+  transition: background-color 0.6s ease;
+}
+
+.dark .search-match-highlight {
+  background-color: rgb(180 130 20 / 0.45);
+}

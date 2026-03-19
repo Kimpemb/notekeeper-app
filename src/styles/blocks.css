@@ -1,0 +1,371 @@
+/* src/styles/blocks.css */
+
+/* ─── Task lists ─────────────────────────────────────────────────────────── */
+.tiptap ul.task-list {
+  list-style: none;
+  padding-left: 0.25rem;
+  margin-bottom: 0.55rem;
+}
+
+.tiptap ul.task-list ul.task-list {
+  margin-bottom: 0;
+  padding-left: 1.5rem;
+}
+
+.tiptap li.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-bottom: 0.25rem;
+  padding: 0.1rem 0;
+}
+
+.tiptap li.task-item > label {
+  display: flex;
+  align-items: center;
+  margin-top: 0.22rem;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.tiptap li.task-item > label > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 2px;
+  border: 1.5px solid #d1d5db;
+  background: #ffffff;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tiptap li.task-item > label > input[type="checkbox"]:hover {
+  border-color: #3b82f6;
+}
+
+.tiptap li.task-item > label > input[type="checkbox"]:checked {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.tiptap li.task-item > label > input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 0.18rem;
+  top: 0.05rem;
+  width: 0.35rem;
+  height: 0.6rem;
+  border: 1.5px solid #ffffff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+.dark .tiptap li.task-item > label > input[type="checkbox"] {
+  border-color: #52525b;
+  background: #27272a;
+}
+
+.dark .tiptap li.task-item > label > input[type="checkbox"]:hover {
+  border-color: #60a5fa;
+}
+
+.dark .tiptap li.task-item > label > input[type="checkbox"]:checked {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.tiptap li.task-item > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.tiptap li.task-item[data-checked="true"] > div p {
+  text-decoration: line-through;
+  color: #9ca3af;
+}
+
+.dark .tiptap li.task-item[data-checked="true"] > div p {
+  color: #52525b;
+}
+
+/* ─── Callout blocks ─────────────────────────────────────────────────────── */
+.tiptap .callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 0.65rem;
+}
+
+.tiptap .callout-icon-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.18rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0.85;
+  transition: opacity 100ms, transform 100ms;
+}
+
+.tiptap .callout-icon-btn:hover {
+  opacity: 1;
+  transform: scale(1.12);
+}
+
+.tiptap .callout-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.tiptap .callout-content p { margin-bottom: 0.25rem; }
+.tiptap .callout-content p:last-child { margin-bottom: 0; }
+
+/* Callout variants */
+.tiptap .callout-info    { background: #eff6ff; }
+.tiptap .callout-warning { background: #fffbeb; }
+.tiptap .callout-tip     { background: #f0fdf4; }
+.tiptap .callout-danger  { background: #fff1f2; }
+
+.tiptap .callout-info    .callout-icon-btn { color: #3b82f6; }
+.tiptap .callout-warning .callout-icon-btn { color: #f59e0b; }
+.tiptap .callout-tip     .callout-icon-btn { color: #22c55e; }
+.tiptap .callout-danger  .callout-icon-btn { color: #ef4444; }
+
+.dark .tiptap .callout-info    { background: rgba(59, 130, 246, 0.08); }
+.dark .tiptap .callout-warning { background: rgba(245, 158, 11, 0.08); }
+.dark .tiptap .callout-tip     { background: rgba(34, 197, 94, 0.08); }
+.dark .tiptap .callout-danger  { background: rgba(239, 68, 68, 0.08); }
+
+.dark .tiptap .callout-info    .callout-icon-btn { color: #60a5fa; }
+.dark .tiptap .callout-warning .callout-icon-btn { color: #fbbf24; }
+.dark .tiptap .callout-tip     .callout-icon-btn { color: #4ade80; }
+.dark .tiptap .callout-danger  .callout-icon-btn { color: #f87171; }
+
+/* Callout dropdown */
+.callout-dropdown {
+  background: #ffffff;
+  border: 1px solid #e4e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 9rem;
+  animation: lang-drop-in 100ms ease;
+}
+
+.dark .callout-dropdown {
+  background: #1c2128;
+  border-color: #30363d;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.callout-dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background 80ms;
+  color: #374151;
+}
+
+.dark .callout-dropdown-option { color: #c9d1d9; }
+
+.callout-dropdown-option:hover        { background: #f3f4f6; }
+.dark .callout-dropdown-option:hover  { background: #21262d; }
+.callout-dropdown-option.active       { background: #f3f4f6; font-weight: 600; }
+.dark .callout-dropdown-option.active { background: #21262d; }
+
+.callout-dropdown-icon         { display: flex; align-items: center; }
+.callout-dropdown-icon-info    { color: #3b82f6; }
+.callout-dropdown-icon-warning { color: #f59e0b; }
+.callout-dropdown-icon-tip     { color: #22c55e; }
+.callout-dropdown-icon-danger  { color: #ef4444; }
+
+.dark .callout-dropdown-icon-info    { color: #60a5fa; }
+.dark .callout-dropdown-icon-warning { color: #fbbf24; }
+.dark .callout-dropdown-icon-tip     { color: #4ade80; }
+.dark .callout-dropdown-icon-danger  { color: #f87171; }
+
+/* ─── Toggle blocks ──────────────────────────────────────────────────────── */
+.tiptap .toggle-block {
+  position: relative;
+  margin-bottom: 0.3rem;
+}
+
+.tiptap .toggle-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1.4rem;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 0.18rem;
+  pointer-events: none;
+}
+
+.tiptap .toggle-arrow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 3px;
+  color: #9ca3af;
+  transition: color 100ms, background 100ms;
+  pointer-events: all;
+  flex-shrink: 0;
+}
+
+.tiptap .toggle-arrow-btn:hover {
+  color: #6b7280;
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.dark .tiptap .toggle-arrow-btn       { color: #52525b; }
+.dark .tiptap .toggle-arrow-btn:hover { color: #a1a1aa; background: rgba(255,255,255,0.06); }
+
+.tiptap .toggle-arrow-icon {
+  transition: transform 150ms ease;
+  transform: rotate(0deg);
+}
+
+.tiptap .toggle-open .toggle-arrow-icon {
+  transform: rotate(90deg);
+}
+
+.tiptap .toggle-children {
+  padding-left: 1.5rem;
+}
+
+.tiptap .toggle-summary-row {
+  margin: 0;
+  min-height: 1.65em;
+}
+
+.tiptap .toggle-summary-content {
+  display: block;
+}
+
+.tiptap .toggle-summary-content p {
+  margin-bottom: 0;
+}
+
+.tiptap .toggle-closed .toggle-body {
+  height: 0;
+  visibility: hidden;
+  overflow: hidden;
+}
+
+.tiptap .toggle-open .toggle-body {
+  height: auto;
+  visibility: visible;
+}
+
+.tiptap .toggle-body-content {
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+}
+
+.tiptap .toggle-body-content > p               { margin-bottom: 0.35rem; }
+.tiptap .toggle-body-content > p:last-child    { margin-bottom: 0; }
+.tiptap .toggle-body-content > .toggle-block   { margin-bottom: 0.2rem; }
+
+/* ─── Tables ─────────────────────────────────────────────────────────────── */
+.tiptap .tableWrapper {
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+.tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.tiptap table td,
+.tiptap table th {
+  border: 1.5px solid rgba(128, 128, 128, 0.35);
+  padding: 0.45rem 0.65rem;
+  vertical-align: top;
+  position: relative;
+  min-width: 4rem;
+  box-sizing: border-box;
+}
+
+.tiptap table th {
+  background: rgba(128, 128, 128, 0.07);
+  font-weight: 600;
+  text-align: left;
+}
+
+.dark .tiptap table td,
+.dark .tiptap table th {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.dark .tiptap table th {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tiptap table .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 130, 246, 0.12);
+  pointer-events: none;
+}
+
+.dark .tiptap table .selectedCell::after {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.tiptap table .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #3b82f6;
+  opacity: 0;
+  cursor: col-resize;
+  transition: opacity 100ms;
+  z-index: 10;
+  pointer-events: all;
+}
+
+.tiptap table td:hover .column-resize-handle,
+.tiptap table th:hover .column-resize-handle { opacity: 0.4; }
+.tiptap table .column-resize-handle:hover    { opacity: 1; }
+
+.tiptap.resize-cursor { cursor: col-resize; }
+
+.tiptap table td p,
+.tiptap table th p { margin-bottom: 0; }
+
+.tiptap .toggle-body-content table { margin-bottom: 0.35rem; }

@@ -1,4 +1,21 @@
 // src/features/editor/components/Editor/index.tsx
+//
+// ARCHITECTURE NOTE — why no setContent:
+//
+// TipTap 3's ReactNodeViewRenderer calls flushSync() when mounting React
+// NodeViews. React 18 forbids flushSync during passive effects (useEffect).
+// Any editor.commands.setContent() call from a useEffect hits this — NodeViews
+// silently fail to render even though the ProseMirror doc is correct.
+//
+// Solution: never call setContent after mount. Instead, App.tsx keys this
+// component on noteId. Every note navigation remounts a fresh Editor with
+// content passed to useEditor({ content }) at construction time — before
+// any React commit phase — so flushSync is never triggered during effects.
+//
+// Scroll position is preserved externally: App.tsx holds a Map<noteId, scrollTop>
+// and passes it in as initialScrollTop. On unmount the editor saves its current
+// scroll via onScrollChange so App.tsx can restore it on the next mount.
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -47,48 +64,60 @@ import {
   buildSearchHighlightPlugin,
   getScrollContainer,
 } from "./editorUtils";
-import { pickImageFile, readImageFile, saveImage, pickAttachmentFile, readImageFile as readFileBytes, saveAttachment } from "@/lib/tauri/fs";
+import {
+  pickImageFile,
+  readImageFile,
+  saveImage,
+  pickAttachmentFile,
+  readImageFile as readFileBytes,
+  saveAttachment,
+} from "@/lib/tauri/fs";
 
 interface BubblePos { top: number; left: number; }
 
-// ── Upload helper ─────────────────────────────────────────────────────────────
 async function uploadImageFromDisk(): Promise<{ path: string; name: string } | null> {
   const filePath = await pickImageFile();
   if (!filePath) return null;
-  const bytes    = await readImageFile(filePath);
-  const fileName = filePath.split(/[\\/]/).pop() ?? "image.png";
-  const ext      = fileName.split(".").pop()?.toLowerCase() ?? "png";
-  const base     = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
+  const bytes      = await readImageFile(filePath);
+  const fileName   = filePath.split(/[\\/]/).pop() ?? "image.png";
+  const ext        = fileName.split(".").pop()?.toLowerCase() ?? "png";
+  const base       = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
   const uniqueName = `${base}_${Date.now()}.${ext}`;
   const savedPath  = await saveImage(uniqueName, bytes);
   return { path: savedPath, name: fileName };
 }
 
 interface EditorProps {
-  /** The note this editor instance is bound to. */
   noteId: string;
+  /** Scroll position to restore on mount (pixels from top). */
+  initialScrollTop?: number;
+  /** Called whenever scroll position changes, so App.tsx can persist it. */
+  onScrollChange?: (scrollTop: number) => void;
 }
 
-export function Editor({ noteId }: EditorProps) {
-  const note                     = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
-  const updateNote               = useNoteStore((s) => s.updateNote);
-  const setActiveNote            = useNoteStore((s) => s.setActiveNote);
-  const versionHistoryOpen       = useUIStore((s) => s.versionHistoryOpen);
-  const backlinksOpen            = useUIStore((s) => s.backlinksOpen);
-  const outlineOpen              = useUIStore((s) => s.outlineOpen);
-  const toggleOutline            = useUIStore((s) => s.toggleOutline);
-  const toggleBacklinks          = useUIStore((s) => s.toggleBacklinks);
-  const pendingScrollHeading     = useUIStore((s) => s.pendingScrollHeading);
-  const setPendingScrollHeading  = useUIStore((s) => s.setPendingScrollHeading);
-  const pendingScrollQuery       = useUIStore((s) => s.pendingScrollQuery);
-  const setPendingScrollQuery    = useUIStore((s) => s.setPendingScrollQuery);
+export function Editor({ noteId, initialScrollTop = 0, onScrollChange }: EditorProps) {
+  const note                    = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
+  const updateNote              = useNoteStore((s) => s.updateNote);
+  const setActiveNote           = useNoteStore((s) => s.setActiveNote);
+  const versionHistoryOpen      = useUIStore((s) => s.versionHistoryOpen);
+  const backlinksOpen           = useUIStore((s) => s.backlinksOpen);
+  const outlineOpen             = useUIStore((s) => s.outlineOpen);
+  const toggleOutline           = useUIStore((s) => s.toggleOutline);
+  const toggleBacklinks         = useUIStore((s) => s.toggleBacklinks);
+  const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
+  const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
+  const pendingScrollQuery      = useUIStore((s) => s.pendingScrollQuery);
+  const setPendingScrollQuery   = useUIStore((s) => s.setPendingScrollQuery);
 
-  const activeTabNoteId          = useUIStore((s) => s.activeTabNoteId());
-  const isActiveTab              = activeTabNoteId === noteId;
+  const activeTabNoteId = useUIStore((s) => s.activeTabNoteId());
+  const isActiveTab     = activeTabNoteId === noteId;
 
-  const titleRef         = useRef<HTMLHeadingElement>(null);
-  const lastSavedContent = useRef<string | null>(null);
-  const editorWrapRef    = useRef<HTMLDivElement>(null);
+  const titleRef      = useRef<HTMLHeadingElement>(null);
+  const editorWrapRef = useRef<HTMLDivElement>(null);
+  const scrollRef     = useRef<HTMLDivElement>(null);
+
+  // Track last saved content to avoid redundant saves
+  const lastSavedContent = useRef<string | null>(note?.content ?? null);
 
   // ── Bubble menu ──────────────────────────────────────────────────────────
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
@@ -113,11 +142,13 @@ export function Editor({ noteId }: EditorProps) {
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
 
+  // Content is set ONCE at construction via useEditor({ content }).
+  // Never updated via setContent after mount — see architecture note at top.
+  const initialContent = note?.content ? JSON.parse(note.content) : "";
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
-
-      // ── Node extensions ──────────────────────────────────────────────────
       CodeBlock,
       Callout,
       CheckList,
@@ -131,12 +162,8 @@ export function Editor({ noteId }: EditorProps) {
       Toggle,
       ImageExtension,
       AttachmentExtension,
-
-      // ── Behavior / keyboard extensions ───────────────────────────────────
       TaskItemExitExtension,
       ToggleKeyboardExtension,
-      // Order matters for Mod-a: most specific scope first.
-      // CodeBlock → Toggle (via ToggleKeyboardExtension) → List/blockquote → Callout
       CodeBlockSelectAllExtension,
       ListSelectAllExtension,
       SlashPlaceholderExtension,
@@ -153,7 +180,8 @@ export function Editor({ noteId }: EditorProps) {
         addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; },
       }),
     ],
-    content: note?.content ? JSON.parse(note.content) : "",
+    // Content set at construction — never via setContent after mount.
+    content: initialContent,
     editorProps: {
       attributes: {
         class: "tiptap h-full outline-none",
@@ -170,7 +198,12 @@ export function Editor({ noteId }: EditorProps) {
         setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
       }
       const selectedNodeType = $from.nodeAfter?.type.name ?? "";
-      const insideTable = (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "table") return true; } return false; })();
+      const insideTable = (() => {
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name === "table") return true;
+        }
+        return false;
+      })();
       if (selectedNodeType === "image" || selectedNodeType === "attachment" || insideTable) {
         setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return;
       }
@@ -234,19 +267,42 @@ export function Editor({ noteId }: EditorProps) {
     setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null;
   }
 
-  // ── Note switch: load content ─────────────────────────────────────────────
+  // ── Restore scroll position on mount ─────────────────────────────────────
+  useEffect(() => {
+    if (!scrollRef.current || initialScrollTop === 0) return;
+    scrollRef.current.scrollTop = initialScrollTop;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Persist scroll position on scroll ────────────────────────────────────
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !onScrollChange) return;
+    function handleScroll() { onScrollChange!(el!.scrollTop); }
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [onScrollChange]);
+
+  // ── External content update (version restore only) ───────────────────────
+  // This is the ONLY remaining setContent call. It only fires when note.content
+  // changes externally after mount (e.g. version history restore), not on
+  // normal navigation (navigation remounts via key). The version restore flow
+  // triggers this from a button click handler, not from a passive effect of
+  // its own — but it does propagate through note store → note.content change
+  // → this effect. We accept the flushSync warning here as an edge case for
+  // version restore; it does not affect the common navigation path.
   useEffect(() => {
     if (!editor || !note) return;
-    const incoming = note.content;
+    const incoming = note.content ?? null;
+    if (incoming === lastSavedContent.current) return;
     lastSavedContent.current = incoming;
+    const { from, to } = editor.state.selection;
     editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-    setBubblePos(null); setHasSelection(false); bubblePosRef.current = null;
-    closeSlashMenuInternal(); closeLinkSuggestInternal();
+    try { editor.commands.setTextSelection({ from, to }); } catch { /**/ }
     if (titleRef.current) {
       const isUntitled = /^Untitled-\d+$/.test(note.title);
       titleRef.current.textContent = isUntitled ? "" : note.title;
     }
-  }, [noteId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pending scroll: heading ───────────────────────────────────────────────
   useEffect(() => {
@@ -269,28 +325,13 @@ export function Editor({ noteId }: EditorProps) {
     return () => clearTimeout(timer);
   }, [noteId, pendingScrollQuery, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── External content update (version restore) ────────────────────────────
-  useEffect(() => {
-    if (!editor || !note) return;
-    const incoming = note.content;
-    if (incoming === lastSavedContent.current) return;
-    lastSavedContent.current = incoming;
-    const { from, to } = editor.state.selection;
-    editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-    try { editor.commands.setTextSelection({ from, to }); } catch { /**/ }
-    if (titleRef.current) {
-      const isUntitled = /^Untitled-\d+$/.test(note.title);
-      titleRef.current.textContent = isUntitled ? "" : note.title;
-    }
-  }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
     lastSavedContent.current = content;
     if (!editor) return;
     syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
   }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useAutoSave({ editor: editor ?? null, noteId, onSaveComplete });
+  useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete });
 
   // ── Escape closes slash menu ──────────────────────────────────────────────
   useEffect(() => {
@@ -348,7 +389,7 @@ export function Editor({ noteId }: EditorProps) {
     if (!lastChild) { editor.commands.focus("end"); return; }
     if (e.clientY > lastChild.getBoundingClientRect().bottom) {
       const lastNode = editor.state.doc.lastChild;
-      const isEmpty = lastNode?.isTextblock && lastNode.content.size === 0;
+      const isEmpty  = lastNode?.isTextblock && lastNode.content.size === 0;
       if (!isEmpty) {
         editor.chain().focus("end").insertContentAt(editor.state.doc.content.size, { type: "paragraph" }).focus("end").run();
       } else {
@@ -378,10 +419,10 @@ export function Editor({ noteId }: EditorProps) {
     if (!editor) return;
     const filePath = await pickAttachmentFile();
     if (!filePath) return;
-    const bytes    = await readFileBytes(filePath);
-    const fileName = filePath.split(/[\\/]/).pop() ?? "file";
-    const ext      = fileName.split(".").pop()?.toLowerCase() ?? "";
-    const base     = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
+    const bytes      = await readFileBytes(filePath);
+    const fileName   = filePath.split(/[\\/]/).pop() ?? "file";
+    const ext        = fileName.split(".").pop()?.toLowerCase() ?? "";
+    const base       = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
     const uniqueName = `${base}_${Date.now()}.${ext}`;
     const savedPath  = await saveAttachment(uniqueName, bytes);
     editor.chain().focus().insertContent({
@@ -462,7 +503,7 @@ export function Editor({ noteId }: EditorProps) {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" ref={scrollRef}>
           <div
             className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text"
             onClick={handleEditorAreaClick}
@@ -506,7 +547,13 @@ export function Editor({ noteId }: EditorProps) {
         />
       )}
       {linkOpen && editor && linkBracketStart.current !== null && (
-        <NoteLinkSuggest position={linkPos} editor={editor} query={linkQuery} bracketStart={linkBracketStart.current} onClose={closeLinkSuggest} />
+        <NoteLinkSuggest
+          position={linkPos}
+          editor={editor}
+          query={linkQuery}
+          bracketStart={linkBracketStart.current}
+          onClose={closeLinkSuggest}
+        />
       )}
     </div>
   );

@@ -1,26 +1,37 @@
 // src/features/editor/components/Editor/ToggleNodeView.tsx
 //
-// Fixes applied:
+// Schema:
+//   toggle (open attr)
+//     └─ toggleSummary  (no open attr — visibility driven by parent CSS class)
+//     └─ toggleBody?    (no open attr — same)
 //
-// 1. LAYOUT — Arrow and summary title are on the same row.
-//    The toggle-header is a flex row. The arrow sits on the left.
-//    NodeViewContent (toggle-children) renders summary + body stacked
-//    vertically to the right of the arrow, but the summary line itself
-//    is just inline text so it appears on the same line as the arrow.
+// Why `open` lives only on the toggle parent:
+//   Previously all three nodes (toggle, toggleSummary, toggleBody) carried
+//   an `open` attribute that had to be kept in sync via three setNodeMarkup
+//   calls per toggle operation. If any call failed or a transaction was
+//   partially applied, the nodes could drift out of sync.
 //
-// 2. ARROW ROTATION — Driven by `.toggle-open .toggle-arrow-icon` on the
-//    parent NodeViewWrapper, not a class on the summary child.
+//   Now `open` is the single source of truth on the toggle parent only.
+//   The CSS class `.toggle-open` / `.toggle-closed` on the NodeViewWrapper
+//   drives arrow rotation and body visibility. toggleSummary and toggleBody
+//   have no attributes at all — they are structurally inert.
 //
-// 3. NO display:none ON BODY — display:none removes the node from ProseMirror's
-//    view, causing content corruption. Instead the body is hidden via
-//    height:0 + overflow:hidden + visibility:hidden, keeping the DOM node
-//    present. The `.toggle-closed .toggle-body` rule in CSS handles this.
+// Why NOT display:none for the body:
+//   display:none removes the element from the layout tree. ProseMirror's
+//   ReactNodeViewRenderer mounts React sub-trees into real DOM nodes — if
+//   those nodes vanish from layout, React loses its fiber references and the
+//   NodeViews go stale (clicks stop working, content can corrupt on re-focus).
+//   The toggle body stays mounted at all times; CSS hides it via
+//   height:0 + overflow:hidden + visibility:hidden.
+//
+//   App.tsx uses the same principle for inactive tabs: visibility:hidden
+//   instead of display:none keeps all editors fully mounted.
 
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 
-// ── Exported helper used by ToggleKeyboardExtension ──────────────────────────
+// ── Exported helper — called by ToggleKeyboardExtension ──────────────────────
 export function toggleOpenState(editor: Editor, togglePos: number) {
   const { state } = editor;
   const toggleNode = state.doc.nodeAt(togglePos);
@@ -35,45 +46,30 @@ export function toggleOpenState(editor: Editor, togglePos: number) {
     .focus()
     .command(({ tr, state: s }) => {
       if (willOpen && !hasBody) {
-        // Flip toggle open
+        // Opening for the first time: create body and move cursor into it.
+        // Single setNodeMarkup — only the toggle parent changes.
         tr.setNodeMarkup(togglePos, undefined, { ...toggleNode.attrs, open: true });
 
-        // Mirror open=true onto summary (child 0, always at togglePos+1)
-        const summaryNode = toggleNode.child(0);
-        tr.setNodeMarkup(togglePos + 1, undefined, { ...summaryNode.attrs, open: true });
-
-        // Insert toggleBody at end of toggle node
-        const paragraphNode = s.schema.nodes.paragraph.create();
-        const bodyNode      = s.schema.nodes.toggleBody.create({ open: true }, paragraphNode);
-        const insertAt      = togglePos + toggleNode.nodeSize - 1;
+        const paragraph = s.schema.nodes.paragraph.create();
+        const bodyNode  = s.schema.nodes.toggleBody.create({}, paragraph);
+        const insertAt  = togglePos + toggleNode.nodeSize - 1;
         tr.insert(insertAt, bodyNode);
 
-        // Move cursor into body's first paragraph
-        // insertAt + 1 = body open token, insertAt + 2 = paragraph open token
-        // insertAt + 3 = first content pos (but empty paragraph, so use +2 resolved)
+        // Place cursor at first content position inside the new body paragraph
         const cursorPos = insertAt + 2;
         const resolved  = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size));
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         tr.setSelection((s.selection as any).constructor.near(resolved));
       } else {
-        // Flip all three nodes
+        // Simple flip — one setNodeMarkup on the toggle parent only.
         tr.setNodeMarkup(togglePos, undefined, { ...toggleNode.attrs, open: willOpen });
-
-        const summaryNode = toggleNode.child(0);
-        tr.setNodeMarkup(togglePos + 1, undefined, { ...summaryNode.attrs, open: willOpen });
-
-        if (hasBody) {
-          const bodyPos  = togglePos + 1 + summaryNode.nodeSize;
-          const bodyNode = toggleNode.child(1);
-          tr.setNodeMarkup(bodyPos, undefined, { ...bodyNode.attrs, open: willOpen });
-        }
       }
       return true;
     })
     .run();
 }
 
-// ── Parent toggle wrapper — owns open attr, renders arrow ────────────────────
+// ── Parent toggle wrapper ─────────────────────────────────────────────────────
 export function ToggleNodeView({ node, getPos, editor }: NodeViewProps) {
   const open: boolean = node.attrs.open ?? false;
 
@@ -87,10 +83,9 @@ export function ToggleNodeView({ node, getPos, editor }: NodeViewProps) {
   return (
     <NodeViewWrapper className={`toggle-block${open ? " toggle-open" : " toggle-closed"}`}>
       {/*
-        Flex row: arrow on left, all content (summary title + body) on right.
-        NodeViewContent renders the toggleSummary and toggleBody child nodes
-        stacked vertically — summary on top (same visual line as arrow),
-        body below (hidden via CSS when toggle-closed).
+        Arrow button: lives in a non-editable overlay at top-left.
+        Kept outside NodeViewContent so clicks don't become cursor movements.
+        onMouseDown preventDefault stops the editor losing focus on click.
       */}
       <div className="toggle-header" contentEditable={false}>
         <button
@@ -117,17 +112,15 @@ export function ToggleNodeView({ node, getPos, editor }: NodeViewProps) {
           </svg>
         </button>
       </div>
-      {/*
-        NodeViewContent must NOT be inside contentEditable={false}.
-        It sits as a sibling to toggle-header, absolutely positioned
-        to overlap the content area. See CSS for the layout trick.
-      */}
+
+      {/* Content column: toggleSummary and toggleBody stacked vertically */}
       <NodeViewContent as="div" className="toggle-children" />
     </NodeViewWrapper>
   );
 }
 
-// ── Summary NodeView — just the inline title, no arrow ───────────────────────
+// ── Summary NodeView ──────────────────────────────────────────────────────────
+// Renders the inline title. No attributes, no open/closed logic here.
 export function ToggleSummaryNodeView(_props: NodeViewProps) {
   return (
     <NodeViewWrapper as="div" className="toggle-summary-row">
@@ -136,10 +129,10 @@ export function ToggleSummaryNodeView(_props: NodeViewProps) {
   );
 }
 
-// ── Body NodeView — always in DOM, hidden via CSS when closed ─────────────────
-// NEVER use display:none — it removes the node from ProseMirror's view
-// and causes content loss. Use CSS height/overflow/visibility instead,
-// controlled by the parent's .toggle-closed class.
+// ── Body NodeView ─────────────────────────────────────────────────────────────
+// Always in the DOM. Visibility controlled entirely by CSS on the parent:
+//   .toggle-closed .toggle-body { height:0; overflow:hidden; visibility:hidden }
+//   .toggle-open   .toggle-body { height:auto; visibility:visible }
 export function ToggleBodyNodeView(_props: NodeViewProps) {
   return (
     <NodeViewWrapper as="div" className="toggle-body">

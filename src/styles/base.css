@@ -1,0 +1,16 @@
+/* src/styles/base.css */
+
+/* ─── Base styles ────────────────────────────────────────────────────────── */
+html, body {
+  overscroll-behavior: none;
+}
+
+.dark html, .dark body {
+  background-color: #18181b; /* zinc-900 */
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(128,128,128,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }

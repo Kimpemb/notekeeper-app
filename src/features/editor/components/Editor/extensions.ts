@@ -193,21 +193,24 @@ export const Callout = Node.create({
 });
 
 // ── Toggle nodes ──────────────────────────────────────────────────────────────
+//
+// Schema design:
+//   `open` lives ONLY on the toggle parent. toggleSummary and toggleBody carry
+//   no open attribute — visibility is a pure CSS consequence of the parent's
+//   .toggle-open / .toggle-closed class. This eliminates the duplicated-state
+//   problem where all three nodes required synchronized setNodeMarkup calls.
+//
+//   Before: every toggle operation did 2-3 setNodeMarkup calls and could
+//           produce inconsistent state if nodes drifted.
+//   After:  every toggle operation does exactly 1 setNodeMarkup call.
+
 export const ToggleSummary = Node.create({
   name: "toggleSummary",
   content: "inline*",
   defining: true,
   isolating: false,
 
-  addAttributes() {
-    return {
-      open: {
-        default: false,
-        parseHTML: (el) => el.getAttribute("data-open") === "true",
-        renderHTML: (attrs) => ({ "data-open": attrs.open ? "true" : "false" }),
-      },
-    };
-  },
+  // No addAttributes — toggleSummary carries no state of its own.
 
   parseHTML() { return [{ tag: "div[data-toggle-summary]" }]; },
   renderHTML({ HTMLAttributes }) {
@@ -223,6 +226,8 @@ export const ToggleBody = Node.create({
   content: "block+",
   defining: true,
   isolating: false,
+
+  // No addAttributes — visibility is driven by parent CSS class, not by data.
 
   parseHTML() { return [{ tag: "div[data-toggle-body]" }]; },
   renderHTML({ HTMLAttributes }) {
@@ -241,6 +246,8 @@ export const Toggle = Node.create({
 
   addAttributes() {
     return {
+      // Single source of truth for open/closed state.
+      // Neither child node carries this attribute.
       open: {
         default: false,
         parseHTML: (el) => el.getAttribute("data-open") === "true",
@@ -264,6 +271,11 @@ export const ToggleKeyboardExtension = Extension.create({
 
   addKeyboardShortcuts() {
     return {
+      // Enter inside toggleSummary:
+      //   open + has body  → jump cursor into first body line
+      //   open + no body   → shouldn't happen (body always created on open),
+      //                      but guard: close toggle
+      //   closed           → insert new sibling toggle below
       Enter: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty) return false;
@@ -304,7 +316,8 @@ export const ToggleKeyboardExtension = Extension.create({
                 .chain().focus()
                 .command(({ tr, state, dispatch }) => {
                   if (dispatch) {
-                    const newSummary = state.schema.nodes.toggleSummary.create({ open: false });
+                    // New sibling toggle — no open attr needed on summary/body
+                    const newSummary = state.schema.nodes.toggleSummary.create();
                     const newToggle  = state.schema.nodes.toggle.create({ open: false }, newSummary);
                     tr.insert(afterPos, newToggle);
                     const cursorPos = afterPos + 2;
@@ -323,10 +336,13 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
+      // Backspace at start of empty summary → unwrap toggle to paragraph
+      // Backspace at start of first body line → move cursor back to summary end
       Backspace: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty || $from.parentOffset !== 0) return false;
 
+        // Case 1: in toggleSummary
         let depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "toggleSummary") {
@@ -337,7 +353,6 @@ export const ToggleKeyboardExtension = Extension.create({
             if (!toggleNode || toggleNode.type.name !== "toggle") return false;
 
             const togglePos = $from.before(depth - 1);
-
             return editor
               .chain().focus()
               .command(({ tr, state, dispatch }) => {
@@ -355,6 +370,7 @@ export const ToggleKeyboardExtension = Extension.create({
           depth--;
         }
 
+        // Case 2: at start of first block in toggleBody
         depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "toggleBody") {
@@ -389,6 +405,7 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
+      // Mod+Enter in summary → toggle open/closed (delegates to helper)
       "Mod-Enter": ({ editor }) => {
         const { $from } = editor.state.selection;
         let depth = $from.depth;
@@ -396,41 +413,17 @@ export const ToggleKeyboardExtension = Extension.create({
           if ($from.node(depth).type.name === "toggleSummary") {
             const toggleNode = $from.node(depth - 1);
             if (!toggleNode || toggleNode.type.name !== "toggle") return false;
-
-            const togglePos  = $from.before(depth - 1);
-            const isOpen     = toggleNode.attrs.open ?? false;
-            const willOpen   = !isOpen;
-            const hasBody    = toggleNode.childCount > 1;
-
-            return editor
-              .chain().focus()
-              .command(({ tr, state: s }) => {
-                if (willOpen && !hasBody) {
-                  tr.setNodeMarkup(togglePos, undefined, { ...toggleNode.attrs, open: true });
-                  const summaryNode   = toggleNode.child(0);
-                  tr.setNodeMarkup(togglePos + 1, undefined, { ...summaryNode.attrs, open: true });
-                  const paragraphNode = s.schema.nodes.paragraph.create();
-                  const bodyNode      = s.schema.nodes.toggleBody.create({ open: true }, paragraphNode);
-                  tr.insert(togglePos + toggleNode.nodeSize - 1, bodyNode);
-                } else {
-                  tr.setNodeMarkup(togglePos, undefined, { ...toggleNode.attrs, open: willOpen });
-                  const summaryNode = toggleNode.child(0);
-                  tr.setNodeMarkup(togglePos + 1, undefined, { ...summaryNode.attrs, open: willOpen });
-                  if (hasBody) {
-                    const bodyPos  = togglePos + 1 + summaryNode.nodeSize;
-                    const bodyNode = toggleNode.child(1);
-                    tr.setNodeMarkup(bodyPos, undefined, { ...bodyNode.attrs, open: willOpen });
-                  }
-                }
-                return true;
-              })
-              .run();
+            const togglePos = $from.before(depth - 1);
+            toggleOpenState(editor, togglePos);
+            return true;
           }
           depth--;
         }
         return false;
       },
 
+      // Mod+A in summary → select all summary content
+      // Mod+A in body    → select all body content
       "Mod-a": ({ editor }) => {
         const { $from } = editor.state.selection;
 
@@ -652,8 +645,6 @@ export const CodeBlockSelectAllExtension = Extension.create({
 });
 
 // ── Ctrl+A inside list items, task items, and blockquotes ────────────────────
-// First press selects content of the innermost scoped container.
-// Second press falls through (returns false) → browser/TipTap selects all.
 const LIST_SCOPE_NODES = new Set([
   "listItem",
   "taskItem",
@@ -668,17 +659,14 @@ export const ListSelectAllExtension = Extension.create({
         const { $from, from, to } = editor.state.selection;
         const docSize = editor.state.doc.content.size;
 
-        // Walk up from cursor looking for a scoped container.
         let depth = $from.depth;
         while (depth > 0) {
           const node = $from.node(depth);
           if (LIST_SCOPE_NODES.has(node.type.name)) {
-            const pos      = $from.before(depth);
+            const pos       = $from.before(depth);
             const scopeFrom = Math.max(1, pos + 1);
             const scopeTo   = Math.min(docSize, pos + node.nodeSize - 1);
 
-            // If the selection already covers this scope exactly,
-            // return false so the next Ctrl+A selects the whole doc.
             if (from === scopeFrom && to === scopeTo) return false;
 
             editor.commands.setTextSelection({ from: scopeFrom, to: scopeTo });
