@@ -82,6 +82,12 @@ interface UIStore {
   openShortcuts: () => void;
   closeShortcuts: () => void;
 
+  // ─── Tips panel ───────────────────────────────────────────────────────────
+  tipsOpen: boolean;
+  openTips: () => void;
+  closeTips: () => void;
+  toggleTips: () => void;
+
   // ─── Template picker ──────────────────────────────────────────────────────
   templatePickerOpen: boolean;
   openTemplatePicker: () => void;
@@ -290,6 +296,12 @@ export const useUIStore = create<UIStore>((set, get) => {
     shortcutsOpen: false,
     openShortcuts: () => set({ shortcutsOpen: true }),
     closeShortcuts: () => set({ shortcutsOpen: false }),
+
+    // ─── Tips panel ───────────────────────────────────────────────────────────
+    tipsOpen: false,
+    openTips:   () => set({ tipsOpen: true }),
+    closeTips:  () => set({ tipsOpen: false }),
+    toggleTips: () => set((s) => ({ tipsOpen: !s.tipsOpen })),
 
     // ─── Template picker ──────────────────────────────────────────────────────
     templatePickerOpen: false,

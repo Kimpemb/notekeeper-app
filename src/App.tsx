@@ -12,6 +12,7 @@ import { ImportModal } from "@/features/ui/components/ImportModal";
 import { TemplatePickerModal } from "@/features/ui/components/TemplatePickerModal";
 import { TabBar } from "@/features/ui/components/TabBar";
 import { SplitDivider } from "@/features/ui/components/SplitDivider";
+import { TipsPanel } from "@/features/ui/components/TipsPanel";
 import { ThemeToggle } from "@/features/ui/components/ThemeToggle";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
 import { exportNotesToFile } from "@/lib/tauri/fs";
@@ -63,6 +64,7 @@ export default function App() {
   const toggleOutline          = useUIStore((s) => s.toggleOutline);
   const templatePickerOpen     = useUIStore((s) => s.templatePickerOpen);
   const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
+  const toggleTips             = useUIStore((s) => s.toggleTips);
 
   const tabs         = useUIStore((s) => s.tabs);
   const activeTabId  = useUIStore((s) => s.activeTabId);
@@ -422,6 +424,18 @@ export default function App() {
             </button>
 
             <button
+              onClick={toggleTips}
+              title="Tips & shortcuts"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2"/>
+                <path d="M7 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                <circle cx="7" cy="4.5" r="0.7" fill="currentColor"/>
+              </svg>
+            </button>
+
+            <button
               onClick={openShortcuts}
               title="Keyboard shortcuts (Ctrl+Shift+?)"
               className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
@@ -436,6 +450,9 @@ export default function App() {
             <ThemeToggle />
           </div>
         </header>
+
+        {/* ── Tips panel — slides down from header ───────────────────────── */}
+        <TipsPanel />
 
         {/* ── Main content area: pane(s) ─────────────────────────────────── */}
         <main
