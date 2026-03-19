@@ -15,7 +15,7 @@ import { SplitDivider } from "@/features/ui/components/SplitDivider";
 import { TipsPanel } from "@/features/ui/components/TipsPanel";
 import { ThemeToggle } from "@/features/ui/components/ThemeToggle";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
-import { GraphView } from "@/features/graph/GraphView";
+import { GraphView, type GraphViewHandle } from "@/features/graph/GraphView";
 import { exportNotesToFile } from "@/lib/tauri/fs";
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
@@ -67,21 +67,24 @@ export default function App() {
   const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
   const toggleTips             = useUIStore((s) => s.toggleTips);
   const graphOpen              = useUIStore((s) => s.graphOpen);
-  const toggleGraph            = useUIStore((s) => s.toggleGraph);
+  const openGraph              = useUIStore((s) => s.openGraph);
 
-  const tabs         = useUIStore((s) => s.tabs);
-  const activeTabId  = useUIStore((s) => s.activeTabId);
-  const openTab      = useUIStore((s) => s.openTab);
-  const replaceTab   = useUIStore((s) => s.replaceTab);
+  // Ref to the GraphView instance so we can call animatedClose from outside
+  const graphViewRef = useRef<GraphViewHandle>(null);
+
+  const tabs           = useUIStore((s) => s.tabs);
+  const activeTabId    = useUIStore((s) => s.activeTabId);
+  const openTab        = useUIStore((s) => s.openTab);
+  const replaceTab     = useUIStore((s) => s.replaceTab);
   const closeActiveTab = useUIStore((s) => s.closeActiveTab);
-  const cycleTab     = useUIStore((s) => s.cycleTab);
+  const cycleTab       = useUIStore((s) => s.cycleTab);
 
-  const pane2Tabs         = useUIStore((s) => s.pane2Tabs);
-  const pane2ActiveTabId  = useUIStore((s) => s.pane2ActiveTabId);
-  const splitOpen         = useUIStore((s) => s.splitOpen);
-  const splitDirection    = useUIStore((s) => s.splitDirection);
-  const activePaneId      = useUIStore((s) => s.activePaneId);
-  const setActivePaneId   = useUIStore((s) => s.setActivePaneId);
+  const pane2Tabs        = useUIStore((s) => s.pane2Tabs);
+  const pane2ActiveTabId = useUIStore((s) => s.pane2ActiveTabId);
+  const splitOpen        = useUIStore((s) => s.splitOpen);
+  const splitDirection   = useUIStore((s) => s.splitDirection);
+  const activePaneId     = useUIStore((s) => s.activePaneId);
+  const setActivePaneId  = useUIStore((s) => s.setActivePaneId);
 
   const [dbReady, setDbReady]     = useState(false);
   const [dbError, setDbError]     = useState<string | null>(null);
@@ -90,8 +93,7 @@ export default function App() {
   const slideTimeout     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openInNewTabRef  = useRef(false);
   const newNoteParentRef = useRef<string | null>(null);
-
-  const scrollPositions = useRef<Map<string, number>>(new Map());
+  const scrollPositions  = useRef<Map<string, number>>(new Map());
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
@@ -106,16 +108,14 @@ export default function App() {
       .catch((err) => setDbError(String(err)));
   }, [loadNotes]);
 
-  // ── Back / forward: navigate the active tab in place ─────────────────────
+  // ── Back/forward: navigate active tab in place ────────────────────────────
   useEffect(() => {
     if (!activeNoteId) return;
     const currentTabNoteId = useUIStore.getState().activeTabNoteId();
-    if (currentTabNoteId !== activeNoteId) {
-      replaceTab(activeNoteId);
-    }
+    if (currentTabNoteId !== activeNoteId) replaceTab(activeNoteId);
   }, [activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Custom event: new note in new tab (from command palette) ─────────────
+  // ── New note in new tab (from command palette) ────────────────────────────
   useEffect(() => {
     function handle() {
       openInNewTabRef.current  = true;
@@ -126,7 +126,7 @@ export default function App() {
     return () => window.removeEventListener("notekeeper:new-note-new-tab", handle);
   }, []);
 
-  // ── Ctrl+Tab: sync activeNoteId when tab focus changes via keyboard ───────
+  // ── Ctrl+Tab: sync activeNoteId when tab changes via keyboard ─────────────
   useEffect(() => {
     const noteId = useUIStore.getState().activeTabNoteId();
     if (noteId && noteId !== useNoteStore.getState().activeNoteId) {
@@ -174,10 +174,19 @@ export default function App() {
     if (ctrl && e.key === "[")               { e.preventDefault(); triggerNav(goBack); }
     if (ctrl && e.key === "]")               { e.preventDefault(); triggerNav(goForward); }
     if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") { e.preventDefault(); toggleGraph(); }
+
+    // Graph: open if closed, animated close if open
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
+      e.preventDefault();
+      if (graphOpen) {
+        graphViewRef.current?.animatedClose();
+      } else {
+        openGraph();
+      }
+    }
   }, [dbReady, togglePalette, toggleSidebar, toggleFileTree,
       toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward,
-      closeActiveTab, cycleTab, toggleGraph]);
+      closeActiveTab, cycleTab, graphOpen, openGraph]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -188,14 +197,12 @@ export default function App() {
     closeTemplatePicker();
     const parentId = newNoteParentRef.current ?? undefined;
     const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
-
     if (openInNewTabRef.current) {
       openTab(note.id);
     } else {
       setActive(note.id);
       replaceTab(note.id);
     }
-
     openInNewTabRef.current  = false;
     newNoteParentRef.current = null;
   }
@@ -262,7 +269,6 @@ export default function App() {
     setSidebarState("open");
   }
 
-  // ── Pane renderer ─────────────────────────────────────────────────────────
   function renderPane(paneId: 1 | 2) {
     const paneTabs        = paneId === 1 ? tabs : pane2Tabs;
     const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
@@ -274,7 +280,6 @@ export default function App() {
         onMouseDown={() => { if (!isPaneFocused) setActivePaneId(paneId); }}
       >
         <TabBar paneId={paneId} />
-
         <div className="flex-1 flex overflow-hidden relative">
           {paneTabs.length === 0 ? (
             <EmptyState />
@@ -329,7 +334,7 @@ export default function App() {
       <Sidebar />
 
       <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
-        {/* ── Top header ─────────────────────────────────────────────────── */}
+        {/* Header */}
         <header
           className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
           onMouseEnter={() => {
@@ -360,9 +365,7 @@ export default function App() {
               </button>
             </div>
 
-            <button
-              onClick={() => triggerNav(goBack)}
-              disabled={!canGoBack}
+            <button onClick={() => triggerNav(goBack)} disabled={!canGoBack}
               title="Go back (Ctrl+'[')"
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
             >
@@ -370,9 +373,7 @@ export default function App() {
                 <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
-            <button
-              onClick={() => triggerNav(goForward)}
-              disabled={!canGoForward}
+            <button onClick={() => triggerNav(goForward)} disabled={!canGoForward}
               title="Go forward (Ctrl+']')"
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
             >
@@ -410,9 +411,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={toggleFileTree}
-              title="File tree (Ctrl+T)"
+            <button onClick={toggleFileTree} title="File tree (Ctrl+T)"
               className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
                 fileTreeOpen
                   ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
@@ -425,9 +424,8 @@ export default function App() {
               </svg>
             </button>
 
-            {/* Graph button */}
             <button
-              onClick={toggleGraph}
+              onClick={() => graphOpen ? graphViewRef.current?.animatedClose() : openGraph()}
               title="Graph view (Ctrl+Shift+G)"
               className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
                 graphOpen
@@ -445,9 +443,7 @@ export default function App() {
               </svg>
             </button>
 
-            <button
-              onClick={toggleTips}
-              title="Tips & shortcuts"
+            <button onClick={toggleTips} title="Tips & shortcuts"
               className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -457,9 +453,7 @@ export default function App() {
               </svg>
             </button>
 
-            <button
-              onClick={openShortcuts}
-              title="Keyboard shortcuts (Ctrl+Shift+?)"
+            <button onClick={openShortcuts} title="Keyboard shortcuts (Ctrl+Shift+?)"
               className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -473,15 +467,11 @@ export default function App() {
           </div>
         </header>
 
-        {/* ── Tips panel ─────────────────────────────────────────────────── */}
         <TipsPanel />
 
-        {/* ── Main content area ──────────────────────────────────────────── */}
-        <main
-          className={`flex-1 flex overflow-hidden ${
-            splitOpen && splitDirection === "vertical" ? "flex-col" : "flex-row"
-          }`}
-        >
+        <main className={`flex-1 flex overflow-hidden ${
+          splitOpen && splitDirection === "vertical" ? "flex-col" : "flex-row"
+        }`}>
           {renderPane(1)}
           {splitOpen && (
             <>
@@ -505,8 +495,7 @@ export default function App() {
         }}
       />
 
-      {/* Graph view — renders as a fullscreen overlay */}
-      {graphOpen && <GraphView />}
+      {graphOpen && <GraphView ref={graphViewRef} />}
 
       {exporting && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
