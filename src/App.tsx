@@ -15,6 +15,7 @@ import { SplitDivider } from "@/features/ui/components/SplitDivider";
 import { TipsPanel } from "@/features/ui/components/TipsPanel";
 import { ThemeToggle } from "@/features/ui/components/ThemeToggle";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
+import { GraphView } from "@/features/graph/GraphView";
 import { exportNotesToFile } from "@/lib/tauri/fs";
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
@@ -65,6 +66,8 @@ export default function App() {
   const templatePickerOpen     = useUIStore((s) => s.templatePickerOpen);
   const closeTemplatePicker    = useUIStore((s) => s.closeTemplatePicker);
   const toggleTips             = useUIStore((s) => s.toggleTips);
+  const graphOpen              = useUIStore((s) => s.graphOpen);
+  const toggleGraph            = useUIStore((s) => s.toggleGraph);
 
   const tabs         = useUIStore((s) => s.tabs);
   const activeTabId  = useUIStore((s) => s.activeTabId);
@@ -88,7 +91,6 @@ export default function App() {
   const openInNewTabRef  = useRef(false);
   const newNoteParentRef = useRef<string | null>(null);
 
-  // Scroll position memory keyed by noteId
   const scrollPositions = useRef<Map<string, number>>(new Map());
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
@@ -172,9 +174,10 @@ export default function App() {
     if (ctrl && e.key === "[")               { e.preventDefault(); triggerNav(goBack); }
     if (ctrl && e.key === "]")               { e.preventDefault(); triggerNav(goForward); }
     if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") { e.preventDefault(); toggleGraph(); }
   }, [dbReady, togglePalette, toggleSidebar, toggleFileTree,
       toggleBacklinks, toggleOutline, openShortcuts, goBack, goForward,
-      closeActiveTab, cycleTab]);
+      closeActiveTab, cycleTab, toggleGraph]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -259,9 +262,9 @@ export default function App() {
     setSidebarState("open");
   }
 
-  // ── Pane renderer — reused for both pane 1 and pane 2 ────────────────────
+  // ── Pane renderer ─────────────────────────────────────────────────────────
   function renderPane(paneId: 1 | 2) {
-    const paneTabs    = paneId === 1 ? tabs : pane2Tabs;
+    const paneTabs        = paneId === 1 ? tabs : pane2Tabs;
     const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
     const isPaneFocused   = activePaneId === paneId;
 
@@ -295,7 +298,6 @@ export default function App() {
               );
             })
           )}
-          {/* File tree only shown in pane 1 */}
           {paneId === 1 && fileTreeOpen && <FileTreePanel />}
         </div>
       </div>
@@ -423,6 +425,26 @@ export default function App() {
               </svg>
             </button>
 
+            {/* Graph button */}
+            <button
+              onClick={toggleGraph}
+              title="Graph view (Ctrl+Shift+G)"
+              className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
+                graphOpen
+                  ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
+                  : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+              }`}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+                <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+                <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+                <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              </svg>
+            </button>
+
             <button
               onClick={toggleTips}
               title="Tips & shortcuts"
@@ -451,10 +473,10 @@ export default function App() {
           </div>
         </header>
 
-        {/* ── Tips panel — slides down from header ───────────────────────── */}
+        {/* ── Tips panel ─────────────────────────────────────────────────── */}
         <TipsPanel />
 
-        {/* ── Main content area: pane(s) ─────────────────────────────────── */}
+        {/* ── Main content area ──────────────────────────────────────────── */}
         <main
           className={`flex-1 flex overflow-hidden ${
             splitOpen && splitDirection === "vertical" ? "flex-col" : "flex-row"
@@ -482,6 +504,10 @@ export default function App() {
           closeTemplatePicker();
         }}
       />
+
+      {/* Graph view — renders as a fullscreen overlay */}
+      {graphOpen && <GraphView />}
+
       {exporting && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
           Exporting…

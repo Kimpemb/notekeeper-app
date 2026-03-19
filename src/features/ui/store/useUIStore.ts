@@ -88,6 +88,12 @@ interface UIStore {
   closeTips: () => void;
   toggleTips: () => void;
 
+  // ─── Graph view ───────────────────────────────────────────────────────────
+  graphOpen: boolean;
+  openGraph: () => void;
+  closeGraph: () => void;
+  toggleGraph: () => void;
+
   // ─── Template picker ──────────────────────────────────────────────────────
   templatePickerOpen: boolean;
   openTemplatePicker: () => void;
@@ -135,32 +141,22 @@ interface UIStore {
   activeTabNoteId: () => string | null;
 
   // ─── Pane 2 tabs (split — optional) ──────────────────────────────────────
-  // pane2Tabs is empty when no split is open.
-  // All pane-2 tab actions mirror pane-1 actions but operate on pane2 state.
   pane2Tabs: Tab[];
   pane2ActiveTabId: string | null;
   splitOpen: boolean;
   splitDirection: SplitDirection;
 
-  // Open noteId in a new split pane. If split already open, opens a new tab
-  // in pane 2. If split is closed, opens pane 2 with this note.
   openInSplit: (noteId: string) => void;
-  // Close the entire pane 2 (and all its tabs).
   closePane2: () => void;
-  // Toggle between horizontal (side by side) and vertical (top/bottom).
   toggleSplitDirection: () => void;
-  // Swap: move pane 1's active tab into pane 2 and vice versa.
   swapPanes: () => void;
 
   setPane2ActiveTab: (tabId: string) => void;
   closePane2Tab: (tabId: string) => void;
   openTabInPane2: (noteId: string) => void;
 
-  // Which pane is currently focused (for keyboard shortcuts, save status, etc.)
   activePaneId: 1 | 2;
   setActivePaneId: (pane: 1 | 2) => void;
-
-  // Returns the active noteId for a given pane (or either pane's active note)
   paneActiveNoteId: (pane: 1 | 2) => string | null;
 
   // ─── Sidebar note selection ───────────────────────────────────────────────
@@ -303,6 +299,12 @@ export const useUIStore = create<UIStore>((set, get) => {
     closeTips:  () => set({ tipsOpen: false }),
     toggleTips: () => set((s) => ({ tipsOpen: !s.tipsOpen })),
 
+    // ─── Graph view ───────────────────────────────────────────────────────────
+    graphOpen: false,
+    openGraph:   () => set({ graphOpen: true }),
+    closeGraph:  () => set({ graphOpen: false }),
+    toggleGraph: () => set((s) => ({ graphOpen: !s.graphOpen })),
+
     // ─── Template picker ──────────────────────────────────────────────────────
     templatePickerOpen: false,
     openTemplatePicker: () => set({ templatePickerOpen: true }),
@@ -369,14 +371,12 @@ export const useUIStore = create<UIStore>((set, get) => {
     closeTabsForNotes: (noteIds) => {
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
 
-      // Pane 1
       const next1 = tabs.filter((t) => !noteIds.has(t.noteId));
       let nextActive1 = activeTabId;
       if (activeTabId && !next1.some((t) => t.id === activeTabId)) {
         nextActive1 = next1[next1.length - 1]?.id ?? null;
       }
 
-      // Pane 2
       const next2 = pane2Tabs.filter((t) => !noteIds.has(t.noteId));
       let nextActive2 = pane2ActiveTabId;
       if (pane2ActiveTabId && !next2.some((t) => t.id === pane2ActiveTabId)) {
@@ -388,7 +388,6 @@ export const useUIStore = create<UIStore>((set, get) => {
         activeTabId: nextActive1,
         pane2Tabs: next2,
         pane2ActiveTabId: nextActive2,
-        // Auto-close pane 2 if it has no tabs left
         splitOpen: next2.length > 0 ? get().splitOpen : false,
       });
     },
@@ -435,32 +434,16 @@ export const useUIStore = create<UIStore>((set, get) => {
     openInSplit: (noteId) => {
       const { splitOpen, pane2Tabs } = get();
       if (!splitOpen) {
-        // Open pane 2 with this note
         const tab: Tab = { id: makeTabId(), noteId };
-        set({
-          splitOpen: true,
-          pane2Tabs: [tab],
-          pane2ActiveTabId: tab.id,
-          activePaneId: 2,
-        });
+        set({ splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id, activePaneId: 2 });
       } else {
-        // Pane 2 already open — add a new tab in it
         const tab: Tab = { id: makeTabId(), noteId };
-        set({
-          pane2Tabs: [...pane2Tabs, tab],
-          pane2ActiveTabId: tab.id,
-          activePaneId: 2,
-        });
+        set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id, activePaneId: 2 });
       }
     },
 
     closePane2: () => {
-      set({
-        splitOpen: false,
-        pane2Tabs: [],
-        pane2ActiveTabId: null,
-        activePaneId: 1,
-      });
+      set({ splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1 });
     },
 
     toggleSplitDirection: () => {
@@ -471,12 +454,7 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     swapPanes: () => {
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
-      set({
-        tabs: pane2Tabs,
-        activeTabId: pane2ActiveTabId,
-        pane2Tabs: tabs,
-        pane2ActiveTabId: activeTabId,
-      });
+      set({ tabs: pane2Tabs, activeTabId: pane2ActiveTabId, pane2Tabs: tabs, pane2ActiveTabId: activeTabId });
     },
 
     setPane2ActiveTab: (tabId) => set({ pane2ActiveTabId: tabId }),
@@ -486,11 +464,7 @@ export const useUIStore = create<UIStore>((set, get) => {
       const idx = pane2Tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
       const next = pane2Tabs.filter((t) => t.id !== tabId);
-      if (next.length === 0) {
-        // Last tab in pane 2 closed — close the pane entirely
-        get().closePane2();
-        return;
-      }
+      if (next.length === 0) { get().closePane2(); return; }
       let nextActiveTabId = pane2ActiveTabId;
       if (pane2ActiveTabId === tabId) {
         nextActiveTabId = (next[idx] ?? next[idx - 1])?.id ?? null;
