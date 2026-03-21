@@ -26,7 +26,7 @@ import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTim
 // Block F5 / Ctrl+R — causes full state loss in Tauri
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") e.preventDefault(); // blocks both Ctrl+R and Ctrl+Shift+R
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") e.preventDefault();
 });
 
 interface BreadcrumbSegment { id: string; title: string; }
@@ -54,8 +54,8 @@ export default function App() {
   const setActive              = useNoteStore((s) => s.setActiveNote);
   const goBack                 = useNoteStore((s) => s.goBack);
   const goForward              = useNoteStore((s) => s.goForward);
-  const canGoBack              = useNoteStore((s) => s.canGoBack());
-  const canGoForward           = useNoteStore((s) => s.canGoForward());
+  const pane1CanGoBack         = useNoteStore((s) => s.canGoBack());
+  const pane1CanGoForward      = useNoteStore((s) => s.canGoForward());
 
   const sidebarState        = useUIStore((s) => s.sidebarState);
   const setSidebarState     = useUIStore((s) => s.setSidebarState);
@@ -74,6 +74,13 @@ export default function App() {
   const openGraph           = useUIStore((s) => s.openGraph);
   const graphFocusNoteId    = useUIStore((s) => s.graphFocusNoteId);
   const activePaneId        = useUIStore((s) => s.activePaneId);
+  const pane2CanGoBack      = useUIStore((s) => s.pane2CanGoBack());
+  const pane2CanGoForward   = useUIStore((s) => s.pane2CanGoForward());
+  const pane2GoBack         = useUIStore((s) => s.pane2GoBack);
+  const pane2GoForward      = useUIStore((s) => s.pane2GoForward);
+
+  const canGoBack    = activePaneId === 2 ? pane2CanGoBack    : pane1CanGoBack;
+  const canGoForward = activePaneId === 2 ? pane2CanGoForward : pane1CanGoForward;
 
   const graphViewRef = useRef<GraphViewHandle>(null);
 
@@ -128,6 +135,12 @@ export default function App() {
     if (noteId && noteId !== useNoteStore.getState().activeNoteId) setActive(noteId, true);
   }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Push pane 2 nav history whenever pane 2's active tab changes
+  useEffect(() => {
+    const noteId = useUIStore.getState().paneActiveNoteId(2);
+    if (noteId) useUIStore.getState().pane2PushNav(noteId);
+  }, [pane2ActiveTabId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function triggerNav(action: () => void) {
     if (slideTimeout.current) clearTimeout(slideTimeout.current);
     action();
@@ -163,24 +176,30 @@ export default function App() {
     if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(activePaneId); }
     if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(activePaneId); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
-    if (ctrl && e.key === "[")               { e.preventDefault(); triggerNav(goBack); }
-    if (ctrl && e.key === "]")               { e.preventDefault(); triggerNav(goForward); }
     if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
 
-   if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
-  e.preventDefault();
-  useUIStore.getState().setRefreshStatus("reloading");
-  loadNotes().then(() => {
-    useUIStore.getState().setRefreshStatus("reloaded");
-  });
-}
+    if (ctrl && e.key === "[") {
+      e.preventDefault();
+      if (activePaneId === 2) { triggerNav(pane2GoBack); } else { triggerNav(goBack); }
+    }
+    if (ctrl && e.key === "]") {
+      e.preventDefault();
+      if (activePaneId === 2) { triggerNav(pane2GoForward); } else { triggerNav(goForward); }
+    }
+
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
+      e.preventDefault();
+      useUIStore.getState().setRefreshStatus("reloading");
+      loadNotes().then(() => { useUIStore.getState().setRefreshStatus("reloaded"); });
+    }
 
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
       e.preventDefault();
       if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
     }
   }, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
-      openShortcuts, goBack, goForward, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes]);
+      openShortcuts, goBack, goForward, pane2GoBack, pane2GoForward, closeActiveTab, cycleTab,
+      graphOpen, openGraph, activePaneId, loadNotes]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -315,12 +334,18 @@ export default function App() {
               </button>
             </div>
 
-            <button onClick={() => triggerNav(goBack)} disabled={!canGoBack} title="Go back (Ctrl+'[')"
+            <button
+              onClick={() => triggerNav(activePaneId === 2 ? pane2GoBack : goBack)}
+              disabled={!canGoBack}
+              title="Go back (Ctrl+'[')"
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
-            <button onClick={() => triggerNav(goForward)} disabled={!canGoForward} title="Go forward (Ctrl+']')"
+            <button
+              onClick={() => triggerNav(activePaneId === 2 ? pane2GoForward : goForward)}
+              disabled={!canGoForward}
+              title="Go forward (Ctrl+']')"
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>

@@ -8,35 +8,49 @@ interface Props {
 }
 
 export function SubPagesSection({ noteId, paneId }: Props) {
-  const notes       = useNoteStore((s) => s.notes);
-  const createChild = useNoteStore((s) => s.createChildNote);
-  const setActive   = useNoteStore((s) => s.setActiveNote);
-  const openTab     = useUIStore((s) => s.openTab);
-  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
-  const expandNode  = useUIStore((s) => s.expandNode);
+  const notes      = useNoteStore((s) => s.notes);
+  const setActive  = useNoteStore((s) => s.setActiveNote);
+  const expandNode = useUIStore((s) => s.expandNode);
+  const openTab    = useUIStore((s) => s.openTab);
+  const replaceTab = useUIStore((s) => s.replaceTab);
 
   const children = notes.filter((n) => n.parent_id === noteId && !n.deleted_at);
 
   if (children.length === 0) return null;
 
-  function handleOpen(childId: string) {
-  if (paneId === 2) {
-    openTabInPane2(childId);
-  } else {
-    setActive(childId);
-    openTab(childId);
+  function openInSameTab(childId: string) {
+    if (paneId === 2) {
+      useUIStore.setState((s) => ({
+        pane2Tabs: s.pane2Tabs.map((t) =>
+          t.id === s.pane2ActiveTabId ? { ...t, noteId: childId } : t
+        ),
+      }));
+    } else {
+      setActive(childId);
+      replaceTab(childId);
+    }
   }
-}
+
+  function openInNewTab(childId: string) {
+    if (paneId === 2) {
+      useUIStore.getState().openTabInPane2(childId);
+    } else {
+      openTab(childId);
+    }
+  }
+
+  function handleOpen(childId: string, e: React.MouseEvent) {
+    const isMac  = navigator.platform.toUpperCase().includes("MAC");
+    const isCtrl = isMac ? e.metaKey : e.ctrlKey;
+    if (isCtrl) { openInNewTab(childId); } else { openInSameTab(childId); }
+  }
+
   async function handleAddSubPage() {
-  const child = await createChild(noteId);
-  expandNode(noteId);
-  if (paneId === 2) {
-    openTabInPane2(child.id);
-  } else {
-    setActive(child.id);
-    openTab(child.id);
+    // createChildNote internally calls setActiveNote — bypass by calling DB layer directly
+    const child = await useNoteStore.getState().createChildNote(noteId);
+    expandNode(noteId);
+    openInSameTab(child.id);
   }
-}
 
   return (
     <div className="w-full mx-auto px-8 pb-10 max-w-2xl xl:max-w-3xl 2xl:max-w-4xl">
@@ -62,7 +76,8 @@ export function SubPagesSection({ noteId, paneId }: Props) {
             return (
               <button
                 key={child.id}
-                onClick={() => handleOpen(child.id)}
+                onClick={(e) => handleOpen(child.id, e)}
+                title="Click to open · Ctrl+click for new tab"
                 className="group text-left rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-white dark:hover:bg-zinc-800 hover:shadow-sm transition-all duration-150 p-3"
               >
                 <div className="flex items-center gap-2 mb-1">

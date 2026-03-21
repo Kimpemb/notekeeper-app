@@ -216,6 +216,15 @@ interface UIStore {
   closedTabs: ClosedTab[];
   reopenClosedTab: () => void;
 
+  // ─── Pane 2 nav history ───────────────────────────────────────────────────
+pane2NavHistory: string[];
+pane2NavIndex: number;
+pane2CanGoBack: () => boolean;
+pane2CanGoForward: () => boolean;
+pane2GoBack: () => void;
+pane2GoForward: () => void;
+pane2PushNav: (noteId: string) => void;
+
   // ─── Sidebar note selection ───────────────────────────────────────────────
   selectedNoteIds: Set<string>;
   toggleNoteSelection: (id: string) => void;
@@ -469,7 +478,11 @@ export const useUIStore = create<UIStore>((set, get) => {
       }
     },
     closePane2: () => {
-      set({ splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1, pane2OutlineOpen: false, pane2BacklinksOpen: false, pane2VersionHistoryOpen: false });
+      set({
+        splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1,
+        pane2OutlineOpen: false, pane2BacklinksOpen: false, pane2VersionHistoryOpen: false,
+        pane2NavHistory: [], pane2NavIndex: -1,
+      });
       saveSession({ ...get(), splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null });
     },
     toggleSplitDirection: () => {
@@ -507,6 +520,7 @@ export const useUIStore = create<UIStore>((set, get) => {
       const next = [...pane2Tabs, tab];
       set({ pane2Tabs: next, pane2ActiveTabId: tab.id });
       saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
+      get().pane2PushNav(noteId);
     },
     activePaneId: 1,
     setActivePaneId: (pane) => set({ activePaneId: pane }),
@@ -531,6 +545,59 @@ export const useUIStore = create<UIStore>((set, get) => {
       } else {
         get().openTab(last.noteId);
       }
+    },
+
+    // ─── Pane 2 nav history ───────────────────────────────────────────────────
+    pane2NavHistory: [],
+    pane2NavIndex: -1,
+    pane2CanGoBack: () => get().pane2NavIndex > 0,
+    pane2CanGoForward: () => get().pane2NavIndex < get().pane2NavHistory.length - 1,
+    pane2GoBack: () => {
+      const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
+      if (pane2NavIndex <= 0) return;
+      const newIndex = pane2NavIndex - 1;
+      const noteId = pane2NavHistory[newIndex];
+      // Find tab with this noteId and activate it, or replace active tab
+      const existing = pane2Tabs.find((t) => t.noteId === noteId);
+      if (existing) {
+        set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
+      } else {
+        set((s) => ({
+          pane2NavIndex: newIndex,
+          pane2Tabs: s.pane2Tabs.map((t) =>
+            t.id === s.pane2ActiveTabId ? { ...t, noteId } : t
+          ),
+        }));
+      }
+      saveSession({ ...get() });
+    },
+    pane2GoForward: () => {
+      const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
+      if (pane2NavIndex >= pane2NavHistory.length - 1) return;
+      const newIndex = pane2NavIndex + 1;
+      const noteId = pane2NavHistory[newIndex];
+      const existing = pane2Tabs.find((t) => t.noteId === noteId);
+      if (existing) {
+        set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
+      } else {
+        set((s) => ({
+          pane2NavIndex: newIndex,
+          pane2Tabs: s.pane2Tabs.map((t) =>
+            t.id === s.pane2ActiveTabId ? { ...t, noteId } : t
+          ),
+        }));
+      }
+      saveSession({ ...get() });
+    },
+    pane2PushNav: (noteId) => {
+      set((s) => {
+        const trimmed = s.pane2NavHistory.slice(0, s.pane2NavIndex + 1);
+        if (trimmed[trimmed.length - 1] === noteId) return {};
+        return {
+          pane2NavHistory: [...trimmed, noteId],
+          pane2NavIndex: trimmed.length,
+        };
+      });
     },
 
     // ─── Sidebar note selection ───────────────────────────────────────────────
