@@ -58,12 +58,16 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
         </svg>
       ),
       action: () => {
-        createChild(noteId).then((child) => {
-          expandNode(noteId);
-          setActive(child.id);
-          if (paneId === 2) { openTabInPane2(child.id); } else { openTab(child.id); }
-        }).catch(console.error);
-      },
+  createChild(noteId).then((child) => {
+    expandNode(noteId);
+    if (paneId === 2) {
+      openTabInPane2(child.id);
+    } else {
+      setActive(child.id);
+      openTab(child.id);
+    }
+  }).catch(console.error);
+},
     },
     // ── Text structure ────────────────────────────────────────────────────────
     {

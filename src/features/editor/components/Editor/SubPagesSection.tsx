@@ -20,16 +20,23 @@ export function SubPagesSection({ noteId, paneId }: Props) {
   if (children.length === 0) return null;
 
   function handleOpen(childId: string) {
+  if (paneId === 2) {
+    openTabInPane2(childId);
+  } else {
     setActive(childId);
-    if (paneId === 2) { openTabInPane2(childId); } else { openTab(childId); }
+    openTab(childId);
   }
-
+}
   async function handleAddSubPage() {
-    const child = await createChild(noteId);
-    expandNode(noteId);
+  const child = await createChild(noteId);
+  expandNode(noteId);
+  if (paneId === 2) {
+    openTabInPane2(child.id);
+  } else {
     setActive(child.id);
-    if (paneId === 2) { openTabInPane2(child.id); } else { openTab(child.id); }
+    openTab(child.id);
   }
+}
 
   return (
     <div className="w-full mx-auto px-8 pb-10 max-w-2xl xl:max-w-3xl 2xl:max-w-4xl">
