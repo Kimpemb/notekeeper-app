@@ -135,7 +135,6 @@ export default function App() {
     if (noteId && noteId !== useNoteStore.getState().activeNoteId) setActive(noteId, true);
   }, [activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Push pane 2 nav history whenever pane 2's active tab changes
   useEffect(() => {
     const noteId = useUIStore.getState().paneActiveNoteId(2);
     if (noteId) useUIStore.getState().pane2PushNav(noteId);
@@ -422,7 +421,7 @@ export default function App() {
 
         <TipsPanel />
 
-        <main className={`flex-1 flex overflow-hidden ${splitOpen && splitDirection === "vertical" ? "flex-col" : "flex-row"}`}>
+        <main className={`flex-1 flex overflow-hidden ${splitOpen && splitDirection === "vertical" ? "flex-col items-stretch" : "flex-row"}`}>
           {renderPane(1)}
           {splitOpen && <><SplitDivider />{renderPane(2)}</>}
         </main>
