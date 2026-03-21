@@ -146,6 +146,12 @@ export default function App() {
       openInNewTabRef.current = true; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker(); return;
     }
+
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") {
+      e.preventDefault();
+      useUIStore.getState().reopenClosedTab();
+    }
+
     if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       openInNewTabRef.current = false; newNoteParentRef.current = useNoteStore.getState().activeNoteId;

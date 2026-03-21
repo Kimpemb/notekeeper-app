@@ -51,6 +51,11 @@ function makeTabId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+interface ClosedTab {
+  noteId: string;
+  pane: 1 | 2;
+}
+
 interface UIStore {
   // ─── Theme ────────────────────────────────────────────────────────────────
   theme: Theme;
@@ -207,6 +212,10 @@ interface UIStore {
   setActivePaneId: (pane: 1 | 2) => void;
   paneActiveNoteId: (pane: 1 | 2) => string | null;
 
+  // ─── Closed tab history ───────────────────────────────────────────────────
+  closedTabs: ClosedTab[];
+  reopenClosedTab: () => void;
+
   // ─── Sidebar note selection ───────────────────────────────────────────────
   selectedNoteIds: Set<string>;
   toggleNoteSelection: (id: string) => void;
@@ -241,8 +250,6 @@ export const useUIStore = create<UIStore>((set, get) => {
     loadSettings: async () => {
       const theme = await getSetting("theme");
       if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
-
-      // ─── Restore session ────────────────────────────────────────────────
       try {
         const raw = await getSetting(SESSION_KEY);
         if (raw) {
@@ -398,13 +405,14 @@ export const useUIStore = create<UIStore>((set, get) => {
       return tab;
     },
     closeTab: (tabId) => {
-      const { tabs, activeTabId } = get();
+      const { tabs, activeTabId, closedTabs } = get();
       const idx = tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
+      const closing = tabs[idx];
       const next = tabs.filter((t) => t.id !== tabId);
       let nextActiveTabId: string | null = activeTabId;
       if (activeTabId === tabId) { const neighbour = next[idx] ?? next[idx - 1] ?? null; nextActiveTabId = neighbour?.id ?? null; }
-      set({ tabs: next, activeTabId: nextActiveTabId });
+      set({ tabs: next, activeTabId: nextActiveTabId, closedTabs: [...closedTabs, { noteId: closing.noteId, pane: 1 as const }].slice(-20) });
       saveSession({ ...get(), tabs: next, activeTabId: nextActiveTabId });
     },
     closeTabsForNotes: (noteIds) => {
@@ -482,14 +490,15 @@ export const useUIStore = create<UIStore>((set, get) => {
     },
     setPane2ActiveTab: (tabId) => { set({ pane2ActiveTabId: tabId }); saveSession({ ...get(), pane2ActiveTabId: tabId }); },
     closePane2Tab: (tabId) => {
-      const { pane2Tabs, pane2ActiveTabId } = get();
+      const { pane2Tabs, pane2ActiveTabId, closedTabs } = get();
       const idx = pane2Tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
+      const closing = pane2Tabs[idx];
       const next = pane2Tabs.filter((t) => t.id !== tabId);
       if (next.length === 0) { get().closePane2(); return; }
       let nextActiveTabId = pane2ActiveTabId;
       if (pane2ActiveTabId === tabId) nextActiveTabId = (next[idx] ?? next[idx - 1])?.id ?? null;
-      set({ pane2Tabs: next, pane2ActiveTabId: nextActiveTabId });
+      set({ pane2Tabs: next, pane2ActiveTabId: nextActiveTabId, closedTabs: [...closedTabs, { noteId: closing.noteId, pane: 2 as const }].slice(-20) });
       saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: nextActiveTabId });
     },
     openTabInPane2: (noteId) => {
@@ -505,6 +514,23 @@ export const useUIStore = create<UIStore>((set, get) => {
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
       if (pane === 2) return pane2Tabs.find((t) => t.id === pane2ActiveTabId)?.noteId ?? null;
       return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
+    },
+
+    // ─── Closed tab history ───────────────────────────────────────────────────
+    closedTabs: [],
+    reopenClosedTab: () => {
+      const { closedTabs, activePaneId } = get();
+      if (closedTabs.length === 0) return;
+      const last = closedTabs[closedTabs.length - 1];
+      const remaining = closedTabs.slice(0, -1);
+      set({ closedTabs: remaining });
+      // Reopen in the pane it was closed from, or active pane if that pane no longer exists
+      const targetPane = last.pane === 2 && get().splitOpen ? 2 : activePaneId;
+      if (targetPane === 2) {
+        get().openTabInPane2(last.noteId);
+      } else {
+        get().openTab(last.noteId);
+      }
     },
 
     // ─── Sidebar note selection ───────────────────────────────────────────────
