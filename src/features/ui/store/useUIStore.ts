@@ -1,9 +1,9 @@
-// src/features/ui/store/useUIStore.ts
 import { create } from "zustand";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
 
 type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+type RefreshStatus = "idle" | "reloading" | "reloaded";
 export type SidebarState = "closed" | "peek" | "open";
 export type SplitDirection = "horizontal" | "vertical";
 
@@ -31,6 +31,21 @@ const DEFAULT_GRAPH_STATE: GraphViewState = {
   showTagColors: true,
   depth: 4,
 };
+
+const SESSION_KEY = "notekeeper_session";
+
+interface SessionState {
+  tabs: Tab[];
+  activeTabId: string | null;
+  pane2Tabs: Tab[];
+  pane2ActiveTabId: string | null;
+  splitOpen: boolean;
+  splitDirection: SplitDirection;
+}
+
+function saveSession(state: SessionState) {
+  setSetting(SESSION_KEY, JSON.stringify(state)).catch(console.error);
+}
 
 function makeTabId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -69,12 +84,15 @@ interface UIStore {
   saveStatus: SaveStatus;
   setSaveStatus: (status: SaveStatus) => void;
 
+  // ─── Refresh status ───────────────────────────────────────────────────────
+  refreshStatus: RefreshStatus;
+  setRefreshStatus: (status: RefreshStatus) => void;
+
   // ─── Version history — per pane ───────────────────────────────────────────
   pane1VersionHistoryOpen: boolean;
   pane2VersionHistoryOpen: boolean;
   openVersionHistory: (pane: 1 | 2) => void;
   closeVersionHistory: (pane: 1 | 2) => void;
-  // Convenience: reads focused pane (used by VersionHistory component itself)
   versionHistoryOpen: (pane: 1 | 2) => boolean;
 
   // ─── Backlinks panel — per pane ───────────────────────────────────────────
@@ -223,6 +241,24 @@ export const useUIStore = create<UIStore>((set, get) => {
     loadSettings: async () => {
       const theme = await getSetting("theme");
       if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
+
+      // ─── Restore session ────────────────────────────────────────────────
+      try {
+        const raw = await getSetting(SESSION_KEY);
+        if (raw) {
+          const session: SessionState = JSON.parse(raw);
+          if (session.tabs?.length) {
+            set({
+              tabs: session.tabs,
+              activeTabId: session.activeTabId,
+              pane2Tabs: session.pane2Tabs ?? [],
+              pane2ActiveTabId: session.pane2ActiveTabId ?? null,
+              splitOpen: session.splitOpen ?? false,
+              splitDirection: session.splitDirection ?? "horizontal",
+            });
+          }
+        }
+      } catch { /**/ }
     },
 
     // ─── Sidebar ──────────────────────────────────────────────────────────────
@@ -252,34 +288,24 @@ export const useUIStore = create<UIStore>((set, get) => {
     saveStatus: "idle",
     setSaveStatus: (status) => set({ saveStatus: status }),
 
+    // ─── Refresh status ───────────────────────────────────────────────────────
+    refreshStatus: "idle",
+    setRefreshStatus: (status) => set({ refreshStatus: status }),
+
     // ─── Version history — per pane ───────────────────────────────────────────
     pane1VersionHistoryOpen: false,
     pane2VersionHistoryOpen: false,
-    openVersionHistory: (pane) => set(pane === 1
-      ? { pane1VersionHistoryOpen: true }
-      : { pane2VersionHistoryOpen: true }),
-    closeVersionHistory: (pane) => set(pane === 1
-      ? { pane1VersionHistoryOpen: false }
-      : { pane2VersionHistoryOpen: false }),
-    versionHistoryOpen: (pane) => pane === 1
-      ? get().pane1VersionHistoryOpen
-      : get().pane2VersionHistoryOpen,
+    openVersionHistory: (pane) => set(pane === 1 ? { pane1VersionHistoryOpen: true } : { pane2VersionHistoryOpen: true }),
+    closeVersionHistory: (pane) => set(pane === 1 ? { pane1VersionHistoryOpen: false } : { pane2VersionHistoryOpen: false }),
+    versionHistoryOpen: (pane) => pane === 1 ? get().pane1VersionHistoryOpen : get().pane2VersionHistoryOpen,
 
     // ─── Backlinks — per pane ─────────────────────────────────────────────────
     pane1BacklinksOpen: false,
     pane2BacklinksOpen: false,
-    openBacklinks: (pane) => set(pane === 1
-      ? { pane1BacklinksOpen: true }
-      : { pane2BacklinksOpen: true }),
-    closeBacklinks: (pane) => set(pane === 1
-      ? { pane1BacklinksOpen: false }
-      : { pane2BacklinksOpen: false }),
-    toggleBacklinks: (pane) => set((s) => pane === 1
-      ? { pane1BacklinksOpen: !s.pane1BacklinksOpen }
-      : { pane2BacklinksOpen: !s.pane2BacklinksOpen }),
-    backlinksOpen: (pane) => pane === 1
-      ? get().pane1BacklinksOpen
-      : get().pane2BacklinksOpen,
+    openBacklinks: (pane) => set(pane === 1 ? { pane1BacklinksOpen: true } : { pane2BacklinksOpen: true }),
+    closeBacklinks: (pane) => set(pane === 1 ? { pane1BacklinksOpen: false } : { pane2BacklinksOpen: false }),
+    toggleBacklinks: (pane) => set((s) => pane === 1 ? { pane1BacklinksOpen: !s.pane1BacklinksOpen } : { pane2BacklinksOpen: !s.pane2BacklinksOpen }),
+    backlinksOpen: (pane) => pane === 1 ? get().pane1BacklinksOpen : get().pane2BacklinksOpen,
 
     // ─── File tree ────────────────────────────────────────────────────────────
     fileTreeOpen: false,
@@ -290,18 +316,10 @@ export const useUIStore = create<UIStore>((set, get) => {
     // ─── Outline — per pane ───────────────────────────────────────────────────
     pane1OutlineOpen: false,
     pane2OutlineOpen: false,
-    openOutline: (pane) => set(pane === 1
-      ? { pane1OutlineOpen: true }
-      : { pane2OutlineOpen: true }),
-    closeOutline: (pane) => set(pane === 1
-      ? { pane1OutlineOpen: false }
-      : { pane2OutlineOpen: false }),
-    toggleOutline: (pane) => set((s) => pane === 1
-      ? { pane1OutlineOpen: !s.pane1OutlineOpen }
-      : { pane2OutlineOpen: !s.pane2OutlineOpen }),
-    outlineOpen: (pane) => pane === 1
-      ? get().pane1OutlineOpen
-      : get().pane2OutlineOpen,
+    openOutline: (pane) => set(pane === 1 ? { pane1OutlineOpen: true } : { pane2OutlineOpen: true }),
+    closeOutline: (pane) => set(pane === 1 ? { pane1OutlineOpen: false } : { pane2OutlineOpen: false }),
+    toggleOutline: (pane) => set((s) => pane === 1 ? { pane1OutlineOpen: !s.pane1OutlineOpen } : { pane2OutlineOpen: !s.pane2OutlineOpen }),
+    outlineOpen: (pane) => pane === 1 ? get().pane1OutlineOpen : get().pane2OutlineOpen,
 
     // ─── Import ───────────────────────────────────────────────────────────────
     importOpen: false,
@@ -359,12 +377,26 @@ export const useUIStore = create<UIStore>((set, get) => {
     tabs: [], activeTabId: null,
     replaceTab: (noteId) => {
       const { tabs, activeTabId } = get();
-      if (tabs.length === 0 || activeTabId === null) { const tab: Tab = { id: makeTabId(), noteId }; set({ tabs: [tab], activeTabId: tab.id }); return; }
+      if (tabs.length === 0 || activeTabId === null) {
+        const tab: Tab = { id: makeTabId(), noteId };
+        set({ tabs: [tab], activeTabId: tab.id });
+        saveSession({ ...get(), tabs: [tab], activeTabId: tab.id });
+        return;
+      }
       const existing = tabs.find((t) => t.noteId === noteId);
-      if (existing) { set({ activeTabId: existing.id }); return; }
-      set({ tabs: tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t) });
+      if (existing) { set({ activeTabId: existing.id }); saveSession({ ...get(), activeTabId: existing.id }); return; }
+      const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
+      set({ tabs: next });
+      saveSession({ ...get(), tabs: next });
     },
-    openTab: (noteId) => { const { tabs } = get(); const tab: Tab = { id: makeTabId(), noteId }; set({ tabs: [...tabs, tab], activeTabId: tab.id }); return tab; },
+    openTab: (noteId) => {
+      const { tabs } = get();
+      const tab: Tab = { id: makeTabId(), noteId };
+      const next = [...tabs, tab];
+      set({ tabs: next, activeTabId: tab.id });
+      saveSession({ ...get(), tabs: next, activeTabId: tab.id });
+      return tab;
+    },
     closeTab: (tabId) => {
       const { tabs, activeTabId } = get();
       const idx = tabs.findIndex((t) => t.id === tabId);
@@ -373,6 +405,7 @@ export const useUIStore = create<UIStore>((set, get) => {
       let nextActiveTabId: string | null = activeTabId;
       if (activeTabId === tabId) { const neighbour = next[idx] ?? next[idx - 1] ?? null; nextActiveTabId = neighbour?.id ?? null; }
       set({ tabs: next, activeTabId: nextActiveTabId });
+      saveSession({ ...get(), tabs: next, activeTabId: nextActiveTabId });
     },
     closeTabsForNotes: (noteIds) => {
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
@@ -382,9 +415,11 @@ export const useUIStore = create<UIStore>((set, get) => {
       const next2 = pane2Tabs.filter((t) => !noteIds.has(t.noteId));
       let nextActive2 = pane2ActiveTabId;
       if (pane2ActiveTabId && !next2.some((t) => t.id === pane2ActiveTabId)) nextActive2 = next2[next2.length - 1]?.id ?? null;
-      set({ tabs: next1, activeTabId: nextActive1, pane2Tabs: next2, pane2ActiveTabId: nextActive2, splitOpen: next2.length > 0 ? get().splitOpen : false });
+      const splitOpen = next2.length > 0 ? get().splitOpen : false;
+      set({ tabs: next1, activeTabId: nextActive1, pane2Tabs: next2, pane2ActiveTabId: nextActive2, splitOpen });
+      saveSession({ ...get(), tabs: next1, activeTabId: nextActive1, pane2Tabs: next2, pane2ActiveTabId: nextActive2, splitOpen });
     },
-    setActiveTab: (tabId) => set({ activeTabId: tabId }),
+    setActiveTab: (tabId) => { set({ activeTabId: tabId }); saveSession({ ...get(), activeTabId: tabId }); },
     closeActiveTab: () => {
       const { activePaneId, activeTabId, pane2ActiveTabId } = get();
       if (activePaneId === 2 && pane2ActiveTabId) { get().closePane2Tab(pane2ActiveTabId); }
@@ -396,12 +431,16 @@ export const useUIStore = create<UIStore>((set, get) => {
         if (pane2Tabs.length < 2) return;
         const idx = pane2Tabs.findIndex((t) => t.id === pane2ActiveTabId);
         if (idx === -1) return;
-        set({ pane2ActiveTabId: pane2Tabs[(idx + dir + pane2Tabs.length) % pane2Tabs.length].id });
+        const nextId = pane2Tabs[(idx + dir + pane2Tabs.length) % pane2Tabs.length].id;
+        set({ pane2ActiveTabId: nextId });
+        saveSession({ ...get(), pane2ActiveTabId: nextId });
       } else {
         if (tabs.length < 2) return;
         const idx = tabs.findIndex((t) => t.id === activeTabId);
         if (idx === -1) return;
-        set({ activeTabId: tabs[(idx + dir + tabs.length) % tabs.length].id });
+        const nextId = tabs[(idx + dir + tabs.length) % tabs.length].id;
+        set({ activeTabId: nextId });
+        saveSession({ ...get(), activeTabId: nextId });
       }
     },
     activeTabNoteId: () => { const { tabs, activeTabId } = get(); return tabs.find((t) => t.id === activeTabId)?.noteId ?? null; },
@@ -410,31 +449,38 @@ export const useUIStore = create<UIStore>((set, get) => {
     pane2Tabs: [], pane2ActiveTabId: null, splitOpen: false, splitDirection: "horizontal",
     openInSplit: (noteId) => {
       const { splitOpen, pane2Tabs } = get();
-      if (!splitOpen) { const tab: Tab = { id: makeTabId(), noteId }; set({ splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id, activePaneId: 2 }); }
-      else { const tab: Tab = { id: makeTabId(), noteId }; set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id, activePaneId: 2 }); }
+      if (!splitOpen) {
+        const tab: Tab = { id: makeTabId(), noteId };
+        set({ splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id, activePaneId: 2 });
+        saveSession({ ...get(), splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id });
+      } else {
+        const tab: Tab = { id: makeTabId(), noteId };
+        const next = [...pane2Tabs, tab];
+        set({ pane2Tabs: next, pane2ActiveTabId: tab.id, activePaneId: 2 });
+        saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
+      }
     },
-    closePane2: () => set({
-      splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1,
-      pane2OutlineOpen: false, pane2BacklinksOpen: false, pane2VersionHistoryOpen: false,
-    }),
-    toggleSplitDirection: () => set((s) => ({ splitDirection: s.splitDirection === "horizontal" ? "vertical" : "horizontal" })),
+    closePane2: () => {
+      set({ splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1, pane2OutlineOpen: false, pane2BacklinksOpen: false, pane2VersionHistoryOpen: false });
+      saveSession({ ...get(), splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null });
+    },
+    toggleSplitDirection: () => {
+      const next = get().splitDirection === "horizontal" ? "vertical" : "horizontal";
+      set({ splitDirection: next });
+      saveSession({ ...get(), splitDirection: next });
+    },
     swapPanes: () => {
-      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
-      const {
-        pane1OutlineOpen, pane2OutlineOpen,
-        pane1BacklinksOpen, pane2BacklinksOpen,
-        pane1VersionHistoryOpen, pane2VersionHistoryOpen,
-      } = get();
+      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId, pane1OutlineOpen, pane2OutlineOpen, pane1BacklinksOpen, pane2BacklinksOpen, pane1VersionHistoryOpen, pane2VersionHistoryOpen } = get();
       set({
         tabs: pane2Tabs, activeTabId: pane2ActiveTabId,
         pane2Tabs: tabs, pane2ActiveTabId: activeTabId,
-        // Swap panel states too so they follow their pane
         pane1OutlineOpen: pane2OutlineOpen, pane2OutlineOpen: pane1OutlineOpen,
         pane1BacklinksOpen: pane2BacklinksOpen, pane2BacklinksOpen: pane1BacklinksOpen,
         pane1VersionHistoryOpen: pane2VersionHistoryOpen, pane2VersionHistoryOpen: pane1VersionHistoryOpen,
       });
+      saveSession({ ...get(), tabs: pane2Tabs, activeTabId: pane2ActiveTabId, pane2Tabs: tabs, pane2ActiveTabId: activeTabId });
     },
-    setPane2ActiveTab: (tabId) => set({ pane2ActiveTabId: tabId }),
+    setPane2ActiveTab: (tabId) => { set({ pane2ActiveTabId: tabId }); saveSession({ ...get(), pane2ActiveTabId: tabId }); },
     closePane2Tab: (tabId) => {
       const { pane2Tabs, pane2ActiveTabId } = get();
       const idx = pane2Tabs.findIndex((t) => t.id === tabId);
@@ -444,8 +490,15 @@ export const useUIStore = create<UIStore>((set, get) => {
       let nextActiveTabId = pane2ActiveTabId;
       if (pane2ActiveTabId === tabId) nextActiveTabId = (next[idx] ?? next[idx - 1])?.id ?? null;
       set({ pane2Tabs: next, pane2ActiveTabId: nextActiveTabId });
+      saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: nextActiveTabId });
     },
-    openTabInPane2: (noteId) => { const { pane2Tabs } = get(); const tab: Tab = { id: makeTabId(), noteId }; set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id }); },
+    openTabInPane2: (noteId) => {
+      const { pane2Tabs } = get();
+      const tab: Tab = { id: makeTabId(), noteId };
+      const next = [...pane2Tabs, tab];
+      set({ pane2Tabs: next, pane2ActiveTabId: tab.id });
+      saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
+    },
     activePaneId: 1,
     setActivePaneId: (pane) => set({ activePaneId: pane }),
     paneActiveNoteId: (pane) => {

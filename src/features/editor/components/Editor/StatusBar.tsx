@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { Editor } from "@tiptap/react";
@@ -24,15 +25,27 @@ function formatEdited(updatedAt: number | string | null | undefined): string {
 
 export function StatusBar({ editor, paneId }: Props) {
   const saveStatus          = useUIStore((s) => s.saveStatus);
+  const refreshStatus       = useUIStore((s) => s.refreshStatus);
+  const setRefreshStatus    = useUIStore((s) => s.setRefreshStatus);
   const openVersionHistory  = useUIStore((s) => s.openVersionHistory);
   const closeVersionHistory = useUIStore((s) => s.closeVersionHistory);
   const versionHistoryOpen  = useUIStore((s) => s.versionHistoryOpen);
   const activeNote          = useNoteStore((s) => s.activeNote());
 
-  const wordCount  = editor ? editor.getText().split(/\s+/).filter((w) => w.length > 0).length : 0;
-  const charCount  = editor ? editor.getText().length : 0;
+  const wordCount   = editor ? editor.getText().split(/\s+/).filter((w) => w.length > 0).length : 0;
+  const charCount   = editor ? editor.getText().length : 0;
   const editedLabel = formatEdited(activeNote?.updated_at);
-  const isVHOpen   = versionHistoryOpen(paneId);
+  const isVHOpen    = versionHistoryOpen(paneId);
+
+  // Auto-clear "reloaded" after 2s
+  useEffect(() => {
+    if (refreshStatus !== "reloaded") return;
+    const t = setTimeout(() => setRefreshStatus("idle"), 2000);
+    return () => clearTimeout(t);
+  }, [refreshStatus, setRefreshStatus]);
+
+  const showRefresh = refreshStatus !== "idle";
+  const showSave    = saveStatus !== "idle" && !showRefresh;
 
   return (
     <div className="flex items-center justify-between px-6 py-1.5 shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[11px] text-zinc-400 dark:text-zinc-500 select-none">
@@ -48,10 +61,12 @@ export function StatusBar({ editor, paneId }: Props) {
         )}
       </div>
       <div className="flex items-center gap-4">
-        <span className={`flex items-center gap-1.5 transition-opacity duration-200 ${saveStatus === "idle" ? "opacity-0" : "opacity-100"}`}>
-          {saveStatus === "saving" && (<><span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />Saving…</>)}
-          {saveStatus === "saved"  && (<><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />Saved</>)}
-          {saveStatus === "error"  && (<><span className="w-1.5 h-1.5 rounded-full bg-red-400" />Save failed</>)}
+        <span className={`flex items-center gap-1.5 transition-opacity duration-200 ${showRefresh || showSave ? "opacity-100" : "opacity-0"}`}>
+          {showRefresh && refreshStatus === "reloading" && (<><span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />Reloading…</>)}
+          {showRefresh && refreshStatus === "reloaded"  && (<><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />Reloaded</>)}
+          {showSave   && saveStatus   === "saving"      && (<><span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />Saving…</>)}
+          {showSave   && saveStatus   === "saved"        && (<><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />Saved</>)}
+          {showSave   && saveStatus   === "error"        && (<><span className="w-1.5 h-1.5 rounded-full bg-red-400" />Save failed</>)}
         </span>
         {activeNote && (
           <button

@@ -23,10 +23,10 @@ import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 
-// Block F5 / Ctrl+R refresh in production — causes full state loss in Tauri
+// Block F5 / Ctrl+R — causes full state loss in Tauri
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
-  if ((e.ctrlKey || e.metaKey) && e.key === "r") e.preventDefault();
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") e.preventDefault(); // blocks both Ctrl+R and Ctrl+Shift+R
 });
 
 interface BreadcrumbSegment { id: string; title: string; }
@@ -62,7 +62,7 @@ export default function App() {
   const toggleSidebar       = useUIStore((s) => s.toggleSidebar);
   const togglePalette       = useUIStore((s) => s.togglePalette);
   const openShortcuts       = useUIStore((s) => s.openShortcuts);
-  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
+  const openTabInPane2      = useUIStore((s) => s.openTabInPane2);
   const fileTreeOpen        = useUIStore((s) => s.fileTreeOpen);
   const toggleFileTree      = useUIStore((s) => s.toggleFileTree);
   const toggleBacklinks     = useUIStore((s) => s.toggleBacklinks);
@@ -154,7 +154,6 @@ export default function App() {
 
     if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
     if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
-    // Ctrl+; and Ctrl+' toggle the FOCUSED pane's panels — fully independent
     if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(activePaneId); }
     if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(activePaneId); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
@@ -162,12 +161,20 @@ export default function App() {
     if (ctrl && e.key === "]")               { e.preventDefault(); triggerNav(goForward); }
     if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
 
+   if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
+  e.preventDefault();
+  useUIStore.getState().setRefreshStatus("reloading");
+  loadNotes().then(() => {
+    useUIStore.getState().setRefreshStatus("reloaded");
+  });
+}
+
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
       e.preventDefault();
       if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
     }
   }, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
-      openShortcuts, goBack, goForward, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId]);
+      openShortcuts, goBack, goForward, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -175,28 +182,19 @@ export default function App() {
   }, [handleKeyDown]);
 
   async function handleTemplateSelect(template: Template) {
-  closeTemplatePicker();
-  const parentId = newNoteParentRef.current ?? undefined;
-  const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
+    closeTemplatePicker();
+    const parentId = newNoteParentRef.current ?? undefined;
+    const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
 
-  if (openInNewTabRef.current) {
-    if (activePaneId === 2) {
-      openTabInPane2(note.id);
+    if (openInNewTabRef.current) {
+      if (activePaneId === 2) { openTabInPane2(note.id); } else { openTab(note.id); }
     } else {
-      openTab(note.id);
+      if (activePaneId === 2) { openTabInPane2(note.id); } else { setActive(note.id); replaceTab(note.id); }
     }
-  } else {
-    if (activePaneId === 2) {
-      openTabInPane2(note.id);
-    } else {
-      setActive(note.id);
-      replaceTab(note.id);
-    }
+
+    openInNewTabRef.current = false;
+    newNoteParentRef.current = null;
   }
-
-  openInNewTabRef.current = false;
-  newNoteParentRef.current = null;
-}
 
   function noteSlug(title: string): string { return title.replace(/[^a-z0-9]/gi, "-").toLowerCase(); }
 
@@ -255,13 +253,13 @@ export default function App() {
             const isActive = tab.id === paneActiveTabId;
             return (
               <div key={tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
-        <Editor
-          key={tab.noteId}
-          noteId={tab.noteId}
-          paneId={paneId}
-          initialScrollTop={scrollPositions.current.get(tab.noteId) ?? 0}
-          onScrollChange={(top) => scrollPositions.current.set(tab.noteId, top)}
-        />
+                <Editor
+                  key={tab.noteId}
+                  noteId={tab.noteId}
+                  paneId={paneId}
+                  initialScrollTop={scrollPositions.current.get(tab.noteId) ?? 0}
+                  onScrollChange={(top) => scrollPositions.current.set(tab.noteId, top)}
+                />
               </div>
             );
           })}
