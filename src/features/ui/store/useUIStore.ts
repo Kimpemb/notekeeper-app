@@ -12,7 +12,6 @@ export interface Tab {
   noteId: string;
 }
 
-// Persisted graph view state — survives open/close cycles
 export interface GraphViewState {
   zoomX: number;
   zoomY: number;
@@ -25,7 +24,7 @@ export interface GraphViewState {
 }
 
 const DEFAULT_GRAPH_STATE: GraphViewState = {
-  zoomX: 0, zoomY: 0, zoomK: 0.85, // 0,0 means "use default" on restore
+  zoomX: 0, zoomY: 0, zoomK: 0.85,
   focusNodeId: null,
   searchQuery: "",
   showOrphans: true,
@@ -70,16 +69,21 @@ interface UIStore {
   saveStatus: SaveStatus;
   setSaveStatus: (status: SaveStatus) => void;
 
-  // ─── Version history panel ────────────────────────────────────────────────
-  versionHistoryOpen: boolean;
-  openVersionHistory: () => void;
-  closeVersionHistory: () => void;
+  // ─── Version history — per pane ───────────────────────────────────────────
+  pane1VersionHistoryOpen: boolean;
+  pane2VersionHistoryOpen: boolean;
+  openVersionHistory: (pane: 1 | 2) => void;
+  closeVersionHistory: (pane: 1 | 2) => void;
+  // Convenience: reads focused pane (used by VersionHistory component itself)
+  versionHistoryOpen: (pane: 1 | 2) => boolean;
 
-  // ─── Backlinks panel ──────────────────────────────────────────────────────
-  backlinksOpen: boolean;
-  openBacklinks: () => void;
-  closeBacklinks: () => void;
-  toggleBacklinks: () => void;
+  // ─── Backlinks panel — per pane ───────────────────────────────────────────
+  pane1BacklinksOpen: boolean;
+  pane2BacklinksOpen: boolean;
+  openBacklinks: (pane: 1 | 2) => void;
+  closeBacklinks: (pane: 1 | 2) => void;
+  toggleBacklinks: (pane: 1 | 2) => void;
+  backlinksOpen: (pane: 1 | 2) => boolean;
 
   // ─── File tree panel ──────────────────────────────────────────────────────
   fileTreeOpen: boolean;
@@ -87,11 +91,13 @@ interface UIStore {
   closeFileTree: () => void;
   toggleFileTree: () => void;
 
-  // ─── Outline panel ────────────────────────────────────────────────────────
-  outlineOpen: boolean;
-  openOutline: () => void;
-  closeOutline: () => void;
-  toggleOutline: () => void;
+  // ─── Outline panel — per pane ────────────────────────────────────────────
+  pane1OutlineOpen: boolean;
+  pane2OutlineOpen: boolean;
+  openOutline: (pane: 1 | 2) => void;
+  closeOutline: (pane: 1 | 2) => void;
+  toggleOutline: (pane: 1 | 2) => void;
+  outlineOpen: (pane: 1 | 2) => boolean;
 
   // ─── Import modal ─────────────────────────────────────────────────────────
   importOpen: boolean;
@@ -117,7 +123,6 @@ interface UIStore {
   graphFocusNoteId: string | null;
   openGraphForNote: (noteId: string) => void;
   clearGraphFocusNoteId: () => void;
-  // Persisted state across open/close
   graphViewState: GraphViewState;
   saveGraphViewState: (state: Partial<GraphViewState>) => void;
   resetGraphViewState: () => void;
@@ -247,16 +252,34 @@ export const useUIStore = create<UIStore>((set, get) => {
     saveStatus: "idle",
     setSaveStatus: (status) => set({ saveStatus: status }),
 
-    // ─── Version history ──────────────────────────────────────────────────────
-    versionHistoryOpen: false,
-    openVersionHistory: () => set({ versionHistoryOpen: true }),
-    closeVersionHistory: () => set({ versionHistoryOpen: false }),
+    // ─── Version history — per pane ───────────────────────────────────────────
+    pane1VersionHistoryOpen: false,
+    pane2VersionHistoryOpen: false,
+    openVersionHistory: (pane) => set(pane === 1
+      ? { pane1VersionHistoryOpen: true }
+      : { pane2VersionHistoryOpen: true }),
+    closeVersionHistory: (pane) => set(pane === 1
+      ? { pane1VersionHistoryOpen: false }
+      : { pane2VersionHistoryOpen: false }),
+    versionHistoryOpen: (pane) => pane === 1
+      ? get().pane1VersionHistoryOpen
+      : get().pane2VersionHistoryOpen,
 
-    // ─── Backlinks ────────────────────────────────────────────────────────────
-    backlinksOpen: false,
-    openBacklinks: () => set({ backlinksOpen: true }),
-    closeBacklinks: () => set({ backlinksOpen: false }),
-    toggleBacklinks: () => set((s) => ({ backlinksOpen: !s.backlinksOpen })),
+    // ─── Backlinks — per pane ─────────────────────────────────────────────────
+    pane1BacklinksOpen: false,
+    pane2BacklinksOpen: false,
+    openBacklinks: (pane) => set(pane === 1
+      ? { pane1BacklinksOpen: true }
+      : { pane2BacklinksOpen: true }),
+    closeBacklinks: (pane) => set(pane === 1
+      ? { pane1BacklinksOpen: false }
+      : { pane2BacklinksOpen: false }),
+    toggleBacklinks: (pane) => set((s) => pane === 1
+      ? { pane1BacklinksOpen: !s.pane1BacklinksOpen }
+      : { pane2BacklinksOpen: !s.pane2BacklinksOpen }),
+    backlinksOpen: (pane) => pane === 1
+      ? get().pane1BacklinksOpen
+      : get().pane2BacklinksOpen,
 
     // ─── File tree ────────────────────────────────────────────────────────────
     fileTreeOpen: false,
@@ -264,11 +287,21 @@ export const useUIStore = create<UIStore>((set, get) => {
     closeFileTree: () => set({ fileTreeOpen: false }),
     toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
 
-    // ─── Outline ──────────────────────────────────────────────────────────────
-    outlineOpen: false,
-    openOutline: () => set({ outlineOpen: true }),
-    closeOutline: () => set({ outlineOpen: false }),
-    toggleOutline: () => set((s) => ({ outlineOpen: !s.outlineOpen })),
+    // ─── Outline — per pane ───────────────────────────────────────────────────
+    pane1OutlineOpen: false,
+    pane2OutlineOpen: false,
+    openOutline: (pane) => set(pane === 1
+      ? { pane1OutlineOpen: true }
+      : { pane2OutlineOpen: true }),
+    closeOutline: (pane) => set(pane === 1
+      ? { pane1OutlineOpen: false }
+      : { pane2OutlineOpen: false }),
+    toggleOutline: (pane) => set((s) => pane === 1
+      ? { pane1OutlineOpen: !s.pane1OutlineOpen }
+      : { pane2OutlineOpen: !s.pane2OutlineOpen }),
+    outlineOpen: (pane) => pane === 1
+      ? get().pane1OutlineOpen
+      : get().pane2OutlineOpen,
 
     // ─── Import ───────────────────────────────────────────────────────────────
     importOpen: false,
@@ -294,7 +327,6 @@ export const useUIStore = create<UIStore>((set, get) => {
     graphFocusNoteId: null,
     openGraphForNote: (noteId) => set({ graphOpen: true, graphFocusNoteId: noteId }),
     clearGraphFocusNoteId: () => set({ graphFocusNoteId: null }),
-    // Persisted graph view state
     graphViewState: { ...DEFAULT_GRAPH_STATE },
     saveGraphViewState: (state) => set((s) => ({ graphViewState: { ...s.graphViewState, ...state } })),
     resetGraphViewState: () => set({ graphViewState: { ...DEFAULT_GRAPH_STATE } }),
@@ -381,9 +413,27 @@ export const useUIStore = create<UIStore>((set, get) => {
       if (!splitOpen) { const tab: Tab = { id: makeTabId(), noteId }; set({ splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id, activePaneId: 2 }); }
       else { const tab: Tab = { id: makeTabId(), noteId }; set({ pane2Tabs: [...pane2Tabs, tab], pane2ActiveTabId: tab.id, activePaneId: 2 }); }
     },
-    closePane2: () => set({ splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1 }),
+    closePane2: () => set({
+      splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1,
+      pane2OutlineOpen: false, pane2BacklinksOpen: false, pane2VersionHistoryOpen: false,
+    }),
     toggleSplitDirection: () => set((s) => ({ splitDirection: s.splitDirection === "horizontal" ? "vertical" : "horizontal" })),
-    swapPanes: () => { const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get(); set({ tabs: pane2Tabs, activeTabId: pane2ActiveTabId, pane2Tabs: tabs, pane2ActiveTabId: activeTabId }); },
+    swapPanes: () => {
+      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
+      const {
+        pane1OutlineOpen, pane2OutlineOpen,
+        pane1BacklinksOpen, pane2BacklinksOpen,
+        pane1VersionHistoryOpen, pane2VersionHistoryOpen,
+      } = get();
+      set({
+        tabs: pane2Tabs, activeTabId: pane2ActiveTabId,
+        pane2Tabs: tabs, pane2ActiveTabId: activeTabId,
+        // Swap panel states too so they follow their pane
+        pane1OutlineOpen: pane2OutlineOpen, pane2OutlineOpen: pane1OutlineOpen,
+        pane1BacklinksOpen: pane2BacklinksOpen, pane2BacklinksOpen: pane1BacklinksOpen,
+        pane1VersionHistoryOpen: pane2VersionHistoryOpen, pane2VersionHistoryOpen: pane1VersionHistoryOpen,
+      });
+    },
     setPane2ActiveTab: (tabId) => set({ pane2ActiveTabId: tabId }),
     closePane2Tab: (tabId) => {
       const { pane2Tabs, pane2ActiveTabId } = get();

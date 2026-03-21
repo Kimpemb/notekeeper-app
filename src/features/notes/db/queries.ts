@@ -511,29 +511,53 @@ export async function linkFirstMention(
   try { doc = JSON.parse(note.content); } catch { return; }
 
   const escapedTitle = targetTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(?<![\\w])${escapedTitle}(?![\\w])`);
+  // FIX: add "i" flag so "docs" matches note titled "Docs"
+  const regex = new RegExp(`(?<![\\w])${escapedTitle}(?![\\w])`, "i");
 
   let linked = false;
 
   function walkAndLink(nodes: any[]): any[] {
     if (linked) return nodes;
-    return nodes.map((node) => {
-      if (linked) return node;
-      if (node.content && Array.isArray(node.content)) {
-        return { ...node, content: walkAndLink(node.content) };
+
+    const result: any[] = [];
+
+    for (const node of nodes) {
+      if (linked) {
+        result.push(node);
+        continue;
       }
-      if (node.type !== "text" || typeof node.text !== "string") return node;
+
+      if (node.content && Array.isArray(node.content)) {
+        const newContent = walkAndLink(node.content);
+        result.push({ ...node, content: newContent });
+        continue;
+      }
+
+      if (node.type !== "text" || typeof node.text !== "string") {
+        result.push(node);
+        continue;
+      }
+
       const match = regex.exec(node.text);
-      if (!match) return node;
+      if (!match) {
+        result.push(node);
+        continue;
+      }
+
       linked = true;
       const before = node.text.slice(0, match.index);
       const after  = node.text.slice(match.index + match[0].length);
-      const result: any[] = [];
+
       if (before) result.push({ ...node, text: before });
-      result.push({ type: "noteLink", attrs: { id: targetId, label: targetTitle } });
+      result.push({
+        type: "noteLink",
+        // FIX: use match[0] (actual text as written) not targetTitle
+        attrs: { id: targetId, label: match[0] },
+      });
       if (after) result.push({ ...node, text: after });
-      return result;
-    }).flat();
+    }
+
+    return result;
   }
 
   if (doc.content) doc.content = walkAndLink(doc.content);
@@ -542,8 +566,8 @@ export async function linkFirstMention(
   function extractText(nodes: any[]): string {
     return nodes.map((n) => {
       if (n.type === "text") return n.text ?? "";
-      if (n.type === "noteLink") return "";
-      if (n.content) return extractText(n.content);
+      if (n.type === "noteLink") return n.attrs?.label ?? "";
+      if (n.content && Array.isArray(n.content)) return extractText(n.content);
       return "";
     }).join("");
   }
@@ -552,6 +576,7 @@ export async function linkFirstMention(
   const newPlaintext = extractText(doc.content ?? []);
   await updateNote(sourceNoteId, { content: newContent, plaintext: newPlaintext });
 }
+ 
 
 // ─── Export / Import ──────────────────────────────────────────────────────────
 

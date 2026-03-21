@@ -60,7 +60,10 @@ export function TabBar({ paneId }: TabBarProps) {
   function handleTabClick(tabId: string, noteId: string) {
     setActivePaneId(paneId);
     setActive(tabId);
-    setActiveNote(noteId, true);
+    // Only sync global activeNoteId for pane 1 — pane 2 manages its own tab state
+    if (paneId === 1) {
+      setActiveNote(noteId, true);
+    }
   }
 
   function handleClose(e: React.MouseEvent, tabId: string) {

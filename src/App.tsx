@@ -23,6 +23,14 @@ import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 
+// Block F5 / Ctrl+R refresh in production — causes full state loss in Tauri
+if (!import.meta.env.DEV) {
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "F5") e.preventDefault();
+    if ((e.ctrlKey || e.metaKey) && e.key === "r") e.preventDefault();
+  });
+}
+
 interface BreadcrumbSegment { id: string; title: string; }
 
 function buildBreadcrumb(
@@ -56,6 +64,7 @@ export default function App() {
   const toggleSidebar       = useUIStore((s) => s.toggleSidebar);
   const togglePalette       = useUIStore((s) => s.togglePalette);
   const openShortcuts       = useUIStore((s) => s.openShortcuts);
+  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
   const fileTreeOpen        = useUIStore((s) => s.fileTreeOpen);
   const toggleFileTree      = useUIStore((s) => s.toggleFileTree);
   const toggleBacklinks     = useUIStore((s) => s.toggleBacklinks);
@@ -66,6 +75,7 @@ export default function App() {
   const graphOpen           = useUIStore((s) => s.graphOpen);
   const openGraph           = useUIStore((s) => s.openGraph);
   const graphFocusNoteId    = useUIStore((s) => s.graphFocusNoteId);
+  const activePaneId        = useUIStore((s) => s.activePaneId);
 
   const graphViewRef = useRef<GraphViewHandle>(null);
 
@@ -80,7 +90,6 @@ export default function App() {
   const pane2ActiveTabId = useUIStore((s) => s.pane2ActiveTabId);
   const splitOpen        = useUIStore((s) => s.splitOpen);
   const splitDirection   = useUIStore((s) => s.splitDirection);
-  const activePaneId     = useUIStore((s) => s.activePaneId);
   const setActivePaneId  = useUIStore((s) => s.setActivePaneId);
 
   const [dbReady, setDbReady]     = useState(false);
@@ -132,7 +141,7 @@ export default function App() {
     const ctrl = e.ctrlKey || e.metaKey;
 
     if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
-    if (ctrl && e.key === "k") { e.preventDefault(); togglePalette(); }
+    if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
 
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
@@ -147,8 +156,9 @@ export default function App() {
 
     if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
     if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
-    if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(); }
-    if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(); }
+    // Ctrl+; and Ctrl+' toggle the FOCUSED pane's panels — fully independent
+    if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(activePaneId); }
+    if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(activePaneId); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
     if (ctrl && e.key === "[")               { e.preventDefault(); triggerNav(goBack); }
     if (ctrl && e.key === "]")               { e.preventDefault(); triggerNav(goForward); }
@@ -159,7 +169,7 @@ export default function App() {
       if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
     }
   }, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
-      openShortcuts, goBack, goForward, closeActiveTab, cycleTab, graphOpen, openGraph]);
+      openShortcuts, goBack, goForward, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -167,12 +177,28 @@ export default function App() {
   }, [handleKeyDown]);
 
   async function handleTemplateSelect(template: Template) {
-    closeTemplatePicker();
-    const parentId = newNoteParentRef.current ?? undefined;
-    const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
-    if (openInNewTabRef.current) { openTab(note.id); } else { setActive(note.id); replaceTab(note.id); }
-    openInNewTabRef.current = false; newNoteParentRef.current = null;
+  closeTemplatePicker();
+  const parentId = newNoteParentRef.current ?? undefined;
+  const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
+
+  if (openInNewTabRef.current) {
+    if (activePaneId === 2) {
+      openTabInPane2(note.id);
+    } else {
+      openTab(note.id);
+    }
+  } else {
+    if (activePaneId === 2) {
+      openTabInPane2(note.id);
+    } else {
+      setActive(note.id);
+      replaceTab(note.id);
+    }
   }
+
+  openInNewTabRef.current = false;
+  newNoteParentRef.current = null;
+}
 
   function noteSlug(title: string): string { return title.replace(/[^a-z0-9]/gi, "-").toLowerCase(); }
 
@@ -220,20 +246,24 @@ export default function App() {
   function renderPane(paneId: 1 | 2) {
     const paneTabs        = paneId === 1 ? tabs : pane2Tabs;
     const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
-    const isPaneFocused   = activePaneId === paneId;
 
     return (
-      <div className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0" onMouseDown={() => { if (!isPaneFocused) setActivePaneId(paneId); }}>
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0"
+        onMouseDown={() => { if (activePaneId !== paneId) setActivePaneId(paneId); }}
+      >
         <TabBar paneId={paneId} />
         <div className="flex-1 flex overflow-hidden relative">
           {paneTabs.length === 0 ? <EmptyState /> : paneTabs.map((tab) => {
             const isActive = tab.id === paneActiveTabId;
             return (
               <div key={tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
-                <Editor key={tab.noteId} noteId={tab.noteId} isActivePane={isPaneFocused}
-                  initialScrollTop={scrollPositions.current.get(tab.noteId) ?? 0}
-                  onScrollChange={(top) => scrollPositions.current.set(tab.noteId, top)}
-                />
+        <Editor
+          key={tab.noteId}
+          noteId={tab.noteId}
+          paneId={paneId}
+          initialScrollTop={scrollPositions.current.get(tab.noteId) ?? 0}
+          onScrollChange={(top) => scrollPositions.current.set(tab.noteId, top)}
+        />
               </div>
             );
           })}
@@ -380,7 +410,6 @@ export default function App() {
         onCancel={() => { openInNewTabRef.current = false; newNoteParentRef.current = null; closeTemplatePicker(); }}
       />
 
-      {/* Pass graphFocusNoteId so GraphView opens pre-focused for local graph */}
       {graphOpen && <GraphView ref={graphViewRef} initialFocusNoteId={graphFocusNoteId} />}
 
       {exporting && (

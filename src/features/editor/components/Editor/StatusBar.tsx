@@ -1,49 +1,38 @@
-// src/features/editor/components/Editor/StatusBar.tsx
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { Editor } from "@tiptap/react";
 
-interface Props { editor: Editor | null; }
+interface Props { editor: Editor | null; paneId: 1 | 2; }
 
 function formatEdited(updatedAt: number | string | null | undefined): string {
   if (updatedAt == null) return "";
-  // SQLite stores timestamps as Unix seconds (integer); JS Date expects milliseconds
- const date = new Date(updatedAt);
-
+  const date = new Date(updatedAt);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60_000);
-
   if (diffMins < 1) return "Edited just now";
   if (diffMins < 60) return `Edited ${diffMins} min ago`;
-
   const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
-  const todayStart = new Date();
-todayStart.setHours(0, 0, 0, 0);
-
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const yesterdayStart = new Date(todayStart); yesterdayStart.setDate(yesterdayStart.getDate() - 1);
   if (date >= todayStart) return `Edited today at ${time}`;
   if (date >= yesterdayStart) return `Edited yesterday at ${time}`;
-
   const diffDays = Math.floor((todayStart.getTime() - date.getTime()) / 86_400_000);
   if (diffDays < 7) return `Edited ${diffDays} day(s) ago at ${time}`;
-
   return `Edited ${date.toLocaleDateString([], { month: "short", day: "numeric" })}`;
 }
 
-export function StatusBar({ editor }: Props) {
+export function StatusBar({ editor, paneId }: Props) {
   const saveStatus          = useUIStore((s) => s.saveStatus);
   const openVersionHistory  = useUIStore((s) => s.openVersionHistory);
-  const versionHistoryOpen  = useUIStore((s) => s.versionHistoryOpen);
   const closeVersionHistory = useUIStore((s) => s.closeVersionHistory);
+  const versionHistoryOpen  = useUIStore((s) => s.versionHistoryOpen);
   const activeNote          = useNoteStore((s) => s.activeNote());
 
-  const wordCount = editor ? editor.getText().split(/\s+/).filter((w) => w.length > 0).length : 0;
-  const charCount = editor ? editor.getText().length : 0;
+  const wordCount  = editor ? editor.getText().split(/\s+/).filter((w) => w.length > 0).length : 0;
+  const charCount  = editor ? editor.getText().length : 0;
   const editedLabel = formatEdited(activeNote?.updated_at);
+  const isVHOpen   = versionHistoryOpen(paneId);
 
   return (
     <div className="flex items-center justify-between px-6 py-1.5 shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[11px] text-zinc-400 dark:text-zinc-500 select-none">
@@ -66,7 +55,7 @@ export function StatusBar({ editor }: Props) {
         </span>
         {activeNote && (
           <button
-            onClick={versionHistoryOpen ? closeVersionHistory : openVersionHistory}
+            onClick={() => isVHOpen ? closeVersionHistory(paneId) : openVersionHistory(paneId)}
             className="hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors duration-100"
             title="Version history"
           >

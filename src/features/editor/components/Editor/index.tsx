@@ -62,33 +62,43 @@ async function uploadImageFromDisk(): Promise<{ path: string; name: string } | n
 
 interface EditorProps {
   noteId: string;
-  isActivePane?: boolean;
+  paneId: 1 | 2;
   initialScrollTop?: number;
   onScrollChange?: (scrollTop: number) => void;
 }
 
-export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onScrollChange }: EditorProps) {
-  const note                    = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
-  const updateNote              = useNoteStore((s) => s.updateNote);
-  const setActiveNote           = useNoteStore((s) => s.setActiveNote);
-  const versionHistoryOpen      = useUIStore((s) => s.versionHistoryOpen);
-  const backlinksOpen           = useUIStore((s) => s.backlinksOpen);
-  const outlineOpen             = useUIStore((s) => s.outlineOpen);
-  const toggleOutline           = useUIStore((s) => s.toggleOutline);
-  const toggleBacklinks         = useUIStore((s) => s.toggleBacklinks);
-  const openGraphForNote        = useUIStore((s) => s.openGraphForNote);
+export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {  const note        = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
+  const updateNote  = useNoteStore((s) => s.updateNote);
+  const setActiveNote = useNoteStore((s) => s.setActiveNote);
+
+  const pane1ActiveNoteId = useUIStore((s) => s.activeTabNoteId());
+  const pane2ActiveNoteId = useUIStore((s) => s.paneActiveNoteId(2));
+  const activePaneId      = useUIStore((s) => s.activePaneId);
+
+  const isActiveTab = paneId === 1
+    ? pane1ActiveNoteId === noteId
+    : pane2ActiveNoteId === noteId;
+
+  const showEditorButtons = isActiveTab && activePaneId === paneId;
+
+  const myOutlineOpen        = useUIStore((s) => paneId === 1 ? s.pane1OutlineOpen : s.pane2OutlineOpen);
+  const myBacklinksOpen      = useUIStore((s) => paneId === 1 ? s.pane1BacklinksOpen : s.pane2BacklinksOpen);
+  const myVersionHistoryOpen = useUIStore((s) => paneId === 1 ? s.pane1VersionHistoryOpen : s.pane2VersionHistoryOpen);
+
+  const toggleOutline    = useUIStore((s) => s.toggleOutline);
+  const toggleBacklinks  = useUIStore((s) => s.toggleBacklinks);
+  const openGraphForNote = useUIStore((s) => s.openGraphForNote);
+
   const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
   const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
   const pendingScrollQuery      = useUIStore((s) => s.pendingScrollQuery);
   const setPendingScrollQuery   = useUIStore((s) => s.setPendingScrollQuery);
 
-  const activeTabNoteId = useUIStore((s) => s.activeTabNoteId());
-  const isActiveTab     = isActivePane && activeTabNoteId === noteId;
-
-  const titleRef      = useRef<HTMLHeadingElement>(null);
-  const editorWrapRef = useRef<HTMLDivElement>(null);
-  const scrollRef     = useRef<HTMLDivElement>(null);
+  const titleRef         = useRef<HTMLHeadingElement>(null);
+  const editorWrapRef    = useRef<HTMLDivElement>(null);
+  const scrollRef        = useRef<HTMLDivElement>(null);
   const lastSavedContent = useRef<string | null>(note?.content ?? null);
+  const titleFocusedRef  = useRef(false);
 
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
@@ -206,7 +216,7 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
     const { from, to } = editor.state.selection;
     editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
     try { editor.commands.setTextSelection({ from, to }); } catch { /**/ }
-    if (titleRef.current) {
+    if (titleRef.current && !titleFocusedRef.current) {
       const isUntitled = /^Untitled-\d+$/.test(note.title);
       titleRef.current.textContent = isUntitled ? "" : note.title;
     }
@@ -263,7 +273,9 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
   function closeSlashMenu() { closeSlashMenuInternal(); editor?.commands.focus(); }
   function closeLinkSuggest() { closeLinkSuggestInternal(); editor?.commands.focus(); }
 
+  function handleTitleFocus() { titleFocusedRef.current = true; }
   function handleTitleBlur() {
+    titleFocusedRef.current = false;
     if (!note) return;
     const title = titleRef.current?.textContent?.trim() ?? "";
     if (!title || title === note.title) return;
@@ -345,9 +357,8 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
           <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
         )}
 
-        {isActiveTab && (
+        {showEditorButtons && (
           <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
-            {/* Local Graph button */}
             <button
               onClick={() => openGraphForNote(noteId)}
               title="Open local graph for this note"
@@ -363,10 +374,9 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
               </svg>
               Local Graph
             </button>
-
-            {!outlineOpen && (
+            {!myOutlineOpen && (
               <button
-                onClick={toggleOutline}
+                onClick={() => toggleOutline(paneId)}
                 title="Toggle outline (Ctrl+')"
                 className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
               >
@@ -376,9 +386,9 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
                 Outline
               </button>
             )}
-            {!backlinksOpen && (
+            {!myBacklinksOpen && (
               <button
-                onClick={toggleBacklinks}
+                onClick={() => toggleBacklinks(paneId)}
                 title="Toggle backlinks (Ctrl+;)"
                 className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
               >
@@ -415,7 +425,10 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
               ref={titleRef}
               contentEditable suppressContentEditableWarning spellCheck={false}
               autoCorrect="off" autoCapitalize="off"
-              onBlur={handleTitleBlur} onKeyDown={handleTitleKeyDown} onPaste={handleTitlePaste}
+              onFocus={handleTitleFocus}
+              onBlur={handleTitleBlur}
+              onKeyDown={handleTitleKeyDown}
+              onPaste={handleTitlePaste}
               className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
               style={{ fontSize: "3rem", lineHeight: 1.2 }}
               data-placeholder={isUntitled ? note.title : "Untitled"}
@@ -429,12 +442,12 @@ export function Editor({ noteId, isActivePane = true, initialScrollTop = 0, onSc
           </div>
         </div>
 
-        <StatusBar editor={editor ?? null} />
-        {versionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} />}
+        <StatusBar editor={editor ?? null} paneId={paneId} />
+        {myVersionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} paneId={paneId} />}
       </div>
 
-      {outlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} />}
-      {backlinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} />}
+      {myOutlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
+      {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
 
       {editor && <TableToolbar editor={editor} />}
 

@@ -1,27 +1,25 @@
-// src/features/editor/components/Editor/VersionHistory.tsx
 import { useEffect, useState, useRef } from "react";
 import { getNoteVersions, restoreNoteVersion } from "@/features/notes/db/queries";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { NoteVersion } from "@/types";
 
-interface Props { noteId: string; }
+interface Props { noteId: string; paneId: 1 | 2; }
 
-export function VersionHistory({ noteId }: Props) {
+export function VersionHistory({ noteId, paneId }: Props) {
   const closeVersionHistory = useUIStore((s) => s.closeVersionHistory);
   const refreshNote         = useNoteStore((s) => s.refreshNote);
 
-  const [versions, setVersions]         = useState<NoteVersion[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [restoring, setRestoring]       = useState<string | null>(null);
+  const [versions, setVersions]           = useState<NoteVersion[]>([]);
+  const [loading, setLoading]             = useState(true);
+  const [restoring, setRestoring]         = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [preview, setPreview]           = useState<NoteVersion | null>(null);
+  const [preview, setPreview]             = useState<NoteVersion | null>(null);
 
   const containerRef  = useRef<HTMLDivElement>(null);
   const itemRefs      = useRef<(HTMLDivElement | null)[]>([]);
   const isScrolling   = useRef(false);
   const scrollTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const lastScrollTop = useRef(0);
 
   useEffect(() => {
     setLoading(true);
@@ -41,28 +39,28 @@ export function VersionHistory({ noteId }: Props) {
   useEffect(() => {
     if (!versions.length) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape")    { e.preventDefault(); closeVersionHistory(); return; }
+      if (e.key === "Escape")    { e.preventDefault(); closeVersionHistory(paneId); return; }
       if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIndex((p) => Math.min(p + 1, versions.length - 1)); }
       if (e.key === "ArrowUp")   { e.preventDefault(); setSelectedIndex((p) => Math.max(p - 1, 0)); }
       if (e.key === "Enter" && selectedIndex >= 0) { e.preventDefault(); handleRestore(versions[selectedIndex]); }
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [versions, selectedIndex, closeVersionHistory]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [versions, selectedIndex, closeVersionHistory, paneId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRestore(version: NoteVersion) {
     const confirmed = window.confirm("Restore this version? Your current content will be saved as a new version first.");
     if (!confirmed) return;
     setRestoring(version.id);
-    try { await restoreNoteVersion(noteId, version.id); await refreshNote(noteId); closeVersionHistory(); }
-    catch (err) { console.error("[VersionHistory] restore failed:", err); }
+    try {
+      await restoreNoteVersion(noteId, version.id);
+      await refreshNote(noteId);
+      closeVersionHistory(paneId);
+    } catch (err) { console.error("[VersionHistory] restore failed:", err); }
     finally { setRestoring(null); }
   }
 
   const handleScroll = () => {
-    const container = containerRef.current;
-    if (!container) return;
-    lastScrollTop.current = container.scrollTop;
     isScrolling.current = true;
     if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
     scrollTimeout.current = setTimeout(() => { isScrolling.current = false; }, 150);
@@ -78,7 +76,7 @@ export function VersionHistory({ noteId }: Props) {
         <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Version History</span>
         <div className="flex items-center gap-2">
           <kbd className="text-xs text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">ESC</kbd>
-          <button onClick={closeVersionHistory} className="text-zinc-400 border border-transparent rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors duration-150 p-1">
+          <button onClick={() => closeVersionHistory(paneId)} className="text-zinc-400 border border-transparent rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors duration-150 p-1">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1.5 1.5l11 11M12.5 1.5l-11 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
           </button>
         </div>
