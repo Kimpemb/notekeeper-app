@@ -1,11 +1,15 @@
 // src/features/editor/components/Editor/SlashMenu.tsx
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 
 interface Props {
   position: { top: number; left: number; caretTop: number };
   editor: Editor;
   query?: string;
+  noteId: string;
+  paneId: 1 | 2;
   onCommand: (action: () => void) => void;
   onClose: () => void;
   onImageUpload: () => Promise<void>;
@@ -20,13 +24,18 @@ interface Command {
   action: () => void;
 }
 
-export function SlashMenu({ position, editor, query = "", onCommand, onClose, onImageUpload, onAttachmentUpload }: Props) {
+export function SlashMenu({ position, editor, query = "", noteId, paneId, onCommand, onClose, onImageUpload, onAttachmentUpload }: Props) {
   const menuRef  = useRef<HTMLDivElement>(null);
   const listRef  = useRef<HTMLUListElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
   const [selected, setSelected] = useState(0);
 
-  // Detect if cursor is inside a toggleBody — if so, hide the toggle command.
+  const createChild    = useNoteStore((s) => s.createChildNote);
+  const setActive      = useNoteStore((s) => s.setActiveNote);
+  const openTab        = useUIStore((s) => s.openTab);
+  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
+  const expandNode     = useUIStore((s) => s.expandNode);
+
   const insideToggleBody = (() => {
     const { $from } = editor.state.selection;
     for (let d = $from.depth; d > 0; d--) {
@@ -36,7 +45,27 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
   })();
 
   const commands: Command[] = [
-    // ── Text structure ──────────────────────────────────────────────────────
+    // ── Sub-page ─────────────────────────────────────────────────────────────
+    {
+      id: "sub-page",
+      label: "Sub-page",
+      description: "Create a new page inside this note",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-blue-500">
+          <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M3.5 4h5M3.5 6.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+          <path d="M6.5 9.5h3M8 8v3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
+      ),
+      action: () => {
+        createChild(noteId).then((child) => {
+          expandNode(noteId);
+          setActive(child.id);
+          if (paneId === 2) { openTabInPane2(child.id); } else { openTab(child.id); }
+        }).catch(console.error);
+      },
+    },
+    // ── Text structure ────────────────────────────────────────────────────────
     {
       id: "h1",
       label: "Heading 1",
@@ -58,7 +87,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
       icon: <span className="font-bold text-base">H3</span>,
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
     },
-    // ── Lists ───────────────────────────────────────────────────────────────
+    // ── Lists ─────────────────────────────────────────────────────────────────
     {
       id: "bullet",
       label: "Bullet List",
@@ -100,67 +129,39 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
       ),
       action: () => editor.chain().focus().toggleTaskList().run(),
     },
-    // ── Blocks ──────────────────────────────────────────────────────────────
+    // ── Blocks ────────────────────────────────────────────────────────────────
     ...(!insideToggleBody ? [{
       id: "toggle",
       label: "Toggle",
       description: "Collapsible block — toggle, collapsible, expand, details",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
-          <path
-            d="M3 4l3 3 3-3"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          <path d="M3 4l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
           <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.1"/>
           <path d="M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
         </svg>
       ),
-      // Insert toggle entirely via a ProseMirror transaction — no setTimeout,
-      // no post-render cursor manipulation. The chain handles focus and cursor
-      // placement atomically so React never sees a flushSync conflict.
       action: () => {
         const { state } = editor;
         const { schema } = state;
-
-        const summaryNode = schema.nodes.toggleSummary.create(
-          {},
-          schema.text("Toggle title"),
-        );
-        const toggleNode = schema.nodes.toggle.create(
-          { open: false },
-          summaryNode,
-        );
-
-        editor
-          .chain()
-          .focus()
-          .insertContent(toggleNode.toJSON())
+        const summaryNode = schema.nodes.toggleSummary.create({}, schema.text("Toggle title"));
+        const toggleNode  = schema.nodes.toggle.create({ open: false }, summaryNode);
+        editor.chain().focus().insertContent(toggleNode.toJSON())
           .command(({ tr, state: s }) => {
-            // Walk backwards from the current cursor to find the toggleSummary
-            // we just inserted, then place the cursor inside it so the user
-            // can immediately rename the title without a second click.
             const { $from } = s.selection;
             for (let depth = $from.depth; depth > 0; depth--) {
               if ($from.node(depth).type.name === "toggleSummary") {
                 const start = $from.start(depth);
                 const end   = $from.end(depth);
-                // Select "Toggle title" so typing immediately replaces it
                 tr.setSelection(
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  (s.selection as any).constructor.between(
-                    tr.doc.resolve(start),
-                    tr.doc.resolve(end),
-                  ),
+                  (s.selection as any).constructor.between(tr.doc.resolve(start), tr.doc.resolve(end))
                 );
                 return true;
               }
             }
             return false;
-          })
-          .run();
+          }).run();
       },
     }] as Command[] : []),
     {
@@ -173,12 +174,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
           <path d="M1 4.5h10M1 7.5h10M4.5 1v10" stroke="currentColor" strokeWidth="1.1"/>
         </svg>
       ),
-      action: () =>
-        editor
-          .chain()
-          .focus()
-          .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-          .run(),
+      action: () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
     },
     {
       id: "image",
@@ -237,8 +233,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <rect x="1" y="1.5" width="10" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
-          <path d="M3.5 5L2 6l1.5 1M8.5 5L10 6l-1.5 1M5.5 4l-1 4"
-            stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M3.5 5L2 6l1.5 1M8.5 5L10 6l-1.5 1M5.5 4l-1 4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       ),
       action: () => editor.chain().focus().toggleCodeBlock().run(),
@@ -249,13 +244,12 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
       description: "Highlighted quote",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
-          <path d="M2 3h2v3H2V3zm4 0h2v3H6V3zM4 6c0 1-.9 2-2 2M8 6c0 1-.9 2-2 2"
-            stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M2 3h2v3H2V3zm4 0h2v3H6V3zM4 6c0 1-.9 2-2 2M8 6c0 1-.9 2-2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       ),
       action: () => editor.chain().focus().toggleBlockquote().run(),
     },
-    // ── Callouts ────────────────────────────────────────────────────────────
+    // ── Callouts ──────────────────────────────────────────────────────────────
     {
       id: "callout-info",
       label: "Info Callout",
@@ -267,11 +261,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
           <circle cx="8" cy="5" r="0.75" fill="currentColor"/>
         </svg>
       ),
-      action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "info" },
-        content: [{ type: "paragraph" }],
-      }).run(),
+      action: () => editor.chain().focus().insertContent({ type: "callout", attrs: { type: "info" }, content: [{ type: "paragraph" }] }).run(),
     },
     {
       id: "callout-warning",
@@ -284,11 +274,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
           <circle cx="8" cy="11.5" r="0.75" fill="currentColor"/>
         </svg>
       ),
-      action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "warning" },
-        content: [{ type: "paragraph" }],
-      }).run(),
+      action: () => editor.chain().focus().insertContent({ type: "callout", attrs: { type: "warning" }, content: [{ type: "paragraph" }] }).run(),
     },
     {
       id: "callout-tip",
@@ -300,11 +286,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
           <path d="M6 13.5h4M7 15h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
         </svg>
       ),
-      action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "tip" },
-        content: [{ type: "paragraph" }],
-      }).run(),
+      action: () => editor.chain().focus().insertContent({ type: "callout", attrs: { type: "tip" }, content: [{ type: "paragraph" }] }).run(),
     },
     {
       id: "callout-danger",
@@ -316,20 +298,15 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
           <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
         </svg>
       ),
-      action: () => editor.chain().focus().insertContent({
-        type: "callout",
-        attrs: { type: "danger" },
-        content: [{ type: "paragraph" }],
-      }).run(),
+      action: () => editor.chain().focus().insertContent({ type: "callout", attrs: { type: "danger" }, content: [{ type: "paragraph" }] }).run(),
     },
   ];
 
   const filtered = query.trim()
-    ? commands.filter(
-        (c) =>
-          c.label.toLowerCase().includes(query.toLowerCase()) ||
-          c.id.toLowerCase().includes(query.toLowerCase()) ||
-          c.description.toLowerCase().includes(query.toLowerCase())
+    ? commands.filter((c) =>
+        c.label.toLowerCase().includes(query.toLowerCase()) ||
+        c.id.toLowerCase().includes(query.toLowerCase()) ||
+        c.description.toLowerCase().includes(query.toLowerCase())
       )
     : commands;
 
@@ -387,7 +364,6 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
           <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{query}</span>
         </div>
       )}
-
       <ul ref={listRef} className="py-1.5 max-h-72 overflow-y-auto">
         {filtered.length === 0 && (
           <li className="px-4 py-4 text-sm text-zinc-400 text-center">No commands match</li>
@@ -399,9 +375,7 @@ export function SlashMenu({ position, editor, query = "", onCommand, onClose, on
             onMouseEnter={() => setSelected(i)}
             onMouseDown={(e) => { e.preventDefault(); onCommand(cmd.action); }}
             className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors duration-75 ${
-              i === selected
-                ? "bg-zinc-100 dark:bg-zinc-800"
-                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+              i === selected ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
             }`}
           >
             <span className="w-8 h-8 flex items-center justify-center rounded-md shrink-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">

@@ -30,6 +30,8 @@ import { SlashMenu } from "./SlashMenu";
 import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 import { TableToolbar } from "./TableToolbar";
 import { TagBar } from "./TagBar";
+import { SubPagesSection } from "./SubPagesSection";
+
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
   EditorTable, TableRow, TableHeader, TableCell,
@@ -421,25 +423,26 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
           <div className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text" onClick={handleEditorAreaClick}>
-            <h1
-              ref={titleRef}
-              contentEditable suppressContentEditableWarning spellCheck={false}
-              autoCorrect="off" autoCapitalize="off"
-              onFocus={handleTitleFocus}
-              onBlur={handleTitleBlur}
-              onKeyDown={handleTitleKeyDown}
-              onPaste={handleTitlePaste}
-              className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
-              style={{ fontSize: "3rem", lineHeight: 1.2 }}
-              data-placeholder={isUntitled ? note.title : "Untitled"}
-            >
-              {isUntitled ? "" : note.title}
-            </h1>
-            <TagBar noteId={note.id} tags={note.tags} />
-            <div key={note.id} ref={editorWrapRef}>
-              <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
-            </div>
-          </div>
+  <h1
+    ref={titleRef}
+    contentEditable suppressContentEditableWarning spellCheck={false}
+    autoCorrect="off" autoCapitalize="off"
+    onFocus={handleTitleFocus}
+    onBlur={handleTitleBlur}
+    onKeyDown={handleTitleKeyDown}
+    onPaste={handleTitlePaste}
+    className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
+    style={{ fontSize: "3rem", lineHeight: 1.2 }}
+    data-placeholder={isUntitled ? note.title : "Untitled"}
+  >
+    {isUntitled ? "" : note.title}
+  </h1>
+  <TagBar noteId={note.id} tags={note.tags} />
+  <div key={note.id} ref={editorWrapRef}>
+    <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
+  </div>
+</div>
+<SubPagesSection noteId={note.id} paneId={paneId} />
         </div>
 
         <StatusBar editor={editor ?? null} paneId={paneId} />
@@ -452,7 +455,17 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (
-        <SlashMenu position={slashPos} editor={editor} query={slashQuery} onCommand={handleSlashCommand} onClose={closeSlashMenu} onImageUpload={handleImageUpload} onAttachmentUpload={handleAttachmentUpload} />
+        <SlashMenu
+          position={slashPos}
+          editor={editor}
+          query={slashQuery}
+          noteId={noteId}
+          paneId={paneId}
+          onCommand={handleSlashCommand}
+          onClose={closeSlashMenu}
+          onImageUpload={handleImageUpload}
+          onAttachmentUpload={handleAttachmentUpload}
+        />
       )}
       {linkOpen && editor && linkBracketStart.current !== null && (
         <NoteLinkSuggest position={linkPos} editor={editor} query={linkQuery} bracketStart={linkBracketStart.current} onClose={closeLinkSuggest} />
