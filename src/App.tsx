@@ -24,12 +24,10 @@ import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
 
 // Block F5 / Ctrl+R refresh in production — causes full state loss in Tauri
-if (!import.meta.env.DEV) {
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "F5") e.preventDefault();
-    if ((e.ctrlKey || e.metaKey) && e.key === "r") e.preventDefault();
-  });
-}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "F5") e.preventDefault();
+  if ((e.ctrlKey || e.metaKey) && e.key === "r") e.preventDefault();
+});
 
 interface BreadcrumbSegment { id: string; title: string; }
 

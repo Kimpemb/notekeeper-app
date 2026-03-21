@@ -123,9 +123,16 @@ export function Sidebar() {
   const isOpen    = sidebarState === "open";
   const isPeek    = sidebarState === "peek";
   const isVisible = isOpen || isPeek;
+  const closingRef = useRef(false);
+
 
   function collapse() { if (useUIStore.getState().sidebarState === "peek") setSidebarState("closed"); }
-  function close()    { cancelSidebarCollapse(); setSidebarState("closed"); }
+  function close() {
+  cancelSidebarCollapse();
+  closingRef.current = true;
+  setSidebarState("closed");
+  setTimeout(() => { closingRef.current = false; }, 600); // matches transition duration
+}
 
   function askConfirm(opts: Omit<ConfirmState, "open">) {
     setConfirm({ open: true, ...opts });
@@ -218,7 +225,7 @@ export function Sidebar() {
     <>
       <aside
         id="sidebar-panel"
-        onMouseEnter={() => cancelSidebarCollapse()}
+        onMouseEnter={() => { if (!closingRef.current) cancelSidebarCollapse(); }}
         onMouseLeave={() => {
           if (useUIStore.getState().sidebarState === "peek") scheduleSidebarCollapse(collapse);
         }}
