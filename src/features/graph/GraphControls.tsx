@@ -32,6 +32,7 @@ interface GraphControlsProps {
   onRefresh: () => void;
   onFit: () => void;
   onToggleFullscreen: () => void;
+  onExport: () => void;
   onClose: () => void;
 }
 
@@ -40,7 +41,7 @@ export function GraphControls({
   lastUpdatedLabel, searchQuery, matchIndex, matchCount, depth, showOrphans,
   orphanCount, showTagColors, isFullscreen,
   onSearchChange, onDepthChange, onToggleOrphans, onToggleTagColors,
-  onRefresh, onFit, onToggleFullscreen, onClose,
+  onRefresh, onFit, onToggleFullscreen, onExport, onClose,
 }: GraphControlsProps) {
   return (
     <div style={{
@@ -139,6 +140,14 @@ export function GraphControls({
           onClick={onFit}
           style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7 }}>
           Fit
+        </button>
+
+        {/* Export PNG */}
+        <button
+          onClick={onExport}
+          title="Export graph as PNG"
+          style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7 }}>
+          ↓
         </button>
 
         {/* Fullscreen */}

@@ -166,6 +166,43 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     setTimeout(() => closeGraph(), TRANSITION_MS);
   }, [closeGraph]);
 
+
+  const handleExport = useCallback(() => {
+  if (!svgRef.current || !containerRef.current) return;
+
+  const svgEl    = svgRef.current;
+  const svgWidth  = containerRef.current.clientWidth;
+  const svgHeight = containerRef.current.clientHeight;
+
+  // Serialize SVG with dark background rect injected
+  const clone = svgEl.cloneNode(true) as SVGSVGElement;
+  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  bg.setAttribute("width",  String(svgWidth));
+  bg.setAttribute("height", String(svgHeight));
+  bg.setAttribute("fill",   "#141414");
+  clone.insertBefore(bg, clone.firstChild);
+
+  const serialized = new XMLSerializer().serializeToString(clone);
+  const blob       = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
+  const url        = URL.createObjectURL(blob);
+
+  const img = new Image();
+  img.onload = () => {
+    const canvas  = document.createElement("canvas");
+    canvas.width  = svgWidth;
+    canvas.height = svgHeight;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+
+    const link    = document.createElement("a");
+    link.download = `notekeeper-graph-${Date.now()}.png`;
+    link.href     = canvas.toDataURL("image/png");
+    link.click();
+  };
+  img.src = url;
+}, []);
+
   useImperativeHandle(ref, () => ({ animatedClose: handleClose }), [handleClose]);
 
   const showToast = useCallback((message: string) => {
@@ -290,6 +327,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           onRefresh={refresh}
           onFit={handleFit}
           onToggleFullscreen={toggleFullscreen}
+          onExport={handleExport}
           onClose={handleClose}
         />
 

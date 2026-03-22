@@ -25,6 +25,11 @@ function getNodeColor(node: GraphNode, tagColorMap: Map<string, string>): string
   return TAG_PALETTE[0];
 }
 
+/** Canonical key for a node pair — order-independent */
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}__${b}` : `${b}__${a}`;
+}
+
 interface UseGraphSimulationProps {
   svgRef: MutableRefObject<SVGSVGElement | null>;
   minimapRef: MutableRefObject<SVGSVGElement | null>;
@@ -74,6 +79,26 @@ export function useGraphSimulation({
     simNodesRef.current = simNodes;
 
     setStats({ nodes: simNodes.length, edges: simEdges.length });
+
+    // ── Link strength weighting ───────────────────────────────────────────
+    // Count how many backlinks exist between each unique pair of nodes.
+    // Used to scale stroke-width (1–3) and stroke-opacity (0.25–0.5).
+    const pairCount = new Map<string, number>();
+    for (const e of visibleEdges) {
+      const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
+      const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
+      const key = pairKey(sid, tid);
+      pairCount.set(key, (pairCount.get(key) ?? 0) + 1);
+    }
+    const maxPairCount = Math.max(1, ...Array.from(pairCount.values()));
+    const strokeWidthScale   = d3.scaleLinear().domain([1, maxPairCount]).range([1, 3]).clamp(true);
+    const strokeOpacityScale = d3.scaleLinear().domain([1, maxPairCount]).range([0.25, 0.5]).clamp(true);
+
+    function edgePairCount(e: GraphEdge): number {
+      const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
+      const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
+      return pairCount.get(pairKey(sid, tid)) ?? 1;
+    }
 
     const width  = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
@@ -152,9 +177,12 @@ export function useGraphSimulation({
     const maxLinks = Math.max(1, d3.max(simNodes, (n) => n.linkCount) ?? 1);
     const rScale   = d3.scaleSqrt().domain([0, maxLinks]).range([NODE_BASE_RADIUS, NODE_MAX_RADIUS]);
 
+    // ── Links — weighted by pair count ───────────────────────────────────
     const link = g.append("g").attr("class", "edges")
       .selectAll("line").data(simEdges).join("line")
-      .attr("stroke", LINK_STROKE).attr("stroke-width", 1);
+      .attr("stroke", LINK_STROKE)
+      .attr("stroke-width",   (e) => strokeWidthScale(edgePairCount(e)))
+      .attr("stroke-opacity", (e) => strokeOpacityScale(edgePairCount(e)));
 
     const node = g.append("g").attr("class", "nodes")
       .selectAll<SVGCircleElement, GraphNode>("circle").data(simNodes, (d) => d.id).join("circle")
@@ -199,7 +227,8 @@ export function useGraphSimulation({
           .attr("stroke-width", (e) => {
             const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
             const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
-            return sid === d.id || tid === d.id ? 1.5 : 0.5;
+            // On hover: highlighted edges get weighted thickness, others dim to 0.5
+            return sid === d.id || tid === d.id ? strokeWidthScale(edgePairCount(e)) + 0.5 : 0.5;
           });
         label.attr("opacity", (n) => n.id === d.id || neighbourIds.has(n.id) ? 1 : 0);
         const rect = containerRef.current!.getBoundingClientRect();
@@ -214,7 +243,11 @@ export function useGraphSimulation({
         hoverExitTimerRef.current = setTimeout(() => {
           if (isHoveringPreviewRef.current) return;
           node.attr("fill-opacity", (d) => focusNodeId === d.id ? 1 : 0.85);
-          link.attr("stroke", LINK_STROKE).attr("stroke-width", 1);
+          // Restore weighted stroke on mouseleave
+          link
+            .attr("stroke", LINK_STROKE)
+            .attr("stroke-width",   (e) => strokeWidthScale(edgePairCount(e)))
+            .attr("stroke-opacity", (e) => strokeOpacityScale(edgePairCount(e)));
           label.attr("opacity", (d) => focusNodeId === d.id ? 1 : 0);
           setTooltip((prev: any) => ({ ...prev, visible: false }));
           setHoveredNode(null);
