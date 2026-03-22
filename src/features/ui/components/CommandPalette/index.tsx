@@ -60,6 +60,35 @@ const ActionIcon = ({ id }: { id: string }) => {
       <path d="M6.5 1v1.5M6.5 10.5V12M1 6.5h1.5M10.5 6.5H12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   );
+  if (id === "toggle-graph") return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+      <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+      <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+      <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+      <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+      <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+      <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+    </svg>
+  );
+  if (id === "toggle-sidebar") return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+      <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M5 1v12" stroke="currentColor" strokeWidth="1.2"/>
+    </svg>
+  );
+  if (id === "daily-note") return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+      <rect x="1.5" y="2.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+      <path d="M4.5 1.5v2M9.5 1.5v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      <path d="M1.5 5.5h11" stroke="currentColor" strokeWidth="1.1"/>
+    </svg>
+  );
+  if (id === "reload-notes") return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+      <path d="M1.5 6.5A5 5 0 1011.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <path d="M1.5 3.5v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
   if (id === "toggle-backlinks") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
       <path d="M9 4H5a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -169,17 +198,20 @@ function NoteRow({
   );
 }
 
-// ── Shortcuts reference ───────────────────────────────────────────────────────
+// ── Shortcuts reference (shown in right panel) ────────────────────────────────
 const SHORTCUTS = [
   { label: "Command palette",       keys: ["Ctrl", "K"] },
   { label: "New note",              keys: ["Ctrl", "N"] },
   { label: "New note in new tab",   keys: ["Ctrl", "Shift", "N"] },
   { label: "Close tab",             keys: ["Ctrl", "W"] },
+  { label: "Reopen closed tab",     keys: ["Ctrl", "Shift", "T"] },
   { label: "Next tab",              keys: ["Ctrl", "Tab"] },
   { label: "Previous tab",          keys: ["Ctrl", "Shift", "Tab"] },
   { label: "Toggle sidebar",        keys: ["Ctrl", "\\"] },
   { label: "Search notes",          keys: ["Ctrl", "F"] },
   { label: "Toggle file tree",      keys: ["Ctrl", "T"] },
+  { label: "Toggle graph",          keys: ["Ctrl", "Shift", "G"] },
+  { label: "Reload notes",          keys: ["Ctrl", "Shift", "L"] },
   { label: "Go back",               keys: ["Ctrl", "["] },
   { label: "Go forward",            keys: ["Ctrl", "]"] },
   { label: "Find & replace",        keys: ["Ctrl", "H"] },
@@ -190,30 +222,32 @@ const SHORTCUTS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 export function CommandPalette() {
-  const paletteOpen     = useUIStore((s) => s.paletteOpen);
-  const closePalette    = useUIStore((s) => s.closePalette);
-  const toggleTheme     = useUIStore((s) => s.toggleTheme);
-  const theme           = useUIStore((s) => s.theme);
-  const toggleBacklinks = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline   = useUIStore((s) => s.toggleOutline);
-  const toggleFileTree  = useUIStore((s) => s.toggleFileTree);
-  const openShortcuts   = useUIStore((s) => s.openShortcuts);
-  const openImport      = useUIStore((s) => s.openImport);
+  const paletteOpen        = useUIStore((s) => s.paletteOpen);
+  const closePalette       = useUIStore((s) => s.closePalette);
+  const toggleTheme        = useUIStore((s) => s.toggleTheme);
+  const theme              = useUIStore((s) => s.theme);
+  const toggleBacklinks    = useUIStore((s) => s.toggleBacklinks);
+  const toggleOutline      = useUIStore((s) => s.toggleOutline);
+  const toggleFileTree     = useUIStore((s) => s.toggleFileTree);
+  const toggleSidebar      = useUIStore((s) => s.toggleSidebar);
+  const openShortcuts      = useUIStore((s) => s.openShortcuts);
+  const openImport         = useUIStore((s) => s.openImport);
   const openTemplatePicker = useUIStore((s) => s.openTemplatePicker);
-  const exportHandlers  = useUIStore((s) => s.exportHandlers);
-  const activeNoteId    = useNoteStore((s) => s.activeNoteId);
-  const notes           = useNoteStore((s) => s.notes);
-  const visitedNoteIds  = useNoteStore((s) => s.visitedNoteIds);
-  const setActiveNote   = useNoteStore((s) => s.setActiveNote);
+  const exportHandlers     = useUIStore((s) => s.exportHandlers);
+  const graphOpen          = useUIStore((s) => s.graphOpen);
+  const openGraph          = useUIStore((s) => s.openGraph);
+  const closeGraph         = useUIStore((s) => s.closeGraph);
+  const activeNoteId       = useNoteStore((s) => s.activeNoteId);
+  const notes              = useNoteStore((s) => s.notes);
+  const visitedNoteIds     = useNoteStore((s) => s.visitedNoteIds);
+  const setActiveNote      = useNoteStore((s) => s.setActiveNote);
+  const loadNotes          = useNoteStore((s) => s.loadNotes);
+  const createOrOpenDailyNote = useNoteStore((s) => s.createOrOpenDailyNote);
 
   const [query, setQuery]                   = useState("");
   const [selectedNote, setSelectedNote]     = useState(0);
   const [selectedAction, setSelectedAction] = useState(0);
   const [activeSide, setActiveSide]         = useState<"notes" | "actions">("notes");
-
-  // Ref to signal handleTemplateSelect (via App.tsx) to open in new tab.
-  // We set this before opening the picker, same pattern as App.tsx.
-  const openInNewTabRef = useRef(false);
 
   const inputRef       = useRef<HTMLInputElement>(null);
   const panelRef       = useRef<HTMLDivElement>(null);
@@ -223,7 +257,6 @@ export function CommandPalette() {
   useEffect(() => {
     if (paletteOpen) {
       setQuery(""); setSelectedNote(0); setSelectedAction(0); setActiveSide("notes");
-      openInNewTabRef.current = false;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [paletteOpen]);
@@ -263,9 +296,6 @@ export function CommandPalette() {
     {
       kind: "action", id: "new-note-new-tab", label: "New Note in New Tab", hint: "Ctrl+Shift+N",
       action: () => {
-        // Signal App.tsx's openInNewTabRef by writing to the store indirectly.
-        // We dispatch a custom event that App.tsx listens for, keeping the
-        // logic centralised there.
         closePalette();
         window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab"));
       },
@@ -277,17 +307,72 @@ export function CommandPalette() {
         closePalette();
       },
     },
-    { kind: "action", id: "toggle-theme",     label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "Toggle theme", action: () => { toggleTheme(); closePalette(); } },
-   { kind: "action", id: "toggle-backlinks", label: "Toggle Backlinks", hint: "Ctrl+;", action: () => { toggleBacklinks(useUIStore.getState().activePaneId); closePalette(); } },
-{ kind: "action", id: "toggle-outline",   label: "Toggle Outline",   hint: "Ctrl+'", action: () => { toggleOutline(useUIStore.getState().activePaneId);   closePalette(); } },    { kind: "action", id: "toggle-file-tree", label: "Toggle File Tree",    hint: "Ctrl+T",       action: () => { toggleFileTree(); closePalette(); } },
-    { kind: "action", id: "open-shortcuts",   label: "Keyboard Shortcuts",  hint: "Ctrl+Shift+?", action: () => { openShortcuts(); closePalette(); } },
-    { kind: "action", id: "export-all",       label: "Export All Notes",    hint: "JSON",         action: async () => { await exportHandlers?.exportAll(); closePalette(); } },
-    { kind: "action", id: "export-json",      label: "Export Current Note", hint: "JSON",         action: async () => { await exportHandlers?.exportNoteJson(); closePalette(); } },
-    { kind: "action", id: "export-md",        label: "Export Current Note", hint: "Markdown",     action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); } },
-    { kind: "action", id: "export-pdf",       label: "Export Current Note", hint: "PDF",          action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); } },
-    { kind: "action", id: "import",           label: "Import Notes",        hint: "JSON file",    action: () => { openImport(); closePalette(); } },
-  ], [theme, closePalette, openTemplatePicker, toggleTheme, toggleBacklinks, toggleOutline,
-      toggleFileTree, openShortcuts, openImport, exportHandlers, activeNoteId]);
+    {
+      kind: "action", id: "daily-note", label: "Open Today's Note", hint: "Daily",
+      action: async () => { closePalette(); await createOrOpenDailyNote(); },
+    },
+    {
+      kind: "action", id: "toggle-graph", label: graphOpen ? "Close Graph View" : "Open Graph View", hint: "Ctrl+Shift+G",
+      action: () => { graphOpen ? closeGraph() : openGraph(); closePalette(); },
+    },
+    {
+      kind: "action", id: "toggle-sidebar", label: "Toggle Sidebar", hint: "Ctrl+\\",
+      action: () => { toggleSidebar(); closePalette(); },
+    },
+    {
+      kind: "action", id: "reload-notes", label: "Reload Notes", hint: "Ctrl+Shift+L",
+      action: async () => {
+        closePalette();
+        useUIStore.getState().setRefreshStatus("reloading");
+        await loadNotes();
+        useUIStore.getState().setRefreshStatus("reloaded");
+      },
+    },
+    {
+      kind: "action", id: "toggle-theme", label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "",
+      action: () => { toggleTheme(); closePalette(); },
+    },
+    {
+      kind: "action", id: "toggle-backlinks", label: "Toggle Backlinks", hint: "Ctrl+;",
+      action: () => { toggleBacklinks(useUIStore.getState().activePaneId); closePalette(); },
+    },
+    {
+      kind: "action", id: "toggle-outline", label: "Toggle Outline", hint: "Ctrl+'",
+      action: () => { toggleOutline(useUIStore.getState().activePaneId); closePalette(); },
+    },
+    {
+      kind: "action", id: "toggle-file-tree", label: "Toggle File Tree", hint: "Ctrl+T",
+      action: () => { toggleFileTree(); closePalette(); },
+    },
+    {
+      kind: "action", id: "open-shortcuts", label: "Keyboard Shortcuts", hint: "Ctrl+Shift+?",
+      action: () => { openShortcuts(); closePalette(); },
+    },
+    {
+      kind: "action", id: "export-all",  label: "Export All Notes",    hint: "JSON",
+      action: async () => { await exportHandlers?.exportAll(); closePalette(); },
+    },
+    {
+      kind: "action", id: "export-json", label: "Export Current Note", hint: "JSON",
+      action: async () => { await exportHandlers?.exportNoteJson(); closePalette(); },
+    },
+    {
+      kind: "action", id: "export-md",   label: "Export Current Note", hint: "Markdown",
+      action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); },
+    },
+    {
+      kind: "action", id: "export-pdf",  label: "Export Current Note", hint: "PDF",
+      action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); },
+    },
+    {
+      kind: "action", id: "import", label: "Import Notes", hint: "JSON file",
+      action: () => { openImport(); closePalette(); },
+    },
+  ], [
+    theme, closePalette, openTemplatePicker, toggleTheme, toggleBacklinks, toggleOutline,
+    toggleFileTree, toggleSidebar, openShortcuts, openImport, exportHandlers, activeNoteId,
+    graphOpen, openGraph, closeGraph, loadNotes, createOrOpenDailyNote,
+  ]);
 
   // ── Recent notes split by Today / Yesterday ───────────────────────────────
   const { todayNotes, yesterdayNotes } = useMemo(() => {
