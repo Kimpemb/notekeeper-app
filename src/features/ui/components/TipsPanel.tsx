@@ -1,16 +1,102 @@
 // src/features/ui/components/TipsPanel.tsx
 import { useEffect, useRef } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 interface Tip {
   keys?: string[];
   action?: string;
   description: string;
+  onClick?: () => void; // Add optional click handler
 }
 
 interface Category {
   title: string;
   tips: Tip[];
+}
+
+// Helper to get the actual action from a tip description
+// Update the getTipAction function to trigger Ctrl+H programmatically
+function getTipAction(description: string, keys?: string[]): (() => void) | undefined {
+  const uiStore = useUIStore.getState();
+  const noteStore = useNoteStore.getState();
+
+  // Map descriptions to actual actions
+  const actionMap: Record<string, () => void> = {
+    "Open command palette": () => uiStore.togglePalette(),
+    "Go back": () => noteStore.goBack(),
+    "Go forward": () => noteStore.goForward(),
+    "Cycle through tabs": () => uiStore.cycleTab(1),
+    "Toggle sidebar": () => uiStore.toggleSidebar(),
+    "Keyboard shortcuts reference": () => uiStore.openShortcuts(),
+    "New note in current tab": () => uiStore.openTemplatePicker(),
+    "New note in a new tab": () => {
+      window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab"));
+    },
+    "Find and replace": () => {
+      // Programmatically trigger the Ctrl+H keyboard event
+      const event = new KeyboardEvent('keydown', {
+        key: 'h',
+        code: 'KeyH',
+        ctrlKey: true,
+        metaKey: false,
+        bubbles: true,
+        cancelable: true
+      });
+      document.dispatchEvent(event);
+    },
+    "Undo": () => {
+      // Programmatically trigger Ctrl+Z
+      const event = new KeyboardEvent('keydown', {
+        key: 'z',
+        code: 'KeyZ',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      });
+      document.dispatchEvent(event);
+    },
+    "Close active tab": () => uiStore.closeActiveTab(),
+    "Toggle file tree panel": () => uiStore.toggleFileTree(),
+    "Toggle backlinks panel": () => uiStore.toggleBacklinks(uiStore.activePaneId),
+    "Toggle outline panel": () => uiStore.toggleOutline(uiStore.activePaneId),
+  };
+
+  // Check for exact matches first
+  if (actionMap[description]) {
+    return actionMap[description];
+  }
+
+  // Check for partial matches based on keys
+  if (keys) {
+    const keyString = keys.join("+");
+    if (keyString === "Ctrl+K") return () => uiStore.togglePalette();
+    if (keyString === "Ctrl+[") return () => noteStore.goBack();
+    if (keyString === "Ctrl+]") return () => noteStore.goForward();
+    if (keyString === "Ctrl+Tab") return () => uiStore.cycleTab(1);
+    if (keyString === "Ctrl+\\") return () => uiStore.toggleSidebar();
+    if (keyString === "Ctrl+Shift+?") return () => uiStore.openShortcuts();
+    if (keyString === "Ctrl+N") return () => uiStore.openTemplatePicker();
+    if (keyString === "Ctrl+Shift+N") return () => {
+      window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab"));
+    };
+    if (keyString === "Ctrl+W") return () => uiStore.closeActiveTab();
+    if (keyString === "Ctrl+T") return () => uiStore.toggleFileTree();
+    if (keyString === "Ctrl+;") return () => uiStore.toggleBacklinks(uiStore.activePaneId);
+    if (keyString === "Ctrl+'") return () => uiStore.toggleOutline(uiStore.activePaneId);
+    if (keyString === "Ctrl+H") return () => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'h',
+        code: 'KeyH',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      });
+      document.dispatchEvent(event);
+    };
+  }
+
+  return undefined;
 }
 
 const CATEGORIES: Category[] = [
@@ -100,6 +186,14 @@ export function TipsPanel() {
     return () => document.removeEventListener("keydown", handle);
   }, [tipsOpen, closeTips]);
 
+  const handleTipClick = (tip: Tip) => {
+    const action = getTipAction(tip.description, tip.keys);
+    if (action) {
+      action();
+      closeTips();
+    }
+  };
+
   return (
     /*
       Slide-in from top using CSS transform + transition.
@@ -146,27 +240,36 @@ export function TipsPanel() {
                   {cat.title}
                 </p>
                 <div className="space-y-1.5">
-                  {cat.tips.map((tip, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <div className="flex items-center gap-0.5 shrink-0 min-w-[7rem]">
-                        {tip.keys ? (
-                          tip.keys.map((k, ki) => (
-                            <span key={ki} className="flex items-center gap-0.5">
-                              {ki > 0 && <span className="text-zinc-300 dark:text-zinc-600 text-[10px] mx-0.5">+</span>}
-                              <Key label={k} />
+                  {cat.tips.map((tip, i) => {
+                    const hasAction = getTipAction(tip.description, tip.keys) !== undefined;
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => handleTipClick(tip)}
+                        className={`flex items-start gap-2 ${hasAction ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded transition-colors duration-100' : ''}`}
+                        style={{ padding: hasAction ? '2px 4px' : '0' }}
+                        title={hasAction ? 'Click to execute' : ''}
+                      >
+                        <div className="flex items-center gap-0.5 shrink-0 min-w-[7rem]">
+                          {tip.keys ? (
+                            tip.keys.map((k, ki) => (
+                              <span key={ki} className="flex items-center gap-0.5">
+                                {ki > 0 && <span className="text-zinc-300 dark:text-zinc-600 text-[10px] mx-0.5">+</span>}
+                                <Key label={k} />
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[11px] text-zinc-500 dark:text-zinc-400 italic leading-tight">
+                              {tip.action}
                             </span>
-                          ))
-                        ) : (
-                          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 italic leading-tight">
-                            {tip.action}
-                          </span>
-                        )}
+                          )}
+                        </div>
+                        <span className="text-[11px] text-zinc-500 dark:text-zinc-500 leading-tight pt-px">
+                          {tip.description}
+                        </span>
                       </div>
-                      <span className="text-[11px] text-zinc-500 dark:text-zinc-500 leading-tight pt-px">
-                        {tip.description}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

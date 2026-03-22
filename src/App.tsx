@@ -147,59 +147,64 @@ export default function App() {
     slideTimeout.current = setTimeout(() => {}, 300);
   }
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!dbReady) return;
-    const ctrl = e.ctrlKey || e.metaKey;
+const handleKeyDown = useCallback((e: KeyboardEvent) => {
+  if (!dbReady) return;
+  const ctrl = e.ctrlKey || e.metaKey;
 
-    if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
-    if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
+  if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
+  if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
 
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
-      e.preventDefault();
-      openInNewTabRef.current = true; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
-      useUIStore.getState().openTemplatePicker(); return;
-    }
+  if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
+    e.preventDefault();
+    openInNewTabRef.current = true; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
+    useUIStore.getState().openTemplatePicker(); return;
+  }
 
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") {
-      e.preventDefault();
-      useUIStore.getState().reopenClosedTab();
-    }
+  if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") {
+    e.preventDefault();
+    useUIStore.getState().reopenClosedTab();
+  }
 
-    if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
-      e.preventDefault();
-      openInNewTabRef.current = false; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
-      useUIStore.getState().openTemplatePicker();
-    }
+  if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
+    e.preventDefault();
+    openInNewTabRef.current = false; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
+    useUIStore.getState().openTemplatePicker();
+  }
 
-    if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
-    if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
-    if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(activePaneId); }
-    if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(activePaneId); }
-    if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
-    if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
+  if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
+  if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
+  if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(activePaneId); }
+  if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(activePaneId); }
+  if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
+  if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
 
-    if (ctrl && e.key === "[") {
-      e.preventDefault();
-      if (activePaneId === 2) { triggerNav(pane2GoBack); } else { triggerNav(goBack); }
-    }
-    if (ctrl && e.key === "]") {
-      e.preventDefault();
-      if (activePaneId === 2) { triggerNav(pane2GoForward); } else { triggerNav(goForward); }
-    }
+  if (ctrl && e.key === "[") {
+    e.preventDefault();
+    if (activePaneId === 2) { triggerNav(pane2GoBack); } else { triggerNav(goBack); }
+  }
+  if (ctrl && e.key === "]") {
+    e.preventDefault();
+    if (activePaneId === 2) { triggerNav(pane2GoForward); } else { triggerNav(goForward); }
+  }
 
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
-      e.preventDefault();
-      useUIStore.getState().setRefreshStatus("reloading");
-      loadNotes().then(() => { useUIStore.getState().setRefreshStatus("reloaded"); });
-    }
+  if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
+    e.preventDefault();
+    useUIStore.getState().setRefreshStatus("reloading");
+    loadNotes().then(() => { useUIStore.getState().setRefreshStatus("reloaded"); });
+  }
 
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
-      e.preventDefault();
-      if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
-    }
-  }, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
-      openShortcuts, goBack, goForward, pane2GoBack, pane2GoForward, closeActiveTab, cycleTab,
-      graphOpen, openGraph, activePaneId, loadNotes]);
+  if (ctrl && e.shiftKey && e.key.toLowerCase() === "e") {
+    e.preventDefault();
+    toggleTips();
+  }
+
+  if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
+    e.preventDefault();
+    if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
+  }
+}, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
+    openShortcuts, goBack, goForward, pane2GoBack, pane2GoForward, closeActiveTab, cycleTab,
+    graphOpen, openGraph, activePaneId, loadNotes, toggleTips]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);

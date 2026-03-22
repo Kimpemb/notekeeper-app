@@ -1,4 +1,3 @@
-// src/features/ui/components/KeyboardShortcuts.tsx
 import { useEffect, useRef } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 
@@ -16,6 +15,7 @@ const GROUPS: Group[] = [
       { keys: ["Ctrl", "F"],            label: "Search notes" },
       { keys: ["Ctrl", "T"],            label: "Toggle file tree" },
       { keys: ["Ctrl", "Shift", "G"],   label: "Toggle graph view" },
+      { keys: ["Ctrl", "Shift", "I"],   label: "Toggle tips panel" },
       { keys: ["Ctrl", "Shift", "L"],   label: "Reload notes" },
       { keys: ["Ctrl", "Shift", "?"],   label: "Show keyboard shortcuts" },
     ],

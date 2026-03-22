@@ -1,4 +1,3 @@
-// src/features/ui/components/CommandPalette/index.tsx
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
@@ -106,6 +105,13 @@ const ActionIcon = ({ id }: { id: string }) => {
       <path d="M4 8.5h3M4 6.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
     </svg>
   );
+  if (id === "toggle-tips") return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+      <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M7 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      <circle cx="7" cy="4.5" r="0.7" fill="currentColor"/>
+    </svg>
+  );
   if (id === "open-shortcuts") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
       <rect x="1" y="2.5" width="4" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
@@ -211,6 +217,7 @@ const SHORTCUTS = [
   { label: "Search notes",          keys: ["Ctrl", "F"] },
   { label: "Toggle file tree",      keys: ["Ctrl", "T"] },
   { label: "Toggle graph",          keys: ["Ctrl", "Shift", "G"] },
+  { label: "Toggle tips",           keys: ["Ctrl", "Shift", "E"] },
   { label: "Reload notes",          keys: ["Ctrl", "Shift", "L"] },
   { label: "Go back",               keys: ["Ctrl", "["] },
   { label: "Go forward",            keys: ["Ctrl", "]"] },
@@ -230,6 +237,7 @@ export function CommandPalette() {
   const toggleOutline      = useUIStore((s) => s.toggleOutline);
   const toggleFileTree     = useUIStore((s) => s.toggleFileTree);
   const toggleSidebar      = useUIStore((s) => s.toggleSidebar);
+  const toggleTips         = useUIStore((s) => s.toggleTips);
   const openShortcuts      = useUIStore((s) => s.openShortcuts);
   const openImport         = useUIStore((s) => s.openImport);
   const openTemplatePicker = useUIStore((s) => s.openTemplatePicker);
@@ -320,6 +328,10 @@ export function CommandPalette() {
       action: () => { toggleSidebar(); closePalette(); },
     },
     {
+      kind: "action", id: "toggle-tips", label: "Toggle Tips Panel", hint: "Ctrl+Shift+E",
+      action: () => { toggleTips(); closePalette(); },
+    },
+    {
       kind: "action", id: "reload-notes", label: "Reload Notes", hint: "Ctrl+Shift+L",
       action: async () => {
         closePalette();
@@ -370,7 +382,7 @@ export function CommandPalette() {
     },
   ], [
     theme, closePalette, openTemplatePicker, toggleTheme, toggleBacklinks, toggleOutline,
-    toggleFileTree, toggleSidebar, openShortcuts, openImport, exportHandlers, activeNoteId,
+    toggleFileTree, toggleSidebar, toggleTips, openShortcuts, openImport, exportHandlers, activeNoteId,
     graphOpen, openGraph, closeGraph, loadNotes, createOrOpenDailyNote,
   ]);
 
