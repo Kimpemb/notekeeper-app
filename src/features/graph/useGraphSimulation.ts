@@ -31,10 +31,6 @@ function getNodeColor(node: GraphNode, tagColorMap: Map<string, string>): string
   return TAG_PALETTE[0];
 }
 
-function pairKey(a: string, b: string): string {
-  return a < b ? `${a}__${b}` : `${b}__${a}`;
-}
-
 function monthLabel(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
@@ -96,22 +92,11 @@ export function useGraphSimulation({
     setStats({ nodes: simNodes.length, edges: simEdges.length });
 
     // ── Link strength weighting ───────────────────────────────────────────
-    const pairCount = new Map<string, number>();
-    for (const e of visibleEdges) {
-      const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
-      const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
-      const key = pairKey(sid, tid);
-      pairCount.set(key, (pairCount.get(key) ?? 0) + 1);
-    }
-    const maxPairCount       = Math.max(1, ...Array.from(pairCount.values()));
-    const strokeWidthScale   = d3.scaleLinear().domain([1, maxPairCount]).range([1, 3]).clamp(true);
-    const strokeOpacityScale = d3.scaleLinear().domain([1, maxPairCount]).range([0.25, 0.5]).clamp(true);
-
-    function edgePairCount(e: GraphEdge): number {
-      const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
-      const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
-      return pairCount.get(pairKey(sid, tid)) ?? 1;
-    }
+    // Each edge carries its own weight from useGraphData (already deduplicated).
+    // Scale stroke-width 1→3 and stroke-opacity 0.25→0.5 based on weight.
+    const maxWeight          = Math.max(1, ...simEdges.map((e) => e.weight ?? 1));
+    const strokeWidthScale   = d3.scaleLinear().domain([1, maxWeight]).range([1, 3]).clamp(true);
+    const strokeOpacityScale = d3.scaleLinear().domain([1, maxWeight]).range([0.25, 0.5]).clamp(true);
 
     const width  = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
@@ -234,10 +219,9 @@ export function useGraphSimulation({
 
     zoomRef.current = zoom;
     svg.call(zoom);
-    // Forward trackpad pinch to D3 zoom
-svgRef.current?.addEventListener("wheel", (e) => {
-  e.preventDefault();
-}, { passive: false });
+    svgRef.current?.addEventListener("wheel", (e) => {
+      e.preventDefault();
+    }, { passive: false });
     svg.on("touchstart", (e) => e.preventDefault(), { passive: false });
     svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85));
 
@@ -251,11 +235,12 @@ svgRef.current?.addEventListener("wheel", (e) => {
       });
     }
 
+    // ── Links — stroke scaled directly from e.weight ──────────────────────
     const link = g.append("g").attr("class", "edges")
       .selectAll("line").data(simEdges).join("line")
       .attr("stroke", LINK_STROKE)
-      .attr("stroke-width",   (e) => strokeWidthScale(edgePairCount(e)))
-      .attr("stroke-opacity", (e) => strokeOpacityScale(edgePairCount(e)));
+      .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
+      .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1));
 
     const node = g.append("g").attr("class", "nodes")
       .selectAll<SVGCircleElement, GraphNode>("circle").data(simNodes, (d) => d.id).join("circle")
@@ -311,11 +296,10 @@ svgRef.current?.addEventListener("wheel", (e) => {
           .attr("stroke-width", (e) => {
             const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
             const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
-            return sid === d.id || tid === d.id ? strokeWidthScale(edgePairCount(e)) + 0.5 : 0.5;
+            return sid === d.id || tid === d.id ? strokeWidthScale(e.weight ?? 1) + 0.5 : 0.5;
           });
         label.attr("opacity", (n) => n.id === d.id || neighbourIds.has(n.id) ? 1 : 0);
         const rect = containerRef.current!.getBoundingClientRect();
-        // ── createdAt included in tooltip for both force and timeline mode ──
         setTooltip({
           visible: true,
           x: event.clientX - rect.left + 14,
@@ -337,8 +321,8 @@ svgRef.current?.addEventListener("wheel", (e) => {
           node.attr("fill-opacity", (d) => focusNodeId === d.id ? 1 : 0.85);
           link
             .attr("stroke", LINK_STROKE)
-            .attr("stroke-width",   (e) => strokeWidthScale(edgePairCount(e)))
-            .attr("stroke-opacity", (e) => strokeOpacityScale(edgePairCount(e)));
+            .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
+            .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1));
           label.attr("opacity", (d) => focusNodeId === d.id ? 1 : 0);
           setTooltip((prev: any) => ({ ...prev, visible: false }));
           setHoveredNode(null);

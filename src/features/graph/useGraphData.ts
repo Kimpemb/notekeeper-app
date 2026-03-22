@@ -64,13 +64,27 @@ export function useGraphData(): UseGraphDataResult {
             ? (() => { try { return JSON.parse(n.tags!); } catch { return []; } })()
             : [],
           linkCount:  linkCount.get(n.id) ?? 0,
-          created_at: n.created_at,  // ← populated for timeline mode
+          created_at: n.created_at,
         }));
 
         const nodeIds = new Set(nodes.map((n) => n.id));
-        const edges: GraphEdge[] = backlinks
-          .filter((b) => nodeIds.has(b.source_id) && nodeIds.has(b.target_id))
-          .map((b) => ({ source: b.source_id, target: b.target_id }));
+
+        // ── Deduplicate edges by canonical pair, carry weight ─────────────
+        // A→B and B→A are the same visual edge — merge them into one with
+        // weight = total number of backlinks between the pair.
+        const edgeWeights = new Map<string, number>();
+        for (const b of backlinks) {
+          if (!nodeIds.has(b.source_id) || !nodeIds.has(b.target_id)) continue;
+          const key = b.source_id < b.target_id
+            ? `${b.source_id}__${b.target_id}`
+            : `${b.target_id}__${b.source_id}`;
+          edgeWeights.set(key, (edgeWeights.get(key) ?? 0) + 1);
+        }
+
+        const edges: GraphEdge[] = Array.from(edgeWeights.entries()).map(([key, weight]) => {
+          const [source, target] = key.split("__");
+          return { source, target, weight };
+        });
 
         setData({ nodes, edges });
         setLastUpdated(Date.now());

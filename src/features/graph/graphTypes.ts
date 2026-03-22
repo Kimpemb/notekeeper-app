@@ -13,6 +13,7 @@ export interface GraphNode extends SimulationNodeDatum {
 export interface GraphEdge extends SimulationLinkDatum<GraphNode> {
   source: string | GraphNode;
   target: string | GraphNode;
+  weight: number;       // number of backlinks between this pair — used for stroke scaling
 }
 
 export interface GraphData {
