@@ -6,7 +6,8 @@ export interface GraphNode extends SimulationNodeDatum {
   id: string;
   title: string;
   tags: string[];
-  linkCount: number;   // total connections — used to size the dot
+  linkCount: number;    // total connections — used to size the dot
+  created_at: number;   // unix ms — used for timeline mode x-position
 }
 
 export interface GraphEdge extends SimulationLinkDatum<GraphNode> {

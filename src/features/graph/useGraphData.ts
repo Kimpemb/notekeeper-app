@@ -23,16 +23,13 @@ export function useGraphData(): UseGraphDataResult {
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   // ── Auto-refresh when notes change in the store ───────────────────────────
-  // We watch the notes array length + a hash of updated_at values so we catch
-  // edits, additions, and deletions without re-fetching on unrelated store changes.
-  const notes         = useNoteStore((s) => s.notes);
-  const prevHashRef   = useRef<string>("");
+  const notes       = useNoteStore((s) => s.notes);
+  const prevHashRef = useRef<string>("");
 
   useEffect(() => {
     const hash = notes.map((n) => `${n.id}:${n.updated_at}`).join("|");
     if (hash !== prevHashRef.current) {
       prevHashRef.current = hash;
-      // Skip the very first run — initial load handles that via tick=0
       if (prevHashRef.current !== "") {
         setTick((t) => t + 1);
       }
@@ -61,12 +58,13 @@ export function useGraphData(): UseGraphDataResult {
         }
 
         const nodes: GraphNode[] = fetchedNotes.map((n) => ({
-          id: n.id,
-          title: n.title,
-          tags: n.tags
+          id:         n.id,
+          title:      n.title,
+          tags:       n.tags
             ? (() => { try { return JSON.parse(n.tags!); } catch { return []; } })()
             : [],
-          linkCount: linkCount.get(n.id) ?? 0,
+          linkCount:  linkCount.get(n.id) ?? 0,
+          created_at: n.created_at,  // ← populated for timeline mode
         }));
 
         const nodeIds = new Set(nodes.map((n) => n.id));

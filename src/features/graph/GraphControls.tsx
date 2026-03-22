@@ -25,10 +25,12 @@ interface GraphControlsProps {
   orphanCount: number;
   showTagColors: boolean;
   isFullscreen: boolean;
+  timelineMode: boolean;
   onSearchChange: (q: string) => void;
   onDepthChange: (d: number) => void;
   onToggleOrphans: () => void;
   onToggleTagColors: () => void;
+  onToggleTimeline: () => void;
   onRefresh: () => void;
   onFit: () => void;
   onToggleFullscreen: () => void;
@@ -39,9 +41,9 @@ interface GraphControlsProps {
 export function GraphControls({
   isLocalGraph, isLoading, stats, focusedNode, focusNodeId, initialFocusNoteId,
   lastUpdatedLabel, searchQuery, matchIndex, matchCount, depth, showOrphans,
-  orphanCount, showTagColors, isFullscreen,
+  orphanCount, showTagColors, isFullscreen, timelineMode,
   onSearchChange, onDepthChange, onToggleOrphans, onToggleTagColors,
-  onRefresh, onFit, onToggleFullscreen, onExport, onClose,
+  onToggleTimeline, onRefresh, onFit, onToggleFullscreen, onExport, onClose,
 }: GraphControlsProps) {
   return (
     <div style={{
@@ -66,6 +68,13 @@ export function GraphControls({
       {focusedNode && (
         <span style={{ fontSize: 11, color: TAG_PALETTE[0], opacity: 0.9, background: "rgba(99,102,241,0.15)", borderRadius: 4, padding: "2px 7px" }}>
           {isLocalGraph && focusNodeId === initialFocusNoteId ? "Local: " : "Focus: "}{focusedNode.title}
+        </span>
+      )}
+
+      {/* Timeline mode badge */}
+      {timelineMode && (
+        <span style={{ fontSize: 11, color: "#10b981", opacity: 0.9, background: "rgba(16,185,129,0.12)", borderRadius: 4, padding: "2px 7px" }}>
+          Timeline
         </span>
       )}
 
@@ -126,6 +135,14 @@ export function GraphControls({
           onClick={onToggleTagColors}
           style={{ background: showTagColors ? "rgba(255,255,255,0.08)" : "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: LABEL_COLOR, cursor: "pointer", opacity: showTagColors ? 1 : 0.5 }}>
           🎨
+        </button>
+
+        {/* Timeline toggle */}
+        <button
+          onClick={onToggleTimeline}
+          title="Timeline mode — arrange notes by creation date"
+          style={{ background: timelineMode ? "rgba(16,185,129,0.15)" : "transparent", border: `1px solid ${timelineMode ? "rgba(16,185,129,0.4)" : "var(--color-border, #2a2a2a)"}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: timelineMode ? "#10b981" : LABEL_COLOR, cursor: "pointer", opacity: timelineMode ? 1 : 0.6, whiteSpace: "nowrap" }}>
+          ⏱
         </button>
 
         {/* Refresh */}

@@ -1,6 +1,9 @@
 // src/features/graph/useGraphSimulation.ts
 // Owns the entire D3 build/rebuild cycle: nodes, links, labels,
-// drag, zoom, minimap, simulation. Returns refs needed by search + zoom.
+// drag, zoom, minimap, simulation.
+//
+// Timeline mode: pins each node's X position to its creation month,
+// lets Y float freely via force layout — constellation effect.
 
 import { useEffect, MutableRefObject } from "react";
 import * as d3 from "d3";
@@ -19,15 +22,26 @@ const TAG_PALETTE      = [
   "#ec4899", "#14b8a6", "#f97316", "#8b5cf6", "#84cc16",
 ];
 
+const TIMELINE_PAD_X = 80;
+const TIMELINE_PAD_Y = 48;
+
 function getNodeColor(node: GraphNode, tagColorMap: Map<string, string>): string {
   if (node.linkCount === 0) return NODE_ISOLATED;
   if (node.tags.length > 0) return tagColorMap.get(node.tags[0]) ?? TAG_PALETTE[0];
   return TAG_PALETTE[0];
 }
 
-/** Canonical key for a node pair — order-independent */
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}__${b}` : `${b}__${a}`;
+}
+
+function monthLabel(date: Date): string {
+  return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+function floorToMonth(ts: number): number {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
 }
 
 interface UseGraphSimulationProps {
@@ -45,6 +59,7 @@ interface UseGraphSimulationProps {
   showTagColors: boolean;
   tagColorMap: Map<string, string>;
   focusNodeId: string | null;
+  timelineMode: boolean;
   setActiveNote: (id: string) => void;
   openTab: (id: string) => void;
   setStats: (s: { nodes: number; edges: number }) => void;
@@ -59,7 +74,7 @@ export function useGraphSimulation({
   svgRef, minimapRef, containerRef, zoomRef,
   simNodesRef, simSettledRef, hoverExitTimerRef, isHoveringPreviewRef,
   visibleNodes, visibleEdges, isLoading,
-  showTagColors, tagColorMap, focusNodeId,
+  showTagColors, tagColorMap, focusNodeId, timelineMode,
   setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
   setFocusNodeId, showToast, handleClose,
 }: UseGraphSimulationProps) {
@@ -81,8 +96,6 @@ export function useGraphSimulation({
     setStats({ nodes: simNodes.length, edges: simEdges.length });
 
     // ── Link strength weighting ───────────────────────────────────────────
-    // Count how many backlinks exist between each unique pair of nodes.
-    // Used to scale stroke-width (1–3) and stroke-opacity (0.25–0.5).
     const pairCount = new Map<string, number>();
     for (const e of visibleEdges) {
       const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
@@ -90,7 +103,7 @@ export function useGraphSimulation({
       const key = pairKey(sid, tid);
       pairCount.set(key, (pairCount.get(key) ?? 0) + 1);
     }
-    const maxPairCount = Math.max(1, ...Array.from(pairCount.values()));
+    const maxPairCount       = Math.max(1, ...Array.from(pairCount.values()));
     const strokeWidthScale   = d3.scaleLinear().domain([1, maxPairCount]).range([1, 3]).clamp(true);
     const strokeOpacityScale = d3.scaleLinear().domain([1, maxPairCount]).range([0.25, 0.5]).clamp(true);
 
@@ -109,6 +122,55 @@ export function useGraphSimulation({
 
     const g = svg.append("g");
 
+    // ── Timeline x-scale ─────────────────────────────────────────────────
+    const timestamps = simNodes.map((n) => n.created_at);
+    const minTs      = Math.min(...timestamps);
+    const maxTs      = Math.max(...timestamps);
+    const minMonth   = floorToMonth(minTs);
+    const maxMonth   = floorToMonth(maxTs === minTs ? maxTs + 1 : maxTs);
+
+    const timelineX = d3.scaleTime()
+      .domain([new Date(minMonth), new Date(maxMonth)])
+      .range([TIMELINE_PAD_X, width - TIMELINE_PAD_X]);
+
+    const monthTicks: Date[] = [];
+    let cursor = new Date(minMonth);
+    const endDate = new Date(maxMonth);
+    while (cursor <= endDate) {
+      monthTicks.push(new Date(cursor));
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    }
+
+    // ── Timeline axis ─────────────────────────────────────────────────────
+    const axisG = svg.append("g").attr("class", "timeline-axis");
+
+    if (timelineMode) {
+      axisG.append("line")
+        .attr("x1", TIMELINE_PAD_X).attr("x2", width - TIMELINE_PAD_X)
+        .attr("y1", height - TIMELINE_PAD_Y).attr("y2", height - TIMELINE_PAD_Y)
+        .attr("stroke", "rgba(255,255,255,0.1)").attr("stroke-width", 1);
+
+      const tickInterval = monthTicks.length > 18 ? 3 : 1;
+      monthTicks.forEach((d, i) => {
+        if (i % tickInterval !== 0) return;
+        const x = timelineX(d);
+        axisG.append("line")
+          .attr("x1", x).attr("x2", x)
+          .attr("y1", height - TIMELINE_PAD_Y).attr("y2", height - TIMELINE_PAD_Y + 5)
+          .attr("stroke", "rgba(255,255,255,0.15)").attr("stroke-width", 1);
+        axisG.append("line")
+          .attr("x1", x).attr("x2", x)
+          .attr("y1", 0).attr("y2", height - TIMELINE_PAD_Y)
+          .attr("stroke", "rgba(255,255,255,0.04)").attr("stroke-width", 1)
+          .attr("stroke-dasharray", "3,4");
+        axisG.append("text")
+          .attr("x", x).attr("y", height - TIMELINE_PAD_Y + 16)
+          .attr("text-anchor", "middle").attr("font-size", 10)
+          .attr("fill", LABEL_COLOR).attr("opacity", 0.4)
+          .text(monthLabel(d));
+      });
+    }
+
     // ── Minimap ──────────────────────────────────────────────────────────
     const minimap = d3.select(minimapRef.current);
     minimap.selectAll("*").remove();
@@ -121,7 +183,7 @@ export function useGraphSimulation({
       if (xs.length === 0) return { scale: 1, minX: 0, minY: 0 };
       const minX = Math.min(...xs), maxX = Math.max(...xs);
       const minY = Math.min(...ys), maxY = Math.max(...ys);
-      const pad = 10;
+      const pad  = 10;
       const scale = Math.min((MINIMAP_W - pad * 2) / (maxX - minX || 1), (MINIMAP_H - pad * 2) / (maxY - minY || 1));
       return { scale, minX, minY };
     }
@@ -177,7 +239,13 @@ export function useGraphSimulation({
     const maxLinks = Math.max(1, d3.max(simNodes, (n) => n.linkCount) ?? 1);
     const rScale   = d3.scaleSqrt().domain([0, maxLinks]).range([NODE_BASE_RADIUS, NODE_MAX_RADIUS]);
 
-    // ── Links — weighted by pair count ───────────────────────────────────
+    if (timelineMode) {
+      simNodes.forEach((n) => {
+        n.fx = timelineX(new Date(floorToMonth(n.created_at)));
+        if (n.y === undefined) n.y = height / 2 + (Math.random() - 0.5) * 200;
+      });
+    }
+
     const link = g.append("g").attr("class", "edges")
       .selectAll("line").data(simEdges).join("line")
       .attr("stroke", LINK_STROKE)
@@ -201,9 +269,20 @@ export function useGraphSimulation({
       .attr("opacity", (d) => focusNodeId === d.id ? 1 : 0);
 
     const drag = d3.drag<SVGCircleElement, GraphNode>()
-      .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on("drag",  (event, d) => { d.fx = event.x; d.fy = event.y; })
-      .on("end",   (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; });
+      .on("start", (event, d) => {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        if (!timelineMode) d.fx = d.x;
+        d.fy = d.y;
+      })
+      .on("drag", (event, d) => {
+        if (!timelineMode) d.fx = event.x;
+        d.fy = event.y;
+      })
+      .on("end", (event, d) => {
+        if (!event.active) simulation.alphaTarget(0);
+        if (!timelineMode) d.fx = null;
+        d.fy = null;
+      });
 
     node.call(drag);
 
@@ -227,12 +306,20 @@ export function useGraphSimulation({
           .attr("stroke-width", (e) => {
             const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
             const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
-            // On hover: highlighted edges get weighted thickness, others dim to 0.5
             return sid === d.id || tid === d.id ? strokeWidthScale(edgePairCount(e)) + 0.5 : 0.5;
           });
         label.attr("opacity", (n) => n.id === d.id || neighbourIds.has(n.id) ? 1 : 0);
         const rect = containerRef.current!.getBoundingClientRect();
-        setTooltip({ visible: true, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 14, title: d.title, linkCount: d.linkCount, tags: d.tags });
+        // ── createdAt included in tooltip for both force and timeline mode ──
+        setTooltip({
+          visible: true,
+          x: event.clientX - rect.left + 14,
+          y: event.clientY - rect.top - 14,
+          title: d.title,
+          linkCount: d.linkCount,
+          tags: d.tags,
+          createdAt: d.created_at,
+        });
         setHoveredNode(d);
       })
       .on("mousemove", function (event) {
@@ -243,7 +330,6 @@ export function useGraphSimulation({
         hoverExitTimerRef.current = setTimeout(() => {
           if (isHoveringPreviewRef.current) return;
           node.attr("fill-opacity", (d) => focusNodeId === d.id ? 1 : 0.85);
-          // Restore weighted stroke on mouseleave
           link
             .attr("stroke", LINK_STROKE)
             .attr("stroke-width",   (e) => strokeWidthScale(edgePairCount(e)))
@@ -267,20 +353,21 @@ export function useGraphSimulation({
       });
 
     const simulation = d3.forceSimulation<GraphNode>(simNodes)
-      .force("link",    d3.forceLink<GraphNode, GraphEdge>(simEdges).id((d) => d.id).distance(80).strength(0.4))
-      .force("charge",  d3.forceManyBody().strength(-180))
-      .force("center",  d3.forceCenter(0, 0))
+      .force("link",    d3.forceLink<GraphNode, GraphEdge>(simEdges).id((d) => d.id).distance(60).strength(timelineMode ? 0.1 : 0.4))
+      .force("charge",  d3.forceManyBody().strength(timelineMode ? -120 : -180))
+      .force("center",  timelineMode ? null : d3.forceCenter(0, 0))
       .force("collide", d3.forceCollide<GraphNode>().radius((d) => rScale(d.linkCount) + 6))
+      .force("y",       timelineMode ? d3.forceY(0).strength(0.05) : null)
       .on("tick", () => {
         link
           .attr("x1", (e) => (e.source as GraphNode).x ?? 0).attr("y1", (e) => (e.source as GraphNode).y ?? 0)
           .attr("x2", (e) => (e.target as GraphNode).x ?? 0).attr("y2", (e) => (e.target as GraphNode).y ?? 0);
-        node.attr("cx",  (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
-        label.attr("x",  (d) => d.x ?? 0).attr("y",  (d) => d.y ?? 0);
+        node.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
+        label.attr("x", (d) => d.x ?? 0).attr("y", (d) => d.y ?? 0);
         updateMinimapNodes();
       })
       .on("end", () => { simSettledRef.current = true; });
 
     return () => { simulation.stop(); };
-  }, [visibleNodes, visibleEdges, isLoading, showTagColors, tagColorMap, focusNodeId, setActiveNote, handleClose, openTab, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visibleNodes, visibleEdges, isLoading, showTagColors, tagColorMap, focusNodeId, timelineMode, setActiveNote, handleClose, openTab, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
 }

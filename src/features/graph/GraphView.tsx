@@ -36,6 +36,7 @@ interface TooltipState {
   title: string;
   linkCount: number;
   tags: string[];
+  createdAt: number;
 }
 
 interface Toast {
@@ -110,11 +111,12 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const [hoveredNode, setHoveredNode]     = useState<GraphNode | null>(null);
   const [searchQuery, setSearch]          = useState(savedState.searchQuery);
   const [stats, setStats]                 = useState({ nodes: 0, edges: 0 });
-  const [tooltip, setTooltip]             = useState<TooltipState>({ visible: false, x: 0, y: 0, title: "", linkCount: 0, tags: [] });
+  const [tooltip, setTooltip]             = useState<TooltipState>({ visible: false, x: 0, y: 0, title: "", linkCount: 0, tags: [], createdAt: 0 });
   const [toasts, setToasts]               = useState<Toast[]>([]);
   const [showOrphans, setShowOrphans]     = useState(savedState.showOrphans);
   const [showTagColors, setShowTagColors] = useState(savedState.showTagColors);
   const [depth, setDepth]                 = useState(savedState.depth);
+  const [timelineMode, setTimelineMode]   = useState(false);
   const [focusNodeId, setFocusNodeId]     = useState<string | null>(
     initialFocusNoteId ?? savedState.focusNodeId
   );
@@ -166,7 +168,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     setTimeout(() => closeGraph(), TRANSITION_MS);
   }, [closeGraph]);
 
-
   useImperativeHandle(ref, () => ({ animatedClose: handleClose }), [handleClose]);
 
   const showToast = useCallback((message: string) => {
@@ -176,43 +177,43 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   }, []);
 
   const handleExport = useCallback(() => {
-  if (!svgRef.current || !containerRef.current) return;
+    if (!svgRef.current || !containerRef.current) return;
 
-  showToast("Exporting graph…");  // ← confirmation it started
+    showToast("Exporting graph…");
 
-  const svgEl     = svgRef.current;
-  const svgWidth  = containerRef.current.clientWidth;
-  const svgHeight = containerRef.current.clientHeight;
+    const svgEl     = svgRef.current;
+    const svgWidth  = containerRef.current.clientWidth;
+    const svgHeight = containerRef.current.clientHeight;
 
-  const clone = svgEl.cloneNode(true) as SVGSVGElement;
-  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-  bg.setAttribute("width",  String(svgWidth));
-  bg.setAttribute("height", String(svgHeight));
-  bg.setAttribute("fill",   "#141414");
-  clone.insertBefore(bg, clone.firstChild);
+    const clone = svgEl.cloneNode(true) as SVGSVGElement;
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("width",  String(svgWidth));
+    bg.setAttribute("height", String(svgHeight));
+    bg.setAttribute("fill",   "#141414");
+    clone.insertBefore(bg, clone.firstChild);
 
-  const serialized = new XMLSerializer().serializeToString(clone);
-  const blob       = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
-  const url        = URL.createObjectURL(blob);
+    const serialized = new XMLSerializer().serializeToString(clone);
+    const blob       = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
+    const url        = URL.createObjectURL(blob);
 
-  const img = new Image();
-  img.onload = () => {
-    const canvas  = document.createElement("canvas");
-    canvas.width  = svgWidth;
-    canvas.height = svgHeight;
-    const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(img, 0, 0);
-    URL.revokeObjectURL(url);
+    const img = new Image();
+    img.onload = () => {
+      const canvas  = document.createElement("canvas");
+      canvas.width  = svgWidth;
+      canvas.height = svgHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
 
-    const link    = document.createElement("a");
-    link.download = `notekeeper-graph-${Date.now()}.png`;
-    link.href     = canvas.toDataURL("image/png");
-    link.click();
+      const link    = document.createElement("a");
+      link.download = `notekeeper-graph-${Date.now()}.png`;
+      link.href     = canvas.toDataURL("image/png");
+      link.click();
 
-    showToast("Graph saved as PNG ✓");  // ← confirmation it completed
-  };
-  img.src = url;
-}, [showToast]);
+      showToast("Graph saved as PNG ✓");
+    };
+    img.src = url;
+  }, [showToast]);
 
   // ── Escape key ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -257,7 +258,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     svgRef, minimapRef, containerRef, zoomRef,
     simNodesRef, simSettledRef, hoverExitTimerRef, isHoveringPreviewRef,
     visibleNodes, visibleEdges, isLoading,
-    showTagColors, tagColorMap, focusNodeId,
+    showTagColors, tagColorMap, focusNodeId, timelineMode,
     setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
     setFocusNodeId, showToast, handleClose,
   });
@@ -323,10 +324,12 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           orphanCount={orphanCount}
           showTagColors={showTagColors}
           isFullscreen={isFullscreen}
+          timelineMode={timelineMode}
           onSearchChange={setSearch}
           onDepthChange={setDepth}
           onToggleOrphans={() => setShowOrphans((v) => !v)}
           onToggleTagColors={() => setShowTagColors((v) => !v)}
+          onToggleTimeline={() => setTimelineMode((v) => !v)}
           onRefresh={refresh}
           onFit={handleFit}
           onToggleFullscreen={toggleFullscreen}
@@ -381,6 +384,12 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
               <div style={{ fontSize: 13, fontWeight: 600, color: LABEL_COLOR, marginBottom: 4 }}>{tooltip.title}</div>
               <div style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, display: "flex", flexDirection: "column", gap: 2 }}>
                 <span>{tooltip.linkCount} {tooltip.linkCount === 1 ? "link" : "links"}</span>
+                {/* Creation date — shown in both force and timeline mode */}
+                {tooltip.createdAt > 0 && (
+                  <span>
+                    {new Date(tooltip.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </span>
+                )}
                 {tooltip.tags.length > 0 && (
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
                     {tooltip.tags.map((t) => (
