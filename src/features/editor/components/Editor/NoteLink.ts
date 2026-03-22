@@ -1,4 +1,4 @@
-// src/components/Editor/NoteLink.ts
+// src/features/editor/components/Editor/NoteLink.ts
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { NoteLinkView } from "./NoteLinkView";
@@ -19,7 +19,7 @@ export const NoteLink = Node.create<NoteLinkOptions>({
   name: "noteLink",
   group: "inline",
   inline: true,
-  atom: true, // treated as a single unit — cursor jumps over it
+  atom: true,
 
   addOptions() {
     return { onNavigate: () => {} };
@@ -33,10 +33,25 @@ export const NoteLink = Node.create<NoteLinkOptions>({
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-note-link]' }];
+    return [
+      {
+        tag: "span[data-note-link]",
+        // Without getAttrs, TipTap doesn't know how to map the HTML
+        // attributes back to node attrs on reload — id and label would
+        // come back as null/"". This explicitly pulls them off the element.
+        getAttrs: (element) => {
+          const el = element as HTMLElement;
+          return {
+            id:    el.getAttribute("id")    ?? null,
+            label: el.getAttribute("label") ?? el.textContent ?? "",
+          };
+        },
+      },
+    ];
   },
 
   renderHTML({ HTMLAttributes }) {
+    // Spread all node attrs into the span so parseHTML can read them back.
     return ["span", mergeAttributes(HTMLAttributes, { "data-note-link": "" }), 0];
   },
 

@@ -3,6 +3,10 @@ import { getDb } from "@/features/notes/db/client";
 import { ALL_MIGRATIONS } from "@/features/notes/db/schema";
 import { deleteImage } from "@/lib/tauri/fs";
 import type { Note, NoteVersion, Backlink } from "@/types";
+import {
+  getSimilarityResults,
+  type FeedbackEntry,
+} from "@/features/notes/similarity/similarityUtils";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -726,5 +730,93 @@ export async function setSetting(key: string, value: string): Promise<void> {
     `INSERT INTO app_settings (key, value) VALUES ($1, $2)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     [key, value]
+  );
+}
+
+export interface SimilarNote extends Note {
+  score: number;
+  confidence: "Strong" | "Possible";
+  sharedTags: string[];
+  sharedKeywords: string[];
+}
+
+/**
+ * Returns the top `limit` similar notes for `noteId`.
+ *
+ * - Takes `allNotes` from the store to avoid a duplicate DB fetch.
+ * - Fetches feedback + backlinks from the DB, then scores in JS.
+ */
+export async function getSimilarNotes(
+  noteId: string,
+  allNotes: Note[],
+  limit = 5
+): Promise<SimilarNote[]> {
+  const sourceNote = allNotes.find((n) => n.id === noteId);
+  if (!sourceNote) return [];
+ 
+  const db = await getDb();
+ 
+  // Fetch all feedback rows in one query
+  const feedback = await db.select<FeedbackEntry[]>(
+    `SELECT source_id, target_id, action FROM suggestion_feedback`
+  );
+ 
+  // Collect all note IDs already linked to/from this note (bidirectional)
+  const backlinkRows = await db.select<{ source_id: string; target_id: string }[]>(
+    `SELECT source_id, target_id FROM backlinks
+     WHERE source_id = $1 OR target_id = $1`,
+    [noteId]
+  );
+  const backlinkIds = new Set(
+    backlinkRows.flatMap(({ source_id, target_id }) => [source_id, target_id])
+  );
+  backlinkIds.delete(noteId); // don't exclude self via this set — scoreCandidate handles that
+ 
+  const results = getSimilarityResults(
+    sourceNote,
+    allNotes,
+    feedback,
+    backlinkIds,
+    limit
+  );
+ 
+  // Hydrate each result with the full Note fields
+  const noteMap = new Map(allNotes.map((n) => [n.id, n]));
+  return results.map((r) => ({
+    ...noteMap.get(r.noteId)!,
+    score: r.score,
+    confidence: r.confidence,
+    sharedTags: r.sharedTags,
+    sharedKeywords: r.sharedKeywords,
+  }));
+}
+ 
+/**
+ * Records a user's accept/ignore decision for a suggested note pair.
+ *
+ * Uses INSERT OR REPLACE so a later decision overwrites an earlier one
+ * (e.g. user ignored then later accepts).
+ */
+export async function recordSuggestionFeedback(
+  sourceId: string,
+  targetId: string,
+  action: "accepted" | "ignored"
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT OR REPLACE INTO suggestion_feedback (source_id, target_id, action, created_at)
+     VALUES ($1, $2, $3, $4)`,
+    [sourceId, targetId, action, Date.now()]
+  );
+}
+ 
+/**
+ * Returns all feedback rows — used by the similarity engine to apply
+ * boosts (accepted ×1.5) and exclusions (ignored ×0.0).
+ */
+export async function getSuggestionFeedback(): Promise<FeedbackEntry[]> {
+  const db = await getDb();
+  return db.select<FeedbackEntry[]>(
+    `SELECT source_id, target_id, action FROM suggestion_feedback`
   );
 }

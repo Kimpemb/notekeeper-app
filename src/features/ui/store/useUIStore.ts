@@ -109,6 +109,14 @@ interface UIStore {
   toggleBacklinks: (pane: 1 | 2) => void;
   backlinksOpen: (pane: 1 | 2) => boolean;
 
+    // ─── Similar notes panel — per pane ──────────────────────────────────────
+  pane1SimilarOpen: boolean;
+  pane2SimilarOpen: boolean;
+  openSimilar: (pane: 1 | 2) => void;
+  closeSimilar: (pane: 1 | 2) => void;
+  toggleSimilar: (pane: 1 | 2) => void;
+  similarOpen: (pane: 1 | 2) => boolean;
+
   // ─── File tree panel ──────────────────────────────────────────────────────
   fileTreeOpen: boolean;
   openFileTree: () => void;
@@ -330,6 +338,16 @@ export const useUIStore = create<UIStore>((set, get) => {
     toggleBacklinks: (pane) => set((s) => pane === 1 ? { pane1BacklinksOpen: !s.pane1BacklinksOpen } : { pane2BacklinksOpen: !s.pane2BacklinksOpen }),
     backlinksOpen: (pane) => pane === 1 ? get().pane1BacklinksOpen : get().pane2BacklinksOpen,
 
+
+    // ─── Similar notes — per pane ─────────────────────────────────────────────
+    pane1SimilarOpen: false,
+    pane2SimilarOpen: false,
+    openSimilar:  (pane) => set(pane === 1 ? { pane1SimilarOpen: true }  : { pane2SimilarOpen: true }),
+    closeSimilar: (pane) => set(pane === 1 ? { pane1SimilarOpen: false } : { pane2SimilarOpen: false }),
+    toggleSimilar: (pane) => set((s) => pane === 1 ? { pane1SimilarOpen: !s.pane1SimilarOpen } : { pane2SimilarOpen: !s.pane2SimilarOpen }),
+    similarOpen:  (pane) => pane === 1 ? get().pane1SimilarOpen : get().pane2SimilarOpen,
+
+
     // ─── File tree ────────────────────────────────────────────────────────────
     fileTreeOpen: false,
     openFileTree: () => set({ fileTreeOpen: true }),
@@ -487,7 +505,7 @@ export const useUIStore = create<UIStore>((set, get) => {
     closePane2: () => {
       set({
         splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1,
-        pane2OutlineOpen: false, pane2BacklinksOpen: false, pane2VersionHistoryOpen: false,
+        pane2OutlineOpen: false, pane2BacklinksOpen: false, pane2SimilarOpen: false, pane2VersionHistoryOpen: false,
         pane2NavHistory: [], pane2NavIndex: -1,
       });
       saveSession({ ...get(), splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null });
@@ -498,12 +516,13 @@ export const useUIStore = create<UIStore>((set, get) => {
       saveSession({ ...get(), splitDirection: next });
     },
     swapPanes: () => {
-      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId, pane1OutlineOpen, pane2OutlineOpen, pane1BacklinksOpen, pane2BacklinksOpen, pane1VersionHistoryOpen, pane2VersionHistoryOpen } = get();
+      const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId, pane1OutlineOpen, pane2OutlineOpen, pane1BacklinksOpen, pane2BacklinksOpen, pane1SimilarOpen, pane2SimilarOpen, pane1VersionHistoryOpen, pane2VersionHistoryOpen } = get();
       set({
         tabs: pane2Tabs, activeTabId: pane2ActiveTabId,
         pane2Tabs: tabs, pane2ActiveTabId: activeTabId,
         pane1OutlineOpen: pane2OutlineOpen, pane2OutlineOpen: pane1OutlineOpen,
         pane1BacklinksOpen: pane2BacklinksOpen, pane2BacklinksOpen: pane1BacklinksOpen,
+        pane1SimilarOpen: pane2SimilarOpen, pane2SimilarOpen: pane1SimilarOpen,
         pane1VersionHistoryOpen: pane2VersionHistoryOpen, pane2VersionHistoryOpen: pane1VersionHistoryOpen,
       });
       saveSession({ ...get(), tabs: pane2Tabs, activeTabId: pane2ActiveTabId, pane2Tabs: tabs, pane2ActiveTabId: activeTabId });

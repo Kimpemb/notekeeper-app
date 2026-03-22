@@ -113,4 +113,17 @@ export const ALL_MIGRATIONS: string[] = [
 
   // ── sort_order column (migration — safe to run on existing DBs) ───────────
   `ALTER TABLE notes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
+
+  // Week 3 — Semantic Similarity
+  // Stores per-pair feedback so the scoring engine can boost accepted pairs
+  // (×1.5) and permanently exclude ignored ones (×0.0).
+  // PRIMARY KEY (source_id, target_id) enforces one decision per pair;
+  // a later "accepted" can overwrite a prior "ignored" via INSERT OR REPLACE.
+  `CREATE TABLE IF NOT EXISTS suggestion_feedback (
+    source_id   TEXT    NOT NULL,
+    target_id   TEXT    NOT NULL,
+    action      TEXT    NOT NULL CHECK(action IN ('accepted', 'ignored')),
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (source_id, target_id)
+  )`,
 ];

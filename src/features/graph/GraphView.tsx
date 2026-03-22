@@ -85,6 +85,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
   const { data, isLoading, error, refresh, lastUpdated } = useGraphData();
   const setActiveNote           = useNoteStore((s) => s.setActiveNote);
+  const notes                   = useNoteStore((s) => s.notes);
   const closeGraph              = useUIStore((s) => s.closeGraph);
   const openTab                 = useUIStore((s) => s.openTab);
   const clearGraphFocusNoteId   = useUIStore((s) => s.clearGraphFocusNoteId);
@@ -257,7 +258,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   useGraphSimulation({
     svgRef, minimapRef, containerRef, zoomRef,
     simNodesRef, simSettledRef, hoverExitTimerRef, isHoveringPreviewRef,
-    visibleNodes, visibleEdges, isLoading,
+    visibleNodes, visibleEdges, allNotes: notes, isLoading,
     showTagColors, tagColorMap, focusNodeId, timelineMode,
     setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
     setFocusNodeId, showToast, handleClose,
@@ -376,19 +377,19 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             </div>
           )}
 
-          <svg ref={svgRef} style={{ 
-            width: "100%", 
-            height: "100%", 
+          <svg ref={svgRef} style={{
+            width: "100%",
+            height: "100%",
             display: "block",
-            touchAction: "none"  // ← prevents browser from intercepting pinch
+            touchAction: "none",
           }} />
+
           {/* Cursor tooltip */}
           {tooltip.visible && (
             <div style={{ position: "absolute", left: tooltip.x, top: tooltip.y, background: "rgba(24,24,24,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", pointerEvents: "none", zIndex: 10, minWidth: 140 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: LABEL_COLOR, marginBottom: 4 }}>{tooltip.title}</div>
               <div style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, display: "flex", flexDirection: "column", gap: 2 }}>
                 <span>{tooltip.linkCount} {tooltip.linkCount === 1 ? "link" : "links"}</span>
-                {/* Creation date — shown in both force and timeline mode */}
                 {tooltip.createdAt > 0 && (
                   <span>
                     {new Date(tooltip.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}

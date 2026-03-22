@@ -1,5 +1,5 @@
 // src/features/graph/GraphLegend.tsx
-// Bottom-left legend: tag colours, connected/isolated, controls hint.
+// Bottom-left legend: tag colours, connected/isolated, suggestion hint, controls.
 
 const NODE_ISOLATED = "var(--color-text-muted, #888)";
 const LABEL_COLOR   = "var(--color-text, #e2e2e2)";
@@ -7,6 +7,7 @@ const TAG_PALETTE   = [
   "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#3b82f6",
   "#ec4899", "#14b8a6", "#f97316", "#8b5cf6", "#84cc16",
 ];
+const SUGGESTION_STROKE = "rgba(99,102,241,0.5)";
 
 interface GraphLegendProps {
   showTagColors: boolean;
@@ -58,6 +59,20 @@ export function GraphLegend({ showTagColors, allTags, tagColorMap }: GraphLegend
           </div>
         </>
       )}
+
+      {/* Suggested connection — always shown */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+        <svg width="16" height="10">
+          <line
+            x1="0" y1="5" x2="16" y2="5"
+            stroke={SUGGESTION_STROKE}
+            strokeWidth="1.5"
+            strokeDasharray="4,3"
+          />
+        </svg>
+        Suggested connection
+      </div>
+
       <div style={{ marginTop: 4, opacity: 0.7, lineHeight: 1.5 }}>
         Pinch/spread to zoom · Drag to pan<br />
         Shift+click to focus · Esc to close

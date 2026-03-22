@@ -24,6 +24,7 @@ import { NoteLink } from "./NoteLink";
 import { NoteLinkSuggest } from "./NoteLinkSuggest";
 import { BacklinksPanel } from "./BacklinksPanel";
 import { OutlinePanel } from "./OutlinePanel";
+import { SimilarNotesPanel } from "./SimilarNotesPanel";
 import { StatusBar } from "./StatusBar";
 import { VersionHistory } from "./VersionHistory";
 import { SlashMenu } from "./SlashMenu";
@@ -69,8 +70,9 @@ interface EditorProps {
   onScrollChange?: (scrollTop: number) => void;
 }
 
-export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {  const note        = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
-  const updateNote  = useNoteStore((s) => s.updateNote);
+export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
+  const note          = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
+  const updateNote    = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
 
   const pane1ActiveNoteId = useUIStore((s) => s.activeTabNoteId());
@@ -83,12 +85,14 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   const showEditorButtons = isActiveTab && activePaneId === paneId;
 
-  const myOutlineOpen        = useUIStore((s) => paneId === 1 ? s.pane1OutlineOpen : s.pane2OutlineOpen);
-  const myBacklinksOpen      = useUIStore((s) => paneId === 1 ? s.pane1BacklinksOpen : s.pane2BacklinksOpen);
+  const myOutlineOpen        = useUIStore((s) => paneId === 1 ? s.pane1OutlineOpen        : s.pane2OutlineOpen);
+  const myBacklinksOpen      = useUIStore((s) => paneId === 1 ? s.pane1BacklinksOpen      : s.pane2BacklinksOpen);
+  const mySimilarOpen        = useUIStore((s) => paneId === 1 ? s.pane1SimilarOpen        : s.pane2SimilarOpen);
   const myVersionHistoryOpen = useUIStore((s) => paneId === 1 ? s.pane1VersionHistoryOpen : s.pane2VersionHistoryOpen);
 
   const toggleOutline    = useUIStore((s) => s.toggleOutline);
   const toggleBacklinks  = useUIStore((s) => s.toggleBacklinks);
+  const toggleSimilar    = useUIStore((s) => s.toggleSimilar);
   const openGraphForNote = useUIStore((s) => s.openGraphForNote);
 
   const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
@@ -211,27 +215,22 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   }, [onScrollChange]);
 
   useEffect(() => {
-  if (!editor || !note) return;
-  const incoming = note.content ?? null;
-  if (incoming === lastSavedContent.current) return;
-  lastSavedContent.current = incoming;
-
-  // Defer setContent out of React's passive effect phase.
-  // Calling it synchronously here triggers TipTap 3's ReactNodeViewRenderer
-  // flushSync during an active render — deferred to a macrotask avoids this.
-  const timer = setTimeout(() => {
-    if (editor.isDestroyed) return;
-    const { from, to } = editor.state.selection;
-    editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-    try { editor.commands.setTextSelection({ from, to }); } catch { /**/ }
-    if (titleRef.current && !titleFocusedRef.current) {
-      const isUntitled = /^Untitled-\d+$/.test(note.title);
-      titleRef.current.textContent = isUntitled ? "" : note.title;
-    }
-  }, 0);
-
-  return () => clearTimeout(timer);
-}, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!editor || !note) return;
+    const incoming = note.content ?? null;
+    if (incoming === lastSavedContent.current) return;
+    lastSavedContent.current = incoming;
+    const timer = setTimeout(() => {
+      if (editor.isDestroyed) return;
+      const { from, to } = editor.state.selection;
+      editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
+      try { editor.commands.setTextSelection({ from, to }); } catch { /**/ }
+      if (titleRef.current && !titleFocusedRef.current) {
+        const isUntitled = /^Untitled-\d+$/.test(note.title);
+        titleRef.current.textContent = isUntitled ? "" : note.title;
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
@@ -245,18 +244,34 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   useEffect(() => {
     if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
     const timer = setTimeout(() => {
-  const container = getScrollContainer(editor);
-  scrollToQuery(editor, pendingScrollQuery, container);
-  // Re-run after scroll settles to correct any coordinate drift
-  setTimeout(() => {
-    if (!editor.isDestroyed) {
+      const container = getScrollContainer(editor);
       scrollToQuery(editor, pendingScrollQuery, container);
-      setPendingScrollQuery(null);
-    }
-  }, 400); // 400ms covers smooth scroll animation
-}, 50);
+      setTimeout(() => {
+        if (!editor.isDestroyed) {
+          scrollToQuery(editor, pendingScrollQuery, container);
+          setPendingScrollQuery(null);
+        }
+      }, 400);
+    }, 50);
     return () => clearTimeout(timer);
   }, [noteId, pendingScrollQuery, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── notekeeper:insert-link ─────────────────────────────────────────────────
+  // Fired by SimilarNotesPanel when the user clicks "Link →".
+  // Only the active pane's editor should handle it to avoid double-insertion
+  // when both panes are open.
+  useEffect(() => {
+    if (!editor || !isActiveTab) return;
+    function handleInsertLink(e: Event) {
+      const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
+      editor!.chain().focus().insertContent({
+        type: "noteLink",
+        attrs: { id: linkedId, label: noteTitle },
+      }).run();
+    }
+    window.addEventListener("notekeeper:insert-link", handleInsertLink);
+    return () => window.removeEventListener("notekeeper:insert-link", handleInsertLink);
+  }, [editor, isActiveTab]);
 
   const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
     lastSavedContent.current = content;
@@ -416,6 +431,21 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
                 Backlinks
               </button>
             )}
+            {!mySimilarOpen && (
+              <button
+                onClick={() => toggleSimilar(paneId)}
+                title="Toggle similar notes"
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+              >
+                <svg width="11" height="11" viewBox="0 0 13 13" fill="none">
+                  <circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+                  <circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+                  <circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+                  <path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+                </svg>
+                Similar
+              </button>
+            )}
           </div>
         )}
 
@@ -438,26 +468,26 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
           <div className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text" onClick={handleEditorAreaClick}>
-  <h1
-    ref={titleRef}
-    contentEditable suppressContentEditableWarning spellCheck={false}
-    autoCorrect="off" autoCapitalize="off"
-    onFocus={handleTitleFocus}
-    onBlur={handleTitleBlur}
-    onKeyDown={handleTitleKeyDown}
-    onPaste={handleTitlePaste}
-    className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
-    style={{ fontSize: "3rem", lineHeight: 1.2 }}
-    data-placeholder={isUntitled ? note.title : "Untitled"}
-  >
-    {isUntitled ? "" : note.title}
-  </h1>
-  <TagBar noteId={note.id} tags={note.tags} />
-  <div key={note.id} ref={editorWrapRef}>
-    <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
-  </div>
-</div>
-<SubPagesSection noteId={note.id} paneId={paneId} />
+            <h1
+              ref={titleRef}
+              contentEditable suppressContentEditableWarning spellCheck={false}
+              autoCorrect="off" autoCapitalize="off"
+              onFocus={handleTitleFocus}
+              onBlur={handleTitleBlur}
+              onKeyDown={handleTitleKeyDown}
+              onPaste={handleTitlePaste}
+              className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
+              style={{ fontSize: "3rem", lineHeight: 1.2 }}
+              data-placeholder={isUntitled ? note.title : "Untitled"}
+            >
+              {isUntitled ? "" : note.title}
+            </h1>
+            <TagBar noteId={note.id} tags={note.tags} />
+            <div key={note.id} ref={editorWrapRef}>
+              <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
+            </div>
+          </div>
+          <SubPagesSection noteId={note.id} paneId={paneId} />
         </div>
 
         <StatusBar editor={editor ?? null} paneId={paneId} />
@@ -466,6 +496,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
       {myOutlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
       {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
+      {mySimilarOpen   && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
 
       {editor && <TableToolbar editor={editor} />}
 

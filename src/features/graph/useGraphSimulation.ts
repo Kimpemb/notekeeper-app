@@ -8,6 +8,9 @@
 import { useEffect, MutableRefObject } from "react";
 import * as d3 from "d3";
 import type { GraphNode, GraphEdge } from "./graphTypes";
+import { getSuggestionFeedback } from "@/features/notes/db/queries";
+import { buildFeedbackMap, getSimilarityResults } from "@/features/notes/similarity/similarityUtils";
+import type { Note } from "@/types";
 
 const NODE_BASE_RADIUS = 5;
 const NODE_MAX_RADIUS  = 18;
@@ -25,6 +28,10 @@ const TAG_PALETTE      = [
 const TIMELINE_PAD_X = 80;
 const TIMELINE_PAD_Y = 48;
 
+const SUGGESTION_STROKE           = "rgba(99,102,241,0.25)";
+const SUGGESTION_STROKE_DASHARRAY = "4,3";
+const SUGGESTION_CONFIDENCE_MIN   = 6;
+
 function getNodeColor(node: GraphNode, tagColorMap: Map<string, string>): string {
   if (node.linkCount === 0) return NODE_ISOLATED;
   if (node.tags.length > 0) return tagColorMap.get(node.tags[0]) ?? TAG_PALETTE[0];
@@ -40,7 +47,12 @@ function floorToMonth(ts: number): number {
   return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
 }
 
-interface UseGraphSimulationProps {
+interface SuggestionEdge {
+  sourceId: string;
+  targetId: string;
+}
+
+export interface UseGraphSimulationProps {
   svgRef: MutableRefObject<SVGSVGElement | null>;
   minimapRef: MutableRefObject<SVGSVGElement | null>;
   containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -51,6 +63,7 @@ interface UseGraphSimulationProps {
   isHoveringPreviewRef: MutableRefObject<boolean>;
   visibleNodes: GraphNode[];
   visibleEdges: GraphEdge[];
+  allNotes: Note[];
   isLoading: boolean;
   showTagColors: boolean;
   tagColorMap: Map<string, string>;
@@ -69,7 +82,7 @@ interface UseGraphSimulationProps {
 export function useGraphSimulation({
   svgRef, minimapRef, containerRef, zoomRef,
   simNodesRef, simSettledRef, hoverExitTimerRef, isHoveringPreviewRef,
-  visibleNodes, visibleEdges, isLoading,
+  visibleNodes, visibleEdges, allNotes, isLoading,
   showTagColors, tagColorMap, focusNodeId, timelineMode,
   setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
   setFocusNodeId, showToast, handleClose,
@@ -92,8 +105,6 @@ export function useGraphSimulation({
     setStats({ nodes: simNodes.length, edges: simEdges.length });
 
     // ── Link strength weighting ───────────────────────────────────────────
-    // Each edge carries its own weight from useGraphData (already deduplicated).
-    // Scale stroke-width 1→3 and stroke-opacity 0.25→0.5 based on weight.
     const maxWeight          = Math.max(1, ...simEdges.map((e) => e.weight ?? 1));
     const strokeWidthScale   = d3.scaleLinear().domain([1, maxWeight]).range([1, 3]).clamp(true);
     const strokeOpacityScale = d3.scaleLinear().domain([1, maxWeight]).range([0.25, 0.5]).clamp(true);
@@ -235,12 +246,78 @@ export function useGraphSimulation({
       });
     }
 
-    // ── Links — stroke scaled directly from e.weight ──────────────────────
+    // ── Real edges ────────────────────────────────────────────────────────
     const link = g.append("g").attr("class", "edges")
       .selectAll("line").data(simEdges).join("line")
       .attr("stroke", LINK_STROKE)
       .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
       .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1));
+
+    // ── Suggestion edges (dashed, drawn after simulation settles) ─────────
+    const suggestionG = g.append("g").attr("class", "suggestion-edges");
+
+    const existingEdgeKeys = new Set<string>(
+      simEdges.map((e) => {
+        const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
+        const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
+        return [sid, tid].sort().join("|");
+      })
+    );
+
+    async function drawSuggestionEdges() {
+      if (allNotes.length === 0) return;
+
+      const feedback    = await getSuggestionFeedback();
+      const feedbackMap = buildFeedbackMap(feedback);
+
+      const pairs: SuggestionEdge[] = [];
+      const seenPairs = new Set<string>();
+
+      for (const sourceNode of simNodes) {
+        const sourceNote = allNotes.find((n) => n.id === sourceNode.id);
+        if (!sourceNote) continue;
+
+        const backlinkIds = new Set<string>();
+        simEdges.forEach((e) => {
+          const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
+          const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
+          if (sid === sourceNode.id) backlinkIds.add(tid);
+          if (tid === sourceNode.id) backlinkIds.add(sid);
+        });
+
+        const results = getSimilarityResults(sourceNote, allNotes, feedback, backlinkIds, 10);
+
+        for (const r of results) {
+          if (r.score < SUGGESTION_CONFIDENCE_MIN) continue;
+
+          const key = [sourceNode.id, r.noteId].sort().join("|");
+          if (seenPairs.has(key)) continue;
+          if (existingEdgeKeys.has(key)) continue;
+
+          const pairFeedback = feedbackMap.get(sourceNode.id)?.get(r.noteId);
+          if (pairFeedback === "ignored") continue;
+
+          seenPairs.add(key);
+          pairs.push({ sourceId: sourceNode.id, targetId: r.noteId });
+        }
+      }
+
+      if (pairs.length === 0) return;
+
+      const nodeById = new Map(simNodes.map((n) => [n.id, n]));
+
+      suggestionG.selectAll("line")
+        .data(pairs)
+        .join("line")
+        .attr("x1", (d) => nodeById.get(d.sourceId)?.x ?? 0)
+        .attr("y1", (d) => nodeById.get(d.sourceId)?.y ?? 0)
+        .attr("x2", (d) => nodeById.get(d.targetId)?.x ?? 0)
+        .attr("y2", (d) => nodeById.get(d.targetId)?.y ?? 0)
+        .attr("stroke", SUGGESTION_STROKE)
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", SUGGESTION_STROKE_DASHARRAY)
+        .attr("pointer-events", "none");
+    }
 
     const node = g.append("g").attr("class", "nodes")
       .selectAll<SVGCircleElement, GraphNode>("circle").data(simNodes, (d) => d.id).join("circle")
@@ -355,8 +432,11 @@ export function useGraphSimulation({
         label.attr("x", (d) => d.x ?? 0).attr("y", (d) => d.y ?? 0);
         updateMinimapNodes();
       })
-      .on("end", () => { simSettledRef.current = true; });
+      .on("end", () => {
+        simSettledRef.current = true;
+        drawSuggestionEdges().catch(console.error);
+      });
 
     return () => { simulation.stop(); };
-  }, [visibleNodes, visibleEdges, isLoading, showTagColors, tagColorMap, focusNodeId, timelineMode, setActiveNote, handleClose, openTab, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visibleNodes, visibleEdges, allNotes, isLoading, showTagColors, tagColorMap, focusNodeId, timelineMode, setActiveNote, handleClose, openTab, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
 }
