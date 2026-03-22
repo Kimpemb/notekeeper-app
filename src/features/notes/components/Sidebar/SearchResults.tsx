@@ -34,7 +34,6 @@ export function SearchResults({ query }: Props) {
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
   const activeNoteId = useNoteStore((s) => s.activeNoteId);
   const setPendingScrollQuery = useUIStore((s) => s.setPendingScrollQuery);
-  const setSidebarState = useUIStore((s) => s.setSidebarState);
 
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -107,11 +106,19 @@ export function SearchResults({ query }: Props) {
 
   // ── Handle click ─────────────────────────────
   function handleResultClick(result: SearchResult) {
-    setPendingScrollQuery(query.trim());
-    setActiveNote(result.id);
-    const { sidebarState } = useUIStore.getState();
-    if (sidebarState === "peek") setSidebarState("closed");
-  }
+  const { replaceTab, sidebarState } = useUIStore.getState();
+  
+  // Set active note first so the editor starts mounting
+  setActiveNote(result.id);
+  replaceTab(result.id);
+  
+  // Delay pendingScrollQuery so it fires after the editor has remounted and painted
+  setTimeout(() => {
+  setPendingScrollQuery(query.trim());
+}, 350);
+
+if (sidebarState === "peek") useUIStore.getState().setSidebarState("closed");
+}
 
   // ── Loading / No results ─────────────────────────────
   if (loading) {

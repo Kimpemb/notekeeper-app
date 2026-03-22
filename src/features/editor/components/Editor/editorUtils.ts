@@ -85,26 +85,7 @@ export function buildSearchHighlightPlugin(): Plugin {
 // Uses countdown (remaining) — only subtracts from text nodes, exactly
 // mirroring how textBetween() traverses. Non-text inline nodes (noteLink,
 // image, attachment) are skipped for char counting, matching getText() exactly.
-function charOffsetToDocPos(editor: Editor, charOffset: number): number | null {
-  if (charOffset < 0) return null;
 
-  let remaining = charOffset;
-  let foundPos: number | null = null;
-
-  editor.state.doc.descendants((node, pos) => {
-    if (foundPos !== null) return false; // already found, stop
-    if (!node.isText) return true;       // descend into containers, skip non-text leaves
-    const textLen = node.text!.length;
-    if (remaining < textLen) {
-      foundPos = pos + remaining;        // match starts inside this text node
-      return false;
-    }
-    remaining -= textLen;
-    return false;                        // text nodes have no children
-  });
-
-  return foundPos;
-}
 
 // ── Scroll to query string and temporarily highlight it ───────────────────────
 export function scrollToQuery(
@@ -114,22 +95,32 @@ export function scrollToQuery(
 ): void {
   if (!query.trim()) return;
 
-  const liveText   = editor.getText();
-  const needle     = query.trim().toLowerCase();
-  const charOffset = liveText.toLowerCase().indexOf(needle);
-  if (charOffset < 0) return;
+  const needle = query.trim().toLowerCase();
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(escaped, "i");
 
-  const from = charOffsetToDocPos(editor, charOffset);
-  if (from === null) return;
+  // Search directly in ProseMirror doc text nodes — no getText() drift
+  let from: number | null = null;
+  let to: number | null = null;
 
-  const to = Math.min(from + needle.length, editor.state.doc.content.size);
+  editor.state.doc.descendants((node, pos) => {
+    if (from !== null) return false;
+    if (!node.isText || !node.text) return true;
+    const match = regex.exec(node.text);
+    if (match) {
+      from = pos + match.index;
+      to   = from + match[0].length;
+    }
+  });
+
+  if (from === null || to === null) return;
 
   // Place caret at match start
   editor.commands.setTextSelection(from);
 
   // Scroll into view
   const domAtPos = editor.view.domAtPos(from);
-  const node     = domAtPos.node instanceof HTMLElement
+  const node = domAtPos.node instanceof HTMLElement
     ? domAtPos.node
     : domAtPos.node.parentElement;
 
@@ -147,7 +138,7 @@ export function scrollToQuery(
   const decorationSet = DecorationSet.create(editor.state.doc, [decoration]);
   editor.view.dispatch(editor.state.tr.setMeta(searchHighlightKey, decorationSet));
 
-  // Remove highlight after 2 s
+  // Remove highlight after 2s
   setTimeout(() => {
     if (!editor.isDestroyed) {
       editor.view.dispatch(

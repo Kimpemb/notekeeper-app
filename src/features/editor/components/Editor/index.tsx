@@ -211,10 +211,16 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   }, [onScrollChange]);
 
   useEffect(() => {
-    if (!editor || !note) return;
-    const incoming = note.content ?? null;
-    if (incoming === lastSavedContent.current) return;
-    lastSavedContent.current = incoming;
+  if (!editor || !note) return;
+  const incoming = note.content ?? null;
+  if (incoming === lastSavedContent.current) return;
+  lastSavedContent.current = incoming;
+
+  // Defer setContent out of React's passive effect phase.
+  // Calling it synchronously here triggers TipTap 3's ReactNodeViewRenderer
+  // flushSync during an active render — deferred to a macrotask avoids this.
+  const timer = setTimeout(() => {
+    if (editor.isDestroyed) return;
     const { from, to } = editor.state.selection;
     editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
     try { editor.commands.setTextSelection({ from, to }); } catch { /**/ }
@@ -222,7 +228,10 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       const isUntitled = /^Untitled-\d+$/.test(note.title);
       titleRef.current.textContent = isUntitled ? "" : note.title;
     }
-  }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, 0);
+
+  return () => clearTimeout(timer);
+}, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
@@ -236,10 +245,16 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   useEffect(() => {
     if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
     const timer = setTimeout(() => {
-      const container = getScrollContainer(editor);
+  const container = getScrollContainer(editor);
+  scrollToQuery(editor, pendingScrollQuery, container);
+  // Re-run after scroll settles to correct any coordinate drift
+  setTimeout(() => {
+    if (!editor.isDestroyed) {
       scrollToQuery(editor, pendingScrollQuery, container);
       setPendingScrollQuery(null);
-    }, 120);
+    }
+  }, 400); // 400ms covers smooth scroll animation
+}, 50);
     return () => clearTimeout(timer);
   }, [noteId, pendingScrollQuery, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
