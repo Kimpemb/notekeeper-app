@@ -19,6 +19,7 @@ import { GraphView, type GraphViewHandle } from "@/features/graph/GraphView";
 import { exportNotesToFile } from "@/lib/tauri/fs";
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
+import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
 import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
@@ -420,6 +421,7 @@ export default function App() {
         </header>
 
         <TipsPanel />
+          <ResurfaceBar />
 
         <main className={`flex-1 flex overflow-hidden ${splitOpen && splitDirection === "vertical" ? "flex-col items-stretch" : "flex-row"}`}>
           {renderPane(1)}

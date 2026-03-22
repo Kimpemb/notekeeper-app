@@ -432,6 +432,30 @@ export async function getAllBacklinks(): Promise<Backlink[]> {
   return db.select<Backlink[]>(`SELECT * FROM backlinks`);
 }
 
+// ─── Stale notes (not visited in N days) ─────────────────────────────────────
+
+export async function getStaleNotes(dayThreshold: number, limit = 3): Promise<Note[]> {
+  const db = await getDb();
+  const cutoff = Date.now() - dayThreshold * 24 * 60 * 60 * 1000;
+
+  // Notes that exist, are not trashed, and either have no visits at all
+  // or whose most recent visit is older than the cutoff.
+  return db.select<Note[]>(
+    `SELECT n.*
+     FROM notes n
+     LEFT JOIN (
+       SELECT note_id, MAX(visited_at) AS last_visit
+       FROM note_visits
+       GROUP BY note_id
+     ) v ON v.note_id = n.id
+     WHERE n.deleted_at IS NULL
+       AND (v.last_visit IS NULL OR v.last_visit < $1)
+     ORDER BY RANDOM()
+     LIMIT $2`,
+    [cutoff, limit]
+  );
+}
+
 // ─── Unlinked Mentions ────────────────────────────────────────────────────────
 
 export interface UnlinkedMention {

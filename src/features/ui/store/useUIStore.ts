@@ -216,6 +216,10 @@ interface UIStore {
   closedTabs: ClosedTab[];
   reopenClosedTab: () => void;
 
+  // ─── Resurface bar ────────────────────────────────────────────────────────────
+resurfaceDismissed: boolean;
+dismissResurface: () => void;
+
   // ─── Pane 2 nav history ───────────────────────────────────────────────────
 pane2NavHistory: string[];
 pane2NavIndex: number;
@@ -546,6 +550,11 @@ export const useUIStore = create<UIStore>((set, get) => {
         get().openTab(last.noteId);
       }
     },
+
+
+    // ─── Resurface bar ────────────────────────────────────────────────────────────
+    resurfaceDismissed: false,
+    dismissResurface: () => set({ resurfaceDismissed: true }),
 
     // ─── Pane 2 nav history ───────────────────────────────────────────────────
     pane2NavHistory: [],
