@@ -109,6 +109,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const simNodesRef   = useRef<GraphNode[]>([]);
   const toastCountRef = useRef(0);
   const isHoveringPreviewRef = useRef(false);
+  const matchIndexRef = useRef(0);
+
   // tracks whether simulation has settled enough to trust node positions
   const simSettledRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -127,6 +129,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const [showOrphans, setShowOrphans]     = useState(savedState.showOrphans);
   const [showTagColors, setShowTagColors] = useState(savedState.showTagColors);
   const [depth, setDepth]                 = useState(savedState.depth);
+  const [matchIndex, setMatchIndex] = useState(0);
   const [focusNodeId, setFocusNodeId]     = useState<string | null>(
     initialFocusNoteId ?? savedState.focusNodeId
   );
@@ -410,55 +413,85 @@ node
     return () => { simulation.stop(); };
   }, [visibleNodes, visibleEdges, isLoading, showTagColors, tagColorMap, focusNodeId, setActiveNote, handleClose, openTab, showToast]);
 
-  // ── Search highlight + debounced scroll to first match ────────────────────
+ // ── Search highlight + Enter to cycle through matches ─────────────────────
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     const q   = searchQuery.trim().toLowerCase();
 
-    // Update visual highlight immediately on every keystroke
+    // Reset match index when query changes
+    matchIndexRef.current = 0;
+    setMatchIndex(0);
+
     svg.selectAll<SVGCircleElement, GraphNode>("circle")
       .attr("stroke", (d) => { if (focusNodeId === d.id) return "#fff"; return q && d.title.toLowerCase().includes(q) ? "#fff" : "transparent"; })
       .attr("fill-opacity", (d) => { if (!q) return focusNodeId === d.id ? 1 : 0.85; return d.title.toLowerCase().includes(q) ? 1 : 0.2; });
     svg.selectAll<SVGTextElement, GraphNode>("text")
       .attr("opacity", (d) => { if (focusNodeId === d.id) return 1; return q && d.title.toLowerCase().includes(q) ? 1 : 0; });
 
-    // Debounce the pan — only fires 400ms after the user stops typing
-    // AND only if simulation has settled (positions are trustworthy)
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    if (!q) return;
 
-    if (!q) return; // nothing to scroll to if query is empty
-
+    // Auto-pan to first match after typing stops
     scrollTimerRef.current = setTimeout(() => {
       if (!svgRef.current || !zoomRef.current || !containerRef.current) return;
-      if (!simSettledRef.current) return; // simulation still running, skip
+      if (!simSettledRef.current) return;
 
-      const firstMatch = simNodesRef.current.find((n) => n.title.toLowerCase().includes(q));
-      if (!firstMatch) return;
+      const matches = simNodesRef.current.filter((n) => n.title.toLowerCase().includes(q));
+      if (matches.length === 0) return;
 
-      const nx = firstMatch.x ?? 0;
-      const ny = firstMatch.y ?? 0;
-
-      // Guard: if node is still near origin, simulation hasn't spread yet
+      const target = matches[0];
+      const nx = target.x ?? 0;
+      const ny = target.y ?? 0;
       if (Math.abs(nx) < 1 && Math.abs(ny) < 1) return;
 
       const width  = containerRef.current.clientWidth;
       const height = containerRef.current.clientHeight;
       const k      = d3.zoomTransform(svgRef.current).k;
 
-      d3.select(svgRef.current)
-        .transition()
-        .duration(500)
-        .call(
-          zoomRef.current.transform,
-          d3.zoomIdentity.translate(width / 2 - nx * k, height / 2 - ny * k).scale(k)
-        );
+      d3.select(svgRef.current).transition().duration(500).call(
+        zoomRef.current.transform,
+        d3.zoomIdentity.translate(width / 2 - nx * k, height / 2 - ny * k).scale(k)
+      );
     }, 400);
 
-    return () => {
-      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
-    };
+    return () => { if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current); };
   }, [searchQuery, focusNodeId]);
+
+  // ── Enter key — cycle through search matches ──────────────────────────────
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Enter") return;
+      if (!searchQuery.trim()) return;
+      if (!svgRef.current || !zoomRef.current || !containerRef.current) return;
+      if (!simSettledRef.current) return;
+
+      const q = searchQuery.trim().toLowerCase();
+      const matches = simNodesRef.current.filter((n) => n.title.toLowerCase().includes(q));
+      if (matches.length === 0) return;
+
+      // Advance index, wrap around
+      const nextIndex = (matchIndexRef.current + 1) % matches.length;
+      matchIndexRef.current = nextIndex;
+      setMatchIndex(nextIndex);
+
+      const target = matches[nextIndex];
+      const nx = target.x ?? 0;
+      const ny = target.y ?? 0;
+
+      const width  = containerRef.current.clientWidth;
+      const height = containerRef.current.clientHeight;
+      const k      = d3.zoomTransform(svgRef.current).k;
+
+      d3.select(svgRef.current).transition().duration(400).call(
+        zoomRef.current.transform,
+        d3.zoomIdentity.translate(width / 2 - nx * k, height / 2 - ny * k).scale(k)
+      );
+    }
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [searchQuery]);
 
   const handleFit = useCallback(() => {
     if (!svgRef.current || !containerRef.current || !zoomRef.current) return;
@@ -514,42 +547,68 @@ node
           )}
           {lastUpdatedLabel && <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.3 }}>updated {lastUpdatedLabel}</span>}
 
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="text" placeholder="Filter…" value={searchQuery} onChange={(e) => setSearch(e.target.value)}
-              style={{ background: "var(--color-bg, #1e1e1e)", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 10px", fontSize: 13, color: LABEL_COLOR, outline: "none", width: 130 }}
-            />
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, whiteSpace: "nowrap" }}>Depth {depth}</span>
-              <input type="range" min={1} max={6} value={depth} onChange={(e) => setDepth(Number(e.target.value))}
-                style={{ width: 70, accentColor: TAG_PALETTE[0] }} title="Depth — active in focus mode"
-              />
-            </div>
-            <button onClick={() => setShowOrphans((v) => !v)}
-              style={{ background: showOrphans ? "rgba(255,255,255,0.08)" : "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: LABEL_COLOR, cursor: "pointer", opacity: showOrphans ? 1 : 0.5, whiteSpace: "nowrap" }}>
-              {showOrphans ? `⬡ ${orphanCount}` : "⬡ off"}
-            </button>
-            <button onClick={() => setShowTagColors((v) => !v)}
-              style={{ background: showTagColors ? "rgba(255,255,255,0.08)" : "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: LABEL_COLOR, cursor: "pointer", opacity: showTagColors ? 1 : 0.5 }}>
-              🎨
-            </button>
-            <button onClick={refresh} disabled={isLoading}
-              style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 13, color: LABEL_COLOR, cursor: isLoading ? "not-allowed" : "pointer", opacity: isLoading ? 0.3 : 0.7 }}>
-              {isLoading ? "…" : "↺"}
-            </button>
-            <button onClick={handleFit}
-              style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7 }}>
-              Fit
-            </button>
-            <button onClick={toggleFullscreen}
-              style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7, lineHeight: 1 }}>
-              {isFullscreen ? "⊡" : "⊞"}
-            </button>
-            <button onClick={handleClose} title="Close (Esc)"
-              style={{ background: "transparent", border: "none", fontSize: 18, color: LABEL_COLOR, cursor: "pointer", opacity: 0.5, lineHeight: 1, padding: "0 4px" }}>
-              ✕
-            </button>
-          </div>
-        </div>
+         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+  <input
+    type="text"
+    placeholder="Filter…"
+    value={searchQuery}
+    onChange={(e) => setSearch(e.target.value)}
+    style={{ background: "var(--color-bg, #1e1e1e)", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 10px", fontSize: 13, color: LABEL_COLOR, outline: "none", width: 130 }}
+  />
+  {searchQuery.trim() && (() => {
+    const q = searchQuery.trim().toLowerCase();
+    const count = simNodesRef.current.filter((n) => n.title.toLowerCase().includes(q)).length;
+    return count > 0 ? (
+      <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.45, whiteSpace: "nowrap" }}>
+        {matchIndex + 1} / {count}
+      </span>
+    ) : (
+      <span style={{ fontSize: 11, color: "#f87171", opacity: 0.7, whiteSpace: "nowrap" }}>
+        no match
+      </span>
+    );
+  })()}
+  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+    <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, whiteSpace: "nowrap" }}>Depth {depth}</span>
+    <input
+      type="range" min={1} max={6} value={depth}
+      onChange={(e) => setDepth(Number(e.target.value))}
+      style={{ width: 70, accentColor: TAG_PALETTE[0] }}
+      title="Depth — active in focus mode"
+    />
+  </div>
+  <button
+    onClick={() => setShowOrphans((v) => !v)}
+    style={{ background: showOrphans ? "rgba(255,255,255,0.08)" : "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: LABEL_COLOR, cursor: "pointer", opacity: showOrphans ? 1 : 0.5, whiteSpace: "nowrap" }}>
+    {showOrphans ? `⬡ ${orphanCount}` : "⬡ off"}
+  </button>
+  <button
+    onClick={() => setShowTagColors((v) => !v)}
+    style={{ background: showTagColors ? "rgba(255,255,255,0.08)" : "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: LABEL_COLOR, cursor: "pointer", opacity: showTagColors ? 1 : 0.5 }}>
+    🎨
+  </button>
+  <button
+    onClick={refresh} disabled={isLoading}
+    style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 13, color: LABEL_COLOR, cursor: isLoading ? "not-allowed" : "pointer", opacity: isLoading ? 0.3 : 0.7 }}>
+    {isLoading ? "…" : "↺"}
+  </button>
+  <button
+    onClick={handleFit}
+    style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7 }}>
+    Fit
+  </button>
+  <button
+    onClick={toggleFullscreen}
+    style={{ background: "transparent", border: "1px solid var(--color-border, #2a2a2a)", borderRadius: 6, padding: "4px 8px", fontSize: 12, color: LABEL_COLOR, cursor: "pointer", opacity: 0.7, lineHeight: 1 }}>
+    {isFullscreen ? "⊡" : "⊞"}
+  </button>
+  <button
+    onClick={handleClose} title="Close (Esc)"
+    style={{ background: "transparent", border: "none", fontSize: 18, color: LABEL_COLOR, cursor: "pointer", opacity: 0.5, lineHeight: 1, padding: "0 4px" }}>
+    ✕
+  </button>
+</div>
+</div>
 
         {/* Canvas */}
         <div ref={containerRef} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
