@@ -167,14 +167,23 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   }, [closeGraph]);
 
 
+  useImperativeHandle(ref, () => ({ animatedClose: handleClose }), [handleClose]);
+
+  const showToast = useCallback((message: string) => {
+    const id = ++toastCountRef.current;
+    setToasts((prev) => [...prev, { id, message }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2000);
+  }, []);
+
   const handleExport = useCallback(() => {
   if (!svgRef.current || !containerRef.current) return;
 
-  const svgEl    = svgRef.current;
+  showToast("Exporting graph…");  // ← confirmation it started
+
+  const svgEl     = svgRef.current;
   const svgWidth  = containerRef.current.clientWidth;
   const svgHeight = containerRef.current.clientHeight;
 
-  // Serialize SVG with dark background rect injected
   const clone = svgEl.cloneNode(true) as SVGSVGElement;
   const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   bg.setAttribute("width",  String(svgWidth));
@@ -199,17 +208,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     link.download = `notekeeper-graph-${Date.now()}.png`;
     link.href     = canvas.toDataURL("image/png");
     link.click();
+
+    showToast("Graph saved as PNG ✓");  // ← confirmation it completed
   };
   img.src = url;
-}, []);
-
-  useImperativeHandle(ref, () => ({ animatedClose: handleClose }), [handleClose]);
-
-  const showToast = useCallback((message: string) => {
-    const id = ++toastCountRef.current;
-    setToasts((prev) => [...prev, { id, message }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2000);
-  }, []);
+}, [showToast]);
 
   // ── Escape key ────────────────────────────────────────────────────────────
   useEffect(() => {
