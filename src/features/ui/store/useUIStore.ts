@@ -1,3 +1,4 @@
+// src/features/ui/store/useUIStore.ts
 import { create } from "zustand";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
 
@@ -216,18 +217,20 @@ interface UIStore {
   closedTabs: ClosedTab[];
   reopenClosedTab: () => void;
 
-  // ─── Resurface bar ────────────────────────────────────────────────────────────
-resurfaceDismissed: boolean;
-dismissResurface: () => void;
+  // ─── Resurface card ───────────────────────────────────────────────────────
+  resurfaceDismissed: boolean;
+  resurfaceIndex: number;
+  dismissResurface: () => void;
+  nextResurface: () => void;
 
   // ─── Pane 2 nav history ───────────────────────────────────────────────────
-pane2NavHistory: string[];
-pane2NavIndex: number;
-pane2CanGoBack: () => boolean;
-pane2CanGoForward: () => boolean;
-pane2GoBack: () => void;
-pane2GoForward: () => void;
-pane2PushNav: (noteId: string) => void;
+  pane2NavHistory: string[];
+  pane2NavIndex: number;
+  pane2CanGoBack: () => boolean;
+  pane2CanGoForward: () => boolean;
+  pane2GoBack: () => void;
+  pane2GoForward: () => void;
+  pane2PushNav: (noteId: string) => void;
 
   // ─── Sidebar note selection ───────────────────────────────────────────────
   selectedNoteIds: Set<string>;
@@ -542,19 +545,16 @@ export const useUIStore = create<UIStore>((set, get) => {
       const last = closedTabs[closedTabs.length - 1];
       const remaining = closedTabs.slice(0, -1);
       set({ closedTabs: remaining });
-      // Reopen in the pane it was closed from, or active pane if that pane no longer exists
       const targetPane = last.pane === 2 && get().splitOpen ? 2 : activePaneId;
-      if (targetPane === 2) {
-        get().openTabInPane2(last.noteId);
-      } else {
-        get().openTab(last.noteId);
-      }
+      if (targetPane === 2) { get().openTabInPane2(last.noteId); }
+      else { get().openTab(last.noteId); }
     },
 
-
-    // ─── Resurface bar ────────────────────────────────────────────────────────────
+    // ─── Resurface card ───────────────────────────────────────────────────────
     resurfaceDismissed: false,
+    resurfaceIndex: 0,
     dismissResurface: () => set({ resurfaceDismissed: true }),
+    nextResurface: () => set((s) => ({ resurfaceIndex: s.resurfaceIndex + 1 })),
 
     // ─── Pane 2 nav history ───────────────────────────────────────────────────
     pane2NavHistory: [],
@@ -566,16 +566,13 @@ export const useUIStore = create<UIStore>((set, get) => {
       if (pane2NavIndex <= 0) return;
       const newIndex = pane2NavIndex - 1;
       const noteId = pane2NavHistory[newIndex];
-      // Find tab with this noteId and activate it, or replace active tab
       const existing = pane2Tabs.find((t) => t.noteId === noteId);
       if (existing) {
         set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
       } else {
         set((s) => ({
           pane2NavIndex: newIndex,
-          pane2Tabs: s.pane2Tabs.map((t) =>
-            t.id === s.pane2ActiveTabId ? { ...t, noteId } : t
-          ),
+          pane2Tabs: s.pane2Tabs.map((t) => t.id === s.pane2ActiveTabId ? { ...t, noteId } : t),
         }));
       }
       saveSession({ ...get() });
@@ -591,9 +588,7 @@ export const useUIStore = create<UIStore>((set, get) => {
       } else {
         set((s) => ({
           pane2NavIndex: newIndex,
-          pane2Tabs: s.pane2Tabs.map((t) =>
-            t.id === s.pane2ActiveTabId ? { ...t, noteId } : t
-          ),
+          pane2Tabs: s.pane2Tabs.map((t) => t.id === s.pane2ActiveTabId ? { ...t, noteId } : t),
         }));
       }
       saveSession({ ...get() });
@@ -602,10 +597,7 @@ export const useUIStore = create<UIStore>((set, get) => {
       set((s) => {
         const trimmed = s.pane2NavHistory.slice(0, s.pane2NavIndex + 1);
         if (trimmed[trimmed.length - 1] === noteId) return {};
-        return {
-          pane2NavHistory: [...trimmed, noteId],
-          pane2NavIndex: trimmed.length,
-        };
+        return { pane2NavHistory: [...trimmed, noteId], pane2NavIndex: trimmed.length };
       });
     },
 

@@ -101,7 +101,6 @@ export interface CreateNoteInput {
 export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
   const db = await getDb();
 
-  // Default sort_order: place at bottom of its section
   let sort_order = input.sort_order ?? 0;
   if (input.sort_order === undefined) {
     const rows = await db.select<{ max_order: number | null }[]>(
@@ -159,8 +158,6 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
 
   if (fields.length === 0) return;
 
-  // Only bump updated_at when actual note content changes — not for title
-  // renames, tag edits, reordering, or reparenting.
   const isContentEdit = input.content !== undefined || input.plaintext !== undefined;
   if (isContentEdit) {
     fields.push(`updated_at = $${idx++}`);
@@ -175,7 +172,6 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
   );
 }
 
-// Bulk update sort_order for a list of notes — used after drag-and-drop reorder
 export async function bulkUpdateSortOrder(updates: { id: string; sort_order: number }[]): Promise<void> {
   const db = await getDb();
   for (const { id, sort_order } of updates) {
@@ -339,8 +335,8 @@ export async function deleteTag(name: string): Promise<void> {
 export interface SearchResult {
   id: string;
   title: string;
-  snippet: string;      // sentence around the match, with **word** markers
-  offset: number;       // char position of first match in plaintext (0-based, -1 if title-only match)
+  snippet: string;
+  offset: number;
   updated_at: number;
   parent_id: string | null;
 }
@@ -348,11 +344,10 @@ export interface SearchResult {
 export async function searchNotes(query: string, limit = 20): Promise<SearchResult[]> {
   if (!query.trim()) return [];
   const db = await getDb();
- 
-  // Strip FTS5 special chars to avoid parse errors, then add prefix wildcard
+
   const sanitized = query.trim().replace(/['"*^()]/g, " ").trim() + "*";
   const bare      = query.trim();
- 
+
   return db.select<SearchResult[]>(
     `SELECT
        n.id,
@@ -434,14 +429,16 @@ export async function getAllBacklinks(): Promise<Backlink[]> {
 
 // ─── Stale notes (not visited in N days) ─────────────────────────────────────
 
-export async function getStaleNotes(dayThreshold: number, limit = 3): Promise<Note[]> {
+export interface StaleNote extends Note {
+  last_visit: number | null; // unix ms of most recent visit, null if never visited
+}
+
+export async function getStaleNotes(dayThreshold: number, limit = 5): Promise<StaleNote[]> {
   const db = await getDb();
   const cutoff = Date.now() - dayThreshold * 24 * 60 * 60 * 1000;
 
-  // Notes that exist, are not trashed, and either have no visits at all
-  // or whose most recent visit is older than the cutoff.
-  return db.select<Note[]>(
-    `SELECT n.*
+  return db.select<StaleNote[]>(
+    `SELECT n.*, v.last_visit
      FROM notes n
      LEFT JOIN (
        SELECT note_id, MAX(visited_at) AS last_visit
@@ -535,52 +532,28 @@ export async function linkFirstMention(
   try { doc = JSON.parse(note.content); } catch { return; }
 
   const escapedTitle = targetTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // FIX: add "i" flag so "docs" matches note titled "Docs"
   const regex = new RegExp(`(?<![\\w])${escapedTitle}(?![\\w])`, "i");
 
   let linked = false;
 
   function walkAndLink(nodes: any[]): any[] {
     if (linked) return nodes;
-
     const result: any[] = [];
-
     for (const node of nodes) {
-      if (linked) {
-        result.push(node);
-        continue;
-      }
-
+      if (linked) { result.push(node); continue; }
       if (node.content && Array.isArray(node.content)) {
-        const newContent = walkAndLink(node.content);
-        result.push({ ...node, content: newContent });
-        continue;
+        result.push({ ...node, content: walkAndLink(node.content) }); continue;
       }
-
-      if (node.type !== "text" || typeof node.text !== "string") {
-        result.push(node);
-        continue;
-      }
-
+      if (node.type !== "text" || typeof node.text !== "string") { result.push(node); continue; }
       const match = regex.exec(node.text);
-      if (!match) {
-        result.push(node);
-        continue;
-      }
-
+      if (!match) { result.push(node); continue; }
       linked = true;
       const before = node.text.slice(0, match.index);
       const after  = node.text.slice(match.index + match[0].length);
-
       if (before) result.push({ ...node, text: before });
-      result.push({
-        type: "noteLink",
-        // FIX: use match[0] (actual text as written) not targetTitle
-        attrs: { id: targetId, label: match[0] },
-      });
+      result.push({ type: "noteLink", attrs: { id: targetId, label: match[0] } });
       if (after) result.push({ ...node, text: after });
     }
-
     return result;
   }
 
@@ -600,7 +573,6 @@ export async function linkFirstMention(
   const newPlaintext = extractText(doc.content ?? []);
   await updateNote(sourceNoteId, { content: newContent, plaintext: newPlaintext });
 }
- 
 
 // ─── Export / Import ──────────────────────────────────────────────────────────
 
