@@ -6,6 +6,8 @@ import { useGraphData } from "./useGraphData";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import type { GraphNode, GraphEdge } from "./graphTypes";
+import { GraphNotePreview } from "./GraphNotePreview";
+
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -95,6 +97,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const clearGraphFocusNoteId = useUIStore((s) => s.clearGraphFocusNoteId);
   const savedState            = useUIStore((s) => s.graphViewState);
   const saveGraphViewState    = useUIStore((s) => s.saveGraphViewState);
+  const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading); // ← add
+  const hoverExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const svgRef        = useRef<SVGSVGElement>(null);
   const minimapRef    = useRef<SVGSVGElement>(null);
@@ -104,6 +108,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const zoomRef       = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const simNodesRef   = useRef<GraphNode[]>([]);
   const toastCountRef = useRef(0);
+  const isHoveringPreviewRef = useRef(false);
   // tracks whether simulation has settled enough to trust node positions
   const simSettledRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,6 +116,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const [panelWidth, setPanelWidth]       = useState<number>(() => Math.round(window.innerWidth * DEFAULT_WIDTH_PCT));
   const [isFullscreen, setFullscreen]     = useState(false);
   const [mounted, setMounted]             = useState(false);
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+
 
   // Restore non-positional state only — zoom always starts at default
   const [searchQuery, setSearch]          = useState(savedState.searchQuery);
@@ -327,8 +334,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
     node.call(drag);
 
-    node
+node
       .on("mouseenter", function (event, d) {
+        if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
         const neighbourIds = new Set<string>();
         simEdges.forEach((e) => {
           const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
@@ -351,16 +359,21 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         label.attr("opacity", (n) => n.id === d.id || neighbourIds.has(n.id) ? 1 : 0);
         const rect = containerRef.current!.getBoundingClientRect();
         setTooltip({ visible: true, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 14, title: d.title, linkCount: d.linkCount, tags: d.tags });
+        setHoveredNode(d);
       })
       .on("mousemove", function (event) {
         const rect = containerRef.current!.getBoundingClientRect();
         setTooltip((prev) => ({ ...prev, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 14 }));
       })
       .on("mouseleave", function () {
-        node.attr("fill-opacity", (d) => focusNodeId === d.id ? 1 : 0.85);
-        link.attr("stroke", LINK_STROKE).attr("stroke-width", 1);
-        label.attr("opacity", (d) => focusNodeId === d.id ? 1 : 0);
-        setTooltip((prev) => ({ ...prev, visible: false }));
+        hoverExitTimerRef.current = setTimeout(() => {
+          if (isHoveringPreviewRef.current) return;
+          node.attr("fill-opacity", (d) => focusNodeId === d.id ? 1 : 0.85);
+          link.attr("stroke", LINK_STROKE).attr("stroke-width", 1);
+          label.attr("opacity", (d) => focusNodeId === d.id ? 1 : 0);
+          setTooltip((prev) => ({ ...prev, visible: false }));
+          setHoveredNode(null);
+        }, 400);
       })
       .on("click", (event, d) => {
         if (event.ctrlKey || event.metaKey) {
@@ -540,7 +553,19 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
         {/* Canvas */}
         <div ref={containerRef} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-          {isLoading && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>Loading graph…</div>}
+  <GraphNotePreview
+  node={hoveredNode}
+  tagColorMap={tagColorMap}
+  onPanelMouseEnter={() => { isHoveringPreviewRef.current = true; }}
+  onPanelMouseLeave={() => { isHoveringPreviewRef.current = false; setHoveredNode(null); }}
+  onOpen={(id, headingText) => {
+    setActiveNote(id);
+    if (headingText) setPendingScrollHeading(headingText);
+    showToast(`Opening "${hoveredNode?.title ?? ""}"…`);
+    setTimeout(() => handleClose(), 300);
+  }}
+/>
+  {isLoading && <div  style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>Loading graph…</div>}
           {error && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 14 }}>{error}</div>}
           {!isLoading && visibleNodes.length === 0 && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
