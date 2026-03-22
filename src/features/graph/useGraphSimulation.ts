@@ -234,6 +234,11 @@ export function useGraphSimulation({
 
     zoomRef.current = zoom;
     svg.call(zoom);
+    // Forward trackpad pinch to D3 zoom
+svgRef.current?.addEventListener("wheel", (e) => {
+  e.preventDefault();
+}, { passive: false });
+    svg.on("touchstart", (e) => e.preventDefault(), { passive: false });
     svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85));
 
     const maxLinks = Math.max(1, d3.max(simNodes, (n) => n.linkCount) ?? 1);

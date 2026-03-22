@@ -59,7 +59,7 @@ export function GraphLegend({ showTagColors, allTags, tagColorMap }: GraphLegend
         </>
       )}
       <div style={{ marginTop: 4, opacity: 0.7, lineHeight: 1.5 }}>
-        Scroll to zoom · Drag to pan<br />
+        Pinch/spread to zoom · Drag to pan<br />
         Shift+click to focus · Esc to close
       </div>
     </div>

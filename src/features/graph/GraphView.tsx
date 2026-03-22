@@ -376,8 +376,12 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             </div>
           )}
 
-          <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block" }} />
-
+          <svg ref={svgRef} style={{ 
+            width: "100%", 
+            height: "100%", 
+            display: "block",
+            touchAction: "none"  // ← prevents browser from intercepting pinch
+          }} />
           {/* Cursor tooltip */}
           {tooltip.visible && (
             <div style={{ position: "absolute", left: tooltip.x, top: tooltip.y, background: "rgba(24,24,24,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", pointerEvents: "none", zIndex: 10, minWidth: 140 }}>
