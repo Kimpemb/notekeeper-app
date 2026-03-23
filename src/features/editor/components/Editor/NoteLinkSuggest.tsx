@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { createNote as dbCreateNote } from "@/features/notes/db/queries";
 import type { Note } from "@/types";
 
 interface Props {
@@ -23,8 +24,8 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
 
   const [selected, setSelected] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  // All matching notes, no slice
   const allFiltered: Note[] = notes
     .filter((n) => n.id !== activeNoteId)
     .filter((n) => !query.trim() || n.title.toLowerCase().includes(query.toLowerCase()));
@@ -33,19 +34,41 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
   const remaining = allFiltered.length - VISIBLE_COUNT;
   const hasMore   = !expanded && remaining > 0;
 
+  // Show "Create" option when query is non-empty and doesn't exactly match
+  // an existing note title (case-insensitive)
+  const trimmedQuery     = query.trim();
+  const showCreate = trimmedQuery.length > 0;
+
+  // Total selectable items = visible notes + optional create row
+  const totalItems = visible.length + (showCreate ? 1 : 0);
+  const createIndex = visible.length; // create row is always last
+
   useEffect(() => { setSelected(0); setExpanded(false); }, [query]);
   useEffect(() => { itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [selected]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "ArrowDown")  { e.preventDefault(); e.stopPropagation(); setSelected((s) => Math.min(s + 1, visible.length - 1)); }
-      else if (e.key === "ArrowUp")  { e.preventDefault(); e.stopPropagation(); setSelected((s) => Math.max(s - 1, 0)); }
-      else if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); const note = visible[selected]; if (note) insertLink(note); }
-      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
+      if (e.key === "ArrowDown") {
+        e.preventDefault(); e.stopPropagation();
+        setSelected((s) => Math.min(s + 1, totalItems - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault(); e.stopPropagation();
+        setSelected((s) => Math.max(s - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault(); e.stopPropagation();
+        if (showCreate && selected === createIndex) {
+          handleCreate();
+        } else {
+          const note = visible[selected];
+          if (note) insertLink(note);
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault(); e.stopPropagation(); onClose();
+      }
     }
     document.addEventListener("keydown", handleKey, true);
     return () => document.removeEventListener("keydown", handleKey, true);
-  }, [visible, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, selected, totalItems, showCreate, createIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     function handleMouseDown(e: MouseEvent) {
@@ -59,6 +82,19 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
     const to = editor.state.selection.from;
     editor.chain().focus().deleteRange({ from: bracketStart, to }).insertNoteLink(note.id, note.title).run();
     onClose();
+  }
+
+  async function handleCreate() {
+    if (creating || !trimmedQuery) return;
+    setCreating(true);
+    try {
+      const note = await dbCreateNote({ title: trimmedQuery });
+      useNoteStore.setState((s) => ({ notes: [...s.notes, note] }));
+      insertLink(note);
+    } catch (err) {
+      console.error("NoteLinkSuggest: failed to create note", err);
+      setCreating(false);
+    }
   }
 
   const flip = position.top + 300 > window.innerHeight;
@@ -88,8 +124,8 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
       </div>
 
       {/* List */}
-      <ul className="py-1">
-        {visible.length === 0 && (
+        <ul className="py-1 max-h-64 overflow-y-auto">
+          {visible.length === 0 && !showCreate && (
           <li className="px-4 py-4 text-sm text-zinc-400 text-center">
             {notes.length <= 1 ? "No other notes yet" : "No notes match"}
           </li>
@@ -121,6 +157,40 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
             </div>
           </li>
         ))}
+
+        {/* Create new note option */}
+        {showCreate && (
+          <li
+            ref={(el) => { itemRefs.current[createIndex] = el; }}
+            onMouseEnter={() => setSelected(createIndex)}
+            onMouseDown={(e) => { e.preventDefault(); handleCreate(); }}
+            className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors duration-75 border-t border-zinc-100 dark:border-zinc-800 ${
+              selected === createIndex
+                ? "bg-zinc-100 dark:bg-zinc-800"
+                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+            }`}
+          >
+            <span className="w-7 h-7 flex items-center justify-center rounded-md shrink-0 bg-indigo-50 dark:bg-indigo-950 text-indigo-500 dark:text-indigo-400">
+              {creating ? (
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="animate-spin">
+                  <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="8 8"/>
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                  <path d="M6.5 2v9M2 6.5h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                {creating ? "Creating…" : (
+                  <><span className="text-zinc-400 dark:text-zinc-500 font-normal">Create </span>{trimmedQuery}</>
+                )}
+              </p>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">New note</p>
+            </div>
+          </li>
+        )}
       </ul>
 
       {/* Show more */}

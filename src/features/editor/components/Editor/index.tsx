@@ -221,8 +221,12 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       if (editor.isDestroyed) return;
       const { from, to } = editor.state.selection;
       editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-      try { editor.commands.setTextSelection({ from, to }); } catch { /**/ }
-      if (titleRef.current && !titleFocusedRef.current) {
+try {
+  const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
+  if ($from.parent.isTextblock) {
+    editor.commands.setTextSelection({ from, to });
+  }
+} catch { /**/ }      if (titleRef.current && !titleFocusedRef.current) {
         const isUntitled = /^Untitled-\d+$/.test(note.title);
         titleRef.current.textContent = isUntitled ? "" : note.title;
       }
@@ -338,41 +342,43 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   }
 
   // ── Sub-page inline node insertion ────────────────────────────────────────
-  function handleSubPageCreate() {
-    if (!editor) return;
+ function handleSubPageCreate() {
+  if (!editor) return;
 
-    // 1. Compute next Untitled-N title
-    const pattern = /^Untitled-(\d+)$/;
-    const used    = new Set<number>();
-    for (const n of notes) { const m = n.title.match(pattern); if (m) used.add(parseInt(m[1], 10)); }
-    let n = 1;
-    while (used.has(n)) n++;
-    const defaultTitle = `Untitled-${n}`;
+  const pattern = /^Untitled-(\d+)$/;
+  const used    = new Set<number>();
+  for (const n of notes) { const m = n.title.match(pattern); if (m) used.add(parseInt(m[1], 10)); }
+  let n = 1;
+  while (used.has(n)) n++;
+  const defaultTitle = `Untitled-${n}`;
 
-    // Pass parentNoteId + paneId via the SubPageNode's typed storage
-    const subPageExt = editor.extensionManager.extensions.find((e) => e.name === "subPage");
-    if (subPageExt) {
-      const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
-      s["subPage"].parentNoteId = noteId;
-      s["subPage"].paneId = paneId;
-    }
-
-    // 3. Delete the "/" text, close the slash menu, insert the subPage node
-    if (slashStartPos.current !== null) {
-      editor.chain()
-        .focus()
-        .deleteRange({ from: slashStartPos.current, to: editor.state.selection.from })
-        .insertContent({ type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } })
-        .run();
-    } else {
-      editor.chain()
-        .focus()
-        .insertContent({ type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } })
-        .run();
-    }
-
-    closeSlashMenuInternal();
+  const subPageExt = editor.extensionManager.extensions.find((e) => e.name === "subPage");
+  if (subPageExt) {
+    const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
+    s["subPage"].parentNoteId = noteId;
+    s["subPage"].paneId = paneId;
   }
+
+  const insertChain = editor.chain().focus();
+
+  if (slashStartPos.current !== null) {
+    insertChain.deleteRange({ from: slashStartPos.current, to: editor.state.selection.from });
+  }
+
+  // Insert the subPage node then immediately insert a paragraph after it
+  // and move the cursor there — atom nodes have no inline content so
+  // ProseMirror can't place a TextSelection inside them.
+  insertChain
+    .insertContent([
+      { type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } },
+      { type: "paragraph" },
+    ])
+    .run();
+
+  // Move cursor back up into the subPage node's input via the NodeView's
+  // own useEffect focus — no manual cursor placement needed there.
+  closeSlashMenuInternal();
+}
 
   async function handleImageUpload() {
     if (!editor) return;
