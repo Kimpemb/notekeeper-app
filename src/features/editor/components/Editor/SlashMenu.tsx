@@ -1,8 +1,6 @@
 // src/features/editor/components/Editor/SlashMenu.tsx
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { useNoteStore } from "@/features/notes/store/useNoteStore";
-import { useUIStore } from "@/features/ui/store/useUIStore";
 
 interface Props {
   position: { top: number; left: number; caretTop: number };
@@ -14,6 +12,8 @@ interface Props {
   onClose: () => void;
   onImageUpload: () => Promise<void>;
   onAttachmentUpload: (kind: "pdf" | "audio") => Promise<void>;
+  /** Picked by Editor — inserts the subPage node inline */
+  onSubPageCreate: () => void;
 }
 
 interface Command {
@@ -24,17 +24,15 @@ interface Command {
   action: () => void;
 }
 
-export function SlashMenu({ position, editor, query = "", noteId, paneId, onCommand, onClose, onImageUpload, onAttachmentUpload }: Props) {
+export function SlashMenu({
+  position, editor, query = "",
+  noteId: _noteId, paneId: _paneId,
+  onCommand, onClose, onImageUpload, onAttachmentUpload, onSubPageCreate,
+}: Props) {
   const menuRef  = useRef<HTMLDivElement>(null);
   const listRef  = useRef<HTMLUListElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
   const [selected, setSelected] = useState(0);
-
-  const createChild    = useNoteStore((s) => s.createChildNote);
-  const setActive      = useNoteStore((s) => s.setActiveNote);
-  const openTab        = useUIStore((s) => s.openTab);
-  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
-  const expandNode     = useUIStore((s) => s.expandNode);
 
   const insideToggleBody = (() => {
     const { $from } = editor.state.selection;
@@ -45,7 +43,6 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
   })();
 
   const commands: Command[] = [
-    // ── Sub-page ─────────────────────────────────────────────────────────────
     {
       id: "sub-page",
       label: "Sub-page",
@@ -57,59 +54,35 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
           <path d="M6.5 9.5h3M8 8v3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
         </svg>
       ),
-      action: () => {
-  createChild(noteId).then((child) => {
-    expandNode(noteId);
-    if (paneId === 2) {
-      openTabInPane2(child.id);
-    } else {
-      setActive(child.id);
-      openTab(child.id);
-    }
-  }).catch(console.error);
-},
+      action: onSubPageCreate,
     },
-    // ── Text structure ────────────────────────────────────────────────────────
     {
-      id: "h1",
-      label: "Heading 1",
-      description: "Large section heading",
+      id: "h1", label: "Heading 1", description: "Large section heading",
       icon: <span className="font-bold text-base">H1</span>,
       action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
     },
     {
-      id: "h2",
-      label: "Heading 2",
-      description: "Medium section heading",
+      id: "h2", label: "Heading 2", description: "Medium section heading",
       icon: <span className="font-bold text-base">H2</span>,
       action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
     },
     {
-      id: "h3",
-      label: "Heading 3",
-      description: "Small section heading",
+      id: "h3", label: "Heading 3", description: "Small section heading",
       icon: <span className="font-bold text-base">H3</span>,
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
     },
-    // ── Lists ─────────────────────────────────────────────────────────────────
     {
-      id: "bullet",
-      label: "Bullet List",
-      description: "Unordered list of items",
+      id: "bullet", label: "Bullet List", description: "Unordered list of items",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
-          <circle cx="2" cy="3" r="1" fill="currentColor"/>
-          <circle cx="2" cy="6" r="1" fill="currentColor"/>
-          <circle cx="2" cy="9" r="1" fill="currentColor"/>
+          <circle cx="2" cy="3" r="1" fill="currentColor"/><circle cx="2" cy="6" r="1" fill="currentColor"/><circle cx="2" cy="9" r="1" fill="currentColor"/>
           <path d="M5 3h6M5 6h6M5 9h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
         </svg>
       ),
       action: () => editor.chain().focus().toggleBulletList().run(),
     },
     {
-      id: "ordered",
-      label: "Numbered List",
-      description: "Ordered list of items",
+      id: "ordered", label: "Numbered List", description: "Ordered list of items",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <path d="M1.5 1.5v3M1 4h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
@@ -120,9 +93,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => editor.chain().focus().toggleOrderedList().run(),
     },
     {
-      id: "todo",
-      label: "To-do List",
-      description: "Checklist with checkboxes — todo, task",
+      id: "todo", label: "To-do List", description: "Checklist with checkboxes — todo, task",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <rect x="1" y="1.5" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
@@ -133,11 +104,8 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       ),
       action: () => editor.chain().focus().toggleTaskList().run(),
     },
-    // ── Blocks ────────────────────────────────────────────────────────────────
     ...(!insideToggleBody ? [{
-      id: "toggle",
-      label: "Toggle",
-      description: "Collapsible block — toggle, collapsible, expand, details",
+      id: "toggle", label: "Toggle", description: "Collapsible block — toggle, collapsible, expand, details",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <path d="M3 4l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -157,10 +125,8 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
               if ($from.node(depth).type.name === "toggleSummary") {
                 const start = $from.start(depth);
                 const end   = $from.end(depth);
-                tr.setSelection(
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  (s.selection as any).constructor.between(tr.doc.resolve(start), tr.doc.resolve(end))
-                );
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                tr.setSelection((s.selection as any).constructor.between(tr.doc.resolve(start), tr.doc.resolve(end)));
                 return true;
               }
             }
@@ -169,9 +135,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       },
     }] as Command[] : []),
     {
-      id: "table",
-      label: "Table",
-      description: "Insert a table — table, grid",
+      id: "table", label: "Table", description: "Insert a table — table, grid",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
@@ -181,9 +145,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
     },
     {
-      id: "image",
-      label: "Image",
-      description: "Upload an image from your device — photo, picture",
+      id: "image", label: "Image", description: "Upload an image from your device — photo, picture",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
@@ -194,9 +156,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => { onImageUpload(); },
     },
     {
-      id: "pdf",
-      label: "PDF",
-      description: "Attach a PDF file — document, attachment",
+      id: "pdf", label: "PDF", description: "Attach a PDF file — document, attachment",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-red-500">
           <path d="M2 1h5.5l2.5 2.5V11H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
@@ -207,9 +167,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => { onAttachmentUpload("pdf"); },
     },
     {
-      id: "audio",
-      label: "Audio",
-      description: "Attach an audio file — mp3, wav, music, sound",
+      id: "audio", label: "Audio", description: "Attach an audio file — mp3, wav, music, sound",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-violet-500">
           <path d="M4 2l6 1.5v5L4 10V2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
@@ -220,9 +178,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => { onAttachmentUpload("audio"); },
     },
     {
-      id: "divider",
-      label: "Divider",
-      description: "Horizontal rule",
+      id: "divider", label: "Divider", description: "Horizontal rule",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <path d="M1 6h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -231,9 +187,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => editor.chain().focus().setHorizontalRule().run(),
     },
     {
-      id: "code",
-      label: "Code Block",
-      description: "Multiline code snippet",
+      id: "code", label: "Code Block", description: "Multiline code snippet",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <rect x="1" y="1.5" width="10" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
@@ -243,9 +197,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => editor.chain().focus().toggleCodeBlock().run(),
     },
     {
-      id: "blockquote",
-      label: "Blockquote",
-      description: "Highlighted quote",
+      id: "blockquote", label: "Blockquote", description: "Highlighted quote",
       icon: (
         <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
           <path d="M2 3h2v3H2V3zm4 0h2v3H6V3zM4 6c0 1-.9 2-2 2M8 6c0 1-.9 2-2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
@@ -253,11 +205,8 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       ),
       action: () => editor.chain().focus().toggleBlockquote().run(),
     },
-    // ── Callouts ──────────────────────────────────────────────────────────────
     {
-      id: "callout-info",
-      label: "Info Callout",
-      description: "Blue info callout block — callout, info, note",
+      id: "callout-info", label: "Info Callout", description: "Blue info callout block — callout, info, note",
       icon: (
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-blue-500">
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
@@ -268,9 +217,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => editor.chain().focus().insertContent({ type: "callout", attrs: { type: "info" }, content: [{ type: "paragraph" }] }).run(),
     },
     {
-      id: "callout-warning",
-      label: "Warning Callout",
-      description: "Amber warning callout block — warning, caution",
+      id: "callout-warning", label: "Warning Callout", description: "Amber warning callout block — warning, caution",
       icon: (
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-amber-500">
           <path d="M8 2.5L14 13H2L8 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
@@ -281,9 +228,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => editor.chain().focus().insertContent({ type: "callout", attrs: { type: "warning" }, content: [{ type: "paragraph" }] }).run(),
     },
     {
-      id: "callout-tip",
-      label: "Tip Callout",
-      description: "Green tip callout block — tip, success",
+      id: "callout-tip", label: "Tip Callout", description: "Green tip callout block — tip, success",
       icon: (
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-green-500">
           <path d="M8 2a4.5 4.5 0 0 1 2.5 8.2V11.5a.5.5 0 0 1-.5.5h-4a.5.5 0 0 1-.5-.5v-1.3A4.5 4.5 0 0 1 8 2Z" stroke="currentColor" strokeWidth="1.4"/>
@@ -293,9 +238,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       action: () => editor.chain().focus().insertContent({ type: "callout", attrs: { type: "tip" }, content: [{ type: "paragraph" }] }).run(),
     },
     {
-      id: "callout-danger",
-      label: "Danger Callout",
-      description: "Red danger callout block — danger, error",
+      id: "callout-danger", label: "Danger Callout", description: "Red danger callout block — danger, error",
       icon: (
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-red-500">
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
@@ -315,33 +258,20 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
     : commands;
 
   useEffect(() => { setSelected(0); }, [query]);
-
-  useEffect(() => {
-    itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [selected]);
+  useEffect(() => { itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [selected]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault(); e.stopPropagation();
-        setSelected((s) => Math.min(s + 1, filtered.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault(); e.stopPropagation();
-        setSelected((s) => Math.max(s - 1, 0));
-      } else if (e.key === "Enter") {
-        e.preventDefault(); e.stopPropagation();
-        const cmd = filtered[selected];
-        if (cmd) onCommand(cmd.action);
-      }
+      if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); setSelected((s) => Math.min(s + 1, filtered.length - 1)); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); setSelected((s) => Math.max(s - 1, 0)); }
+      else if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); const cmd = filtered[selected]; if (cmd) onCommand(cmd.action); }
     }
     document.addEventListener("keydown", handleKey, true);
     return () => document.removeEventListener("keydown", handleKey, true);
   }, [filtered, selected, onCommand]);
 
   useEffect(() => {
-    function handleMouseDown(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
-    }
+    function handleMouseDown(e: MouseEvent) { if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose(); }
     document.addEventListener("mousedown", handleMouseDown);
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [onClose]);
@@ -355,9 +285,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
       style={{
         position: "fixed",
         left: Math.min(position.left, window.innerWidth - 260),
-        ...(flip
-          ? { bottom: window.innerHeight - position.caretTop }
-          : { top: position.top }),
+        ...(flip ? { bottom: window.innerHeight - position.caretTop } : { top: position.top }),
         zIndex: 50,
       }}
       className="w-64 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl"
@@ -369,9 +297,7 @@ export function SlashMenu({ position, editor, query = "", noteId, paneId, onComm
         </div>
       )}
       <ul ref={listRef} className="py-1.5 max-h-72 overflow-y-auto">
-        {filtered.length === 0 && (
-          <li className="px-4 py-4 text-sm text-zinc-400 text-center">No commands match</li>
-        )}
+        {filtered.length === 0 && <li className="px-4 py-4 text-sm text-zinc-400 text-center">No commands match</li>}
         {filtered.map((cmd, i) => (
           <li
             key={cmd.id}

@@ -1,16 +1,10 @@
 // src/features/editor/components/Editor/index.tsx
 //
 // ARCHITECTURE NOTE — why no setContent:
-//
-// TipTap 3's ReactNodeViewRenderer calls flushSync() when mounting React
-// NodeViews. React 18 forbids flushSync during passive effects (useEffect).
-// Any editor.commands.setContent() call from a useEffect hits this — NodeViews
-// silently fail to render even though the ProseMirror doc is correct.
-//
-// Solution: never call setContent after mount. Instead, App.tsx keys this
-// component on noteId. Every note navigation remounts a fresh Editor with
-// content passed to useEditor({ content }) at construction time — before
-// any React commit phase — so flushSync is never triggered during effects.
+// TipTap 3 calls flushSync() during NodeView mount inside a React passive effect.
+// React 18 forbids this. Fix: key the editor on noteId so each navigation remounts
+// a fresh instance with content passed at construction time — setContent is never
+// called after mount.
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -32,6 +26,7 @@ import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 import { TableToolbar } from "./TableToolbar";
 import { TagBar } from "./TagBar";
 import { SubPagesSection } from "./SubPagesSection";
+import { SubPageNode } from "./SubPageNode";
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -72,6 +67,7 @@ interface EditorProps {
 
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
   const note          = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
+  const notes         = useNoteStore((s) => s.notes);
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
 
@@ -135,10 +131,12 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
+      // ── SubPageNode: inline sub-page block inserted by the slash command ──
+      SubPageNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
-      Extension.create({ name: "findReplacePlugin", addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
-      Extension.create({ name: "searchHighlightPlugin", addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
+      Extension.create({ name: "findReplacePlugin",      addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
+      Extension.create({ name: "searchHighlightPlugin",  addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
     ],
     content: initialContent,
     editorProps: {
@@ -256,18 +254,11 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     return () => clearTimeout(timer);
   }, [noteId, pendingScrollQuery, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── notekeeper:insert-link ─────────────────────────────────────────────────
-  // Fired by SimilarNotesPanel when the user clicks "Link →".
-  // Only the active pane's editor should handle it to avoid double-insertion
-  // when both panes are open.
   useEffect(() => {
     if (!editor || !isActiveTab) return;
     function handleInsertLink(e: Event) {
       const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
-      editor!.chain().focus().insertContent({
-        type: "noteLink",
-        attrs: { id: linkedId, label: noteTitle },
-      }).run();
+      editor!.chain().focus().insertContent({ type: "noteLink", attrs: { id: linkedId, label: noteTitle } }).run();
     }
     window.addEventListener("notekeeper:insert-link", handleInsertLink);
     return () => window.removeEventListener("notekeeper:insert-link", handleInsertLink);
@@ -313,14 +304,9 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     if (!title || title === note.title) return;
     updateNote(note.id, { title });
   }
-
   function handleTitleKeyDown(e: React.KeyboardEvent<HTMLHeadingElement>) {
     if (e.key === "Enter") { e.preventDefault(); editor?.commands.focus("start"); }
-    if (e.key === "v" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault(); editor?.commands.focus("end"); document.execCommand("paste");
-    }
   }
-
   function handleTitlePaste(e: React.ClipboardEvent<HTMLHeadingElement>) {
     e.preventDefault();
     const text = e.clipboardData.getData("text/plain");
@@ -349,6 +335,43 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       editor.chain().focus().deleteRange({ from: slashStartPos.current, to: editor.state.selection.from }).run();
     }
     action(); closeSlashMenuInternal();
+  }
+
+  // ── Sub-page inline node insertion ────────────────────────────────────────
+  function handleSubPageCreate() {
+    if (!editor) return;
+
+    // 1. Compute next Untitled-N title
+    const pattern = /^Untitled-(\d+)$/;
+    const used    = new Set<number>();
+    for (const n of notes) { const m = n.title.match(pattern); if (m) used.add(parseInt(m[1], 10)); }
+    let n = 1;
+    while (used.has(n)) n++;
+    const defaultTitle = `Untitled-${n}`;
+
+    // Pass parentNoteId + paneId via the SubPageNode's typed storage
+    const subPageExt = editor.extensionManager.extensions.find((e) => e.name === "subPage");
+    if (subPageExt) {
+      const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
+      s["subPage"].parentNoteId = noteId;
+      s["subPage"].paneId = paneId;
+    }
+
+    // 3. Delete the "/" text, close the slash menu, insert the subPage node
+    if (slashStartPos.current !== null) {
+      editor.chain()
+        .focus()
+        .deleteRange({ from: slashStartPos.current, to: editor.state.selection.from })
+        .insertContent({ type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } })
+        .run();
+    } else {
+      editor.chain()
+        .focus()
+        .insertContent({ type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } })
+        .run();
+    }
+
+    closeSlashMenuInternal();
   }
 
   async function handleImageUpload() {
@@ -407,42 +430,23 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
               Local Graph
             </button>
             {!myOutlineOpen && (
-              <button
-                onClick={() => toggleOutline(paneId)}
-                title="Toggle outline (Ctrl+')"
-                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-              >
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                </svg>
+              <button onClick={() => toggleOutline(paneId)} title="Toggle outline (Ctrl+')"
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
                 Outline
               </button>
             )}
             {!myBacklinksOpen && (
-              <button
-                onClick={() => toggleBacklinks(paneId)}
-                title="Toggle backlinks (Ctrl+;)"
-                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-              >
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                  <path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+              <button onClick={() => toggleBacklinks(paneId)} title="Toggle backlinks (Ctrl+;)"
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 Backlinks
               </button>
             )}
             {!mySimilarOpen && (
-              <button
-                onClick={() => toggleSimilar(paneId)}
-                title="Toggle similar notes"
-                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-              >
-                <svg width="11" height="11" viewBox="0 0 13 13" fill="none">
-                  <circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-                  <circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-                  <circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-                  <path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-                </svg>
+              <button onClick={() => toggleSimilar(paneId)} title="Toggle similar notes"
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600">
+                <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
                 Similar
               </button>
             )}
@@ -472,10 +476,8 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
               ref={titleRef}
               contentEditable suppressContentEditableWarning spellCheck={false}
               autoCorrect="off" autoCapitalize="off"
-              onFocus={handleTitleFocus}
-              onBlur={handleTitleBlur}
-              onKeyDown={handleTitleKeyDown}
-              onPaste={handleTitlePaste}
+              onFocus={handleTitleFocus} onBlur={handleTitleBlur}
+              onKeyDown={handleTitleKeyDown} onPaste={handleTitlePaste}
               className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
               style={{ fontSize: "3rem", lineHeight: 1.2 }}
               data-placeholder={isUntitled ? note.title : "Untitled"}
@@ -497,7 +499,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       {myOutlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
       {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
       {mySimilarOpen   && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
-
       {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (
@@ -511,6 +512,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
           onClose={closeSlashMenu}
           onImageUpload={handleImageUpload}
           onAttachmentUpload={handleAttachmentUpload}
+          onSubPageCreate={handleSubPageCreate}
         />
       )}
       {linkOpen && editor && linkBracketStart.current !== null && (

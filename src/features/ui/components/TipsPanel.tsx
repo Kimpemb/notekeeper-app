@@ -7,158 +7,128 @@ interface Tip {
   keys?: string[];
   action?: string;
   description: string;
-  onClick?: () => void; // Add optional click handler
+  category?: string;
 }
 
-interface Category {
-  title: string;
-  tips: Tip[];
-}
-
-// Helper to get the actual action from a tip description
-// Update the getTipAction function to trigger Ctrl+H programmatically
-function getTipAction(description: string, keys?: string[]): (() => void) | undefined {
+function getTipAction(description: string, _keys?: string[]): (() => void) | undefined {
   const uiStore = useUIStore.getState();
   const noteStore = useNoteStore.getState();
 
-  // Map descriptions to actual actions
   const actionMap: Record<string, () => void> = {
     "Open command palette": () => uiStore.togglePalette(),
+    "New note": () => uiStore.openTemplatePicker(),
+    "New note in new tab": () => window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab")),
+    "Toggle sidebar": () => uiStore.toggleSidebar(),
+    "Toggle file tree": () => uiStore.toggleFileTree(),
+    "Toggle graph view": () => uiStore.graphOpen ? uiStore.closeGraph() : uiStore.openGraph(),
+    "Toggle tips panel": () => uiStore.toggleTips(),
+    "Reload notes": () => {
+      uiStore.setRefreshStatus("reloading");
+      noteStore.loadNotes().then(() => uiStore.setRefreshStatus("reloaded"));
+    },
+    "Keyboard shortcuts": () => uiStore.openShortcuts(),
+    "Close tab": () => uiStore.closeActiveTab(),
+    "Next tab": () => uiStore.cycleTab(1),
+    "Previous tab": () => uiStore.cycleTab(-1),
+    "Reopen closed tab": () => uiStore.reopenClosedTab(),
     "Go back": () => noteStore.goBack(),
     "Go forward": () => noteStore.goForward(),
-    "Cycle through tabs": () => uiStore.cycleTab(1),
-    "Toggle sidebar": () => uiStore.toggleSidebar(),
-    "Keyboard shortcuts reference": () => uiStore.openShortcuts(),
-    "New note in current tab": () => uiStore.openTemplatePicker(),
-    "New note in a new tab": () => {
-      window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab"));
-    },
-    "Find and replace": () => {
-      // Programmatically trigger the Ctrl+H keyboard event
-      const event = new KeyboardEvent('keydown', {
-        key: 'h',
-        code: 'KeyH',
-        ctrlKey: true,
-        metaKey: false,
-        bubbles: true,
-        cancelable: true
-      });
-      document.dispatchEvent(event);
-    },
-    "Undo": () => {
-      // Programmatically trigger Ctrl+Z
-      const event = new KeyboardEvent('keydown', {
-        key: 'z',
-        code: 'KeyZ',
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true
-      });
-      document.dispatchEvent(event);
-    },
-    "Close active tab": () => uiStore.closeActiveTab(),
-    "Toggle file tree panel": () => uiStore.toggleFileTree(),
-    "Toggle backlinks panel": () => uiStore.toggleBacklinks(uiStore.activePaneId),
-    "Toggle outline panel": () => uiStore.toggleOutline(uiStore.activePaneId),
+    "Bold": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true })),
+    "Italic": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true })),
+    "Strikethrough": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, shiftKey: true, bubbles: true })),
+    "Inline code": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', ctrlKey: true, bubbles: true })),
+    "Find & replace": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', ctrlKey: true, bubbles: true })),
+    "Undo": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })),
+    "Redo": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, bubbles: true })),
+    "Toggle backlinks": () => uiStore.toggleBacklinks(uiStore.activePaneId),
+    "Toggle outline": () => uiStore.toggleOutline(uiStore.activePaneId),
+    "Open/close graph": () => uiStore.graphOpen ? uiStore.closeGraph() : uiStore.openGraph(),
+    "Open today's note": () => noteStore.createOrOpenDailyNote(),
   };
 
-  // Check for exact matches first
-  if (actionMap[description]) {
-    return actionMap[description];
-  }
-
-  // Check for partial matches based on keys
-  if (keys) {
-    const keyString = keys.join("+");
-    if (keyString === "Ctrl+K") return () => uiStore.togglePalette();
-    if (keyString === "Ctrl+[") return () => noteStore.goBack();
-    if (keyString === "Ctrl+]") return () => noteStore.goForward();
-    if (keyString === "Ctrl+Tab") return () => uiStore.cycleTab(1);
-    if (keyString === "Ctrl+\\") return () => uiStore.toggleSidebar();
-    if (keyString === "Ctrl+Shift+?") return () => uiStore.openShortcuts();
-    if (keyString === "Ctrl+N") return () => uiStore.openTemplatePicker();
-    if (keyString === "Ctrl+Shift+N") return () => {
-      window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab"));
-    };
-    if (keyString === "Ctrl+W") return () => uiStore.closeActiveTab();
-    if (keyString === "Ctrl+T") return () => uiStore.toggleFileTree();
-    if (keyString === "Ctrl+;") return () => uiStore.toggleBacklinks(uiStore.activePaneId);
-    if (keyString === "Ctrl+'") return () => uiStore.toggleOutline(uiStore.activePaneId);
-    if (keyString === "Ctrl+H") return () => {
-      const event = new KeyboardEvent('keydown', {
-        key: 'h',
-        code: 'KeyH',
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true
-      });
-      document.dispatchEvent(event);
-    };
-  }
-
-  return undefined;
+  return actionMap[description];
 }
 
-const CATEGORIES: Category[] = [
+const TIPS_BY_CATEGORY: { title: string; tips: Tip[] }[] = [
+  {
+    title: "Global",
+    tips: [
+      { keys: ["Ctrl", "K"],     description: "Open command palette" },
+      { keys: ["Ctrl", "N"],     description: "New note" },
+      { keys: ["Ctrl", "Shift", "N"], description: "New note in new tab" },
+      { keys: ["Ctrl", "Shift", "E"], description: "Toggle tips panel" },
+    ],
+  },
+  {
+    title: "View",
+    tips: [
+      { keys: ["Ctrl", "\\"],    description: "Toggle sidebar" },
+      { keys: ["Ctrl", "T"],     description: "Toggle file tree" },
+      { keys: ["Ctrl", "Shift", "G"], description: "Toggle graph view" },
+      { keys: ["Ctrl", "F"],     description: "Search notes" },
+    ],
+  },
+  {
+    title: "Tabs",
+    tips: [
+      { keys: ["Ctrl", "W"],     description: "Close tab" },
+      { keys: ["Ctrl", "Tab"],   description: "Next tab" },
+      { keys: ["Ctrl", "Shift", "Tab"], description: "Previous tab" },
+      { keys: ["Ctrl", "Shift", "T"], description: "Reopen closed tab" },
+    ],
+  },
   {
     title: "Navigation",
     tips: [
-      { keys: ["Ctrl", "K"],           description: "Open command palette" },
-      { keys: ["Ctrl", "["],           description: "Go back" },
-      { keys: ["Ctrl", "]"],           description: "Go forward" },
-      { keys: ["Ctrl", "Tab"],         description: "Cycle through tabs" },
-      { keys: ["Ctrl", "\\"],          description: "Toggle sidebar" },
-      { keys: ["Ctrl", "Shift", "?"],  description: "Keyboard shortcuts reference" },
+      { keys: ["Ctrl", "["],     description: "Go back" },
+      { keys: ["Ctrl", "]"],     description: "Go forward" },
+      { keys: ["Ctrl", "Shift", "L"], description: "Reload notes" },
+      { keys: ["Ctrl", "Shift", "?"], description: "Keyboard shortcuts" },
     ],
   },
   {
-    title: "Creating notes",
+    title: "Formatting",
     tips: [
-      { keys: ["Ctrl", "N"],           description: "New note in current tab" },
-      { keys: ["Ctrl", "Shift", "N"],  description: "New note in a new tab" },
-      { action: "Right-click note",    description: "New sub-note, rename, pin, move, or trash" },
-      { action: "Daily note",          description: "Open today's daily note from the command palette" },
+      { keys: ["Ctrl", "B"],     description: "Bold" },
+      { keys: ["Ctrl", "I"],     description: "Italic" },
+      { keys: ["Ctrl", "Shift", "S"], description: "Strikethrough" },
+      { keys: ["Ctrl", "E"],     description: "Inline code" },
     ],
   },
   {
-    title: "Editing",
+    title: "Editor",
     tips: [
-      { action: "Type /",              description: "Open slash menu to insert blocks" },
-      { action: "Type [[",             description: "Insert a wiki link to another note" },
-      { action: "Select text",         description: "Bubble menu appears for bold, italic, code, and more" },
-      { keys: ["Ctrl", "H"],           description: "Find and replace" },
-      { keys: ["Ctrl", "Z"],           description: "Undo" },
+      { keys: ["Ctrl", "Z"],     description: "Undo" },
+      { keys: ["Ctrl", "Shift", "Z"], description: "Redo" },
+      { keys: ["Ctrl", "H"],     description: "Find & replace" },
+      { action: "Type /",        description: "Slash menu" },
     ],
   },
   {
-    title: "Blocks",
+    title: "Linking & Menus",
     tips: [
-      { keys: ["Mod", "Enter"],        description: "Open or close a toggle block" },
-      { action: "Enter on empty line", description: "Exit a list, callout, or toggle body" },
-      { action: "Backspace at start",  description: "Delete empty toggle or unwrap block" },
-      { action: "Click callout icon",  description: "Change callout type (info, warning, tip, danger)" },
-      { keys: ["Ctrl", "A"],           description: "Select all content within the current block" },
+      { action: "Type [[",       description: "Wiki link" },
+      { keys: ["Esc"],           description: "Dismiss menu" },
+      { keys: ["Ctrl", ";"],     description: "Toggle backlinks" },
+      { keys: ["Ctrl", "'"],     description: "Toggle outline" },
     ],
   },
   {
-    title: "Tabs & split panes",
+    title: "Graph",
     tips: [
-      { keys: ["Ctrl", "W"],           description: "Close active tab" },
-      { action: "Middle-click tab",    description: "Close that tab" },
-      { action: "Right-click tab",     description: "Open in new tab or open in split pane" },
-      { action: "Right-click note",    description: "Open in split pane directly from sidebar" },
-      { action: "Split divider",       description: "Toggle orientation, swap panes, or close split" },
+      { keys: ["Ctrl", "Shift", "G"], description: "Open/close graph" },
+      { action: "Shift + Click", description: "Focus node in graph" },
+      { action: "Ctrl + Click",  description: "Open node in new tab" },
+      { keys: ["Enter"],         description: "Cycle search matches" },
     ],
   },
   {
-    title: "Organisation",
+    title: "Daily & Org",
     tips: [
-      { action: "Drag note",           description: "Reorder notes in the sidebar" },
-      { action: "Right-click → Pin",   description: "Pin a root note to the top of the sidebar" },
-      { action: "Right-click → Move",  description: "Re-parent a note under a different note" },
-      { keys: ["Ctrl", "T"],           description: "Toggle file tree panel" },
-      { keys: ["Ctrl", ";"],           description: "Toggle backlinks panel" },
-      { keys: ["Ctrl", "'"],           description: "Toggle outline panel" },
+      { action: "Daily note",    description: "Open today's note" },
+      { action: "Drag note",     description: "Reorder notes" },
+      { action: "Right-click → Pin", description: "Pin to top" },
+      { action: "Right-click → Move", description: "Re-parent note" },
     ],
   },
 ];
@@ -172,11 +142,10 @@ function Key({ label }: { label: string }) {
 }
 
 export function TipsPanel() {
-  const tipsOpen   = useUIStore((s) => s.tipsOpen);
-  const closeTips  = useUIStore((s) => s.closeTips);
-  const panelRef   = useRef<HTMLDivElement>(null);
+  const tipsOpen = useUIStore((s) => s.tipsOpen);
+  const closeTips = useUIStore((s) => s.closeTips);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  // Close on Escape
   useEffect(() => {
     if (!tipsOpen) return;
     function handle(e: KeyboardEvent) {
@@ -195,12 +164,6 @@ export function TipsPanel() {
   };
 
   return (
-    /*
-      Slide-in from top using CSS transform + transition.
-      The panel sits in normal document flow so it pushes the editor
-      content down rather than overlapping it — feels more intentional
-      than a floating overlay and fits the "slide down from header" direction.
-    */
     <div
       ref={panelRef}
       style={{
@@ -212,10 +175,9 @@ export function TipsPanel() {
       aria-hidden={!tipsOpen}
     >
       <div className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-        {/* Header row */}
         <div className="flex items-center justify-between px-5 pt-3 pb-2">
           <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
-            Tips &amp; shortcuts
+            Tips & shortcuts
           </span>
           <button
             onClick={closeTips}
@@ -223,24 +185,20 @@ export function TipsPanel() {
             aria-label="Close tips"
           >
             <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
-              <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
         </div>
 
-        {/* Categories scroll area */}
-        <div
-          className="overflow-x-auto pb-3 px-5"
-          style={{ scrollbarWidth: "none" }}
-        >
-          <div className="flex gap-6 min-w-max">
-            {CATEGORIES.map((cat) => (
-              <div key={cat.title} className="w-52 shrink-0">
+        <div className="overflow-x-auto pb-3 px-5" style={{ scrollbarWidth: "none" }}>
+          <div className="flex gap-8 min-w-max">
+            {TIPS_BY_CATEGORY.map((category) => (
+              <div key={category.title} className="w-52 shrink-0">
                 <p className="text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wide mb-2">
-                  {cat.title}
+                  {category.title}
                 </p>
                 <div className="space-y-1.5">
-                  {cat.tips.map((tip, i) => {
+                  {category.tips.map((tip, i) => {
                     const hasAction = getTipAction(tip.description, tip.keys) !== undefined;
                     return (
                       <div
@@ -250,7 +208,7 @@ export function TipsPanel() {
                         style={{ padding: hasAction ? '2px 4px' : '0' }}
                         title={hasAction ? 'Click to execute' : ''}
                       >
-                        <div className="flex items-center gap-0.5 shrink-0 min-w-[7rem]">
+                        <div className="flex items-center gap-0.5 shrink-0 min-w-[6.5rem]">
                           {tip.keys ? (
                             tip.keys.map((k, ki) => (
                               <span key={ki} className="flex items-center gap-0.5">

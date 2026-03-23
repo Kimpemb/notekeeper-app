@@ -78,7 +78,7 @@ interface NoteStore {
   createNote: (input?: CreateNoteInput) => Promise<Note>;
   createNoteFromTemplate: (template: Template, input?: CreateNoteInput) => Promise<Note>;
   createOrOpenDailyNote: () => Promise<Note>;
-  createChildNote: (parentId: string) => Promise<Note>;
+  createChildNote: (parentId: string, title?: string) => Promise<Note>;
   updateNote: (id: string, input: UpdateNoteInput) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   restoreNote: (id: string) => Promise<void>;
@@ -255,13 +255,13 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     return get().createNoteFromTemplate(daily, { title });
   },
 
-  createChildNote: async (parentId) => {
-    const title = nextUntitledName(get().notes);
-    const note = await dbCreateNote({ parent_id: parentId, title });
-    set((state) => ({ notes: [...state.notes, note] }));
-    get().setActiveNote(note.id);
-    return note;
-  },
+  createChildNote: async (parentId, title?) => {
+  const resolvedTitle = title ?? nextUntitledName(get().notes);
+  const note = await dbCreateNote({ parent_id: parentId, title: resolvedTitle });
+  set((state) => ({ notes: [...state.notes, note] }));
+  get().setActiveNote(note.id);
+  return note;
+},
 
   updateNote: async (id, input) => {
     await dbUpdateNote(id, input);
