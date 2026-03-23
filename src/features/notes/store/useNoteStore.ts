@@ -219,7 +219,14 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     } else {
       set({ activeNoteId: id });
     }
-    if (id) get().recordVisit(id).catch(console.error);
+    if (id) {
+      get().recordVisit(id).catch(console.error);
+      // ── Cluster session tracking ──────────────────────────────────────────
+      // Lazy import avoids a circular dependency (UIStore → queries → NoteStore).
+      import("@/features/ui/store/useUIStore").then(({ useUIStore }) => {
+        useUIStore.getState().recordClusterVisit(id);
+      }).catch(console.error);
+    }
   },
 
   recordVisit: async (id) => {
@@ -256,12 +263,12 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   },
 
   createChildNote: async (parentId, title?) => {
-  const resolvedTitle = title ?? nextUntitledName(get().notes);
-  const note = await dbCreateNote({ parent_id: parentId, title: resolvedTitle });
-  set((state) => ({ notes: [...state.notes, note] }));
-  get().setActiveNote(note.id);
-  return note;
-},
+    const resolvedTitle = title ?? nextUntitledName(get().notes);
+    const note = await dbCreateNote({ parent_id: parentId, title: resolvedTitle });
+    set((state) => ({ notes: [...state.notes, note] }));
+    get().setActiveNote(note.id);
+    return note;
+  },
 
   updateNote: async (id, input) => {
     await dbUpdateNote(id, input);
@@ -306,13 +313,10 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       const newPinnedIds = new Set([...state.pinnedIds].filter((pid) => !allIds.has(pid)));
       savePinnedIds(newPinnedIds).catch(console.error);
 
-      // ── Bug fix: do NOT auto-select any note after deletion ───────────────
-      // Previously: remaining[0]?.id ?? null  ← auto-selected first note
-      // Now: keep activeNoteId null so nothing is selected until user clicks
       const newActiveId =
         state.activeNoteId && allIds.has(state.activeNoteId)
-          ? null  // ← deleted note was active: deselect, select nothing
-          : state.activeNoteId; // ← different note was active: keep it
+          ? null
+          : state.activeNoteId;
 
       const newHistory = state.navHistory.filter((hid) => !allIds.has(hid));
       const newIndex = Math.min(state.navIndex, newHistory.length - 1);

@@ -820,3 +820,46 @@ export async function getSuggestionFeedback(): Promise<FeedbackEntry[]> {
     `SELECT source_id, target_id, action FROM suggestion_feedback`
   );
 }
+
+// ─── Cluster gap suggestion persistence ───────────────────────────────────────
+// Append these functions to the bottom of src/features/notes/db/queries.ts
+ 
+const CLUSTER_META_KEY      = "cluster_suggestion_meta";
+const CLUSTER_DISMISSED_KEY = "cluster_dismissed_pairs";
+ 
+export interface ClusterSuggestionMeta {
+  lastShownAt: number;
+  lastClusterNoteIds: string[];
+}
+ 
+export async function getClusterSuggestionMeta(): Promise<ClusterSuggestionMeta | null> {
+  const raw = await getSetting(CLUSTER_META_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw) as ClusterSuggestionMeta; }
+  catch { return null; }
+}
+ 
+export async function saveClusterSuggestionMeta(meta: ClusterSuggestionMeta): Promise<void> {
+  await setSetting(CLUSTER_META_KEY, JSON.stringify(meta));
+}
+ 
+export async function getClusterDismissedPairs(): Promise<Set<string>> {
+  const raw = await getSetting(CLUSTER_DISMISSED_KEY);
+  if (!raw) return new Set();
+  try { return new Set(JSON.parse(raw) as string[]); }
+  catch { return new Set(); }
+}
+ 
+export async function dismissClusterPair(sourceId: string, targetId: string): Promise<void> {
+  const existing = await getClusterDismissedPairs();
+  existing.add(`${sourceId}:${targetId}`);
+  existing.add(`${targetId}:${sourceId}`);
+  await setSetting(CLUSTER_DISMISSED_KEY, JSON.stringify([...existing]));
+}
+ 
+export async function getAllBacklinkRows(): Promise<{ source_id: string; target_id: string }[]> {
+  const db = await getDb();
+  return db.select<{ source_id: string; target_id: string }[]>(
+    `SELECT source_id, target_id FROM backlinks`
+  );
+}

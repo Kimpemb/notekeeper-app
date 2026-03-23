@@ -1,6 +1,12 @@
 // src/features/ui/store/useUIStore.ts
 import { create } from "zustand";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
+import {
+  createSession,
+  recordVisit,
+  tickSession,
+  type SessionState,
+} from "@/features/notes/similarity/clusterEngine";
 
 type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -35,7 +41,7 @@ const DEFAULT_GRAPH_STATE: GraphViewState = {
 
 const SESSION_KEY = "notekeeper_session";
 
-interface SessionState {
+interface SessionPersist {
   tabs: Tab[];
   activeTabId: string | null;
   pane2Tabs: Tab[];
@@ -44,7 +50,7 @@ interface SessionState {
   splitDirection: SplitDirection;
 }
 
-function saveSession(state: SessionState) {
+function saveSession(state: SessionPersist) {
   setSetting(SESSION_KEY, JSON.stringify(state)).catch(console.error);
 }
 
@@ -109,7 +115,7 @@ interface UIStore {
   toggleBacklinks: (pane: 1 | 2) => void;
   backlinksOpen: (pane: 1 | 2) => boolean;
 
-    // ─── Similar notes panel — per pane ──────────────────────────────────────
+  // ─── Similar notes panel — per pane ──────────────────────────────────────
   pane1SimilarOpen: boolean;
   pane2SimilarOpen: boolean;
   openSimilar: (pane: 1 | 2) => void;
@@ -225,11 +231,11 @@ interface UIStore {
   closedTabs: ClosedTab[];
   reopenClosedTab: () => void;
 
-  // ─── Resurface card ───────────────────────────────────────────────────────
-  resurfaceDismissed: boolean;
-  resurfaceIndex: number;
-  dismissResurface: () => void;
-  nextResurface: () => void;
+  // ─── Cluster session tracking ─────────────────────────────────────────────
+  clusterSession: SessionState;
+  recordClusterVisit: (noteId: string) => void;
+  tickClusterSession: () => void;
+  resetClusterSession: () => void;
 
   // ─── Pane 2 nav history ───────────────────────────────────────────────────
   pane2NavHistory: string[];
@@ -277,7 +283,7 @@ export const useUIStore = create<UIStore>((set, get) => {
       try {
         const raw = await getSetting(SESSION_KEY);
         if (raw) {
-          const session: SessionState = JSON.parse(raw);
+          const session: SessionPersist = JSON.parse(raw);
           if (session.tabs?.length) {
             set({
               tabs: session.tabs,
@@ -338,7 +344,6 @@ export const useUIStore = create<UIStore>((set, get) => {
     toggleBacklinks: (pane) => set((s) => pane === 1 ? { pane1BacklinksOpen: !s.pane1BacklinksOpen } : { pane2BacklinksOpen: !s.pane2BacklinksOpen }),
     backlinksOpen: (pane) => pane === 1 ? get().pane1BacklinksOpen : get().pane2BacklinksOpen,
 
-
     // ─── Similar notes — per pane ─────────────────────────────────────────────
     pane1SimilarOpen: false,
     pane2SimilarOpen: false,
@@ -346,7 +351,6 @@ export const useUIStore = create<UIStore>((set, get) => {
     closeSimilar: (pane) => set(pane === 1 ? { pane1SimilarOpen: false } : { pane2SimilarOpen: false }),
     toggleSimilar: (pane) => set((s) => pane === 1 ? { pane1SimilarOpen: !s.pane1SimilarOpen } : { pane2SimilarOpen: !s.pane2SimilarOpen }),
     similarOpen:  (pane) => pane === 1 ? get().pane1SimilarOpen : get().pane2SimilarOpen,
-
 
     // ─── File tree ────────────────────────────────────────────────────────────
     fileTreeOpen: false,
@@ -569,11 +573,20 @@ export const useUIStore = create<UIStore>((set, get) => {
       else { get().openTab(last.noteId); }
     },
 
-    // ─── Resurface card ───────────────────────────────────────────────────────
-    resurfaceDismissed: false,
-    resurfaceIndex: 0,
-    dismissResurface: () => set({ resurfaceDismissed: true }),
-    nextResurface: () => set((s) => ({ resurfaceIndex: s.resurfaceIndex + 1 })),
+    // ─── Cluster session tracking ─────────────────────────────────────────────
+    // Tracks which notes the user visits and for how long, so the cluster
+    // gap engine can identify the dominant working cluster and surface
+    // relevant notes the user hasn't touched yet.
+    clusterSession: createSession(),
+
+    recordClusterVisit: (noteId) =>
+      set((s) => ({ clusterSession: recordVisit(s.clusterSession, noteId) })),
+
+    tickClusterSession: () =>
+      set((s) => ({ clusterSession: tickSession(s.clusterSession) })),
+
+    resetClusterSession: () =>
+      set({ clusterSession: createSession() }),
 
     // ─── Pane 2 nav history ───────────────────────────────────────────────────
     pane2NavHistory: [],
