@@ -20,6 +20,7 @@ import { exportNotesToFile } from "@/lib/tauri/fs";
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
 import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
 import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
@@ -48,6 +49,9 @@ function buildBreadcrumb(
 }
 
 export default function App() {
+  const appWindow = getCurrentWindow();
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+
   const loadNotes              = useNoteStore((s) => s.loadNotes);
   const activeNoteId           = useNoteStore((s) => s.activeNoteId);
   const notes                  = useNoteStore((s) => s.notes);
@@ -110,6 +114,15 @@ export default function App() {
 
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
+  // Track window maximize state
+  useEffect(() => {
+    appWindow.isMaximized().then(setIsWindowMaximized);
+    const unlisten = appWindow.onResized(() => {
+      appWindow.isMaximized().then(setIsWindowMaximized);
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, [appWindow]);
+
   useEffect(() => {
     initDb()
       .then(() => { setDbReady(true); useUIStore.getState().loadSettings().catch(console.error); return loadNotes(); })
@@ -148,61 +161,60 @@ export default function App() {
     slideTimeout.current = setTimeout(() => {}, 300);
   }
 
-const handleKeyDown = useCallback((e: KeyboardEvent) => {
-  if (!dbReady) return;
-  const ctrl = e.ctrlKey || e.metaKey;
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!dbReady) return;
+    const ctrl = e.ctrlKey || e.metaKey;
 
-  if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
-  if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
+    if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
+    if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
 
-  if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
-    e.preventDefault();
-    openInNewTabRef.current = true; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
-    useUIStore.getState().openTemplatePicker(); return;
-  }
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      openInNewTabRef.current = true; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
+      useUIStore.getState().openTemplatePicker(); return;
+    }
 
-  if (ctrl && e.key === "t") { e.preventDefault(); toggleFileTree(activePaneId); }
+    if (ctrl && e.key === "t") { e.preventDefault(); toggleFileTree(activePaneId); }
 
+    if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      openInNewTabRef.current = false; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
+      useUIStore.getState().openTemplatePicker();
+    }
 
-  if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
-    e.preventDefault();
-    openInNewTabRef.current = false; newNoteParentRef.current = useNoteStore.getState().activeNoteId;
-    useUIStore.getState().openTemplatePicker();
-  }
+    if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
+    if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(activePaneId); }
+    if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(activePaneId); }
+    if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
+    if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
 
-  if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
-  if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(activePaneId); }
-  if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(activePaneId); }
-  if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
-  if (ctrl && e.key === "w")               { e.preventDefault(); closeActiveTab(); }
+    if (ctrl && e.key === "[") {
+      e.preventDefault();
+      if (activePaneId === 2) { triggerNav(pane2GoBack); } else { triggerNav(goBack); }
+    }
+    if (ctrl && e.key === "]") {
+      e.preventDefault();
+      if (activePaneId === 2) { triggerNav(pane2GoForward); } else { triggerNav(goForward); }
+    }
 
-  if (ctrl && e.key === "[") {
-    e.preventDefault();
-    if (activePaneId === 2) { triggerNav(pane2GoBack); } else { triggerNav(goBack); }
-  }
-  if (ctrl && e.key === "]") {
-    e.preventDefault();
-    if (activePaneId === 2) { triggerNav(pane2GoForward); } else { triggerNav(goForward); }
-  }
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
+      e.preventDefault();
+      useUIStore.getState().setRefreshStatus("reloading");
+      loadNotes().then(() => { useUIStore.getState().setRefreshStatus("reloaded"); });
+    }
 
-  if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
-    e.preventDefault();
-    useUIStore.getState().setRefreshStatus("reloading");
-    loadNotes().then(() => { useUIStore.getState().setRefreshStatus("reloaded"); });
-  }
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "e") {
+      e.preventDefault();
+      toggleTips();
+    }
 
-  if (ctrl && e.shiftKey && e.key.toLowerCase() === "e") {
-    e.preventDefault();
-    toggleTips();
-  }
-
-  if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
-    e.preventDefault();
-    if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
-  }
-}, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
-    openShortcuts, goBack, goForward, pane2GoBack, pane2GoForward, closeActiveTab, cycleTab,
-    graphOpen, openGraph, activePaneId, loadNotes, toggleTips]);
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
+      e.preventDefault();
+      if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
+    }
+  }, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
+      openShortcuts, goBack, goForward, pane2GoBack, pane2GoForward, closeActiveTab, cycleTab,
+      graphOpen, openGraph, activePaneId, loadNotes, toggleTips]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -292,7 +304,6 @@ const handleKeyDown = useCallback((e: KeyboardEvent) => {
             );
           })}
           {(paneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) && <FileTreePanel paneId={paneId} />}
-
         </div>
       </div>
     );
@@ -319,118 +330,176 @@ const handleKeyDown = useCallback((e: KeyboardEvent) => {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
-        <header
-          className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
-          onMouseEnter={() => { if (useUIStore.getState().sidebarState === "peek") cancelSidebarCollapse(); }}
-        >
-          <div className="flex items-center gap-0 min-w-0 flex-1">
-            <div className="overflow-hidden shrink-0" style={{ opacity: isClosed ? 1 : 0, width: isClosed ? "28px" : "0px", transition: sidebarState === "closed" ? "opacity 250ms ease 100ms, width 250ms ease 100ms" : "none" }}>
-              <button onMouseEnter={handleHamburgerEnter} onMouseLeave={handleHamburgerLeave} onClick={handleHamburgerClick}
-                title="Open sidebar (Ctrl+\)"
-                className="w-7 h-7 flex flex-col items-center justify-center gap-[4.5px] rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+      {/* Main layout */}
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar />
+        <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
+          {/* Header with integrated window controls */}
+          <header
+            data-tauri-drag-region
+            className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
+            onMouseEnter={() => { if (useUIStore.getState().sidebarState === "peek") cancelSidebarCollapse(); }}
+          >
+            <div className="flex items-center gap-0 min-w-0 flex-1">
+              <div className="overflow-hidden shrink-0" style={{ opacity: isClosed ? 1 : 0, width: isClosed ? "28px" : "0px", transition: sidebarState === "closed" ? "opacity 250ms ease 100ms, width 250ms ease 100ms" : "none" }}>
+                <button onMouseEnter={handleHamburgerEnter} onMouseLeave={handleHamburgerLeave} onClick={handleHamburgerClick}
+                  title="Open sidebar (Ctrl+\)"
+                  className="w-7 h-7 flex flex-col items-center justify-center gap-[4.5px] rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+                >
+                  <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
+                  <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
+                  <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
+                </button>
+              </div>
+
+              <button
+                onClick={() => triggerNav(activePaneId === 2 ? pane2GoBack : goBack)}
+                disabled={!canGoBack}
+                title="Go back (Ctrl+'[')"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
               >
-                <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
-                <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
-                <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </button>
+              <button
+                onClick={() => triggerNav(activePaneId === 2 ? pane2GoForward : goForward)}
+                disabled={!canGoForward}
+                title="Go forward (Ctrl+']')"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+
+              {breadcrumb.length > 0 && (
+                <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+                  {breadcrumb.map((segment, i) => {
+                    const isLast = i === breadcrumb.length - 1;
+                    const displayTitle = isLast && isUntitled ? "Untitled" : segment.title;
+                    return (
+                      <div key={segment.id} className="flex items-center gap-1 min-w-0">
+                        {i > 0 && <span className="shrink-0 text-zinc-300 dark:text-zinc-600 text-xs">/</span>}
+                        {isLast ? (
+                          <span className={`truncate text-sm ${isUntitled ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-600 dark:text-zinc-400"}`}>{displayTitle}</span>
+                        ) : (
+                          <button onClick={() => setActive(segment.id)} title={`Open "${segment.title}"`} className="truncate text-sm text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100">{displayTitle}</button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            <button
-              onClick={() => triggerNav(activePaneId === 2 ? pane2GoBack : goBack)}
-              disabled={!canGoBack}
-              title="Go back (Ctrl+'[')"
-              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </button>
-            <button
-              onClick={() => triggerNav(activePaneId === 2 ? pane2GoForward : goForward)}
-              disabled={!canGoForward}
-              title="Go forward (Ctrl+']')"
-              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => toggleFileTree(activePaneId)}
+                className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${(activePaneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M1 3.5a1 1 0 011-1h3l1 1.5h6a1 1 0 011 1V11a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <path d="M4 8.5h3M4 6.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+              </button>
 
-            {breadcrumb.length > 0 && (
-              <div className="flex items-center gap-1 min-w-0 overflow-hidden">
-                {breadcrumb.map((segment, i) => {
-                  const isLast = i === breadcrumb.length - 1;
-                  const displayTitle = isLast && isUntitled ? "Untitled" : segment.title;
-                  return (
-                    <div key={segment.id} className="flex items-center gap-1 min-w-0">
-                      {i > 0 && <span className="shrink-0 text-zinc-300 dark:text-zinc-600 text-xs">/</span>}
-                      {isLast ? (
-                        <span className={`truncate text-sm ${isUntitled ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-600 dark:text-zinc-400"}`}>{displayTitle}</span>
-                      ) : (
-                        <button onClick={() => setActive(segment.id)} title={`Open "${segment.title}"`} className="truncate text-sm text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100">{displayTitle}</button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+              <button
+                onClick={() => graphOpen ? graphViewRef.current?.animatedClose() : openGraph()}
+                title="Graph view (Ctrl+Shift+G)"
+                className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${graphOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+                  <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+                  <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+                  <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+                  <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+                  <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+              </button>
 
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => toggleFileTree(activePaneId)}
-            className={`... ${(activePaneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M1 3.5a1 1 0 011-1h3l1 1.5h6a1 1 0 011 1V11a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-                <path d="M4 8.5h3M4 6.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              </svg>
-            </button>
+              <button onClick={toggleTips} title="Tips & shortcuts"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2"/>
+                  <path d="M7 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  <circle cx="7" cy="4.5" r="0.7" fill="currentColor"/>
+                </svg>
+              </button>
 
-            <button
-              onClick={() => graphOpen ? graphViewRef.current?.animatedClose() : openGraph()}
-              title="Graph view (Ctrl+Shift+G)"
-              className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${graphOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
-                <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
-                <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
-                <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
-                <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
-                <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              </svg>
-            </button>
+              <button onClick={openShortcuts} title="Keyboard shortcuts (Ctrl+Shift+?)"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2"/>
+                  <path d="M5 5.5a2 2 0 113 1.7V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  <circle cx="7" cy="10" r="0.7" fill="currentColor"/>
+                </svg>
+              </button>
 
-            <button onClick={toggleTips} title="Tips & shortcuts"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2"/>
-                <path d="M7 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                <circle cx="7" cy="4.5" r="0.7" fill="currentColor"/>
-              </svg>
-            </button>
+              <ThemeToggle />
 
-            <button onClick={openShortcuts} title="Keyboard shortcuts (Ctrl+Shift+?)"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2"/>
-                <path d="M5 5.5a2 2 0 113 1.7V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                <circle cx="7" cy="10" r="0.7" fill="currentColor"/>
-              </svg>
-            </button>
+              {/* Window controls */}
+<div className="flex items-center gap-1 ml-2 border-l border-zinc-200 dark:border-zinc-700 pl-2">
+  <button
+    onClick={async () => {
+      const window = getCurrentWindow();
+      await window.minimize();
+    }}
+    title="Minimize"
+    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+  >
+    <svg width="12" height="12" viewBox="0 0 10 2" fill="none">
+      <rect width="10" height="1.5" fill="currentColor" />
+    </svg>
+  </button>
+  <button
+    onClick={async () => {
+      const window = getCurrentWindow();
+      const isMax = await window.isMaximized();
+      if (isMax) {
+        await window.unmaximize();
+      } else {
+        await window.maximize();
+      }
+    }}
+    title="Maximize"
+    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+  >
+    {isWindowMaximized ? (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M3 1H9C10.1046 1 11 1.89543 11 3V9C11 10.1046 10.1046 11 9 11H3C1.89543 11 1 10.1046 1 9V3C1 1.89543 1.89543 1 3 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+        <path d="M4 4L8 8M8 4L4 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    ) : (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      </svg>
+    )}
+  </button>
+  <button
+    onClick={async () => {
+      const window = getCurrentWindow();
+      await window.close();
+    }}
+    title="Close"
+    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:bg-red-500 hover:text-white transition-colors duration-150"
+  >
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  </button>
+</div>
+            </div>
+          </header>
 
-            <ThemeToggle />
-          </div>
-        </header>
-
-        <TipsPanel />
+          <TipsPanel />
           <ResurfaceBar />
 
-        <main className={`flex-1 flex overflow-hidden ${splitOpen && splitDirection === "vertical" ? "flex-col items-stretch" : "flex-row"}`}>
-          {renderPane(1)}
-          {splitOpen && <><SplitDivider />{renderPane(2)}</>}
-        </main>
+          <main className={`flex-1 flex overflow-hidden ${splitOpen && splitDirection === "vertical" ? "flex-col items-stretch" : "flex-row"}`}>
+            {renderPane(1)}
+            {splitOpen && <><SplitDivider />{renderPane(2)}</>}
+          </main>
+        </div>
       </div>
 
       <CommandPalette />

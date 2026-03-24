@@ -10,14 +10,19 @@
     "frontendDist": "../dist"
   },
   "app": {
-  "windows": [
-    {
-      "title": "tauri-app",
-      "width": 800,
-      "height": 600,
-      "zoomHotkeysEnabled": true
-    }
-  ],
+    "windows": [
+      {
+        "title": "Notekeeper",
+        "width": 1200,
+        "height": 800,
+        "decorations": false,
+        "transparent": true,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "zoomHotkeysEnabled": true
+      }
+    ],
     "security": {
       "csp": null,
       "assetProtocol": {
