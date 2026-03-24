@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { createNote as dbCreateNote } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { MoveNoteModal } from "@/features/ui/components/MoveNoteModal";
 
 interface Props {
   noteId: string;
@@ -18,6 +19,7 @@ export function SubPagesSection({ noteId, paneId }: Props) {
   const replaceTab = useUIStore((s) => s.replaceTab);
 
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [moveId, setMoveId]       = useState<string | null>(null);
   const [isAdding, setIsAdding]   = useState(false);
   const [newTitle, setNewTitle]   = useState("");
   const inputRef                  = useRef<HTMLInputElement>(null);
@@ -113,6 +115,7 @@ export function SubPagesSection({ noteId, paneId }: Props) {
             const isUntitled   = /^Untitled-\d+$/.test(child.title);
             const snippet      = child.plaintext?.slice(0, 80) ?? "";
             const isConfirming = confirmId === child.id;
+            const isMoving     = moveId === child.id;
 
             return (
               <div key={child.id} className="relative group">
@@ -126,7 +129,7 @@ export function SubPagesSection({ noteId, paneId }: Props) {
                       <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
                       <path d="M3.5 4h5M3.5 6.5h5M3.5 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
                     </svg>
-                    <span className={`text-sm font-medium truncate pr-5 ${isUntitled ? "text-zinc-400 dark:text-zinc-600 italic" : "text-zinc-700 dark:text-zinc-200 group-hover:text-zinc-900 dark:group-hover:text-zinc-100"} transition-colors duration-100`}>
+                    <span className={`text-sm font-medium truncate pr-12 ${isUntitled ? "text-zinc-400 dark:text-zinc-600 italic" : "text-zinc-700 dark:text-zinc-200 group-hover:text-zinc-900 dark:group-hover:text-zinc-100"} transition-colors duration-100`}>
                       {isUntitled ? "Untitled" : child.title}
                     </span>
                   </div>
@@ -137,18 +140,32 @@ export function SubPagesSection({ noteId, paneId }: Props) {
                   )}
                 </button>
 
-                {!isConfirming && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setConfirmId(child.id); }}
-                    title="Move to trash"
-                    className="absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-all duration-100"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <path d="M1.5 2.5h7M4 2.5V1.5h2V2.5M3 2.5v6a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-                    </svg>
-                  </button>
+                {/* Action buttons container - only visible on hover */}
+                {!isConfirming && !isMoving && (
+                  <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-100">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setMoveId(child.id); }}
+                      title="Move to another page"
+                      className="w-5 h-5 flex items-center justify-center rounded text-zinc-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all duration-100"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M6 1.5L8 3 6 4.5M2 3h6M4 6.5L2 8 4 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M2 8h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmId(child.id); }}
+                      title="Move to trash"
+                      className="w-5 h-5 flex items-center justify-center rounded text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-all duration-100"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M1.5 2.5h7M4 2.5V1.5h2V2.5M3 2.5v6a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
                 )}
 
+                {/* Delete confirmation overlay */}
                 {isConfirming && (
                   <div className="absolute inset-0 rounded-lg bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-900 flex items-center justify-between px-3 gap-2">
                     <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
@@ -170,6 +187,13 @@ export function SubPagesSection({ noteId, paneId }: Props) {
                     </div>
                   </div>
                 )}
+
+                {/* Move modal for this sub-note */}
+                <MoveNoteModal
+                  open={isMoving}
+                  noteId={child.id}
+                  onClose={() => setMoveId(null)}
+                />
               </div>
             );
           })}
