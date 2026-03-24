@@ -102,6 +102,7 @@ const TIPS_BY_CATEGORY: { title: string; tips: Tip[] }[] = [
       { keys: ["Ctrl", "Shift", "Z"], description: "Redo" },
       { keys: ["Ctrl", "H"],     description: "Find & replace" },
       { action: "Type /",        description: "Slash menu" },
+      { action: "Win+H / Fn twice", description: "Voice typing (system dictation)" }
     ],
   },
   {

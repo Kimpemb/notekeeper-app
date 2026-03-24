@@ -225,6 +225,7 @@ const SHORTCUTS = [
   { label: "Toggle backlinks",      keys: ["Ctrl", ";"] },
   { label: "Toggle outline",        keys: ["Ctrl", "'"] },
   { label: "Keyboard shortcuts",    keys: ["Ctrl", "Shift", "?"] },
+  { label: "Voice typing",          keys: ["Win+H", "Fn twice"] },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -368,6 +369,20 @@ export function CommandPalette() {
       kind: "action", id: "export-json", label: "Export Current Note", hint: "JSON",
       action: async () => { await exportHandlers?.exportNoteJson(); closePalette(); },
     },
+    {
+  kind: "action", id: "import", label: "Import Notes", hint: "JSON file",
+  action: () => { openImport(); closePalette(); },
+},
+// ── Voice typing ─────────────────────────────────────────────────────────────
+{
+  kind: "action", id: "voice-typing", label: "Voice Typing", hint: "Win+H / Fn twice",
+  action: () => {
+    closePalette();
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+    const shortcut = isMac ? "Press Fn twice" : "Press Win+H";
+    alert(`${shortcut} to start dictation`);
+  },
+},
     {
       kind: "action", id: "export-md",   label: "Export Current Note", hint: "Markdown",
       action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); },

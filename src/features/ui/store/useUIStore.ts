@@ -41,6 +41,7 @@ const DEFAULT_GRAPH_STATE: GraphViewState = {
 
 const SESSION_KEY = "notekeeper_session";
 
+
 interface SessionPersist {
   tabs: Tab[];
   activeTabId: string | null;
