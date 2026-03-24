@@ -140,6 +140,12 @@ const ActionIcon = ({ id }: { id: string }) => {
       <path d="M6.5 9.5v-4M4.5 7.5l2-2 2 2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
+  if (id === "voice-typing") return (
+  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+    <path d="M7 1C5.9 1 5 1.9 5 3v3c0 1.1.9 2 2 2s2-.9 2-2V3c0-1.1-.9-2-2-2z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+    <path d="M11 6v1c0 2.2-1.8 4-4 4s-4-1.8-4-4V6M7 11v2M4 13h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+  </svg>
+);
   return null;
 };
 
@@ -361,6 +367,16 @@ export function CommandPalette() {
       kind: "action", id: "open-shortcuts", label: "Keyboard Shortcuts", hint: "Ctrl+Shift+?",
       action: () => { openShortcuts(); closePalette(); },
     },
+    // ── Voice typing ─────────────────────────────────────────────────────────────
+{
+  kind: "action", id: "voice-typing", label: "Voice Typing", hint: "Win+H / Fn twice",
+  action: () => {
+    closePalette();
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+    const shortcut = isMac ? "Press Fn twice" : "Press Win+H";
+    alert(`${shortcut} to start dictation`);
+  },
+},
     {
       kind: "action", id: "export-all",  label: "Export All Notes",    hint: "JSON",
       action: async () => { await exportHandlers?.exportAll(); closePalette(); },
@@ -373,16 +389,7 @@ export function CommandPalette() {
   kind: "action", id: "import", label: "Import Notes", hint: "JSON file",
   action: () => { openImport(); closePalette(); },
 },
-// ── Voice typing ─────────────────────────────────────────────────────────────
-{
-  kind: "action", id: "voice-typing", label: "Voice Typing", hint: "Win+H / Fn twice",
-  action: () => {
-    closePalette();
-    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-    const shortcut = isMac ? "Press Fn twice" : "Press Win+H";
-    alert(`${shortcut} to start dictation`);
-  },
-},
+
     {
       kind: "action", id: "export-md",   label: "Export Current Note", hint: "Markdown",
       action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); },

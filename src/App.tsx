@@ -23,7 +23,7 @@ import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
-import { cancelSidebarCollapse, scheduleSidebarCollapse } from "@/lib/sidebarTimer";
+import { cancelSidebarCollapse } from "@/lib/sidebarTimer";
 
 // Block F5 / Ctrl+R — causes full state loss in Tauri
 document.addEventListener("keydown", (e) => {
@@ -268,16 +268,25 @@ export default function App() {
   const breadcrumb = buildBreadcrumb(activeNoteId, notes);
   const isUntitled = activeNote ? /^Untitled-\d+$/.test(activeNote.title) : false;
 
-  function handleHamburgerEnter() {
-    const current = useUIStore.getState().sidebarState;
-    if (current === "closed" || current === "peek") { cancelSidebarCollapse(); setSidebarState("peek"); }
+
+
+
+function handleHamburgerEnter() {
+  // Do nothing — no peek on hover
+}
+
+function handleHamburgerLeave() {
+  // Do nothing — no auto-close
+}
+
+function handleHamburgerClick() {
+  // Toggle sidebar directly
+  if (sidebarState === "open") {
+    setSidebarState("closed");
+  } else {
+    setSidebarState("open");
   }
-  function handleHamburgerLeave() {
-    if (useUIStore.getState().sidebarState === "peek") {
-      scheduleSidebarCollapse(() => { if (useUIStore.getState().sidebarState === "peek") setSidebarState("closed"); });
-    }
-  }
-  function handleHamburgerClick() { cancelSidebarCollapse(); setSidebarState("open"); }
+}
 
   function renderPane(paneId: 1 | 2) {
     const paneTabs        = paneId === 1 ? tabs : pane2Tabs;
