@@ -1,4 +1,4 @@
-// src/features/notes/components/FileTree/FileTreePanel.tsx
+// DONE
 import { useState } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
@@ -11,18 +11,24 @@ interface FileTreeNodeProps {
   activeNoteId: string | null;
   expandedIds: Set<string>;
   onToggle: (id: string) => void;
+  paneId: 1 | 2;
 }
 
-function FileTreeNode({ note, depth, allNotes, activeNoteId, expandedIds, onToggle }: FileTreeNodeProps) {
-  const setActiveNote = useNoteStore((s) => s.setActiveNote);
-  const closeFileTree = useUIStore((s) => s.closeFileTree);
+function FileTreeNode({ note, depth, allNotes, activeNoteId, expandedIds, onToggle, paneId }: FileTreeNodeProps) {
+  const setActiveNote  = useNoteStore((s) => s.setActiveNote);
+  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
+  const closeFileTree  = useUIStore((s) => s.closeFileTree);
 
   const children    = allNotes.filter((n) => n.parent_id === note.id).sort((a, b) => b.updated_at - a.updated_at);
   const hasChildren = children.length > 0;
   const isExpanded  = expandedIds.has(note.id);
   const isActive    = activeNoteId === note.id;
 
-  function handleClick() { setActiveNote(note.id); closeFileTree(); }
+  function handleClick() {
+    if (paneId === 2) { openTabInPane2(note.id); }
+    else { setActiveNote(note.id); }
+    closeFileTree(paneId);
+  }
   function handleChevron(e: React.MouseEvent) { e.stopPropagation(); onToggle(note.id); }
 
   return (
@@ -52,7 +58,7 @@ function FileTreeNode({ note, depth, allNotes, activeNoteId, expandedIds, onTogg
       {hasChildren && isExpanded && (
         <ul>
           {children.map((child) => (
-            <FileTreeNode key={child.id} note={child} depth={depth + 1} allNotes={allNotes} activeNoteId={activeNoteId} expandedIds={expandedIds} onToggle={onToggle} />
+            <FileTreeNode key={child.id} note={child} depth={depth + 1} allNotes={allNotes} activeNoteId={activeNoteId} expandedIds={expandedIds} onToggle={onToggle} paneId={paneId} />
           ))}
         </ul>
       )}
@@ -60,9 +66,13 @@ function FileTreeNode({ note, depth, allNotes, activeNoteId, expandedIds, onTogg
   );
 }
 
-export function FileTreePanel() {
-  const notes         = useNoteStore((s) => s.notes);
-  const activeNoteId  = useNoteStore((s) => s.activeNoteId);
+interface FileTreePanelProps {
+  paneId: 1 | 2;
+}
+
+export function FileTreePanel({ paneId }: FileTreePanelProps) {
+  const notes        = useNoteStore((s) => s.notes);
+  const activeNoteId = useUIStore((s) => s.paneActiveNoteId(paneId));
   const closeFileTree = useUIStore((s) => s.closeFileTree);
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
@@ -101,7 +111,7 @@ export function FileTreePanel() {
           <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">File Tree</span>
           <span className="text-xs text-zinc-400 dark:text-zinc-600 tabular-nums">{totalNotes}</span>
         </div>
-        <button onClick={closeFileTree} className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-100">
+        <button onClick={() => closeFileTree(paneId)} className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-100">
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
         </button>
       </div>
@@ -137,14 +147,14 @@ export function FileTreePanel() {
             <p className="text-xs text-zinc-400 text-center py-8">No notes match</p>
           ) : (
             <ul className="space-y-0.5">
-              {searchResults.map((note) => <FileTreeNode key={note.id} note={note} depth={0} allNotes={notes} activeNoteId={activeNoteId} expandedIds={expandedIds} onToggle={toggleExpanded} />)}
+              {searchResults.map((note) => <FileTreeNode key={note.id} note={note} depth={0} allNotes={notes} activeNoteId={activeNoteId} expandedIds={expandedIds} onToggle={toggleExpanded} paneId={paneId} />)}
             </ul>
           )
         ) : rootNotes.length === 0 ? (
           <p className="text-xs text-zinc-400 text-center py-8">No notes yet</p>
         ) : (
           <ul className="space-y-0.5">
-            {rootNotes.map((note) => <FileTreeNode key={note.id} note={note} depth={0} allNotes={notes} activeNoteId={activeNoteId} expandedIds={expandedIds} onToggle={toggleExpanded} />)}
+            {rootNotes.map((note) => <FileTreeNode key={note.id} note={note} depth={0} allNotes={notes} activeNoteId={activeNoteId} expandedIds={expandedIds} onToggle={toggleExpanded} paneId={paneId} />)}
           </ul>
         )}
       </div>

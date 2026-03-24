@@ -64,8 +64,9 @@ export default function App() {
   const togglePalette       = useUIStore((s) => s.togglePalette);
   const openShortcuts       = useUIStore((s) => s.openShortcuts);
   const openTabInPane2      = useUIStore((s) => s.openTabInPane2);
-  const fileTreeOpen        = useUIStore((s) => s.fileTreeOpen);
-  const toggleFileTree      = useUIStore((s) => s.toggleFileTree);
+  const pane1FileTreeOpen = useUIStore((s) => s.pane1FileTreeOpen);
+  const pane2FileTreeOpen = useUIStore((s) => s.pane2FileTreeOpen);
+  const toggleFileTree    = useUIStore((s) => s.toggleFileTree);
   const toggleBacklinks     = useUIStore((s) => s.toggleBacklinks);
   const toggleOutline       = useUIStore((s) => s.toggleOutline);
   const templatePickerOpen  = useUIStore((s) => s.templatePickerOpen);
@@ -160,10 +161,8 @@ const handleKeyDown = useCallback((e: KeyboardEvent) => {
     useUIStore.getState().openTemplatePicker(); return;
   }
 
-  if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") {
-    e.preventDefault();
-    useUIStore.getState().reopenClosedTab();
-  }
+  if (ctrl && e.key === "t") { e.preventDefault(); toggleFileTree(activePaneId); }
+
 
   if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
     e.preventDefault();
@@ -172,7 +171,6 @@ const handleKeyDown = useCallback((e: KeyboardEvent) => {
   }
 
   if (ctrl && e.key === "\\")              { e.preventDefault(); toggleSidebar(); }
-  if (ctrl && e.key === "t")               { e.preventDefault(); toggleFileTree(); }
   if (ctrl && e.key === ";")               { e.preventDefault(); toggleBacklinks(activePaneId); }
   if (ctrl && e.key === "'")               { e.preventDefault(); toggleOutline(activePaneId); }
   if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
@@ -293,7 +291,8 @@ const handleKeyDown = useCallback((e: KeyboardEvent) => {
               </div>
             );
           })}
-          {paneId === 1 && fileTreeOpen && <FileTreePanel />}
+          {(paneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) && <FileTreePanel paneId={paneId} />}
+
         </div>
       </div>
     );
@@ -377,8 +376,8 @@ const handleKeyDown = useCallback((e: KeyboardEvent) => {
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            <button onClick={toggleFileTree} title="File tree (Ctrl+T)"
-              className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${fileTreeOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+            <button onClick={() => toggleFileTree(activePaneId)}
+            className={`... ${(activePaneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M1 3.5a1 1 0 011-1h3l1 1.5h6a1 1 0 011 1V11a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>

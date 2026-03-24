@@ -34,6 +34,7 @@ import {
   TaskItemExitExtension, ToggleKeyboardExtension, EmptyLinePlaceholderExtension,
   SlashPlaceholderExtension, OrderedListBackspaceExtension, CodeBlockSelectAllExtension,
   ListSelectAllExtension, createFindReplaceShortcutExtension, ImageExtension, AttachmentExtension,
+  TaskListSortExtension,
 } from "./extensions";
 import {
   extractNoteLinkIds, scrollToHeadingText, scrollToQuery,
@@ -121,6 +122,11 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
 
+  // ── Task list sort toolbar state ──────────────────────────────────────────
+  // Tracks whether the cursor is inside a taskList, and if so, where to
+  // position the floating Sort button (above the taskList node).
+  const [taskListToolbarPos, setTaskListToolbarPos] = useState<{ top: number; left: number } | null>(null);
+
   const initialContent = note?.content ? JSON.parse(note.content) : "";
 
   const editor = useEditor({
@@ -131,6 +137,8 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
+      // ── Task list sort command ────────────────────────────────────────────
+      TaskListSortExtension,
       // ── SubPageNode: inline sub-page block inserted by the slash command ──
       SubPageNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
@@ -149,6 +157,30 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     onSelectionUpdate: ({ editor: e }) => {
       if (slashFromBubble.current) return;
       const { from, to, $from } = e.state.selection;
+
+      // ── Detect cursor in taskList and compute toolbar position ───────────
+      let foundTaskList = false;
+      for (let depth = $from.depth; depth > 0; depth--) {
+        const node = $from.node(depth);
+        if (node.type.name === "taskList") {
+          foundTaskList = true;
+          // Position the toolbar above the taskList DOM node
+          const taskListPos = $from.before(depth);
+          try {
+            const domNode = e.view.nodeDOM(taskListPos) as HTMLElement | null;
+            if (domNode) {
+              const rect = domNode.getBoundingClientRect();
+              setTaskListToolbarPos({ top: rect.top - 32, left: rect.left });
+            }
+          } catch {
+            // coordsAtPos can throw if pos is out of range — safe to ignore
+          }
+          break;
+        }
+      }
+      if (!foundTaskList) setTaskListToolbarPos(null);
+
+      // ── Bubble menu logic (unchanged) ────────────────────────────────────
       if (from === to) { setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return; }
       const selectedNodeType = $from.nodeAfter?.type.name ?? "";
       const insideTable = (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "table") return true; } return false; })();
@@ -405,63 +437,60 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   }
 
   // ── Block transform: current line → toggle (or unwrap if already a toggle) ─
-function convertToToggle() {
-  if (!editor) return;
-  const { state } = editor;
-  const { $from, $to } = state.selection;
+  function convertToToggle() {
+    if (!editor) return;
+    const { state } = editor;
+    const { $from, $to } = state.selection;
 
-  // Unwrap: if already inside a toggle, replace with a plain paragraph
-  for (let d = $from.depth; d > 0; d--) {
-    const node = $from.node(d);
-    if (node.type.name === "toggle") {
-      const togglePos = $from.before(d);
-      const textContent = node.textContent;
-      editor.chain().focus().command(({ tr, state: s }) => {
-        const paragraph = s.schema.nodes.paragraph.create(
-          {},
-          textContent ? s.schema.text(textContent) : undefined
-        );
-        tr.replaceWith(togglePos, togglePos + node.nodeSize, paragraph);
-        return true;
-      }).run();
-      return;
+    // Unwrap: if already inside a toggle, replace with a plain paragraph
+    for (let d = $from.depth; d > 0; d--) {
+      const node = $from.node(d);
+      if (node.type.name === "toggle") {
+        const togglePos = $from.before(d);
+        const textContent = node.textContent;
+        editor.chain().focus().command(({ tr, state: s }) => {
+          const paragraph = s.schema.nodes.paragraph.create(
+            {},
+            textContent ? s.schema.text(textContent) : undefined
+          );
+          tr.replaceWith(togglePos, togglePos + node.nodeSize, paragraph);
+          return true;
+        }).run();
+        return;
+      }
     }
+
+    // Collect all top-level blocks touched by the selection
+    const blocks: { pos: number; node: import("@tiptap/pm/model").Node }[] = [];
+    state.doc.nodesBetween($from.pos, $to.pos, (node, pos, parent) => {
+      if (parent?.type.name === "doc" && node.isBlock) {
+        blocks.push({ pos, node });
+        return false;
+      }
+    });
+
+    if (blocks.length === 0) return;
+
+    editor.chain().focus().command(({ tr, state: s }) => {
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const { pos, node } = blocks[i];
+        const textContent = node.textContent;
+        const inlineContent = textContent ? [s.schema.text(textContent)] : [];
+        const summary = s.schema.nodes.toggleSummary.create({}, inlineContent);
+        const para    = s.schema.nodes.paragraph.create();
+        const body    = s.schema.nodes.toggleBody.create({}, para);
+        const toggle  = s.schema.nodes.toggle.create({ open: false }, [summary, body]);
+        tr.replaceWith(pos, pos + node.nodeSize, toggle);
+      }
+      return true;
+    }).run();
   }
-
-  // Collect all top-level blocks touched by the selection
-  const blocks: { pos: number; node: import("@tiptap/pm/model").Node }[] = [];
-  state.doc.nodesBetween($from.pos, $to.pos, (node, pos, parent) => {
-    if (parent?.type.name === "doc" && node.isBlock) {
-      blocks.push({ pos, node });
-      return false; // don't descend
-    }
-  });
-
-  if (blocks.length === 0) return;
-
-  // Replace all collected blocks in one transaction, back-to-front so
-  // positions don't shift as we mutate the doc
-  editor.chain().focus().command(({ tr, state: s }) => {
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      const { pos, node } = blocks[i];
-      const textContent = node.textContent;
-      const inlineContent = textContent ? [s.schema.text(textContent)] : [];
-      const summary = s.schema.nodes.toggleSummary.create({}, inlineContent);
-      const para    = s.schema.nodes.paragraph.create();
-      const body    = s.schema.nodes.toggleBody.create({}, para);
-      const toggle = s.schema.nodes.toggle.create({ open: false }, [summary, body]);
-      tr.replaceWith(pos, pos + node.nodeSize, toggle);
-    }
-    return true;
-  }).run();
-}
 
   // ── Block transform: current line → task list item (or unwrap if already one) ─
   function convertToTodo() {
     if (!editor) return;
     const { $from } = editor.state.selection;
 
-    // Unwrap: if already inside a taskItem, lift it out
     for (let d = $from.depth; d > 0; d--) {
       if ($from.node(d).type.name === "taskItem") {
         editor.chain().focus().liftListItem("taskItem").run();
@@ -469,8 +498,13 @@ function convertToToggle() {
       }
     }
 
-    // Convert: wrap current line in a task list
     editor.chain().focus().toggleTaskList().run();
+  }
+
+  // ── Sort the task list the cursor is currently inside ─────────────────────
+  function handleSortTaskList() {
+    if (!editor) return;
+    editor.chain().focus().sortTaskList().run();
   }
 
   const isUntitled = /^Untitled-\d+$/.test(note.title);
@@ -521,6 +555,30 @@ function convertToToggle() {
                 Similar
               </button>
             )}
+          </div>
+        )}
+
+        {/* ── Task list sort toolbar ─────────────────────────────────────────
+            Appears as a small floating button above the task list when the
+            cursor is inside one. Uses fixed positioning to stay above the list
+            regardless of scroll, matching the bubble menu pattern.           */}
+        {editor && taskListToolbarPos && isActiveTab && (
+          <div
+            style={{ position: "fixed", top: taskListToolbarPos.top, left: taskListToolbarPos.left, zIndex: 40 }}
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <button
+              onClick={handleSortTaskList}
+              title="Sort: unchecked first, checked last"
+              className="flex items-center gap-1.5 px-2.5 h-6 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 shadow-sm"
+            >
+              {/* Sort icon: two lines with an arrow indicating reorder */}
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M1.5 3h5M1.5 5.5h3.5M1.5 8h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                <path d="M8.5 2v7M8.5 9l-1.5-1.5M8.5 9l1.5-1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Sort
+            </button>
           </div>
         )}
 

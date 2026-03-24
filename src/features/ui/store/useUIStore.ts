@@ -124,10 +124,11 @@ interface UIStore {
   similarOpen: (pane: 1 | 2) => boolean;
 
   // ─── File tree panel ──────────────────────────────────────────────────────
-  fileTreeOpen: boolean;
-  openFileTree: () => void;
-  closeFileTree: () => void;
-  toggleFileTree: () => void;
+  pane1FileTreeOpen: boolean;
+pane2FileTreeOpen: boolean;
+openFileTree: (pane: 1 | 2) => void;
+closeFileTree: (pane: 1 | 2) => void;
+toggleFileTree: (pane: 1 | 2) => void;
 
   // ─── Outline panel — per pane ────────────────────────────────────────────
   pane1OutlineOpen: boolean;
@@ -353,10 +354,11 @@ export const useUIStore = create<UIStore>((set, get) => {
     similarOpen:  (pane) => pane === 1 ? get().pane1SimilarOpen : get().pane2SimilarOpen,
 
     // ─── File tree ────────────────────────────────────────────────────────────
-    fileTreeOpen: false,
-    openFileTree: () => set({ fileTreeOpen: true }),
-    closeFileTree: () => set({ fileTreeOpen: false }),
-    toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
+    pane1FileTreeOpen: false,
+pane2FileTreeOpen: false,
+openFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: true }  : { pane2FileTreeOpen: true }),
+closeFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: false } : { pane2FileTreeOpen: false }),
+toggleFileTree: (pane) => set((s) => pane === 1 ? { pane1FileTreeOpen: !s.pane1FileTreeOpen } : { pane2FileTreeOpen: !s.pane2FileTreeOpen }),
 
     // ─── Outline — per pane ───────────────────────────────────────────────────
     pane1OutlineOpen: false,

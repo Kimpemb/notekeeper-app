@@ -35,8 +35,34 @@ export const CodeBlock = CodeBlockLowlight.extend({
 });
 
 // ── Task list (checklist / to-do) ─────────────────────────────────────────────
-export const CheckList = TaskList.configure({
-  HTMLAttributes: { class: "task-list" },
+// Extended to support sort state attributes for cycling sort behavior
+export const CheckList = TaskList.extend({
+  addAttributes() {
+    return {
+      ...(this.parent?.() ?? {}),
+      "data-sort-state": {
+        default: "original",
+        parseHTML: (element) => element.getAttribute("data-sort-state") || "original",
+        renderHTML: (attributes) => {
+          if (!attributes["data-sort-state"] || attributes["data-sort-state"] === "original") {
+            return {};
+          }
+          return { "data-sort-state": attributes["data-sort-state"] };
+        },
+      },
+      "data-original-order": {
+        default: null,
+        parseHTML: (element) => {
+          const val = element.getAttribute("data-original-order");
+          return val ? JSON.parse(val) : null;
+        },
+        renderHTML: (attributes) => {
+          if (!attributes["data-original-order"]) return {};
+          return { "data-original-order": JSON.stringify(attributes["data-original-order"]) };
+        },
+      },
+    };
+  },
 });
 
 export const CheckItem = TaskItem.configure({
@@ -698,3 +724,128 @@ export { ImageExtension } from "./ImageExtension";
 
 // ── Attachment (PDF + Audio) ──────────────────────────────────────────────────
 export { AttachmentExtension } from "./AttachmentExtension";
+
+// ── Task list sort: cycles through unchecked-first, checked-first, original ──
+//
+// Adds a `sortTaskList` command that cycles the nearest taskList through three states:
+//   - "original":      original order (as created)
+//   - "uncheckedFirst": unchecked items top, checked bottom (stable within groups)
+//   - "checkedFirst":   checked items top, unchecked bottom (stable within groups)
+//
+// Each taskList stores its sort state in the node's `data-sort-state` attribute.
+// The first sort captures the original item order as a snapshot.
+export const TaskListSortExtension = Extension.create({
+  name: "taskListSort",
+
+  addCommands() {
+    return {
+      sortTaskList:
+        () =>
+        ({ state, dispatch }) => {
+          const { $from } = state.selection;
+
+          // Walk up to find the nearest taskList ancestor
+          let taskListPos = -1;
+          let taskListNode: import("@tiptap/pm/model").Node | null = null;
+
+          for (let depth = $from.depth; depth > 0; depth--) {
+            const node = $from.node(depth);
+            if (node.type.name === "taskList") {
+              taskListPos = $from.before(depth);
+              taskListNode = node;
+              break;
+            }
+          }
+
+          if (taskListPos === -1 || !taskListNode) return false;
+
+          // Collect top-level taskItem children with original index
+          const items: { node: import("@tiptap/pm/model").Node; checked: boolean; originalIndex: number }[] = [];
+          taskListNode.forEach((child, _offset, index) => {
+            if (child.type.name === "taskItem") {
+              items.push({
+                node: child,
+                checked: child.attrs.checked ?? false,
+                originalIndex: index,
+              });
+            }
+          });
+
+          // Get current sort state from node attribute (or default to "original")
+          const currentState = taskListNode.attrs["data-sort-state"] || "original";
+          
+          // Determine next state: original → uncheckedFirst → checkedFirst → original
+          let nextState: string;
+          if (currentState === "original") nextState = "uncheckedFirst";
+          else if (currentState === "uncheckedFirst") nextState = "checkedFirst";
+          else nextState = "original";
+
+          // If transitioning back to original and we have a stored snapshot, use it
+          if (nextState === "original") {
+            const storedSnapshot = taskListNode.attrs["data-original-order"];
+            if (storedSnapshot && Array.isArray(storedSnapshot) && storedSnapshot.length === items.length) {
+              // Rebuild using stored node references (by original index)
+              const restored = storedSnapshot.map((originalIdx: number) => items[originalIdx].node);
+              const newTaskList = state.schema.nodes.taskList.create(
+                { ...taskListNode.attrs, "data-sort-state": "original", "data-original-order": storedSnapshot },
+                restored
+              );
+              if (!dispatch) return true;
+              const tr = state.tr.replaceWith(taskListPos, taskListPos + taskListNode.nodeSize, newTaskList);
+              dispatch(tr);
+              return true;
+            }
+          }
+
+          // Stable sort based on nextState
+          const sorted = [...items].sort((a, b) => {
+            if (nextState === "uncheckedFirst") {
+              if (a.checked === b.checked) return a.originalIndex - b.originalIndex;
+              return a.checked ? 1 : -1;
+            } else if (nextState === "checkedFirst") {
+              if (a.checked === b.checked) return a.originalIndex - b.originalIndex;
+              return a.checked ? -1 : 1;
+            }
+            // original order fallback
+            return a.originalIndex - b.originalIndex;
+          });
+
+          // Skip if already in desired order
+          const alreadySorted = sorted.every((item, i) => item.originalIndex === items[i].originalIndex);
+          if (alreadySorted && nextState !== "original") return false;
+
+          // Store original order snapshot if this is first sort (transition from original)
+          let originalOrder: number[] | undefined = taskListNode.attrs["data-original-order"];
+          if (currentState === "original" && !originalOrder) {
+            originalOrder = items.map((_, i) => i);
+          }
+
+          // Build new node with updated attributes
+          const sortedNodes = sorted.map((item) => item.node);
+          const newTaskList = state.schema.nodes.taskList.create(
+            {
+              ...taskListNode.attrs,
+              "data-sort-state": nextState,
+              "data-original-order": originalOrder,
+            },
+            sortedNodes
+          );
+
+          if (!dispatch) return true;
+
+          const tr = state.tr.replaceWith(taskListPos, taskListPos + taskListNode.nodeSize, newTaskList);
+          dispatch(tr);
+          return true;
+        },
+    };
+  },
+});
+
+// Extend TipTap's Commands interface so TypeScript knows about sortTaskList
+declare module "@tiptap/core" {
+  interface Commands<ReturnType> {
+    taskListSort: {
+      sortTaskList: () => ReturnType;
+    };
+  }
+}

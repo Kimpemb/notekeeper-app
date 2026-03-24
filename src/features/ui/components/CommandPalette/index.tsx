@@ -354,7 +354,7 @@ export function CommandPalette() {
     },
     {
       kind: "action", id: "toggle-file-tree", label: "Toggle File Tree", hint: "Ctrl+T",
-      action: () => { toggleFileTree(); closePalette(); },
+      action: () => { toggleFileTree(useUIStore.getState().activePaneId); closePalette(); },
     },
     {
       kind: "action", id: "open-shortcuts", label: "Keyboard Shortcuts", hint: "Ctrl+Shift+?",
