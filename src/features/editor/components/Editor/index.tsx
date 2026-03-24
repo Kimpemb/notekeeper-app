@@ -221,12 +221,13 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       if (editor.isDestroyed) return;
       const { from, to } = editor.state.selection;
       editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-try {
-  const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
-  if ($from.parent.isTextblock) {
-    editor.commands.setTextSelection({ from, to });
-  }
-} catch { /**/ }      if (titleRef.current && !titleFocusedRef.current) {
+      try {
+        const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
+        if ($from.parent.isTextblock) {
+          editor.commands.setTextSelection({ from, to });
+        }
+      } catch { /**/ }
+      if (titleRef.current && !titleFocusedRef.current) {
         const isUntitled = /^Untitled-\d+$/.test(note.title);
         titleRef.current.textContent = isUntitled ? "" : note.title;
       }
@@ -342,43 +343,38 @@ try {
   }
 
   // ── Sub-page inline node insertion ────────────────────────────────────────
- function handleSubPageCreate() {
-  if (!editor) return;
+  function handleSubPageCreate() {
+    if (!editor) return;
 
-  const pattern = /^Untitled-(\d+)$/;
-  const used    = new Set<number>();
-  for (const n of notes) { const m = n.title.match(pattern); if (m) used.add(parseInt(m[1], 10)); }
-  let n = 1;
-  while (used.has(n)) n++;
-  const defaultTitle = `Untitled-${n}`;
+    const pattern = /^Untitled-(\d+)$/;
+    const used    = new Set<number>();
+    for (const n of notes) { const m = n.title.match(pattern); if (m) used.add(parseInt(m[1], 10)); }
+    let n = 1;
+    while (used.has(n)) n++;
+    const defaultTitle = `Untitled-${n}`;
 
-  const subPageExt = editor.extensionManager.extensions.find((e) => e.name === "subPage");
-  if (subPageExt) {
-    const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
-    s["subPage"].parentNoteId = noteId;
-    s["subPage"].paneId = paneId;
+    const subPageExt = editor.extensionManager.extensions.find((e) => e.name === "subPage");
+    if (subPageExt) {
+      const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
+      s["subPage"].parentNoteId = noteId;
+      s["subPage"].paneId = paneId;
+    }
+
+    const insertChain = editor.chain().focus();
+
+    if (slashStartPos.current !== null) {
+      insertChain.deleteRange({ from: slashStartPos.current, to: editor.state.selection.from });
+    }
+
+    insertChain
+      .insertContent([
+        { type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } },
+        { type: "paragraph" },
+      ])
+      .run();
+
+    closeSlashMenuInternal();
   }
-
-  const insertChain = editor.chain().focus();
-
-  if (slashStartPos.current !== null) {
-    insertChain.deleteRange({ from: slashStartPos.current, to: editor.state.selection.from });
-  }
-
-  // Insert the subPage node then immediately insert a paragraph after it
-  // and move the cursor there — atom nodes have no inline content so
-  // ProseMirror can't place a TextSelection inside them.
-  insertChain
-    .insertContent([
-      { type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } },
-      { type: "paragraph" },
-    ])
-    .run();
-
-  // Move cursor back up into the subPage node's input via the NodeView's
-  // own useEffect focus — no manual cursor placement needed there.
-  closeSlashMenuInternal();
-}
 
   async function handleImageUpload() {
     if (!editor) return;
@@ -406,6 +402,75 @@ try {
     slashFromBubble.current = true; slashStartPos.current = null; setSlashQuery("");
     setSlashPos({ top: pos.top + 52, left: pos.left, caretTop: pos.top });
     setTimeout(() => setSlashOpen(true), 0);
+  }
+
+  // ── Block transform: current line → toggle (or unwrap if already a toggle) ─
+function convertToToggle() {
+  if (!editor) return;
+  const { state } = editor;
+  const { $from, $to } = state.selection;
+
+  // Unwrap: if already inside a toggle, replace with a plain paragraph
+  for (let d = $from.depth; d > 0; d--) {
+    const node = $from.node(d);
+    if (node.type.name === "toggle") {
+      const togglePos = $from.before(d);
+      const textContent = node.textContent;
+      editor.chain().focus().command(({ tr, state: s }) => {
+        const paragraph = s.schema.nodes.paragraph.create(
+          {},
+          textContent ? s.schema.text(textContent) : undefined
+        );
+        tr.replaceWith(togglePos, togglePos + node.nodeSize, paragraph);
+        return true;
+      }).run();
+      return;
+    }
+  }
+
+  // Collect all top-level blocks touched by the selection
+  const blocks: { pos: number; node: import("@tiptap/pm/model").Node }[] = [];
+  state.doc.nodesBetween($from.pos, $to.pos, (node, pos, parent) => {
+    if (parent?.type.name === "doc" && node.isBlock) {
+      blocks.push({ pos, node });
+      return false; // don't descend
+    }
+  });
+
+  if (blocks.length === 0) return;
+
+  // Replace all collected blocks in one transaction, back-to-front so
+  // positions don't shift as we mutate the doc
+  editor.chain().focus().command(({ tr, state: s }) => {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const { pos, node } = blocks[i];
+      const textContent = node.textContent;
+      const inlineContent = textContent ? [s.schema.text(textContent)] : [];
+      const summary = s.schema.nodes.toggleSummary.create({}, inlineContent);
+      const para    = s.schema.nodes.paragraph.create();
+      const body    = s.schema.nodes.toggleBody.create({}, para);
+      const toggle = s.schema.nodes.toggle.create({ open: false }, [summary, body]);
+      tr.replaceWith(pos, pos + node.nodeSize, toggle);
+    }
+    return true;
+  }).run();
+}
+
+  // ── Block transform: current line → task list item (or unwrap if already one) ─
+  function convertToTodo() {
+    if (!editor) return;
+    const { $from } = editor.state.selection;
+
+    // Unwrap: if already inside a taskItem, lift it out
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type.name === "taskItem") {
+        editor.chain().focus().liftListItem("taskItem").run();
+        return;
+      }
+    }
+
+    // Convert: wrap current line in a task list
+    editor.chain().focus().toggleTaskList().run();
   }
 
   const isUntitled = /^Untitled-\d+$/.test(note.title);
@@ -465,11 +530,41 @@ try {
             className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-xl"
             onMouseDown={(e) => { if ((e.target as HTMLElement).closest("button") === null) e.preventDefault(); }}
           >
+            {/* ── Inline formatting ── */}
             <BubbleBtn onClick={() => editor.chain().focus().toggleBold().run()}   active={editor.isActive("bold")}   title="Bold"><span className="font-bold text-sm">B</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive("italic")} title="Italic"><span className="italic text-sm">I</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive("strike")} title="Strikethrough"><span className="line-through text-sm">S</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleCode().run()}   active={editor.isActive("code")}   title="Inline code"><span className="font-mono text-sm">{"<>"}</span></BubbleBtn>
+
+            {/* ── Divider: inline | block transforms ── */}
             <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
+
+            {/* ── Block transforms ── */}
+            <BubbleBtn
+              onClick={convertToToggle}
+              active={editor.isActive("toggle")}
+              title="Convert to toggle"
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M3 4l3 3-3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M8 9.5h3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+              </svg>
+            </BubbleBtn>
+
+            <BubbleBtn
+              onClick={convertToTodo}
+              active={editor.isActive("taskItem")}
+              title="Convert to to-do"
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <rect x="1.5" y="1.5" width="10" height="10" rx="2.5" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M3.5 6.5l2 2 3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </BubbleBtn>
+
+            {/* ── Divider: block transforms | more ── */}
+            <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
+
             <button onClick={handleThreeDots} title="More commands" className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75">
               <span className="text-sm tracking-widest">···</span>
             </button>
