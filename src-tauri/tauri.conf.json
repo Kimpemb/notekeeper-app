@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauri-app",
+  "productName": "notekeeper-app",
   "version": "1.0.0",
-  "identifier": "com.joshua.tauri-app",
+  "identifier": "com.joshua.notekeeper-app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -34,6 +34,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -44,12 +45,11 @@
   },
   "plugins": {
     "updater": {
-      "active": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5QjM0OEYwNjEzNUM5RkEKUldUNnlUVmg4RWl6S2FFVURJakwzaGlxY0dGcm5UOWJscmlxdHE3aFpodW9rV2xZSEEyVlNTUDUK",
       "endpoints": [
-        "https://github.com/Kimpemb/Notekeeper-app/releases/latest/download/latest.json"
+        "https://github.com/Kimpemb/notekeeper-app/releases/latest/download/latest.json"
       ],
-      "dialog": true,
-      "pubkey": "YOUR_PUBLIC_KEY"
+      "dialog": true
     }
   }
 }

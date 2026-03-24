@@ -1,5 +1,5 @@
 use tauri::Manager;
-
+use tauri_plugin_updater::UpdaterExt;
 #[tauri::command]
 fn write_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&path, contents).map_err(|e| e.to_string())
@@ -84,9 +84,25 @@ fn open_in_browser(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let response = updater.check().await.map_err(|e| e.to_string())?;
+
+    if let Some(update) = response {
+        update
+            .download_and_install(|_, _| {}, || {})
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::new().build())
@@ -100,6 +116,7 @@ pub fn run() {
             save_attachment,
             delete_image,
             open_in_browser,
+            check_for_updates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
