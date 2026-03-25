@@ -99,3 +99,25 @@
 }
 
 .dark .empty-line-hint { color: rgba(180, 180, 180, 0.28); }
+
+/* Add to src/styles/typography.css  (or wherever .ProseMirror is defined)
+   These CSS custom properties are written at runtime by applySettingsToDOM().
+   Fallbacks match DEFAULT_SETTINGS so the editor looks right before settings load. */
+
+:root {
+  --editor-font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  --editor-font-size:   16px;
+  --editor-line-height: 1.75;
+}
+
+.ProseMirror {
+  font-family:  var(--editor-font-family);
+  font-size:    var(--editor-font-size);
+  line-height:  var(--editor-line-height);
+}
+
+/* Headings scale relative to the base so they stay proportional
+   regardless of which font size the user picks.               */
+.ProseMirror h1 { font-size: calc(var(--editor-font-size) * 1.875); }
+.ProseMirror h2 { font-size: calc(var(--editor-font-size) * 1.5);   }
+.ProseMirror h3 { font-size: calc(var(--editor-font-size) * 1.25);  }

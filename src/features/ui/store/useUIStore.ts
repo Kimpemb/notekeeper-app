@@ -71,6 +71,11 @@ interface UIStore {
   setTheme: (theme: Theme) => void;
   loadSettings: () => Promise<void>;
 
+  // ─── Settings modal ───────────────────────────────────────────────────────
+  settingsOpen: boolean;
+  openSettings: () => void;
+  closeSettings: () => void;
+
   // ─── Sidebar ──────────────────────────────────────────────────────────────
   sidebarState: SidebarState;
   sidebarOpen: boolean;
@@ -126,10 +131,10 @@ interface UIStore {
 
   // ─── File tree panel ──────────────────────────────────────────────────────
   pane1FileTreeOpen: boolean;
-pane2FileTreeOpen: boolean;
-openFileTree: (pane: 1 | 2) => void;
-closeFileTree: (pane: 1 | 2) => void;
-toggleFileTree: (pane: 1 | 2) => void;
+  pane2FileTreeOpen: boolean;
+  openFileTree: (pane: 1 | 2) => void;
+  closeFileTree: (pane: 1 | 2) => void;
+  toggleFileTree: (pane: 1 | 2) => void;
 
   // ─── Outline panel — per pane ────────────────────────────────────────────
   pane1OutlineOpen: boolean;
@@ -300,6 +305,11 @@ export const useUIStore = create<UIStore>((set, get) => {
       } catch { /**/ }
     },
 
+    // ─── Settings modal ───────────────────────────────────────────────────────
+    settingsOpen: false,
+    openSettings: () => set({ settingsOpen: true }),
+    closeSettings: () => set({ settingsOpen: false }),
+
     // ─── Sidebar ──────────────────────────────────────────────────────────────
     sidebarState: "open", sidebarOpen: true, sidebarWidth: 288, expandedNodes: new Set(),
     setSidebarState: (state) => set({ sidebarState: state, sidebarOpen: state === "open" }),
@@ -356,10 +366,10 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     // ─── File tree ────────────────────────────────────────────────────────────
     pane1FileTreeOpen: false,
-pane2FileTreeOpen: false,
-openFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: true }  : { pane2FileTreeOpen: true }),
-closeFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: false } : { pane2FileTreeOpen: false }),
-toggleFileTree: (pane) => set((s) => pane === 1 ? { pane1FileTreeOpen: !s.pane1FileTreeOpen } : { pane2FileTreeOpen: !s.pane2FileTreeOpen }),
+    pane2FileTreeOpen: false,
+    openFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: true }  : { pane2FileTreeOpen: true }),
+    closeFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: false } : { pane2FileTreeOpen: false }),
+    toggleFileTree: (pane) => set((s) => pane === 1 ? { pane1FileTreeOpen: !s.pane1FileTreeOpen } : { pane2FileTreeOpen: !s.pane2FileTreeOpen }),
 
     // ─── Outline — per pane ───────────────────────────────────────────────────
     pane1OutlineOpen: false,
@@ -577,17 +587,11 @@ toggleFileTree: (pane) => set((s) => pane === 1 ? { pane1FileTreeOpen: !s.pane1F
     },
 
     // ─── Cluster session tracking ─────────────────────────────────────────────
-    // Tracks which notes the user visits and for how long, so the cluster
-    // gap engine can identify the dominant working cluster and surface
-    // relevant notes the user hasn't touched yet.
     clusterSession: createSession(),
-
     recordClusterVisit: (noteId) =>
       set((s) => ({ clusterSession: recordVisit(s.clusterSession, noteId) })),
-
     tickClusterSession: () =>
       set((s) => ({ clusterSession: tickSession(s.clusterSession) })),
-
     resetClusterSession: () =>
       set({ clusterSession: createSession() }),
 

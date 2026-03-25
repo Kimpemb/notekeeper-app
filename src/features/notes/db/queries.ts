@@ -70,13 +70,18 @@ export async function initDb(): Promise<void> {
 export async function getAllNotes(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
-    `SELECT * FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
+     FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
 }
 
 export async function getNoteById(id: string): Promise<Note | null> {
   const db = await getDb();
-  const rows = await db.select<Note[]>(`SELECT * FROM notes WHERE id = $1`, [id]);
+  const rows = await db.select<Note[]>(
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
+     FROM notes WHERE id = $1`, 
+    [id]
+  );
   return rows[0] ?? null;
 }
 
@@ -84,11 +89,13 @@ export async function getNotesByParent(parentId: string | null): Promise<Note[]>
   const db = await getDb();
   if (parentId === null) {
     return db.select<Note[]>(
-      `SELECT * FROM notes WHERE parent_id IS NULL AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
+      `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
+       FROM notes WHERE parent_id IS NULL AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
     );
   }
   return db.select<Note[]>(
-    `SELECT * FROM notes WHERE parent_id = $1 AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`,
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
+     FROM notes WHERE parent_id = $1 AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`,
     [parentId]
   );
 }
@@ -98,6 +105,7 @@ export interface CreateNoteInput {
   content?: string;
   plaintext?: string;
   tags?: string | null;
+  frontmatter?: string | null;
   parent_id?: string | null;
   sort_order?: number;
 }
@@ -120,6 +128,7 @@ export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
     content: input.content ?? JSON.stringify({ type: "doc", content: [] }),
     plaintext: input.plaintext ?? "",
     tags: input.tags ?? null,
+    frontmatter: input.frontmatter ?? null,
     parent_id: input.parent_id ?? null,
     sync_id: uuid(),
     created_at: now(),
@@ -129,9 +138,9 @@ export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
   };
 
   await db.execute(
-    `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-    [note.id, note.title, note.content, note.plaintext, note.tags,
+    `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
      note.parent_id, note.sync_id, note.created_at, note.updated_at, null, note.sort_order]
   );
 
@@ -143,6 +152,7 @@ export interface UpdateNoteInput {
   content?: string;
   plaintext?: string;
   tags?: string | null;
+  frontmatter?: string | null;
   parent_id?: string | null;
   sort_order?: number;
 }
@@ -153,11 +163,12 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
   const values: unknown[] = [];
   let idx = 1;
 
-  if (input.title      !== undefined) { fields.push(`title = $${idx++}`);      values.push(input.title); }
-  if (input.content    !== undefined) { fields.push(`content = $${idx++}`);    values.push(input.content); }
-  if (input.plaintext  !== undefined) { fields.push(`plaintext = $${idx++}`);  values.push(input.plaintext); }
-  if (input.tags       !== undefined) { fields.push(`tags = $${idx++}`);       values.push(input.tags); }
-  if (input.parent_id  !== undefined) { fields.push(`parent_id = $${idx++}`);  values.push(input.parent_id); }
+  if (input.title !== undefined)      { fields.push(`title = $${idx++}`);      values.push(input.title); }
+  if (input.content !== undefined)    { fields.push(`content = $${idx++}`);    values.push(input.content); }
+  if (input.plaintext !== undefined)  { fields.push(`plaintext = $${idx++}`);  values.push(input.plaintext); }
+  if (input.tags !== undefined)       { fields.push(`tags = $${idx++}`);       values.push(input.tags); }
+  if (input.frontmatter !== undefined) { fields.push(`frontmatter = $${idx++}`); values.push(input.frontmatter); }
+  if (input.parent_id !== undefined)  { fields.push(`parent_id = $${idx++}`);  values.push(input.parent_id); }
   if (input.sort_order !== undefined) { fields.push(`sort_order = $${idx++}`); values.push(input.sort_order); }
 
   if (fields.length === 0) return;
@@ -229,7 +240,8 @@ export async function permanentlyDeleteNote(id: string): Promise<void> {
 export async function getTrashedNotes(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
-    `SELECT * FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
+     FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`
   );
 }
 
@@ -246,7 +258,8 @@ export async function purgeTrashedNotes(): Promise<void> {
   const db = await getDb();
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const expired = await db.select<Note[]>(
-    `SELECT * FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
+     FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
     [thirtyDaysAgo]
   );
   await Promise.allSettled(
@@ -417,7 +430,8 @@ export async function syncBacklinks(sourceId: string, targetIds: string[]): Prom
 export async function getBacklinksForNote(targetId: string): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
-    `SELECT n.* FROM notes n
+    `SELECT n.id, n.title, n.content, n.plaintext, n.tags, n.frontmatter, n.parent_id, n.sync_id, n.created_at, n.updated_at, n.deleted_at, n.sort_order
+     FROM notes n
      JOIN backlinks b ON b.source_id = n.id
      WHERE b.target_id = $1
        AND n.deleted_at IS NULL
@@ -442,7 +456,7 @@ export async function getStaleNotes(dayThreshold: number, limit = 5): Promise<St
   const cutoff = Date.now() - dayThreshold * 24 * 60 * 60 * 1000;
 
   return db.select<StaleNote[]>(
-    `SELECT n.*, v.last_visit
+    `SELECT n.id, n.title, n.content, n.plaintext, n.tags, n.frontmatter, n.parent_id, n.sync_id, n.created_at, n.updated_at, n.deleted_at, n.sort_order, v.last_visit
      FROM notes n
      LEFT JOIN (
        SELECT note_id, MAX(visited_at) AS last_visit
@@ -480,7 +494,8 @@ export async function getUnlinkedMentions(
   const linkedIds = new Set(linked.map((r) => r.source_id));
 
   const allNotes = await db.select<Note[]>(
-    `SELECT * FROM notes WHERE deleted_at IS NULL AND id != $1`,
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
+     FROM notes WHERE deleted_at IS NULL AND id != $1`,
     [targetId]
   );
 
@@ -592,13 +607,14 @@ function sanitizeNote(raw: Record<string, unknown>): Note {
     : JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
   const plaintext  = typeof raw.plaintext  === "string" ? raw.plaintext  : "";
   const tags       = typeof raw.tags       === "string" ? raw.tags       : null;
+  const frontmatter = typeof raw.frontmatter === "string" ? raw.frontmatter : null;
   const parent_id  = typeof raw.parent_id  === "string" ? raw.parent_id  : null;
   const sort_order = typeof raw.sort_order === "number" ? raw.sort_order : 0;
   const id         = typeof raw.id         === "string" && raw.id.trim() ? raw.id.trim() : crypto.randomUUID();
   const sync_id    = typeof raw.sync_id    === "string" && raw.sync_id.trim() ? raw.sync_id.trim() : crypto.randomUUID();
   const created_at = typeof raw.created_at === "number" ? raw.created_at : now_;
   const updated_at = typeof raw.updated_at === "number" ? raw.updated_at : now_;
-  return { id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at: null, sort_order };
+  return { id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at: null, sort_order };
 }
 
 function topoSort(notes: Note[]): Note[] {
@@ -624,9 +640,9 @@ export async function importNotes(json: string): Promise<number> {
   for (const note of notes) {
     if (await getNoteById(note.id)) continue;
     await db.execute(
-      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [note.id, note.title, note.content, note.plaintext, note.tags,
+      `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
        note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null, note.sort_order]
     );
     imported++;
@@ -642,12 +658,12 @@ export async function importNotesOverwrite(json: string): Promise<number> {
   let count = 0;
   for (const note of notes) {
     await db.execute(
-      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT(id) DO UPDATE SET
          title=excluded.title, content=excluded.content, plaintext=excluded.plaintext,
-         tags=excluded.tags, updated_at=excluded.updated_at, sort_order=excluded.sort_order`,
-      [note.id, note.title, note.content, note.plaintext, note.tags,
+         tags=excluded.tags, frontmatter=excluded.frontmatter, updated_at=excluded.updated_at, sort_order=excluded.sort_order`,
+      [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
        note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null, note.sort_order]
     );
     count++;
@@ -667,9 +683,9 @@ export async function importNotesAsCopies(json: string): Promise<number> {
     const newId       = idMap.get(note.id)!;
     const newParentId = note.parent_id ? (idMap.get(note.parent_id) ?? null) : null;
     await db.execute(
-      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [newId, note.title, note.content, note.plaintext, note.tags,
+      `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [newId, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
        newParentId, uuid(), now(), now(), null, note.sort_order]
     );
     count++;

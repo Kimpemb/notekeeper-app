@@ -13,6 +13,7 @@ import { Extension } from "@tiptap/core";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAutoSave } from "@/features/editor/hooks/useAutoSave";
+import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { syncBacklinks } from "@/features/notes/db/queries";
 import { NoteLink } from "./NoteLink";
 import { NoteLinkSuggest } from "./NoteLinkSuggest";
@@ -27,6 +28,7 @@ import { TableToolbar } from "./TableToolbar";
 import { TagBar } from "./TagBar";
 import { SubPagesSection } from "./SubPagesSection";
 import { SubPageNode } from "./SubPageNode";
+import { FrontmatterEditor } from "./FrontmatterEditor";
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -97,6 +99,9 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const pendingScrollQuery      = useUIStore((s) => s.pendingScrollQuery);
   const setPendingScrollQuery   = useUIStore((s) => s.setPendingScrollQuery);
 
+  // ── Settings ──────────────────────────────────────────────────────────────
+  const spellCheck = useAppSettings((s) => s.settings.spellCheck);
+
   const titleRef         = useRef<HTMLHeadingElement>(null);
   const editorWrapRef    = useRef<HTMLDivElement>(null);
   const scrollRef        = useRef<HTMLDivElement>(null);
@@ -122,9 +127,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
 
-  // ── Task list sort toolbar state ──────────────────────────────────────────
-  // Tracks whether the cursor is inside a taskList, and if so, where to
-  // position the floating Sort button (above the taskList node).
   const [taskListToolbarPos, setTaskListToolbarPos] = useState<{ top: number; left: number } | null>(null);
 
   const initialContent = note?.content ? JSON.parse(note.content) : "";
@@ -137,9 +139,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
-      // ── Task list sort command ────────────────────────────────────────────
       TaskListSortExtension,
-      // ── SubPageNode: inline sub-page block inserted by the slash command ──
       SubPageNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
@@ -151,20 +151,19 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       attributes: {
         class: "tiptap h-full outline-none",
         "data-placeholder": "Start writing…",
-        spellcheck: "false", autocorrect: "off", autocapitalize: "off",
+        spellcheck: String(spellCheck),
       },
     },
     onSelectionUpdate: ({ editor: e }) => {
       if (slashFromBubble.current) return;
       const { from, to, $from } = e.state.selection;
 
-      // ── Detect cursor in taskList and compute toolbar position ───────────
+      // ── Detect cursor in taskList ────────────────────────────────────────
       let foundTaskList = false;
       for (let depth = $from.depth; depth > 0; depth--) {
         const node = $from.node(depth);
         if (node.type.name === "taskList") {
           foundTaskList = true;
-          // Position the toolbar above the taskList DOM node
           const taskListPos = $from.before(depth);
           try {
             const domNode = e.view.nodeDOM(taskListPos) as HTMLElement | null;
@@ -172,15 +171,13 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
               const rect = domNode.getBoundingClientRect();
               setTaskListToolbarPos({ top: rect.top - 32, left: rect.left });
             }
-          } catch {
-            // coordsAtPos can throw if pos is out of range — safe to ignore
-          }
+          } catch { /**/ }
           break;
         }
       }
       if (!foundTaskList) setTaskListToolbarPos(null);
 
-      // ── Bubble menu logic (unchanged) ────────────────────────────────────
+      // ── Bubble menu ──────────────────────────────────────────────────────
       if (from === to) { setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return; }
       const selectedNodeType = $from.nodeAfter?.type.name ?? "";
       const insideTable = (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "table") return true; } return false; })();
@@ -230,6 +227,25 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   function closeSlashMenuInternal() { setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false; }
   function closeLinkSuggestInternal() { setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null; }
+
+  // ── Update spellcheck on the live editor when the setting changes ─────────
+  // useEditor constructs editorProps once, so we need to push updates manually.
+  useEffect(() => {
+    if (!editor) return;
+    editor.setOptions({
+      editorProps: {
+        attributes: {
+          class: "tiptap h-full outline-none",
+          "data-placeholder": "Start writing…",
+          spellcheck: String(spellCheck),
+        },
+      },
+    });
+    // Also update the DOM attribute directly so the browser spell-check
+    // engine responds immediately without waiting for a re-render.
+    const el = editor.view.dom as HTMLElement;
+    el.setAttribute("spellcheck", String(spellCheck));
+  }, [editor, spellCheck]);
 
   useEffect(() => {
     if (!scrollRef.current || initialScrollTop === 0) return;
@@ -374,7 +390,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     action(); closeSlashMenuInternal();
   }
 
-  // ── Sub-page inline node insertion ────────────────────────────────────────
   function handleSubPageCreate() {
     if (!editor) return;
 
@@ -393,11 +408,9 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     }
 
     const insertChain = editor.chain().focus();
-
     if (slashStartPos.current !== null) {
       insertChain.deleteRange({ from: slashStartPos.current, to: editor.state.selection.from });
     }
-
     insertChain
       .insertContent([
         { type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } },
@@ -436,13 +449,11 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     setTimeout(() => setSlashOpen(true), 0);
   }
 
-  // ── Block transform: current line → toggle (or unwrap if already a toggle) ─
   function convertToToggle() {
     if (!editor) return;
     const { state } = editor;
     const { $from, $to } = state.selection;
 
-    // Unwrap: if already inside a toggle, replace with a plain paragraph
     for (let d = $from.depth; d > 0; d--) {
       const node = $from.node(d);
       if (node.type.name === "toggle") {
@@ -460,7 +471,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       }
     }
 
-    // Collect all top-level blocks touched by the selection
     const blocks: { pos: number; node: import("@tiptap/pm/model").Node }[] = [];
     state.doc.nodesBetween($from.pos, $to.pos, (node, pos, parent) => {
       if (parent?.type.name === "doc" && node.isBlock) {
@@ -486,22 +496,18 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     }).run();
   }
 
-  // ── Block transform: current line → task list item (or unwrap if already one) ─
   function convertToTodo() {
     if (!editor) return;
     const { $from } = editor.state.selection;
-
     for (let d = $from.depth; d > 0; d--) {
       if ($from.node(d).type.name === "taskItem") {
         editor.chain().focus().liftListItem("taskItem").run();
         return;
       }
     }
-
     editor.chain().focus().toggleTaskList().run();
   }
 
-  // ── Sort the task list the cursor is currently inside ─────────────────────
   function handleSortTaskList() {
     if (!editor) return;
     editor.chain().focus().sortTaskList().run();
@@ -558,10 +564,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
           </div>
         )}
 
-        {/* ── Task list sort toolbar ─────────────────────────────────────────
-            Appears as a small floating button above the task list when the
-            cursor is inside one. Uses fixed positioning to stay above the list
-            regardless of scroll, matching the bubble menu pattern.           */}
         {editor && taskListToolbarPos && isActiveTab && (
           <div
             style={{ position: "fixed", top: taskListToolbarPos.top, left: taskListToolbarPos.left, zIndex: 40 }}
@@ -572,7 +574,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
               title="Sort: unchecked first, checked last"
               className="flex items-center gap-1.5 px-2.5 h-6 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 shadow-sm"
             >
-              {/* Sort icon: two lines with an arrow indicating reorder */}
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                 <path d="M1.5 3h5M1.5 5.5h3.5M1.5 8h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 <path d="M8.5 2v7M8.5 9l-1.5-1.5M8.5 9l1.5-1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -588,41 +589,24 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
             className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-xl"
             onMouseDown={(e) => { if ((e.target as HTMLElement).closest("button") === null) e.preventDefault(); }}
           >
-            {/* ── Inline formatting ── */}
             <BubbleBtn onClick={() => editor.chain().focus().toggleBold().run()}   active={editor.isActive("bold")}   title="Bold"><span className="font-bold text-sm">B</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive("italic")} title="Italic"><span className="italic text-sm">I</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive("strike")} title="Strikethrough"><span className="line-through text-sm">S</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleCode().run()}   active={editor.isActive("code")}   title="Inline code"><span className="font-mono text-sm">{"<>"}</span></BubbleBtn>
-
-            {/* ── Divider: inline | block transforms ── */}
             <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
-
-            {/* ── Block transforms ── */}
-            <BubbleBtn
-              onClick={convertToToggle}
-              active={editor.isActive("toggle")}
-              title="Convert to toggle"
-            >
+            <BubbleBtn onClick={convertToToggle} active={editor.isActive("toggle")} title="Convert to toggle">
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path d="M3 4l3 3-3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M8 9.5h3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
               </svg>
             </BubbleBtn>
-
-            <BubbleBtn
-              onClick={convertToTodo}
-              active={editor.isActive("taskItem")}
-              title="Convert to to-do"
-            >
+            <BubbleBtn onClick={convertToTodo} active={editor.isActive("taskItem")} title="Convert to to-do">
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <rect x="1.5" y="1.5" width="10" height="10" rx="2.5" stroke="currentColor" strokeWidth="1.4"/>
                 <path d="M3.5 6.5l2 2 3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </BubbleBtn>
-
-            {/* ── Divider: block transforms | more ── */}
             <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
-
             <button onClick={handleThreeDots} title="More commands" className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75">
               <span className="text-sm tracking-widest">···</span>
             </button>
@@ -631,6 +615,10 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
           <div className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text" onClick={handleEditorAreaClick}>
+            <FrontmatterEditor
+              frontmatter={note.frontmatter ?? null}
+              onChange={(frontmatter) => updateNote(note.id, { frontmatter })}
+            />
             <h1
               ref={titleRef}
               contentEditable suppressContentEditableWarning spellCheck={false}

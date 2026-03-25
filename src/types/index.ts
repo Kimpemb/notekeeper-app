@@ -6,6 +6,7 @@ export interface Note {
   content: string;
   plaintext: string;
   tags: string | null;
+  frontmatter: string | null;  // JSON string of key-value pairs
   parent_id: string | null;
   sync_id: string;
   created_at: number;

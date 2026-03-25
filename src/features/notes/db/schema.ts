@@ -126,4 +126,7 @@ export const ALL_MIGRATIONS: string[] = [
     created_at  INTEGER NOT NULL,
     PRIMARY KEY (source_id, target_id)
   )`,
+
+  // ── Frontmatter column for structured metadata (Week 4) ──────────────────
+  `ALTER TABLE notes ADD COLUMN frontmatter TEXT`,
 ];

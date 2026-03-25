@@ -1,6 +1,9 @@
+// src/features/editor/components/Editor/StatusBar.tsx
+
 import { useEffect } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import type { Editor } from "@tiptap/react";
 
 interface Props { editor: Editor | null; paneId: 1 | 2; }
@@ -31,6 +34,7 @@ export function StatusBar({ editor, paneId }: Props) {
   const closeVersionHistory = useUIStore((s) => s.closeVersionHistory);
   const versionHistoryOpen  = useUIStore((s) => s.versionHistoryOpen);
   const activeNote          = useNoteStore((s) => s.activeNote());
+  const showWordCount       = useAppSettings((s) => s.settings.showWordCount);
 
   const wordCount   = editor ? editor.getText().split(/\s+/).filter((w) => w.length > 0).length : 0;
   const charCount   = editor ? editor.getText().length : 0;
@@ -50,12 +54,16 @@ export function StatusBar({ editor, paneId }: Props) {
   return (
     <div className="flex items-center justify-between px-6 py-1.5 shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[11px] text-zinc-400 dark:text-zinc-500 select-none">
       <div className="flex items-center gap-3">
-        <span>{wordCount} {wordCount === 1 ? "word" : "words"}</span>
-        <span className="text-zinc-300 dark:text-zinc-700">·</span>
-        <span>{charCount} {charCount === 1 ? "char" : "chars"}</span>
+        {showWordCount && (
+          <>
+            <span>{wordCount} {wordCount === 1 ? "word" : "words"}</span>
+            <span className="text-zinc-300 dark:text-zinc-700">·</span>
+            <span>{charCount} {charCount === 1 ? "char" : "chars"}</span>
+          </>
+        )}
         {editedLabel && (
           <>
-            <span className="text-zinc-300 dark:text-zinc-700">·</span>
+            {showWordCount && <span className="text-zinc-300 dark:text-zinc-700">·</span>}
             <span>{editedLabel}</span>
           </>
         )}

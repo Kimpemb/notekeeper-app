@@ -3,6 +3,7 @@ import { useEffect, useCallback, useState, useRef } from "react";
 import { initDb } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { Sidebar } from "@/features/notes/components/Sidebar";
 import { Editor } from "@/features/editor/components/Editor";
 import { EmptyState } from "@/features/ui/components/EmptyState";
@@ -10,6 +11,7 @@ import { CommandPalette } from "@/features/ui/components/CommandPalette";
 import { KeyboardShortcuts } from "@/features/ui/components/KeyboardShortcuts";
 import { ImportModal } from "@/features/ui/components/ImportModal";
 import { TemplatePickerModal } from "@/features/ui/components/TemplatePickerModal";
+import { SettingsModal } from "@/features/ui/components/SettingsModal";
 import { TabBar } from "@/features/ui/components/TabBar";
 import { SplitDivider } from "@/features/ui/components/SplitDivider";
 import { TipsPanel } from "@/features/ui/components/TipsPanel";
@@ -67,10 +69,11 @@ export default function App() {
   const toggleSidebar       = useUIStore((s) => s.toggleSidebar);
   const togglePalette       = useUIStore((s) => s.togglePalette);
   const openShortcuts       = useUIStore((s) => s.openShortcuts);
+  const openSettings        = useUIStore((s) => s.openSettings);
   const openTabInPane2      = useUIStore((s) => s.openTabInPane2);
-  const pane1FileTreeOpen = useUIStore((s) => s.pane1FileTreeOpen);
-  const pane2FileTreeOpen = useUIStore((s) => s.pane2FileTreeOpen);
-  const toggleFileTree    = useUIStore((s) => s.toggleFileTree);
+  const pane1FileTreeOpen   = useUIStore((s) => s.pane1FileTreeOpen);
+  const pane2FileTreeOpen   = useUIStore((s) => s.pane2FileTreeOpen);
+  const toggleFileTree      = useUIStore((s) => s.toggleFileTree);
   const toggleBacklinks     = useUIStore((s) => s.toggleBacklinks);
   const toggleOutline       = useUIStore((s) => s.toggleOutline);
   const templatePickerOpen  = useUIStore((s) => s.templatePickerOpen);
@@ -123,9 +126,19 @@ export default function App() {
     return () => { unlisten.then(fn => fn()); };
   }, [appWindow]);
 
+  // ── Bootstrap DB, settings, and notes ────────────────────────────────────
+  // Load both setting stores in parallel before notes so the editor
+  // renders with the correct font/size/spellcheck from the very first paint.
   useEffect(() => {
     initDb()
-      .then(() => { setDbReady(true); useUIStore.getState().loadSettings().catch(console.error); return loadNotes(); })
+      .then(() => {
+        setDbReady(true);
+        return Promise.all([
+          useUIStore.getState().loadSettings(),       // theme + session tabs
+          useAppSettings.getState().load(),            // font, size, spellCheck, etc.
+        ]);
+      })
+      .then(() => loadNotes())
       .catch((err) => setDbError(String(err)));
   }, [loadNotes]);
 
@@ -212,9 +225,14 @@ export default function App() {
       e.preventDefault();
       if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
     }
+
+    if (ctrl && e.key === ",") {
+      e.preventDefault();
+      openSettings();
+    }
   }, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
-      openShortcuts, goBack, goForward, pane2GoBack, pane2GoForward, closeActiveTab, cycleTab,
-      graphOpen, openGraph, activePaneId, loadNotes, toggleTips]);
+      openShortcuts, openSettings, goBack, goForward, pane2GoBack, pane2GoForward,
+      closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, toggleTips]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -268,25 +286,13 @@ export default function App() {
   const breadcrumb = buildBreadcrumb(activeNoteId, notes);
   const isUntitled = activeNote ? /^Untitled-\d+$/.test(activeNote.title) : false;
 
-
-
-
-function handleHamburgerEnter() {
-  // Do nothing — no peek on hover
-}
-
-function handleHamburgerLeave() {
-  // Do nothing — no auto-close
-}
-
-function handleHamburgerClick() {
-  // Toggle sidebar directly
-  if (sidebarState === "open") {
-    setSidebarState("closed");
-  } else {
-    setSidebarState("open");
+  function handleHamburgerClick() {
+    if (sidebarState === "open") {
+      setSidebarState("closed");
+    } else {
+      setSidebarState("open");
+    }
   }
-}
 
   function renderPane(paneId: 1 | 2) {
     const paneTabs        = paneId === 1 ? tabs : pane2Tabs;
@@ -340,11 +346,9 @@ function handleHamburgerClick() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      {/* Main layout */}
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
         <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
-          {/* Header with integrated window controls */}
           <header
             data-tauri-drag-region
             className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
@@ -352,7 +356,8 @@ function handleHamburgerClick() {
           >
             <div className="flex items-center gap-0 min-w-0 flex-1">
               <div className="overflow-hidden shrink-0" style={{ opacity: isClosed ? 1 : 0, width: isClosed ? "28px" : "0px", transition: sidebarState === "closed" ? "opacity 250ms ease 100ms, width 250ms ease 100ms" : "none" }}>
-                <button onMouseEnter={handleHamburgerEnter} onMouseLeave={handleHamburgerLeave} onClick={handleHamburgerClick}
+                <button
+                  onClick={handleHamburgerClick}
                   title="Open sidebar (Ctrl+\)"
                   className="w-7 h-7 flex flex-col items-center justify-center gap-[4.5px] rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
                 >
@@ -445,59 +450,59 @@ function handleHamburgerClick() {
                 </svg>
               </button>
 
+              <button
+                onClick={openSettings}
+                title="Settings (Ctrl+,)"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+                  <path d="M7 1.5v1M7 11.5v1M1.5 7h1M11.5 7h1M3.1 3.1l.7.7M10.2 10.2l.7.7M10.9 3.1l-.7.7M3.8 10.2l-.7.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                </svg>
+              </button>
+
               <ThemeToggle />
 
-              {/* Window controls */}
-<div className="flex items-center gap-1 ml-2 border-l border-zinc-200 dark:border-zinc-700 pl-2">
-  <button
-    onClick={async () => {
-      const window = getCurrentWindow();
-      await window.minimize();
-    }}
-    title="Minimize"
-    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-  >
-    <svg width="12" height="12" viewBox="0 0 10 2" fill="none">
-      <rect width="10" height="1.5" fill="currentColor" />
-    </svg>
-  </button>
-  <button
-    onClick={async () => {
-      const window = getCurrentWindow();
-      const isMax = await window.isMaximized();
-      if (isMax) {
-        await window.unmaximize();
-      } else {
-        await window.maximize();
-      }
-    }}
-    title="Maximize"
-    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-  >
-    {isWindowMaximized ? (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-        <path d="M3 1H9C10.1046 1 11 1.89543 11 3V9C11 10.1046 10.1046 11 9 11H3C1.89543 11 1 10.1046 1 9V3C1 1.89543 1.89543 1 3 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" />
-        <path d="M4 4L8 8M8 4L4 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    ) : (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-        <rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="1.2" fill="none" />
-      </svg>
-    )}
-  </button>
-  <button
-    onClick={async () => {
-      const window = getCurrentWindow();
-      await window.close();
-    }}
-    title="Close"
-    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:bg-red-500 hover:text-white transition-colors duration-150"
-  >
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  </button>
-</div>
+              <div className="flex items-center gap-1 ml-2 border-l border-zinc-200 dark:border-zinc-700 pl-2">
+                <button
+                  onClick={async () => { const window = getCurrentWindow(); await window.minimize(); }}
+                  title="Minimize"
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+                >
+                  <svg width="12" height="12" viewBox="0 0 10 2" fill="none">
+                    <rect width="10" height="1.5" fill="currentColor" />
+                  </svg>
+                </button>
+                <button
+                  onClick={async () => {
+                    const window = getCurrentWindow();
+                    const isMax = await window.isMaximized();
+                    if (isMax) { await window.unmaximize(); } else { await window.maximize(); }
+                  }}
+                  title="Maximize"
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+                >
+                  {isWindowMaximized ? (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M3 1H9C10.1046 1 11 1.89543 11 3V9C11 10.1046 10.1046 11 9 11H3C1.89543 11 1 10.1046 1 9V3C1 1.89543 1.89543 1 3 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                      <path d="M4 4L8 8M8 4L4 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  onClick={async () => { const window = getCurrentWindow(); await window.close(); }}
+                  title="Close"
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:bg-red-500 hover:text-white transition-colors duration-150"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </header>
 
@@ -514,6 +519,7 @@ function handleHamburgerClick() {
       <CommandPalette />
       <KeyboardShortcuts />
       <ImportModal />
+      <SettingsModal />
       <TemplatePickerModal
         open={templatePickerOpen}
         onSelect={handleTemplateSelect}
