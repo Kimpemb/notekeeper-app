@@ -252,8 +252,10 @@ export function NoteTreeItem({
             className="flex-1 bg-white dark:bg-zinc-600 text-zinc-900 dark:text-zinc-100 text-base px-1 rounded outline-none border border-zinc-300 dark:border-zinc-500 min-w-0"
           />
         ) : (
-          <span className="flex-1 truncate text-base leading-none flex items-center gap-1.5">
-            {note.title}
+<span
+  className="flex-1 text-base leading-none flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
+  style={{ maskImage: "linear-gradient(to right, black 75%, transparent 100%)", WebkitMaskImage: "linear-gradient(to right, black 75%, transparent 100%)" }}
+>            {note.title}
             {isPinned && (
               <span className="shrink-0 opacity-40">
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">

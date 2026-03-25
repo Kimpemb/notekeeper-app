@@ -345,7 +345,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+<div className="flex h-screen w-screen flex-col overflow-hidden bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
         <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
