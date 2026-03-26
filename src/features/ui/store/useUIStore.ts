@@ -39,7 +39,7 @@ const DEFAULT_GRAPH_STATE: GraphViewState = {
   depth: 4,
 };
 
-const SESSION_KEY = "notekeeper_session";
+const SESSION_KEY = "idemora_session";
 
 
 interface SessionPersist {
@@ -263,7 +263,7 @@ interface UIStore {
 
 function getInitialTheme(): Theme {
   try {
-    const saved = localStorage.getItem("notekeeper-theme");
+    const saved = localStorage.getItem("idemora-theme");
     if (saved === "light" || saved === "dark") return saved;
   } catch { /**/ }
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -271,7 +271,7 @@ function getInitialTheme(): Theme {
 
 function applyTheme(theme: Theme, persist = false) {
   document.documentElement.classList.toggle("dark", theme === "dark");
-  try { localStorage.setItem("notekeeper-theme", theme); } catch { /**/ }
+  try { localStorage.setItem("idemora-theme", theme); } catch { /**/ }
   if (persist) setSetting("theme", theme).catch(console.error);
 }
 

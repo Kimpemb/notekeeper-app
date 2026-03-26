@@ -314,8 +314,8 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
       editor!.chain().focus().insertContent({ type: "noteLink", attrs: { id: linkedId, label: noteTitle } }).run();
     }
-    window.addEventListener("notekeeper:insert-link", handleInsertLink);
-    return () => window.removeEventListener("notekeeper:insert-link", handleInsertLink);
+    window.addEventListener("idemora:insert-link", handleInsertLink);
+    return () => window.removeEventListener("idemora:insert-link", handleInsertLink);
   }, [editor, isActiveTab]);
 
   const onSaveComplete = useCallback((content: string, savedNoteId: string) => {

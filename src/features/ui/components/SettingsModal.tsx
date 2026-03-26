@@ -18,7 +18,7 @@ export interface AppSettings {
   showWordCount: boolean;
   autoPurgeTrash: boolean;
   hasCompletedOnboarding: boolean;
-  hasInsertedSampleNotes: boolean; // ← ADD THIS
+  hasInsertedSampleNotes: boolean;
 }
 
 const SETTINGS_KEY = "app_settings_v1";
@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showWordCount: true,
   autoPurgeTrash: true,
   hasCompletedOnboarding: false,
-  hasInsertedSampleNotes: false, // ← ADD THIS
+  hasInsertedSampleNotes: false,
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -51,7 +51,7 @@ export async function saveAppSettings(settings: AppSettings): Promise<void> {
   await setSetting(SETTINGS_KEY, JSON.stringify(settings));
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Sub-components (unchanged) ───────────────────────────────────────────────
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -132,7 +132,7 @@ function Select<T extends string>({
   );
 }
 
-// ─── Sidebar nav tabs ─────────────────────────────────────────────────────────
+// ─── Sidebar nav tabs (unchanged) ─────────────────────────────────────────────
 
 type Section = "appearance" | "editor" | "keybindings" | "data";
 
@@ -179,7 +179,7 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-// ─── Keybindings reference ────────────────────────────────────────────────────
+// ─── Keybindings reference (unchanged) ────────────────────────────────────────
 
 const KEYBINDINGS: { category: string; shortcuts: { keys: string[]; action: string }[] }[] = [
   {
@@ -248,8 +248,6 @@ export function SettingsModal() {
   const theme         = useUIStore((s) => s.theme);
   const setTheme      = useUIStore((s) => s.setTheme);
 
-  // Read settings from the store — single source of truth shared with the
-  // editor, status bar, and autosave hook.
   const settings     = useAppSettings((s) => s.settings);
   const storeUpdate  = useAppSettings((s) => s.updateSetting);
 
@@ -258,9 +256,8 @@ export function SettingsModal() {
   const saveTimer             = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overlayRef            = useRef<HTMLDivElement>(null);
 
-  // Flash "Saved" indicator after each change
   function updateSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
-    storeUpdate(key, value); // writes to store → DOM (CSS vars) → SQLite
+    storeUpdate(key, value);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       setSaved(true);
@@ -268,7 +265,6 @@ export function SettingsModal() {
     }, 400);
   }
 
-  // Close on Escape
   useEffect(() => {
     if (!settingsOpen) return;
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") closeSettings(); }
@@ -290,7 +286,6 @@ export function SettingsModal() {
     >
       <div className="relative flex w-[720px] max-w-[95vw] h-[520px] max-h-[90vh] rounded-xl shadow-2xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
 
-        {/* Sidebar */}
         <aside className="w-44 shrink-0 bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col py-4 gap-0.5 px-2">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 px-2 mb-2">
             Settings
@@ -309,7 +304,6 @@ export function SettingsModal() {
               {s.label}
             </button>
           ))}
-
           <div className="mt-auto px-2">
             <p className={`text-[11px] text-green-500 transition-opacity duration-300 ${saved ? "opacity-100" : "opacity-0"}`}>
               ✓ Saved
@@ -317,10 +311,8 @@ export function SettingsModal() {
           </div>
         </aside>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
 
-          {/* Close button */}
           <button
             onClick={closeSettings}
             className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-150"
@@ -330,7 +322,6 @@ export function SettingsModal() {
             </svg>
           </button>
 
-          {/* ── Appearance ────────────────────────────────────────── */}
           {section === "appearance" && (
             <div>
               <SectionTitle>Theme</SectionTitle>
@@ -349,20 +340,20 @@ export function SettingsModal() {
               </Row>
 
               <SectionTitle>Onboarding</SectionTitle>
-<Row 
-  label="Show welcome tour" 
-  description="View the onboarding guide again"
->
-  <button
-    onClick={() => {
-      updateSetting("hasCompletedOnboarding", false);
-      closeSettings();
-    }}
-    className="px-4 py-1.5 text-sm font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:opacity-80 transition-opacity"
-  >
-    Restart tour
-  </button>
-</Row>
+              <Row 
+                label="Show welcome tour" 
+                description="View the onboarding guide again"
+              >
+                <button
+                  onClick={() => {
+                    updateSetting("hasCompletedOnboarding", false);
+                    closeSettings();
+                  }}
+                  className="px-4 py-1.5 text-sm font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:opacity-80 transition-opacity"
+                >
+                  Restart tour
+                </button>
+              </Row>
 
               <SectionTitle>Typography</SectionTitle>
               <Row label="Editor font" description="Font used in the note editor">
@@ -401,7 +392,6 @@ export function SettingsModal() {
             </div>
           )}
 
-          {/* ── Editor ───────────────────────────────────────────── */}
           {section === "editor" && (
             <div>
               <SectionTitle>Behaviour</SectionTitle>
@@ -417,7 +407,6 @@ export function SettingsModal() {
                   onChange={(v) => updateSetting("showWordCount", v)}
                 />
               </Row>
-
               <SectionTitle>Autosave</SectionTitle>
               <Row label="Autosave delay" description="How long after you stop typing before the note saves">
                 <Select
@@ -431,7 +420,6 @@ export function SettingsModal() {
                   ]}
                 />
               </Row>
-
               <SectionTitle>Layout</SectionTitle>
               <Row label="Default view" description="How new sessions open">
                 <Select
@@ -446,7 +434,6 @@ export function SettingsModal() {
             </div>
           )}
 
-          {/* ── Keybindings ───────────────────────────────────────── */}
           {section === "keybindings" && (
             <div>
               <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-4">
@@ -477,7 +464,6 @@ export function SettingsModal() {
             </div>
           )}
 
-          {/* ── Data ─────────────────────────────────────────────── */}
           {section === "data" && (
             <div>
               <SectionTitle>Storage</SectionTitle>
@@ -495,11 +481,11 @@ export function SettingsModal() {
               <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
                   <span className="text-sm text-zinc-700 dark:text-zinc-300">App</span>
-                  <span className="text-sm text-zinc-400 dark:text-zinc-500 font-mono">Notekeeper</span>
+                  <span className="text-sm text-zinc-400 dark:text-zinc-500 font-mono">Idemora</span>
                 </div>
                 <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
                   <span className="text-sm text-zinc-700 dark:text-zinc-300">Version</span>
-                  <span className="text-sm text-zinc-400 dark:text-zinc-500 font-mono">1.0.0</span>
+                  <span className="text-sm text-zinc-400 dark:text-zinc-500 font-mono">1.1.0</span>
                 </div>
                 <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900">
                   <span className="text-sm text-zinc-700 dark:text-zinc-300">Storage</span>

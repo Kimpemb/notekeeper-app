@@ -51,7 +51,7 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
       // Passes noteId + noteTitle so the editor can insert a proper noteLink
       // node rather than raw [[text]].
       window.dispatchEvent(
-        new CustomEvent("notekeeper:insert-link", {
+        new CustomEvent("idemora:insert-link", {
           detail: { noteId: note.id, noteTitle: note.title },
         })
       );

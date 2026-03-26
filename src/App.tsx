@@ -173,8 +173,8 @@ export default function App() {
       newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
     }
-    window.addEventListener("notekeeper:new-note-new-tab", handle);
-    return () => window.removeEventListener("notekeeper:new-note-new-tab", handle);
+    window.addEventListener("idemora:new-note-new-tab", handle);
+    return () => window.removeEventListener("idemora:new-note-new-tab", handle);
   }, []);
 
   useEffect(() => {
@@ -275,7 +275,7 @@ export default function App() {
     useUIStore.getState().setExportHandlers({
       exportAll: async () => {
         setExporting(true);
-        try { await exportNotesToFile(JSON.stringify(notes, null, 2), "notekeeper-export.json"); }
+        try { await exportNotesToFile(JSON.stringify(notes, null, 2), "idemora-export.json"); }
         catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
       exportNoteJson: async () => {

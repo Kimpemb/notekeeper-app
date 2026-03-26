@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
 
-export async function exportNotesToFile(contents: string, defaultName = "notekeeper-export.json"): Promise<boolean> {
+export async function exportNotesToFile(contents: string, defaultName = "idemora-export.json"): Promise<boolean> {
   const isJson = defaultName.endsWith(".json");
   const path = await save({
     defaultPath: defaultName,

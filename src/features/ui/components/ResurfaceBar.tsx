@@ -158,7 +158,7 @@ export function ResurfaceBar() {
 
   function handleLink() {
     if (!suggestion) return;
-    window.dispatchEvent(new CustomEvent("notekeeper:insert-link", {
+    window.dispatchEvent(new CustomEvent("idemora:insert-link", {
       detail: { noteId: suggestion.noteId, noteTitle: suggestion.noteTitle },
     }));
     animateOut(async () => {

@@ -1,12 +1,12 @@
 [package]
-name = "tauri-app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+name = "idemora"
+version = "1.1.0"
+description = "Idemora - A quiet place for your notes, ideas, and the connections between them"
+authors = ["joshua"]
 edition = "2021"
 
 [lib]
-name = "tauri_app_lib"
+name = "idemora_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

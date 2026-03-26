@@ -312,7 +312,7 @@ export function CommandPalette() {
       kind: "action", id: "new-note-new-tab", label: "New Note in New Tab", hint: "Ctrl+Shift+N",
       action: () => {
         closePalette();
-        window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab"));
+        window.dispatchEvent(new CustomEvent("idemora:new-note-new-tab"));
       },
     },
     {

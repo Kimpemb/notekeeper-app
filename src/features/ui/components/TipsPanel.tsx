@@ -17,7 +17,7 @@ function getTipAction(description: string, _keys?: string[]): (() => void) | und
   const actionMap: Record<string, () => void> = {
     "Open command palette": () => uiStore.togglePalette(),
     "New note": () => uiStore.openTemplatePicker(),
-    "New note in new tab": () => window.dispatchEvent(new CustomEvent("notekeeper:new-note-new-tab")),
+    "New note in new tab": () => window.dispatchEvent(new CustomEvent("idemora:new-note-new-tab")),
     "Toggle sidebar": () => uiStore.toggleSidebar(),
     "Toggle file tree": () => uiStore.toggleFileTree(uiStore.activePaneId),
     "Toggle graph view": () => uiStore.graphOpen ? uiStore.closeGraph() : uiStore.openGraph(),

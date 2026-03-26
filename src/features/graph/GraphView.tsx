@@ -207,7 +207,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
       URL.revokeObjectURL(url);
 
       const link    = document.createElement("a");
-      link.download = `notekeeper-graph-${Date.now()}.png`;
+      link.download = `idemora-graph-${Date.now()}.png`;
       link.href     = canvas.toDataURL("image/png");
       link.click();
 
