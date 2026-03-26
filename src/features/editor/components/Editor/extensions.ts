@@ -28,6 +28,22 @@ export const CodeBlock = CodeBlockLowlight.extend({
   addNodeView() {
     return ReactNodeViewRenderer(CodeBlockNodeView);
   },
+  addKeyboardShortcuts() {
+    return {
+      Tab: ({ editor }) => {
+        const { $from } = editor.state.selection;
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "codeBlock") {
+            editor.chain().focus().insertContent("    ").run();
+            return true;
+          }
+          depth--;
+        }
+        return false;
+      },
+    };
+  },
 }).configure({
   lowlight,
   defaultLanguage: "plaintext",
@@ -82,36 +98,38 @@ export { TableRow, TableHeader, TableCell };
 export const TaskItemExitExtension = Extension.create({
   name: "taskItemExit",
   addKeyboardShortcuts() {
-    return {
-      Enter: ({ editor }) => {
-        const { $from, empty } = editor.state.selection;
-        if (!empty) return false;
-        if ($from.parent.type.name !== "paragraph") return false;
-        if ($from.parent.content.size !== 0) return false;
-        let depth = $from.depth;
-        while (depth > 0) {
-          if ($from.node(depth).type.name === "taskItem") {
-            return editor.chain().focus().liftListItem("taskItem").run();
-          }
-          depth--;
+  return {
+    Tab: ({ editor }) => {
+      const { $from } = editor.state.selection;
+      let depth = $from.depth;
+      while (depth > 0) {
+        if ($from.node(depth).type.name === "codeBlock") {
+          editor.chain().focus().insertContent("    ").run();
+          return true;
         }
-        return false;
-      },
-      Backspace: ({ editor }) => {
-        const { $from, empty } = editor.state.selection;
-        if (!empty || $from.parentOffset !== 0) return false;
-        if ($from.parent.type.name !== "paragraph") return false;
-        let depth = $from.depth;
-        while (depth > 0) {
-          if ($from.node(depth).type.name === "taskItem") {
-            return editor.chain().focus().liftListItem("taskItem").run();
+        depth--;
+      }
+      return false;
+    },
+    "Shift-Tab": ({ editor }) => {
+      const { $from } = editor.state.selection;
+      let depth = $from.depth;
+      while (depth > 0) {
+        if ($from.node(depth).type.name === "codeBlock") {
+          const { from } = editor.state.selection;
+          const lineStart = $from.start($from.depth);
+          const textBefore = editor.state.doc.textBetween(lineStart, from);
+          if (textBefore.endsWith("    ")) {
+            editor.chain().focus().deleteRange({ from: from - 4, to: from }).run();
           }
-          depth--;
+          return true;
         }
-        return false;
-      },
-    };
-  },
+        depth--;
+      }
+      return false;
+    },
+  };
+},
 });
 
 // ── Callout block (info / warning / tip / danger) ─────────────────────────────

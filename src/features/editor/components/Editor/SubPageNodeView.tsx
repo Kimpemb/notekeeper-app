@@ -2,13 +2,11 @@
 //
 // EDITING MODE  — bare input, pre-selected, Enter/blur commits, Escape cancels
 // DISPLAY MODE  — Notion-style block row
-//   • Clicking the row body lets TipTap's editor view handle it → NodeSelection
-//     (the atom node gets the same ::selection highlight as other blocks)
-//   • The arrow button on the right is the navigation affordance (click = same tab,
-//     Ctrl/Cmd+click = new tab)
+//   • First click  → TipTap NodeSelection (block highlight)
+//   • Second click → navigate into the note (same tab)
+//   • Ctrl+click   → navigate into the note (new tab)
 
-import { useEffect, useRef } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { createNote as dbCreateNote } from "@/features/notes/db/queries";
@@ -23,8 +21,10 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   };
 
   const [inputValue, setInputValue] = useState(title);
-  const inputRef     = useRef<HTMLInputElement>(null);
-  const committedRef = useRef(false);
+  const inputRef       = useRef<HTMLInputElement>(null);
+  const committedRef   = useRef(false);
+  const selectedRef    = useRef(false);
+  const resetTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const subPageStorage = (editor.storage as unknown as Record<string, unknown>)["subPage"] as
     | { parentNoteId: string; paneId: 1 | 2 }
@@ -45,6 +45,19 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     if (!el) return;
     setTimeout(() => { el.focus(); el.select(); }, 30);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset selected state when clicking elsewhere in the editor
+  useEffect(() => {
+    function handleEditorClick(e: MouseEvent) {
+      const wrapper = (e.target as HTMLElement).closest(".subpage-node-wrapper");
+      if (!wrapper) {
+        selectedRef.current = false;
+        if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      }
+    }
+    document.addEventListener("mousedown", handleEditorClick);
+    return () => document.removeEventListener("mousedown", handleEditorClick);
+  }, []);
 
   async function commit(rawTitle: string) {
     if (committedRef.current) return;
@@ -88,14 +101,39 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     }
   }
 
+  function handleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    const isMac  = navigator.platform.toUpperCase().includes("MAC");
+    const isCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+    // Ctrl+click always navigates immediately (new tab)
+    if (isCtrl) {
+      selectedRef.current = false;
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      navigate(e);
+      return;
+    }
+
+    if (selectedRef.current) {
+      // Second click — navigate
+      selectedRef.current = false;
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      navigate(e);
+    } else {
+      // First click — select
+      selectedRef.current = true;
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => {
+        selectedRef.current = false;
+      }, 1500);
+    }
+  }
+
   const liveTitle = noteId
     ? (notes.find((n) => n.id === noteId)?.title ?? title)
     : title;
 
   return (
-    // NodeViewWrapper renders a <div>. We do NOT put data-drag-handle here —
-    // that attribute suppresses TipTap's built-in node selection click handler.
-    // The atom node is selected by clicking anywhere that isn't the nav button.
     <NodeViewWrapper className="subpage-node-wrapper my-0.5">
       {mode === "editing" ? (
         // ── EDITING ─────────────────────────────────────────────────────────
@@ -115,15 +153,10 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
         </div>
       ) : (
         // ── DISPLAY ─────────────────────────────────────────────────────────
-        // The outer div does NOT stopPropagation — TipTap's editor view receives
-        // the click, sees it lands on an atom node, and creates a NodeSelection,
-        // which triggers the browser's ::selection highlight.
-        // Single click → TipTap NodeSelection (block highlight)
-        // Double click → navigate into the note
         <div
           className="group flex items-center gap-2.5 px-1 py-1.5 rounded-md w-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100 cursor-default"
-          onDoubleClick={(e) => { e.stopPropagation(); navigate(e); }}
-          title="Double-click to open · Ctrl+double-click for new tab"
+          onClick={handleClick}
+          title="Click to select · Click again to open · Ctrl+click for new tab"
         >
           <PageIcon className="text-zinc-400 dark:text-zinc-500 shrink-0" />
           <span className="flex-1 text-base text-zinc-700 dark:text-zinc-300 select-none">
