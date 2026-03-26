@@ -37,6 +37,7 @@ import {
   SlashPlaceholderExtension, OrderedListBackspaceExtension, CodeBlockSelectAllExtension,
   ListSelectAllExtension, createFindReplaceShortcutExtension, ImageExtension, AttachmentExtension,
   TaskListSortExtension,
+  CodeBlockBackspaceExtension,
 } from "./extensions";
 import {
   extractNoteLinkIds, scrollToHeadingText, scrollToQuery,
@@ -137,7 +138,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       CodeBlock, Callout, CheckList, CheckItem, EditorTable, TableRow, TableHeader, TableCell,
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
-      ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
+      CodeBlockBackspaceExtension,ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension,
       TaskListSortExtension,
       SubPageNode,
@@ -614,11 +615,11 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
         )}
 
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
-          <div className="w-full mx-auto px-8 py-6 min-h-full max-w-2xl xl:max-w-3xl 2xl:max-w-4xl cursor-text" onClick={handleEditorAreaClick}>
-            <FrontmatterEditor
-              frontmatter={note.frontmatter ?? null}
-              onChange={(frontmatter) => updateNote(note.id, { frontmatter })}
-            />
+  <div className="w-full mx-auto px-8 py-6 min-h-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl cursor-text" onClick={handleEditorAreaClick}>
+    <FrontmatterEditor
+      frontmatter={note.frontmatter ?? null}
+      onChange={(frontmatter) => updateNote(note.id, { frontmatter })}
+    />
             <h1
               ref={titleRef}
               contentEditable suppressContentEditableWarning spellCheck={false}
@@ -633,8 +634,9 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
             </h1>
             <TagBar noteId={note.id} tags={note.tags} />
             <div key={note.id} ref={editorWrapRef}>
-              <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
-            </div>
+  <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
+  <div className="h-[25vh]" />
+</div>
           </div>
           <SubPagesSection noteId={note.id} paneId={paneId} />
         </div>

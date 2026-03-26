@@ -647,6 +647,27 @@ export const OrderedListBackspaceExtension = Extension.create({
   },
 });
 
+// ── Prevent backspace from entering a code block above ───────────────────────
+export const CodeBlockBackspaceExtension = Extension.create({
+  name: "codeBlockBackspace",
+  addKeyboardShortcuts() {
+    return {
+      Backspace: ({ editor }) => {
+        const { $from, empty } = editor.state.selection;
+        if (!empty || $from.parentOffset !== 0) return false;
+
+        const pos = $from.before($from.depth);
+        if (pos <= 0) return false;
+
+        const nodeBefore = $from.doc.resolve(pos).nodeBefore;
+        if (nodeBefore?.type.name === "codeBlock" && nodeBefore.content.size > 0) return true;
+
+        return false;
+      },
+    };
+  },
+});
+
 // ── Ctrl+A inside code block selects only that block's content ────────────────
 export const CodeBlockSelectAllExtension = Extension.create({
   name: "codeBlockSelectAll",
