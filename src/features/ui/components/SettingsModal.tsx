@@ -17,6 +17,8 @@ export interface AppSettings {
   defaultView: "editor" | "split";
   showWordCount: boolean;
   autoPurgeTrash: boolean;
+  hasCompletedOnboarding: boolean;
+  hasInsertedSampleNotes: boolean; // ← ADD THIS
 }
 
 const SETTINGS_KEY = "app_settings_v1";
@@ -31,6 +33,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultView: "editor",
   showWordCount: true,
   autoPurgeTrash: true,
+  hasCompletedOnboarding: false,
+  hasInsertedSampleNotes: false, // ← ADD THIS
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -343,6 +347,22 @@ export function SettingsModal() {
                   ]}
                 />
               </Row>
+
+              <SectionTitle>Onboarding</SectionTitle>
+<Row 
+  label="Show welcome tour" 
+  description="View the onboarding guide again"
+>
+  <button
+    onClick={() => {
+      updateSetting("hasCompletedOnboarding", false);
+      closeSettings();
+    }}
+    className="px-4 py-1.5 text-sm font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:opacity-80 transition-opacity"
+  >
+    Restart tour
+  </button>
+</Row>
 
               <SectionTitle>Typography</SectionTitle>
               <Row label="Editor font" description="Font used in the note editor">
