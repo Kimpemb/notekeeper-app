@@ -26,7 +26,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
 import { invoke } from "@tauri-apps/api/core";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { cancelSidebarCollapse } from "@/lib/sidebarTimer";
 import { OnboardingModal, useSampleNotes } from "./features/onboarding";
 
@@ -169,22 +168,16 @@ useEffect(() => {
   async function checkForUpdates() {
     try {
       const hasUpdate = await invoke<boolean>("check_for_updates");
-      if (hasUpdate) {
-        const yes = await ask(
-          "A new version of Idemora is available. Would you like to install it now?",
-          { title: "Update Available", kind: "info" }
-        );
-        if (yes) {
-          await invoke("install_update");
-        }
-      }
+      alert(`Update check result: ${hasUpdate}`);
     } catch (err) {
-      console.error("Updater error:", err);
+      alert(`Updater error: ${err}`);
     }
   }
 
   checkForUpdates();
 }, [dbReady]);
+
+
 
   // Rest of your component remains the same...
   useEffect(() => {
