@@ -1,0 +1,35 @@
+{
+  "version": "1.1.7",
+  "notes": "See the release assets below to download and install this version.",
+  "pub_date": "2026-03-27T05:12:51.161Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUNnlUVmg4RWl6S1VKRlQ2aDR0S1FaMHBNRC9iams5ME8xcWpEMGtNNlRYMnpFYUluZWZBekg4UjYyUlYwNi9FTStsMHF6OWNMLzdjK2xZaDc0R3VONmwzbGZjbDV3UmdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NTg4MTA4CWZpbGU6SWRlbW9yYS5hcHAudGFyLmd6CmNETjFwZ05kWldqVGZHTnowVGg2RkdLRndCZnZ4eFRVS0NoRzkvbWxmaWlQQTQwVWEwMnpkNnVTMW4zUm92djVkdjVXNDRMbGhaZzhWVWt4RCtzakJ3PT0K",
+      "url": "https://github.com/Kimpemb/notekeeper-app/releases/download/v1.1.7/Idemora_aarch64.app.tar.gz"
+    },
+    "darwin-aarch64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUNnlUVmg4RWl6S1VKRlQ2aDR0S1FaMHBNRC9iams5ME8xcWpEMGtNNlRYMnpFYUluZWZBekg4UjYyUlYwNi9FTStsMHF6OWNMLzdjK2xZaDc0R3VONmwzbGZjbDV3UmdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NTg4MTA4CWZpbGU6SWRlbW9yYS5hcHAudGFyLmd6CmNETjFwZ05kWldqVGZHTnowVGg2RkdLRndCZnZ4eFRVS0NoRzkvbWxmaWlQQTQwVWEwMnpkNnVTMW4zUm92djVkdjVXNDRMbGhaZzhWVWt4RCtzakJ3PT0K",
+      "url": "https://github.com/Kimpemb/notekeeper-app/releases/download/v1.1.7/Idemora_aarch64.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUNnlUVmg4RWl6S1lNTG91R1p5eFNYRkp3OGN3RzVycXZETnJXSW5aMjAxc2oxU0pxV25abzZNNzZvYUphYVpUbWdTRHQ0NHp1dUNURGJkUXZjcmdzbENaS3pOalVkckFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NTg4MjIyCWZpbGU6SWRlbW9yYS5hcHAudGFyLmd6CitzbWY2Z0ZrU0g0ajQ1TTVLZVdEb2lFZUNiQmFBV05idXVJdzNidmV2NnpaR2NuTTF2QjQ1R1g2UjFwaG5NTmpkbGV1V3VjWXVZRFNXK0Nrd00xZkNnPT0K",
+      "url": "https://github.com/Kimpemb/notekeeper-app/releases/download/v1.1.7/Idemora_x64.app.tar.gz"
+    },
+    "darwin-x86_64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUNnlUVmg4RWl6S1lNTG91R1p5eFNYRkp3OGN3RzVycXZETnJXSW5aMjAxc2oxU0pxV25abzZNNzZvYUphYVpUbWdTRHQ0NHp1dUNURGJkUXZjcmdzbENaS3pOalVkckFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NTg4MjIyCWZpbGU6SWRlbW9yYS5hcHAudGFyLmd6CitzbWY2Z0ZrU0g0ajQ1TTVLZVdEb2lFZUNiQmFBV05idXVJdzNidmV2NnpaR2NuTTF2QjQ1R1g2UjFwaG5NTmpkbGV1V3VjWXVZRFNXK0Nrd00xZkNnPT0K",
+      "url": "https://github.com/Kimpemb/notekeeper-app/releases/download/v1.1.7/Idemora_x64.app.tar.gz"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUNnlUVmg4RWl6S1hQWGJvRnA3WTJyY1BHeHR4QWdWamttQXdlM0Jyei9DK1dZdTVHTHdyL0NyNjd6TEpSVDlPUFl5cGxWa3Rnb1hURDRMNnhUbXhMRFF6Uit4TlFGQ1FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NTg4MzY4CWZpbGU6SWRlbW9yYV8xLjEuN194NjRfZW4tVVMubXNpCitXVDRWVXFMbC93elFxeVB5TmYxR1FiUXppUjJlQmprYlFxTTJORDB4bE5ycm1TSlAzcXBPbkZQSWxNYno0bzgwRklSNkJYTk1mN3A0WUFwdXFXNUJnPT0K",
+      "url": "https://github.com/Kimpemb/notekeeper-app/releases/download/v1.1.7/Idemora_1.1.7_x64_en-US.msi"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUNnlUVmg4RWl6S1hQWGJvRnA3WTJyY1BHeHR4QWdWamttQXdlM0Jyei9DK1dZdTVHTHdyL0NyNjd6TEpSVDlPUFl5cGxWa3Rnb1hURDRMNnhUbXhMRFF6Uit4TlFGQ1FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NTg4MzY4CWZpbGU6SWRlbW9yYV8xLjEuN194NjRfZW4tVVMubXNpCitXVDRWVXFMbC93elFxeVB5TmYxR1FiUXppUjJlQmprYlFxTTJORDB4bE5ycm1TSlAzcXBPbkZQSWxNYno0bzgwRklSNkJYTk1mN3A0WUFwdXFXNUJnPT0K",
+      "url": "https://github.com/Kimpemb/notekeeper-app/releases/download/v1.1.7/Idemora_1.1.7_x64_en-US.msi"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUNnlUVmg4RWl6S1M1WDcvL3JFYnJWc2VrNUZuR3lJZUFtYjl4S3lYV3VHcXl1M0I3ajhNeE90TDduV1Rlb0hMZUhnSGZSU1dXVWVsQ2JuM3VqSENraUhHS0s4WmJ4eVE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NTg4MzY4CWZpbGU6SWRlbW9yYV8xLjEuN194NjQtc2V0dXAuZXhlCkpEbEZPSDBCeTRVWFFmeEk0RkNGaTRrS0hid2hTOTBDa09kK1I3ekdjTktlb3RaMm8wd2t3bzJVc1I1QXh6RVlQbExpclJYc2FqUHYwM0N3dG55dUFRPT0K",
+      "url": "https://github.com/Kimpemb/notekeeper-app/releases/download/v1.1.7/Idemora_1.1.7_x64-setup.exe"
+    }
+  }
+}
