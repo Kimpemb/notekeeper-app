@@ -27,6 +27,7 @@ jobs:
           releaseBody: 'See the release assets below to download and install this version.'
           releaseDraft: false
           prerelease: false
+          skipBuild: true
 
   release:
     needs: create-release
