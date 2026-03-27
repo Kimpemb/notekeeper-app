@@ -30,7 +30,7 @@ jobs:
               draft: false,
               prerelease: false
             });
-            core.setOutput('result', data.id)
+            core.setOutput('result', String(data.id))
 
   release:
     needs: create-release
