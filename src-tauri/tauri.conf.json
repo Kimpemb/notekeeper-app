@@ -47,7 +47,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5QjM0OEYwNjEzNUM5RkEKUldUNnlUVmg4RWl6S2FFVURJakwzaGlxY0dGcm5UOWJscmlxdHE3aFpodW9rV2xZSEEyVlNTUDUK",
       "endpoints": [
-        "https://github.com/Kimpemb/notekeeper-app/releases/latest/download/latest.json"
+        "https://releases.githubusercontent.com/repos/Kimpemb/notekeeper-app/releases/latest"
       ],
       "dialog": true
     }

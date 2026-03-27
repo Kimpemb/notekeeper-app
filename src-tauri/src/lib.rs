@@ -85,23 +85,23 @@ fn open_in_browser(path: String) -> Result<(), String> {
     Ok(())
 }
 
-// ✅ CHANGED: now returns bool instead of ()
+// ✅ CHANGED: detailed error messages for debugging
 #[tauri::command]
 async fn check_for_updates(app: tauri::AppHandle) -> Result<bool, String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let response = updater.check().await.map_err(|e| e.to_string())?;
+    let updater = app.updater().map_err(|e| format!("updater init error: {}", e))?;
+    let response = updater.check().await.map_err(|e| format!("check error: {}", e))?;
     Ok(response.is_some())
 }
 
 // ✅ NEW: actually downloads and installs the update
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    if let Some(update) = updater.check().await.map_err(|e| e.to_string())? {
+    let updater = app.updater().map_err(|e| format!("updater init error: {}", e))?;
+    if let Some(update) = updater.check().await.map_err(|e| format!("check error: {}", e))? {
         update
             .download_and_install(|_, _| {}, || {})
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("install error: {}", e))?;
     }
     Ok(())
 }
@@ -124,7 +124,7 @@ pub fn run() {
             delete_image,
             open_in_browser,
             check_for_updates,
-            install_update, // ✅ NEW
+            install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
