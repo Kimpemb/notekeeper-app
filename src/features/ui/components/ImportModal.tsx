@@ -94,7 +94,7 @@ export function ImportModal() {
         const looksValid = parsed.every((n: unknown) =>
           typeof n === "object" && n !== null && "id" in n && "title" in n && "content" in n && "created_at" in n
         );
-        if (!looksValid) throw new Error("This file doesn't look like a NoteKeeper export. Only .json files exported from NoteKeeper can be imported.");
+        if (!looksValid) throw new Error("This file doesn't look like an Idemora export. Only .json files exported from Idemora can be imported.");
         notes = parsed as Note[];
       }
       const existingIds = new Set(useNoteStore.getState().notes.map((n) => n.id));
