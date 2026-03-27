@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Idemora",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "identifier": "com.joshua.idemora",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -47,7 +47,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5QjM0OEYwNjEzNUM5RkEKUldUNnlUVmg4RWl6S2FFVURJakwzaGlxY0dGcm5UOWJscmlxdHE3aFpodW9rV2xZSEEyVlNTUDUK",
       "endpoints": [
-         "https://raw.githubusercontent.com/Kimpemb/notekeeper-app/main/latest.json"
+        "https://github.com/Kimpemb/notekeeper-app/releases/latest/download/latest.json"
       ],
       "dialog": true
     }
