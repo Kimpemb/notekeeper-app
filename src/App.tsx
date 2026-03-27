@@ -28,7 +28,8 @@ import "@/styles/main.css";
 import { invoke } from "@tauri-apps/api/core";
 import { cancelSidebarCollapse } from "@/lib/sidebarTimer";
 import { OnboardingModal, useSampleNotes } from "./features/onboarding";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { UpdateToast } from "@/features/ui/components/UpdateToast";
+
 
 
 // Block F5 / Ctrl+R — causes full state loss in Tauri
@@ -164,21 +165,15 @@ export default function App() {
   }, [updateSetting]);
 
 // ✅ NEW: Check for updates once DB is ready
+const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+
 useEffect(() => {
   if (!dbReady) return;
 
   async function checkForUpdates() {
     try {
-      const hasUpdate = await invoke<boolean>("check_for_updates");
-      if (hasUpdate) {
-        const yes = await ask(
-          "A new version of Idemora is available. Would you like to install it now?",
-          { title: "Update Available", kind: "info" }
-        );
-        if (yes) {
-          await invoke("install_update");
-        }
-      }
+      const version = await invoke<string | null>("check_for_updates");
+      if (version) setUpdateVersion(version);
     } catch (err) {
       console.error("Updater error:", err);
     }
@@ -573,11 +568,18 @@ useEffect(() => {
 
         {graphOpen && <GraphView ref={graphViewRef} initialFocusNoteId={graphFocusNoteId} />}
 
-        {exporting && (
-          <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
-            Exporting…
-          </div>
-        )}
+{exporting && (
+  <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
+    Exporting…
+  </div>
+)}
+
+{updateVersion && (
+  <UpdateToast
+    version={updateVersion}
+    onDismiss={() => setUpdateVersion(null)}
+  />
+)}
       </div>
     </>
   );

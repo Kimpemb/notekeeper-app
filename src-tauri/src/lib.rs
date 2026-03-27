@@ -85,15 +85,15 @@ fn open_in_browser(path: String) -> Result<(), String> {
     Ok(())
 }
 
-// ✅ CHANGED: detailed error messages for debugging
+// ✅ CHANGED: returns version string instead of bool
 #[tauri::command]
-async fn check_for_updates(app: tauri::AppHandle) -> Result<bool, String> {
+async fn check_for_updates(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let updater = app.updater().map_err(|e| format!("updater init error: {}", e))?;
     let response = updater.check().await.map_err(|e| format!("check error: {}", e))?;
-    Ok(response.is_some())
+    Ok(response.map(|u| u.version.to_string()))
 }
 
-// ✅ NEW: actually downloads and installs the update
+// ✅ downloads and installs the update
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     let updater = app.updater().map_err(|e| format!("updater init error: {}", e))?;
