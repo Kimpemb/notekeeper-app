@@ -25,6 +25,8 @@ import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
+import { invoke } from "@tauri-apps/api/core";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { cancelSidebarCollapse } from "@/lib/sidebarTimer";
 import { OnboardingModal, useSampleNotes } from "./features/onboarding";
 
@@ -159,6 +161,30 @@ export default function App() {
     setShowOnboarding(false);
     updateSetting('hasCompletedOnboarding', true);
   }, [updateSetting]);
+
+// ✅ NEW: Check for updates once DB is ready
+useEffect(() => {
+  if (!dbReady) return;
+
+  async function checkForUpdates() {
+    try {
+      const hasUpdate = await invoke<boolean>("check_for_updates");
+      if (hasUpdate) {
+        const yes = await ask(
+          "A new version of Idemora is available. Would you like to install it now?",
+          { title: "Update Available", kind: "info" }
+        );
+        if (yes) {
+          await invoke("install_update");
+        }
+      }
+    } catch (err) {
+      console.error("Updater error:", err);
+    }
+  }
+
+  checkForUpdates();
+}, [dbReady]);
 
   // Rest of your component remains the same...
   useEffect(() => {

@@ -1,5 +1,6 @@
 use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
+
 #[tauri::command]
 fn write_file(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&path, contents).map_err(|e| e.to_string())
@@ -84,18 +85,24 @@ fn open_in_browser(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ✅ CHANGED: now returns bool instead of ()
 #[tauri::command]
-async fn check_for_updates(app: tauri::AppHandle) -> Result<(), String> {
+async fn check_for_updates(app: tauri::AppHandle) -> Result<bool, String> {
     let updater = app.updater().map_err(|e| e.to_string())?;
     let response = updater.check().await.map_err(|e| e.to_string())?;
+    Ok(response.is_some())
+}
 
-    if let Some(update) = response {
+// ✅ NEW: actually downloads and installs the update
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    if let Some(update) = updater.check().await.map_err(|e| e.to_string())? {
         update
             .download_and_install(|_, _| {}, || {})
             .await
             .map_err(|e| e.to_string())?;
     }
-
     Ok(())
 }
 
@@ -117,6 +124,7 @@ pub fn run() {
             delete_image,
             open_in_browser,
             check_for_updates,
+            install_update, // ✅ NEW
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
