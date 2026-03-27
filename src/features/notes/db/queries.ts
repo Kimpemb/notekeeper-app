@@ -63,6 +63,7 @@ export async function initDb(): Promise<void> {
     }
   }
   await purgeTrashedNotes();
+  await backfillNoteBlocks();
 }
 
 // ─── Notes ────────────────────────────────────────────────────────────────────
@@ -878,4 +879,148 @@ export async function getAllBacklinkRows(): Promise<{ source_id: string; target_
   return db.select<{ source_id: string; target_id: string }[]>(
     `SELECT source_id, target_id FROM backlinks`
   );
+}
+
+// ─── ADD THESE FUNCTIONS to the bottom of queries.ts ─────────────────────────
+//
+// Also add this import at the top of queries.ts:
+//   import { emit } from "@tauri-apps/api/event";
+
+// ─── Block Registry ───────────────────────────────────────────────────────────
+
+export interface BlockSearchResult {
+  noteId:    string;
+  noteTitle: string;
+  blockId:   string;
+  blockType: string;
+  plaintext: string;
+}
+
+// Nodes worth indexing as standalone blocks
+const INDEXABLE_BLOCK_TYPES = new Set([
+  "paragraph", "heading", "bulletList", "orderedList",
+  "listItem", "taskItem", "codeBlock", "blockquote",
+]);
+
+// Walk a TipTap JSON doc and yield all indexable blocks that have a blockId attr
+function* walkIndexableBlocks(
+  node: { type: string; attrs?: Record<string, unknown>; content?: unknown[] },
+  depth = 0
+): Generator<{ blockId: string; blockType: string; plaintext: string }> {
+  if (!node.content) return;
+  for (const child of node.content as typeof node[]) {
+    const blockId = child.attrs?.blockId as string | undefined;
+    if (blockId && INDEXABLE_BLOCK_TYPES.has(child.type)) {
+      yield { blockId, blockType: child.type, plaintext: extractNodeText(child) };
+    }
+    // Recurse into container nodes (lists, toggles, callouts)
+    if (child.content && depth < 3) {
+      yield* walkIndexableBlocks(child, depth + 1);
+    }
+  }
+}
+
+function extractNodeText(node: { type: string; text?: string; content?: unknown[] }): string {
+  if (node.text) return node.text;
+  if (!node.content) return "";
+  return (node.content as typeof node[]).map(extractNodeText).join(" ").trim();
+}
+
+/**
+ * Called by useAutoSave after every successful save.
+ * Diffs the block registry for this note, upserts changed blocks,
+ * deletes removed ones, and emits "block-updated" Tauri events
+ * so live BlockRefNodeViews in other tabs re-render.
+ */
+export async function syncNoteBlocks(
+  noteId: string,
+  contentJson: string
+): Promise<void> {
+  const db = await getDb();
+
+  let doc: { type: string; attrs?: Record<string, unknown>; content?: unknown[] };
+  try { doc = JSON.parse(contentJson); } catch { return; }
+
+  const freshBlocks = [...walkIndexableBlocks(doc)];
+  const freshIds    = new Set(freshBlocks.map((b) => b.blockId));
+  const ts          = Date.now();
+
+  // Fetch existing block IDs for this note
+  const existing = await db.select<{ block_id: string }[]>(
+    `SELECT block_id FROM note_blocks WHERE note_id = $1`, [noteId]
+  );
+
+  // Upsert fresh blocks
+  for (const block of freshBlocks) {
+    await db.execute(
+      `INSERT INTO note_blocks (block_id, note_id, block_type, plaintext, updated_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT(block_id) DO UPDATE SET
+         block_type = excluded.block_type,
+         plaintext  = excluded.plaintext,
+         updated_at = excluded.updated_at`,
+      [block.blockId, noteId, block.blockType, block.plaintext, ts]
+    );
+
+    // Emit event so BlockRefNodeViews can update live
+    try {
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit("block-updated", { blockId: block.blockId, plaintext: block.plaintext });
+    } catch { /**/ }
+  }
+
+  // Delete blocks that were removed from the note
+  for (const { block_id } of existing) {
+    if (!freshIds.has(block_id)) {
+      await db.execute(`DELETE FROM note_blocks WHERE block_id = $1`, [block_id]);
+    }
+  }
+}
+
+/**
+ * Full-text block search for the (( picker.
+ * Excludes blocks from the currently-open note (you can't embed blocks in
+ * the same note you're editing — avoids circular reference confusion).
+ */
+export async function searchBlocks(
+  query: string,
+  excludeNoteId: string,
+  limit = 20
+): Promise<BlockSearchResult[]> {
+  const sanitized = query.trim().replace(/['"*^()]/g, " ").trim() + "*";
+  const db = await getDb();
+
+  const rows = await db.select<{ id: string; title: string; plaintext: string }[]>(
+    `SELECT n.id, n.title, n.plaintext
+     FROM notes_fts f
+     JOIN notes n ON n.id = f.id
+     WHERE notes_fts MATCH $1
+       AND n.id != $2
+       AND n.deleted_at IS NULL
+     ORDER BY rank
+     LIMIT $3`,
+    [sanitized, excludeNoteId, limit]
+  );
+
+  // Each note becomes one result — the matched plaintext snippet is the "block"
+  return rows.map((r) => ({
+    noteId:    r.id,
+    noteTitle: r.title,
+    blockId:   `${r.id}-fts`,
+    blockType: "paragraph",
+    plaintext: r.plaintext.slice(0, 200),
+  }));
+}
+
+export async function backfillNoteBlocks(): Promise<void> {
+  const notes = await getAllNotes();
+  for (const note of notes) {
+    if (!note.content) continue;
+    const db = await getDb();
+    const existing = await db.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count FROM note_blocks WHERE note_id = $1`, [note.id]
+    );
+    if ((existing[0]?.count ?? 0) > 0) continue;
+    await syncNoteBlocks(note.id, note.content);
+  }
 }

@@ -888,3 +888,6 @@ declare module "@tiptap/core" {
     };
   }
 }
+
+export { BlockIdExtension } from "./BlockIdExtension";
+export { BlockRefNode }     from "./BlockRefNode";

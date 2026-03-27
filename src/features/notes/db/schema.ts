@@ -129,4 +129,48 @@ export const ALL_MIGRATIONS: string[] = [
 
   // ── Frontmatter column for structured metadata (Week 4) ──────────────────
   `ALTER TABLE notes ADD COLUMN frontmatter TEXT`,
+
+  // Updated on every autoSave of the owning note.
+  `CREATE TABLE IF NOT EXISTS note_blocks (
+    block_id    TEXT NOT NULL,
+    note_id     TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    block_type  TEXT NOT NULL DEFAULT 'paragraph',
+    plaintext   TEXT NOT NULL DEFAULT '',
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (block_id)
+  )`,
+ 
+  `CREATE INDEX IF NOT EXISTS idx_blocks_note_id ON note_blocks(note_id)`,
+ 
+  // FTS on block plaintext so the (( picker can do fast prefix search
+  `CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
+    block_id UNINDEXED,
+    note_id  UNINDEXED,
+    plaintext,
+    content='note_blocks',
+    content_rowid='rowid'
+  )`,
+ 
+  `CREATE TRIGGER IF NOT EXISTS blocks_fts_insert
+    AFTER INSERT ON note_blocks
+    BEGIN
+      INSERT INTO blocks_fts(rowid, block_id, note_id, plaintext)
+      VALUES (new.rowid, new.block_id, new.note_id, new.plaintext);
+    END`,
+ 
+  `CREATE TRIGGER IF NOT EXISTS blocks_fts_update
+    AFTER UPDATE ON note_blocks
+    BEGIN
+      INSERT INTO blocks_fts(blocks_fts, rowid, block_id, note_id, plaintext)
+      VALUES ('delete', old.rowid, old.block_id, old.note_id, old.plaintext);
+      INSERT INTO blocks_fts(rowid, block_id, note_id, plaintext)
+      VALUES (new.rowid, new.block_id, new.note_id, new.plaintext);
+    END`,
+ 
+  `CREATE TRIGGER IF NOT EXISTS blocks_fts_delete
+    AFTER DELETE ON note_blocks
+    BEGIN
+      INSERT INTO blocks_fts(blocks_fts, rowid, block_id, note_id, plaintext)
+      VALUES ('delete', old.rowid, old.block_id, old.note_id, old.plaintext);
+    END`,
 ];

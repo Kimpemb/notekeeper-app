@@ -29,6 +29,8 @@ import { TagBar } from "./TagBar";
 import { SubPagesSection } from "./SubPagesSection";
 import { SubPageNode } from "./SubPageNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
+import { BlockRefSuggest } from "./BlockRefSuggest";
+import { syncNoteBlocks }  from "@/features/notes/db/queries";
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -38,7 +40,10 @@ import {
   ListSelectAllExtension, createFindReplaceShortcutExtension, ImageExtension, AttachmentExtension,
   TaskListSortExtension,
   CodeBlockBackspaceExtension,
-} from "./extensions";
+  BlockIdExtension,
+  BlockRefNode,
+ } from "./extensions";
+
 import {
   extractNoteLinkIds, scrollToHeadingText, scrollToQuery,
   buildSearchHighlightPlugin, getScrollContainer,
@@ -128,20 +133,23 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
   openFindReplaceRef.current = () => setFindReplaceOpen(true);
 
+  const [blockRefOpen,  setBlockRefOpen]  = useState(false);
+  const [blockRefPos,   setBlockRefPos]   = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [blockRefQuery, setBlockRefQuery] = useState("");
+  const blockRefTriggerStart              = useRef<number | null>(null);
+
   const [taskListToolbarPos, setTaskListToolbarPos] = useState<{ top: number; left: number } | null>(null);
 
   const initialContent = note?.content ? JSON.parse(note.content) : "";
 
-  const editor = useEditor({
+const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
       CodeBlock, Callout, CheckList, CheckItem, EditorTable, TableRow, TableHeader, TableCell,
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
-      CodeBlockBackspaceExtension,ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
-      OrderedListBackspaceExtension,
-      TaskListSortExtension,
-      SubPageNode,
+      CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
+      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, BlockIdExtension, BlockRefNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({ name: "findReplacePlugin",      addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
@@ -192,6 +200,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     onUpdate: ({ editor: e }) => {
       const { state } = e;
       const { from }  = state.selection;
+
       if (slashStartPos.current !== null && !slashFromBubble.current) {
         const slashStart = slashStartPos.current;
         if (from >= slashStart) {
@@ -203,6 +212,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
           } else { closeSlashMenuInternal(); return; }
         }
       }
+
       if (linkBracketStart.current !== null) {
         const bracketStart = linkBracketStart.current;
         if (from >= bracketStart + 2) {
@@ -211,6 +221,28 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
         }
         closeLinkSuggestInternal();
       }
+
+      // ── "((" block-ref trigger ─────────────────────────────────────────
+      const textBefore2ForBlock = from >= 2 ? state.doc.textBetween(from - 2, from, "\n") : "";
+      if (blockRefTriggerStart.current !== null) {
+        const triggerStart = blockRefTriggerStart.current;
+        if (from >= triggerStart + 2) {
+          const textAfterTrigger = state.doc.textBetween(triggerStart + 2, from, "\n");
+          if (!textAfterTrigger.includes(")") && !textAfterTrigger.includes("\n")) {
+            setBlockRefQuery(textAfterTrigger);
+            return;
+          }
+        }
+        closeBlockRefSuggestInternal();
+      }
+      if (textBefore2ForBlock === "((") {
+        blockRefTriggerStart.current = from - 2;
+        setBlockRefQuery("");
+        const coords = e.view.coordsAtPos(from);
+        setBlockRefPos({ top: coords.bottom, left: coords.left });
+        setBlockRefOpen(true);
+      }
+
       const textBefore2 = from >= 2 ? state.doc.textBetween(from - 2, from, "\n") : "";
       const textBefore1 = from >= 1 ? state.doc.textBetween(from - 1, from, "\n") : "";
       if (textBefore2 === "[[") {
@@ -226,8 +258,13 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     },
   });
 
-  function closeSlashMenuInternal() { setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false; }
-  function closeLinkSuggestInternal() { setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null; }
+function closeSlashMenuInternal() { setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false; }
+function closeLinkSuggestInternal() { setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null; }
+function closeBlockRefSuggestInternal() { setBlockRefOpen(false); setBlockRefQuery(""); blockRefTriggerStart.current = null; }
+function closeSlashMenu() { closeSlashMenuInternal(); editor?.commands.focus(); }
+function closeLinkSuggest() { closeLinkSuggestInternal(); editor?.commands.focus(); }
+function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.commands.focus(); }
+
 
   // ── Update spellcheck on the live editor when the setting changes ─────────
   // useEditor constructs editorProps once, so we need to push updates manually.
@@ -319,10 +356,11 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   }, [editor, isActiveTab]);
 
   const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
-    lastSavedContent.current = content;
-    if (!editor) return;
-    syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
-  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  lastSavedContent.current = content;
+  if (!editor) return;
+  syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
+  syncNoteBlocks(savedNoteId, content).catch(console.error); // ← add this
+}, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete });
 
@@ -347,8 +385,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   if (!note) return null;
 
-  function closeSlashMenu() { closeSlashMenuInternal(); editor?.commands.focus(); }
-  function closeLinkSuggest() { closeLinkSuggestInternal(); editor?.commands.focus(); }
 
   function handleTitleFocus() { titleFocusedRef.current = true; }
   function handleTitleBlur() {
@@ -667,6 +703,15 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       {linkOpen && editor && linkBracketStart.current !== null && (
         <NoteLinkSuggest position={linkPos} editor={editor} query={linkQuery} bracketStart={linkBracketStart.current} onClose={closeLinkSuggest} />
       )}
+      {blockRefOpen && editor && blockRefTriggerStart.current !== null && (
+  <BlockRefSuggest
+    position={blockRefPos}
+    editor={editor}
+    query={blockRefQuery}
+    triggerStart={blockRefTriggerStart.current}
+    onClose={closeBlockRefSuggest}
+  />
+)}
     </div>
   );
 }
