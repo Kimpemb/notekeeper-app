@@ -28,6 +28,8 @@ import "@/styles/main.css";
 import { invoke } from "@tauri-apps/api/core";
 import { cancelSidebarCollapse } from "@/lib/sidebarTimer";
 import { OnboardingModal, useSampleNotes } from "./features/onboarding";
+import { ask } from "@tauri-apps/plugin-dialog";
+
 
 // Block F5 / Ctrl+R — causes full state loss in Tauri
 document.addEventListener("keydown", (e) => {
@@ -168,9 +170,17 @@ useEffect(() => {
   async function checkForUpdates() {
     try {
       const hasUpdate = await invoke<boolean>("check_for_updates");
-      alert(`Update check result: ${hasUpdate}`);
+      if (hasUpdate) {
+        const yes = await ask(
+          "A new version of Idemora is available. Would you like to install it now?",
+          { title: "Update Available", kind: "info" }
+        );
+        if (yes) {
+          await invoke("install_update");
+        }
+      }
     } catch (err) {
-      alert(`Updater error: ${err}`);
+      console.error("Updater error:", err);
     }
   }
 
