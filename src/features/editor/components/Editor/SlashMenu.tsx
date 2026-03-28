@@ -73,6 +73,25 @@ export function SlashMenu({
   },
 },
 
+{
+      id: "dataview",
+      label: "Dataview",
+      description: "Live table of notes filtered by properties — query, table, filter",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-500">
+          <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M1 4h10M4 4v7" stroke="currentColor" strokeWidth="1"/>
+          <path d="M6 6.5h3M6 8.5h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
+      ),
+      action: () => {
+        editor.chain().focus().insertContent({
+          type: "dataview",
+          attrs: { query: "" },
+        }).run();
+      },
+    },
+
     {
       id: "h1", label: "Heading 1", description: "Large section heading",
       icon: <span className="font-bold text-base">H1</span>,
