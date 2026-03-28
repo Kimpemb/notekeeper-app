@@ -31,6 +31,7 @@ import { SubPageNode } from "./SubPageNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
 import { syncNoteBlocks }  from "@/features/notes/db/queries";
+import { AIActionBar } from "@/features/ai/components/AIActionBar";
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -599,6 +600,7 @@ function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.comman
                 Similar
               </button>
             )}
+            <AIActionBar note={note} />
           </div>
         )}
 

@@ -11,6 +11,7 @@ import { GraphLegend } from "./GraphLegend";
 import { GraphControls } from "./GraphControls";
 import { useGraphSimulation } from "./useGraphSimulation";
 import { useGraphSearch } from "./useGraphSearch";
+import { useGraphEdit } from "./useGraphEdit";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -62,8 +63,8 @@ function buildTagColorMap(nodes: GraphNode[]): Map<string, string> {
 }
 
 function getNeighbourhood(focusId: string, edges: GraphEdge[], depth: number): Set<string> {
-  const result = new Set<string>([focusId]);
-  let frontier = new Set<string>([focusId]);
+  const result   = new Set<string>([focusId]);
+  let frontier   = new Set<string>([focusId]);
   for (let d = 0; d < depth; d++) {
     const next = new Set<string>();
     for (const e of edges) {
@@ -83,7 +84,7 @@ function getNeighbourhood(focusId: string, edges: GraphEdge[], depth: number): S
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   function GraphView({ initialFocusNoteId }, ref) {
 
-  const { data, isLoading, error, refresh, lastUpdated } = useGraphData();
+  const { data, isLoading, error, refresh, lastUpdated, suppressNextAutoRefresh } = useGraphData();
   const setActiveNote           = useNoteStore((s) => s.setActiveNote);
   const notes                   = useNoteStore((s) => s.notes);
   const closeGraph              = useUIStore((s) => s.closeGraph);
@@ -100,6 +101,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const panelRef             = useRef<HTMLDivElement | null>(null);
   const zoomRef              = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const simNodesRef          = useRef<GraphNode[]>([]);
+  const simEdgesRef          = useRef<GraphEdge[]>([]);
   const toastCountRef        = useRef(0);
   const simSettledRef        = useRef(false);
   const hoverExitTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -174,12 +176,22 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const showToast = useCallback((message: string) => {
     const id = ++toastCountRef.current;
     setToasts((prev) => [...prev, { id, message }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2000);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2500);
   }, []);
+
+  // ── Graph edit hook ───────────────────────────────────────────────────────
+  // suppressNextAutoRefresh is threaded in as suppressRefresh so that
+  // createNodeAt can block the store-update cascade from tearing down the
+  // simulation while the fly+pulse+rename animation is in flight.
+  const { createNodeAt, deleteNode, renameNode, createLink } = useGraphEdit({
+    simNodesRef,
+    simEdgesRef,
+    showToast,
+    suppressRefresh: suppressNextAutoRefresh,
+  });
 
   const handleExport = useCallback(() => {
     if (!svgRef.current || !containerRef.current) return;
-
     showToast("Exporting graph…");
 
     const svgEl     = svgRef.current;
@@ -197,7 +209,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     const blob       = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
     const url        = URL.createObjectURL(blob);
 
-    const img = new Image();
+    const img    = new Image();
     img.onload = () => {
       const canvas  = document.createElement("canvas");
       canvas.width  = svgWidth;
@@ -205,12 +217,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(img, 0, 0);
       URL.revokeObjectURL(url);
-
       const link    = document.createElement("a");
       link.download = `idemora-graph-${Date.now()}.png`;
       link.href     = canvas.toDataURL("image/png");
       link.click();
-
       showToast("Graph saved as PNG ✓");
     };
     img.src = url;
@@ -251,17 +261,23 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     const width  = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
     d3.select(svgRef.current).transition().duration(400)
-      .call(zoomRef.current.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85));
+      .call(zoomRef.current.transform,
+        d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85));
   }, []);
 
   // ── D3 simulation ─────────────────────────────────────────────────────────
   useGraphSimulation({
     svgRef, minimapRef, containerRef, zoomRef,
-    simNodesRef, simSettledRef, hoverExitTimerRef, isHoveringPreviewRef,
+    simNodesRef, simEdgesRef,
+    simSettledRef, hoverExitTimerRef, isHoveringPreviewRef,
     visibleNodes, visibleEdges, allNotes: notes, isLoading,
     showTagColors, tagColorMap, focusNodeId, timelineMode,
     setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
     setFocusNodeId, showToast, handleClose,
+    onCreateNode: createNodeAt,
+    onRenameNode: renameNode,
+    onCreateLink: createLink,
+    onDeleteNode: deleteNode,
   });
 
   // ── Search ────────────────────────────────────────────────────────────────
@@ -341,7 +357,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         {/* Canvas */}
         <div ref={containerRef} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
 
-          {/* Note preview */}
           <GraphNotePreview
             node={hoveredNode}
             tagColorMap={tagColorMap}
@@ -361,6 +376,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             }}
           />
 
+          {!isLoading && visibleNodes.length > 0 && (
+            <div style={{
+              position: "absolute", top: 12, right: 12,
+              fontSize: 11, color: LABEL_COLOR, opacity: 0.3,
+              pointerEvents: "none", textAlign: "right", lineHeight: 1.6,
+            }}>
+              Double-click canvas to create · Drag ring to link · Right-click to delete
+            </div>
+          )}
+
           {isLoading && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
               Loading graph…
@@ -373,27 +398,21 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           )}
           {!isLoading && visibleNodes.length === 0 && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
-              {data?.nodes.length === 0 ? "No notes yet." : "No notes match current filters."}
+              {data?.nodes.length === 0
+                ? 'No notes yet — double-click anywhere to create one'
+                : 'No notes match current filters.'}
             </div>
           )}
 
-          <svg ref={svgRef} style={{
-            width: "100%",
-            height: "100%",
-            display: "block",
-            touchAction: "none",
-          }} />
+          <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }} />
 
-          {/* Cursor tooltip */}
           {tooltip.visible && (
             <div style={{ position: "absolute", left: tooltip.x, top: tooltip.y, background: "rgba(24,24,24,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", pointerEvents: "none", zIndex: 10, minWidth: 140 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: LABEL_COLOR, marginBottom: 4 }}>{tooltip.title}</div>
               <div style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, display: "flex", flexDirection: "column", gap: 2 }}>
                 <span>{tooltip.linkCount} {tooltip.linkCount === 1 ? "link" : "links"}</span>
                 {tooltip.createdAt > 0 && (
-                  <span>
-                    {new Date(tooltip.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </span>
+                  <span>{new Date(tooltip.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
                 )}
                 {tooltip.tags.length > 0 && (
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
@@ -402,17 +421,17 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
                     ))}
                   </div>
                 )}
-                <span style={{ marginTop: 4, opacity: 0.6, fontSize: 10 }}>Click to open · Shift+click to focus · Ctrl+click new tab</span>
+                <span style={{ marginTop: 4, opacity: 0.6, fontSize: 10 }}>
+                  Click to open · Shift+click to focus · Ctrl+click new tab
+                </span>
               </div>
             </div>
           )}
 
-          {/* Minimap */}
           {!isLoading && visibleNodes.length > 0 && (
             <svg ref={minimapRef} width={MINIMAP_W} height={MINIMAP_H} style={{ position: "absolute", bottom: 16, right: 16, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", cursor: "crosshair" }} />
           )}
 
-          {/* Toasts */}
           <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, pointerEvents: "none", zIndex: 20 }}>
             {toasts.map((t) => (
               <div key={t.id} style={{ background: "rgba(30,30,30,0.95)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "7px 14px", fontSize: 12, color: LABEL_COLOR, animation: "graphToastIn 200ms ease", whiteSpace: "nowrap" }}>
@@ -421,7 +440,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             ))}
           </div>
 
-          {/* Legend */}
           <GraphLegend
             showTagColors={showTagColors}
             allTags={allTags}

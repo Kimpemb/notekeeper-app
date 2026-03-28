@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
+import { AISetupModal } from "@/features/ai/components/AISetupModal";
+import { useAIStore } from "@/features/ai/store/useAIStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,7 +136,7 @@ function Select<T extends string>({
 
 // ─── Sidebar nav tabs (unchanged) ─────────────────────────────────────────────
 
-type Section = "appearance" | "editor" | "keybindings" | "data";
+type Section = "appearance" | "editor" | "keybindings" | "data" | "ai";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -174,6 +176,18 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
         <ellipse cx="7" cy="4" rx="4.5" ry="1.5" stroke="currentColor" strokeWidth="1.2" />
         <path d="M2.5 4v3c0 .83 2.015 1.5 4.5 1.5S11.5 7.83 11.5 7V4" stroke="currentColor" strokeWidth="1.2" />
         <path d="M2.5 7v3c0 .83 2.015 1.5 4.5 1.5S11.5 10.83 11.5 10V7" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    ),
+  },
+  {
+    id: "ai",
+    label: "AI",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <circle cx="7" cy="3.5" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+        <circle cx="2.5" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+        <circle cx="11.5" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M7 5v2.5M7 7.5L2.5 10M7 7.5l4.5 2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -264,6 +278,12 @@ export function SettingsModal() {
       setTimeout(() => setSaved(false), 1500);
     }, 400);
   }
+
+  const loadAISettings = useAIStore((s) => s.loadAISettings);
+ 
+  useEffect(() => {
+    loadAISettings();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -499,6 +519,11 @@ export function SettingsModal() {
                   Use Export from the command palette to back up your notes.
                 </p>
               </div>
+            </div>
+          )}
+          {section === "ai" && (
+            <div>
+              <AISetupModal />
             </div>
           )}
         </div>

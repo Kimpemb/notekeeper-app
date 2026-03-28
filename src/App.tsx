@@ -29,6 +29,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { cancelSidebarCollapse } from "@/lib/sidebarTimer";
 import { OnboardingModal, useSampleNotes } from "./features/onboarding";
 import { UpdateToast } from "@/features/ui/components/UpdateToast";
+import { useAIStore } from "./features/ai/store/useAIStore";
 
 
 
@@ -114,6 +115,7 @@ export default function App() {
   const settings = useAppSettings((s) => s.settings);
   const updateSetting = useAppSettings((s) => s.updateSetting);
   const settingsLoaded = useAppSettings((s) => s.loaded);
+  
 
   // Refs
   const graphViewRef = useRef<GraphViewHandle>(null);
@@ -136,18 +138,19 @@ export default function App() {
   }, [appWindow]);
 
   // Bootstrap DB, settings, and notes
-  useEffect(() => {
-    initDb()
-      .then(() => {
-        setDbReady(true);
-        return Promise.all([
-          useUIStore.getState().loadSettings(),
-          useAppSettings.getState().load(),
-        ]);
-      })
-      .then(() => loadNotes())
-      .catch((err) => setDbError(String(err)));
-  }, [loadNotes]);
+useEffect(() => {
+  initDb()
+    .then(() => {
+      setDbReady(true);
+      return Promise.all([
+        useUIStore.getState().loadSettings(),
+        useAppSettings.getState().load(),
+        useAIStore.getState().loadAISettings(), // ← add here
+      ]);
+    })
+    .then(() => loadNotes())
+    .catch((err) => setDbError(String(err)));
+}, [loadNotes]);
 
   // Sample notes insertion - runs after notes are loaded
   useSampleNotes();
