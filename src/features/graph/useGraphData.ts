@@ -11,6 +11,7 @@ interface UseGraphDataResult {
   error: string | null;
   refresh: () => void;
   lastUpdated: number | null;
+  suppressNextAutoRefresh: () => void;
 }
 
 export function useGraphData(): UseGraphDataResult {
@@ -20,6 +21,15 @@ export function useGraphData(): UseGraphDataResult {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [tick, setTick]               = useState(0);
 
+  // When set to true, the next notes-hash change is swallowed and this flag
+  // resets. Used by createNodeAt so the store update from storeCreateNote
+  // does not trigger a full simulation rebuild mid-animation.
+  const suppressRef = useRef(false);
+
+  const suppressNextAutoRefresh = useCallback(() => {
+    suppressRef.current = true;
+  }, []);
+
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   // ── Auto-refresh when notes change in the store ───────────────────────────
@@ -28,12 +38,22 @@ export function useGraphData(): UseGraphDataResult {
 
   useEffect(() => {
     const hash = notes.map((n) => `${n.id}:${n.updated_at}`).join("|");
-    if (hash !== prevHashRef.current) {
-      prevHashRef.current = hash;
-      if (prevHashRef.current !== "") {
-        setTick((t) => t + 1);
-      }
+    if (hash === prevHashRef.current) return;
+
+    const wasEmpty = prevHashRef.current === "";
+    prevHashRef.current = hash;
+
+    if (wasEmpty) return; // first load — let the tick=0 fetch handle it
+
+    if (suppressRef.current) {
+      // A creation animation is in flight — skip this rebuild entirely.
+      // The graph will refresh naturally once the rename is committed
+      // (which updates updated_at and triggers a normal hash change).
+      suppressRef.current = false;
+      return;
     }
+
+    setTick((t) => t + 1);
   }, [notes]);
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
@@ -69,9 +89,6 @@ export function useGraphData(): UseGraphDataResult {
 
         const nodeIds = new Set(nodes.map((n) => n.id));
 
-        // ── Deduplicate edges by canonical pair, carry weight ─────────────
-        // A→B and B→A are the same visual edge — merge them into one with
-        // weight = total number of backlinks between the pair.
         const edgeWeights = new Map<string, number>();
         for (const b of backlinks) {
           if (!nodeIds.has(b.source_id) || !nodeIds.has(b.target_id)) continue;
@@ -99,5 +116,5 @@ export function useGraphData(): UseGraphDataResult {
     return () => { cancelled = true; };
   }, [tick]);
 
-  return { data, isLoading, error, refresh, lastUpdated };
+  return { data, isLoading, error, refresh, lastUpdated, suppressNextAutoRefresh };
 }
