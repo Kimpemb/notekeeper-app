@@ -54,7 +54,16 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
-          releaseBody: 'See the release assets below to download and install this version.'
+          releaseBody: |
+            ## What's new in v1.2.0
+
+            **AI Integration (Tier 1)**
+            - Connect your own Gemini API key — stored locally, never leaves your device
+            - Summarize any note into clean bullet points
+            - Generate and selectively apply tags
+            - Explain dense or shorthand notes in plain language
+            - AI actions only appear when connected and enabled
+            - Full setup flow in Settings → AI
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
