@@ -56,6 +56,23 @@ export function SlashMenu({
       ),
       action: onSubPageCreate,
     },
+
+{
+  id: "block-ref",
+  label: "Embed Block",
+  description: "Embed a block from another note — block reference, transclude",
+  icon: (
+    <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-500">
+      <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+      <path d="M3 4h6M3 6.5h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+      <path d="M7 8.5l2 1.5-2 1.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  action: () => {
+    editor.chain().focus().insertContent("((").run();
+  },
+},
+
     {
       id: "h1", label: "Heading 1", description: "Large section heading",
       icon: <span className="font-bold text-base">H1</span>,

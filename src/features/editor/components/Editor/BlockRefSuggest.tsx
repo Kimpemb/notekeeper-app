@@ -1,9 +1,4 @@
 // src/features/editor/components/Editor/BlockRefSuggest.tsx
-//
-// The "((" picker. Searches block-level content across all notes and lets the
-// user select one to embed as a BlockRef node.
-//
-// Mirrors NoteLinkSuggest's structure so the UX is consistent.
 
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
@@ -14,7 +9,7 @@ interface Props {
   position: { top: number; left: number };
   editor: Editor;
   query: string;
-  triggerStart: number; // doc position where "((" was typed
+  triggerStart: number;
   onClose: () => void;
 }
 
@@ -38,7 +33,7 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
     setExpanded(false);
 
     if (!query.trim()) {
-      // Show recent blocks across all notes (excluding the active note)
+      // No query — walk note JSON directly from store, no blockId required
       const recent: BlockSearchResult[] = [];
       for (const note of notes) {
         if (note.id === activeNoteId) continue;
@@ -53,21 +48,9 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
       return;
     }
 
-    // Full-text block search via SQLite helper
-   searchBlocks(query, activeNoteId ?? "").then((res) => {
-  const trimmed = res.map((r) => {
-    const lower = r.plaintext.toLowerCase();
-    const idx   = lower.indexOf(query.toLowerCase());
-    if (idx === -1) return r;
-    const start = r.plaintext.lastIndexOf("\n", idx) + 1;
-    const end   = r.plaintext.indexOf("\n", idx);
-    const line  = r.plaintext.slice(start, end === -1 ? undefined : end).trim();
-    return { ...r, plaintext: line || r.plaintext.slice(0, 100) };
-  });
-  setResults(trimmed);
-}).catch(() => setResults([]));
-}, [query, activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
-
+    // Query — search via SQLite FTS, results already have correct matched line as plaintext
+    searchBlocks(query, activeNoteId ?? "").then(setResults).catch(() => setResults([]));
+  }, [query, activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const visible   = expanded ? results : results.slice(0, VISIBLE_COUNT);
   const remaining = results.length - VISIBLE_COUNT;
@@ -77,18 +60,19 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "ArrowDown")  { e.preventDefault(); e.stopPropagation(); setSelected((s) => Math.min(s + 1, visible.length - 1)); return; }
-      if (e.key === "ArrowUp")    { e.preventDefault(); e.stopPropagation(); setSelected((s) => Math.max(s - 1, 0)); return; }
-      if (e.key === "Enter")      { e.preventDefault(); e.stopPropagation(); if (visible[selected]) insert(visible[selected]); return; }
-      if (e.key === "Escape")     { e.preventDefault(); e.stopPropagation(); onClose(); return; }
+      if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); setSelected((s) => Math.min(s + 1, visible.length - 1)); return; }
+      if (e.key === "ArrowUp")   { e.preventDefault(); e.stopPropagation(); setSelected((s) => Math.max(s - 1, 0)); return; }
+      if (e.key === "Enter")     { e.preventDefault(); e.stopPropagation(); if (visible[selected]) insert(visible[selected]); return; }
+      if (e.key === "Escape")    { e.preventDefault(); e.stopPropagation(); onClose(); return; }
     }
     document.addEventListener("keydown", handleKey, true);
     return () => document.removeEventListener("keydown", handleKey, true);
   }, [visible, selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [selected]);
+  useEffect(() => {
+    itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selected]);
 
-  // Close on outside click
   useEffect(() => {
     function handleMouseDown(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
@@ -159,16 +143,13 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
                 : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
             }`}
           >
-            {/* Block type icon */}
             <span className="mt-0.5 w-6 h-6 flex items-center justify-center rounded shrink-0 bg-indigo-50 dark:bg-indigo-950 text-indigo-400 dark:text-indigo-500">
               <BlockTypeIcon type={result.blockType} />
             </span>
             <div className="min-w-0 flex-1">
-              {/* Block content snippet */}
               <p className="text-sm text-zinc-800 dark:text-zinc-200 line-clamp-2 leading-snug">
                 {result.plaintext || <span className="italic text-zinc-400">(empty)</span>}
               </p>
-              {/* Source note */}
               <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">
                 {result.noteTitle}
               </p>
@@ -224,7 +205,6 @@ function BlockTypeIcon({ type }: { type: string }) {
       </svg>
     );
   }
-  // Default: paragraph
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
       <path d="M2 3h8M2 6h8M2 9h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -232,7 +212,7 @@ function BlockTypeIcon({ type }: { type: string }) {
   );
 }
 
-// ── Utility: walk TipTap JSON and collect top-level blocks ────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
 interface TipTapNode { type: string; attrs?: Record<string, unknown>; content?: TipTapNode[]; text?: string; }
 

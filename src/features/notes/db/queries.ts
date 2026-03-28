@@ -988,6 +988,7 @@ export async function searchBlocks(
   limit = 20
 ): Promise<BlockSearchResult[]> {
   const sanitized = query.trim().replace(/['"*^()]/g, " ").trim() + "*";
+  const q = query.trim().toLowerCase();
   const db = await getDb();
 
   const rows = await db.select<{ id: string; title: string; plaintext: string }[]>(
@@ -1002,14 +1003,22 @@ export async function searchBlocks(
     [sanitized, excludeNoteId, limit]
   );
 
-  // Each note becomes one result — the matched plaintext snippet is the "block"
-  return rows.map((r) => ({
-    noteId:    r.id,
-    noteTitle: r.title,
-    blockId:   `${r.id}-fts`,
-    blockType: "paragraph",
-    plaintext: r.plaintext.slice(0, 200),
-  }));
+  return rows.flatMap((r) => {
+    // Split into lines, find all lines containing the query, return each as a separate result
+    const lines = r.plaintext.split("\n").map((l) => l.trim()).filter(Boolean);
+    const matchedLines = lines.filter((l) => l.toLowerCase().includes(q));
+
+    // If no line matches (FTS matched title or tags), fall back to first non-empty line
+    const candidates = matchedLines.length > 0 ? matchedLines : [lines[0]].filter(Boolean);
+
+    return candidates.slice(0, 3).map((line, i) => ({
+      noteId:    r.id,
+      noteTitle: r.title,
+      blockId:   `${r.id}-fts-${i}`,
+      blockType: "paragraph",
+      plaintext: line,
+    }));
+  }).slice(0, limit);
 }
 
 export async function backfillNoteBlocks(): Promise<void> {
