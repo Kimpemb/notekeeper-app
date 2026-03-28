@@ -42,7 +42,8 @@ import {
   CodeBlockBackspaceExtension,
   BlockIdExtension,
   BlockRefNode,
- } from "./extensions";
+  DataviewNode,
+  } from "./extensions";
 
 import {
   extractNoteLinkIds, scrollToHeadingText, scrollToQuery,
@@ -149,7 +150,7 @@ const editor = useEditor({
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
-      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, BlockIdExtension, BlockRefNode,
+      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, BlockIdExtension, BlockRefNode, DataviewNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({ name: "findReplacePlugin",      addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),

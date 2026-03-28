@@ -988,6 +988,7 @@ export async function searchBlocks(
   limit = 20
 ): Promise<BlockSearchResult[]> {
   const sanitized = query.trim().replace(/['"*^()]/g, " ").trim() + "*";
+  const q = query.trim().toLowerCase();
   const db = await getDb();
 
   const rows = await db.select<{ id: string; title: string; plaintext: string }[]>(
@@ -1002,22 +1003,22 @@ export async function searchBlocks(
     [sanitized, excludeNoteId, limit]
   );
 
-  const q = query.trim().toLowerCase();
-
-  return rows.map((r) => {
-    // Find the line in plaintext that actually contains the query
+  return rows.flatMap((r) => {
+    // Split into lines, find all lines containing the query, return each as a separate result
     const lines = r.plaintext.split("\n").map((l) => l.trim()).filter(Boolean);
-    const matchedLine = lines.find((l) => l.toLowerCase().includes(q));
-    const plaintext = matchedLine ?? lines[0] ?? r.plaintext.slice(0, 150);
+    const matchedLines = lines.filter((l) => l.toLowerCase().includes(q));
 
-    return {
+    // If no line matches (FTS matched title or tags), fall back to first non-empty line
+    const candidates = matchedLines.length > 0 ? matchedLines : [lines[0]].filter(Boolean);
+
+    return candidates.slice(0, 3).map((line, i) => ({
       noteId:    r.id,
       noteTitle: r.title,
-      blockId:   `${r.id}-fts`,
+      blockId:   `${r.id}-fts-${i}`,
       blockType: "paragraph",
-      plaintext,
-    };
-  });
+      plaintext: line,
+    }));
+  }).slice(0, limit);
 }
 
 export async function backfillNoteBlocks(): Promise<void> {

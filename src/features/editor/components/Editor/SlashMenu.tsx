@@ -56,6 +56,42 @@ export function SlashMenu({
       ),
       action: onSubPageCreate,
     },
+
+{
+  id: "block-ref",
+  label: "Embed Block",
+  description: "Embed a block from another note — block reference, transclude",
+  icon: (
+    <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-500">
+      <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+      <path d="M3 4h6M3 6.5h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+      <path d="M7 8.5l2 1.5-2 1.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  action: () => {
+    editor.chain().focus().insertContent("((").run();
+  },
+},
+
+{
+      id: "dataview",
+      label: "Dataview",
+      description: "Live table of notes filtered by properties — query, table, filter",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-500">
+          <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M1 4h10M4 4v7" stroke="currentColor" strokeWidth="1"/>
+          <path d="M6 6.5h3M6 8.5h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
+      ),
+      action: () => {
+        editor.chain().focus().insertContent({
+          type: "dataview",
+          attrs: { query: "" },
+        }).run();
+      },
+    },
+
     {
   id: "block-ref",
   label: "Embed Block",
