@@ -37,7 +37,7 @@ export function UpdateToast({ version, onDismiss }: UpdateToastProps) {
         visible ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
       }`}
     >
-      <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-800 dark:bg-zinc-800 shadow-xl border border-zinc-700 min-w-[280px] max-w-[320px]">
+      <div className="flex items-center gap-3 px-4 py-4 rounded-xl bg-zinc-800 dark:bg-zinc-800 shadow-xl border border-zinc-700 min-w-[280px] max-w-[320px]">
         {/* Leaf icon */}
         <div className="shrink-0 text-zinc-400">
           <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
