@@ -1,6 +1,6 @@
 // src/features/notes/similarity/similarityUtils.ts
 //
-// Pure text-based similarity scoring — no AI.
+// Text-based similarity scoring + AI fallback for weak matches.
 // Called by getSimilarNotes() in queries.ts; never touches the DB directly.
 
 import type { Note } from "../../../types";
@@ -13,6 +13,12 @@ export interface SimilarityResult {
   confidence: "Strong" | "Possible";
   sharedTags: string[];
   sharedKeywords: string[];
+}
+
+export interface AISmiliarityResult {
+  noteId: string;
+  title: string;
+  reason: string; // short explanation from Gemini
 }
 
 /** One row from suggestion_feedback, passed in from queries.ts */
@@ -34,13 +40,24 @@ const STOP_WORDS = new Set([
   "could", "other", "into", "than", "also", "just", "like", "some",
 ]);
 
-// ─── Keyword Extraction ───────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export function extractKeywords(title: string): string[] {
   return title
     .toLowerCase()
     .split(/[^a-z]+/)
     .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+}
+
+function parseTags(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 // ─── Tag Frequency Decay ─────────────────────────────────────────────────────
@@ -57,7 +74,7 @@ function tagDecayMultiplier(tagNoteCount: number, totalNotes: number): number {
 export function buildTagFrequencyIndex(notes: Note[]): Map<string, number> {
   const index = new Map<string, number>();
   for (const note of notes) {
-    for (const tag of note.tags ?? []) {
+    for (const tag of parseTags(note.tags)) {
       index.set(tag, (index.get(tag) ?? 0) + 1);
     }
   }
@@ -86,26 +103,6 @@ export function buildFeedbackMap(
 
 // ─── Core Scorer ─────────────────────────────────────────────────────────────
 
-/**
- * Scores a single candidate note against the source note.
- *
- * Exclusions (returns null):
- *   - Same note as source
- *   - Already linked via backlink
- *   - Previously ignored → excluded permanently
- *   - Previously accepted → excluded (link already exists or was intentional;
- *     no point re-surfacing it in the panel)
- *
- * Scoring:
- *   Shared tag     → 3 pts × decay multiplier
- *   Shared keyword → 1 pt
- *   Recency boost  → ×1.3 if candidate updated within last 7 days
- *
- * Confidence:
- *   score ≥ 6 → "Strong"
- *   score ≥ 2 → "Possible"
- *   score < 2 → excluded
- */
 export function scoreCandidate(
   sourceNote: Note,
   candidate: Note,
@@ -117,15 +114,13 @@ export function scoreCandidate(
   if (candidate.id === sourceNote.id) return null;
   if (backlinkIds.has(candidate.id)) return null;
 
-  // Exclude both ignored AND accepted pairs — accepted means the link was
-  // already created; no need to keep suggesting it.
   const pairFeedback = feedbackMap.get(sourceNote.id)?.get(candidate.id);
   if (pairFeedback === "ignored" || pairFeedback === "accepted") return null;
 
-  const sourceTags     = new Set(sourceNote.tags ?? []);
-  const candidateTags  = new Set(candidate.tags ?? []);
-  const sourceKws      = new Set(extractKeywords(sourceNote.title));
-  const candidateKws   = new Set(extractKeywords(candidate.title));
+  const sourceTags    = new Set(parseTags(sourceNote.tags));
+  const candidateTags = new Set(parseTags(candidate.tags));
+  const sourceKws     = new Set(extractKeywords(sourceNote.title));
+  const candidateKws  = new Set(extractKeywords(candidate.title));
 
   // ── Tag score ─────────────────────────────────────────────────────────────
   const sharedTags: string[] = [];
@@ -154,19 +149,16 @@ export function scoreCandidate(
 
   // ── Recency boost ─────────────────────────────────────────────────────────
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  if ((candidate.updated_at ?? 0) >= sevenDaysAgo) {
-    score *= 1.3;
-  }
+  if ((candidate.updated_at ?? 0) >= sevenDaysAgo) score *= 1.3;
 
   // ── Confidence gate ───────────────────────────────────────────────────────
   if (score < 2) return null;
 
   const confidence: "Strong" | "Possible" = score >= 6 ? "Strong" : "Possible";
-
   return { noteId: candidate.id, score, confidence, sharedTags, sharedKeywords };
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─── Public API — algorithmic ─────────────────────────────────────────────────
 
 export function getSimilarityResults(
   sourceNote: Note,
@@ -189,4 +181,70 @@ export function getSimilarityResults(
   }
 
   return results.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+// ─── Public API — AI fallback ─────────────────────────────────────────────────
+
+/**
+ * Called when algorithmic results are weak (fewer than 2 results).
+ * Sends note title + plaintext + candidate titles to Gemini and asks
+ * which notes are semantically related.
+ * Returns up to 3 AI-suggested notes with a short reason each.
+ */
+export async function getAISimilarNotes(
+  sourceNote: Note,
+  allNotes: Note[],
+  existingResultIds: Set<string>
+): Promise<AISmiliarityResult[]> {
+  // Only consider notes not already surfaced by the algorithm
+  const candidates = allNotes
+    .filter((n) => n.id !== sourceNote.id && !existingResultIds.has(n.id))
+    .slice(0, 40); // cap candidates to keep prompt lean
+
+  if (candidates.length === 0) return [];
+
+  const candidateList = candidates
+    .map((n, i) => `${i + 1}. [${n.id}] ${n.title}`)
+    .join("\n");
+
+  const prompt = `You are a helpful assistant finding semantically related notes in a personal knowledge base.
+
+Source note:
+Title: ${sourceNote.title}
+Content: ${(sourceNote.plaintext ?? "").slice(0, 1500)}
+
+Candidate notes:
+${candidateList}
+
+Which of these candidates are meaningfully related to the source note? Rules:
+- Return at most 3 candidates
+- Only include genuinely related notes — not just similar words
+- Format each result on its own line exactly like this:
+[NOTE_ID] | reason why it's related (one sentence)
+- Return ONLY the results, no intro, no preamble
+- If none are related, return: NONE`;
+
+  try {
+    const { callGemini } = await import("../../../features/ai/lib/client");
+    const raw = await callGemini(prompt);
+
+    if (raw.trim() === "NONE") return [];
+
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("["))
+      .map((line) => {
+        const match = line.match(/^\[([^\]]+)\]\s*\|\s*(.+)$/);
+        if (!match) return null;
+        const [, noteId, reason] = match;
+        const note = candidates.find((n) => n.id === noteId);
+        if (!note) return null;
+        return { noteId, title: note.title, reason: reason.trim() };
+      })
+      .filter((r): r is AISmiliarityResult => r !== null)
+      .slice(0, 3);
+  } catch {
+    return []; // silently fail — AI suggestions are additive, not critical
+  }
 }

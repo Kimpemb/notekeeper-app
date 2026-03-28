@@ -6,57 +6,74 @@ import {
   recordSuggestionFeedback,
   type SimilarNote,
 } from "@/features/notes/db/queries";
+import { getAISimilarNotes, type AISmiliarityResult } from "@/features/notes/similarity/similarityUtils";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { useAIStore } from "@/features/ai/store/useAIStore";
 
 interface Props { noteId: string; paneId: 1 | 2; }
 
-export function SimilarNotesPanel({ noteId, paneId }: Props) {
-  const [results, setResults]   = useState<SimilarNote[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [ignoring, setIgnoring] = useState<string | null>(null);
-  const [linking, setLinking]   = useState<string | null>(null);
+// ─── Threshold — when to trigger AI fallback ──────────────────────────────────
+// If algorithmic results are fewer than this, ask AI for suggestions.
+const AI_FALLBACK_THRESHOLD = 2;
 
-  // ── Dismissed IDs survive store-triggered re-loads ────────────────────────
-  // When "Link →" is clicked the editor autosaves → notes store updates →
-  // load() re-runs before syncBacklinks has written the new backlink to the DB.
-  // Without this ref the card reappears on that intermediate reload.
+export function SimilarNotesPanel({ noteId, paneId }: Props) {
+  const [results, setResults]         = useState<SimilarNote[]>([]);
+  const [aiResults, setAIResults]     = useState<AISmiliarityResult[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [aiLoading, setAILoading]     = useState(false);
+  const [ignoring, setIgnoring]       = useState<string | null>(null);
+  const [linking, setLinking]         = useState<string | null>(null);
+
   const dismissedRef = useRef<Set<string>>(new Set());
 
-  const notes         = useNoteStore((s) => s.notes);
-  const setActiveNote = useNoteStore((s) => s.setActiveNote);
-  const closeSimilar  = useUIStore((s) => s.closeSimilar);
+  const notes            = useNoteStore((s) => s.notes);
+  const setActiveNote    = useNoteStore((s) => s.setActiveNote);
+  const closeSimilar     = useUIStore((s) => s.closeSimilar);
+  const aiEnabled        = useAIStore((s) => s.enabled);
+  const connectionStatus = useAIStore((s) => s.connectionStatus);
+
+  const isAIAvailable = aiEnabled && connectionStatus === "connected";
 
   const load = useCallback(async () => {
     setLoading(true);
+    setAIResults([]);
     try {
       const similar = await getSimilarNotes(noteId, notes);
-      // Filter out anything already dismissed this session
-      setResults(similar.filter((r) => !dismissedRef.current.has(r.id)));
+      const filtered = similar.filter((r) => !dismissedRef.current.has(r.id));
+      setResults(filtered);
+
+      // ── AI fallback — only if connected and results are weak ─────────────
+      if (isAIAvailable && filtered.length < AI_FALLBACK_THRESHOLD) {
+        setAILoading(true);
+        const sourceNote = notes.find((n) => n.id === noteId);
+        if (sourceNote) {
+          const existingIds = new Set(filtered.map((r) => r.id));
+          const aiSuggestions = await getAISimilarNotes(sourceNote, notes, existingIds);
+          setAIResults(aiSuggestions.filter((r) => !dismissedRef.current.has(r.noteId)));
+        }
+        setAILoading(false);
+      }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
-  }, [noteId, notes]);
+  }, [noteId, notes, isAIAvailable]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Reset dismissed set when switching notes
   useEffect(() => {
     dismissedRef.current = new Set();
+    setAIResults([]);
   }, [noteId]);
 
   async function handleLink(note: SimilarNote) {
     setLinking(note.id);
     try {
-      // Dispatch insert-link event — Editor/index.tsx handles insertion.
-      // Passes noteId + noteTitle so the editor can insert a proper noteLink
-      // node rather than raw [[text]].
       window.dispatchEvent(
         new CustomEvent("idemora:insert-link", {
           detail: { noteId: note.id, noteTitle: note.title },
         })
       );
       await recordSuggestionFeedback(noteId, note.id, "accepted");
-      // Mark dismissed before the DB write triggers a store reload
       dismissedRef.current.add(note.id);
       setResults((prev) => prev.filter((r) => r.id !== note.id));
     } catch (err) { console.error(err); }
@@ -73,6 +90,13 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
     finally { setIgnoring(null); }
   }
 
+  function handleDismissAI(noteId: string) {
+    dismissedRef.current.add(noteId);
+    setAIResults((prev) => prev.filter((r) => r.noteId !== noteId));
+  }
+
+  const totalCount = results.length + aiResults.length;
+
   return (
     <div className="flex flex-col h-full w-72 shrink-0 border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
       {/* Header */}
@@ -87,9 +111,9 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
             </svg>
           </div>
           <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Similar</span>
-          {!loading && results.length > 0 && (
+          {!loading && totalCount > 0 && (
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 tabular-nums">
-              {results.length}
+              {totalCount}
             </span>
           )}
         </div>
@@ -109,7 +133,7 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
           <div className="flex items-center justify-center h-32">
             <span className="text-xs text-zinc-400 animate-pulse">Loading…</span>
           </div>
-        ) : results.length === 0 ? (
+        ) : totalCount === 0 && !aiLoading ? (
           <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
             <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
               <svg width="22" height="22" viewBox="0 0 22 22" fill="none" className="text-zinc-300 dark:text-zinc-600">
@@ -128,57 +152,74 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
           </div>
         ) : (
           <div className="py-2">
+            {/* ── Algorithmic results ── */}
             {results.some((r) => r.confidence === "Strong") && (
               <div>
-                <SectionLabel
-                  label="Strong"
-                  count={results.filter((r) => r.confidence === "Strong").length}
-                />
+                <SectionLabel label="Strong" count={results.filter((r) => r.confidence === "Strong").length} />
                 <div className="px-3 pb-2 space-y-1.5">
-                  {results
-                    .filter((r) => r.confidence === "Strong")
-                    .map((note) => (
-                      <SimilarNoteCard
-                        key={note.id}
-                        note={note}
-                        linking={linking === note.id}
-                        ignoring={ignoring === note.id}
-                        onNavigate={() => setActiveNote(note.id)}
-                        onLink={() => handleLink(note)}
-                        onIgnore={() => handleIgnore(note)}
-                      />
-                    ))}
+                  {results.filter((r) => r.confidence === "Strong").map((note) => (
+                    <SimilarNoteCard
+                      key={note.id} note={note}
+                      linking={linking === note.id} ignoring={ignoring === note.id}
+                      onNavigate={() => setActiveNote(note.id)}
+                      onLink={() => handleLink(note)} onIgnore={() => handleIgnore(note)}
+                    />
+                  ))}
                 </div>
               </div>
             )}
 
-            {results.some((r) => r.confidence === "Strong") &&
-              results.some((r) => r.confidence === "Possible") && (
+            {results.some((r) => r.confidence === "Strong") && results.some((r) => r.confidence === "Possible") && (
               <div className="mx-4 border-t border-zinc-100 dark:border-zinc-800 my-1" />
             )}
 
             {results.some((r) => r.confidence === "Possible") && (
               <div>
-                <SectionLabel
-                  label="Possible"
-                  count={results.filter((r) => r.confidence === "Possible").length}
-                />
+                <SectionLabel label="Possible" count={results.filter((r) => r.confidence === "Possible").length} />
                 <div className="px-3 pb-2 space-y-1.5">
-                  {results
-                    .filter((r) => r.confidence === "Possible")
-                    .map((note) => (
-                      <SimilarNoteCard
-                        key={note.id}
-                        note={note}
-                        linking={linking === note.id}
-                        ignoring={ignoring === note.id}
-                        onNavigate={() => setActiveNote(note.id)}
-                        onLink={() => handleLink(note)}
-                        onIgnore={() => handleIgnore(note)}
-                      />
-                    ))}
+                  {results.filter((r) => r.confidence === "Possible").map((note) => (
+                    <SimilarNoteCard
+                      key={note.id} note={note}
+                      linking={linking === note.id} ignoring={ignoring === note.id}
+                      onNavigate={() => setActiveNote(note.id)}
+                      onLink={() => handleLink(note)} onIgnore={() => handleIgnore(note)}
+                    />
+                  ))}
                 </div>
               </div>
+            )}
+
+            {/* ── AI suggestions ── */}
+            {(aiLoading || aiResults.length > 0) && (
+              <>
+                {results.length > 0 && (
+                  <div className="mx-4 border-t border-zinc-100 dark:border-zinc-800 my-1" />
+                )}
+                <div className="flex items-center gap-2 px-4 pt-2 pb-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+                    AI Suggestions
+                  </span>
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                    <path d="M6 1v2M6 9v2M1 6h2M9 6h2M2.5 2.5l1.5 1.5M8 8l1.5 1.5M9.5 2.5L8 4M4 8L2.5 9.5"
+                      stroke="#6366f1" strokeWidth="1.3" strokeLinecap="round" />
+                  </svg>
+                  {aiLoading && (
+                    <span className="text-[10px] text-zinc-400 animate-pulse">thinking…</span>
+                  )}
+                </div>
+                {!aiLoading && (
+                  <div className="px-3 pb-2 space-y-1.5">
+                    {aiResults.map((r) => (
+                      <AISuggestionCard
+                        key={r.noteId}
+                        result={r}
+                        onNavigate={() => setActiveNote(r.noteId)}
+                        onDismiss={() => handleDismissAI(r.noteId)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -236,10 +277,7 @@ function SimilarNoteCard({
       {note.sharedTags.length > 0 && (
         <div className="flex flex-wrap gap-1 px-3 pb-1.5">
           {note.sharedTags.map((tag) => (
-            <span
-              key={tag}
-              className="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900"
-            >
+            <span key={tag} className="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900">
               {tag}
             </span>
           ))}
@@ -253,14 +291,10 @@ function SimilarNoteCard({
       )}
 
       <div className="flex items-center gap-1.5 px-3 pb-2.5">
-        <button
-          onClick={onLink}
-          disabled={busy}
+        <button onClick={onLink} disabled={busy}
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {linking ? (
-            <span className="animate-pulse">Linking…</span>
-          ) : (
+          {linking ? <span className="animate-pulse">Linking…</span> : (
             <>
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                 <path d="M4 2H2a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -270,15 +304,10 @@ function SimilarNoteCard({
             </>
           )}
         </button>
-
-        <button
-          onClick={onIgnore}
-          disabled={busy}
+        <button onClick={onIgnore} disabled={busy}
           className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {ignoring ? (
-            <span className="animate-pulse">…</span>
-          ) : (
+          {ignoring ? <span className="animate-pulse">…</span> : (
             <>
               <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
                 <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -286,6 +315,54 @@ function SimilarNoteCard({
               Ignore
             </>
           )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── AI Suggestion Card ───────────────────────────────────────────────────────
+
+function AISuggestionCard({
+  result, onNavigate, onDismiss,
+}: {
+  result: AISmiliarityResult;
+  onNavigate: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 overflow-hidden">
+      <button
+        onClick={onNavigate}
+        className="w-full flex items-center gap-2.5 px-3 pt-2.5 pb-1.5 text-left hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors duration-100 group"
+      >
+        <div className="w-6 h-6 rounded-md bg-white dark:bg-zinc-800 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center shrink-0">
+          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-indigo-400">
+            <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+            <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+            <path d="M4 6h5M4 8h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+          </svg>
+        </div>
+        <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 truncate flex-1 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition-colors duration-150">
+          {result.title}
+        </p>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-indigo-300 dark:text-indigo-700 shrink-0">
+          <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      <p className="px-3 pb-2 text-xs text-indigo-500 dark:text-indigo-400 leading-relaxed italic">
+        {result.reason}
+      </p>
+
+      <div className="flex items-center px-3 pb-2.5">
+        <button onClick={onDismiss}
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+        >
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+            <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+          </svg>
+          Dismiss
         </button>
       </div>
     </div>

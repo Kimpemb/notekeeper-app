@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useAIStore } from "@/features/ai/store/useAIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { summarizeNote, generateTags, explainNote } from "@/features/ai/lib/actions";
+import { getCached, setCached } from "@/features/ai/lib/cache";
 import type { Note } from "@/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -16,8 +17,8 @@ type ActionType = "summarize" | "tags" | "explain";
 
 interface AIResult {
   action: ActionType;
-  content: string;      // summary or explanation text
-  tags?: string[];      // only for "tags" action
+  content: string;
+  tags?: string[];
 }
 
 // ─── Spinner ──────────────────────────────────────────────────────────────────
@@ -34,11 +35,7 @@ function Spinner() {
 // ─── Action button ────────────────────────────────────────────────────────────
 
 function AIBtn({
-  onClick,
-  loading,
-  active,
-  title,
-  children,
+  onClick, loading, active, title, children,
 }: {
   onClick: () => void;
   loading: boolean;
@@ -66,11 +63,7 @@ function AIBtn({
 // ─── Result panel ─────────────────────────────────────────────────────────────
 
 function ResultPanel({
-  result,
-  onDismiss,
-  onApplyTags,
-  applyingTags,
-  tagsApplied,
+  result, onDismiss, onApplyTags, applyingTags, tagsApplied,
 }: {
   result: AIResult;
   onDismiss: () => void;
@@ -154,16 +147,15 @@ function ResultPanel({
         ) : (
           <div className="space-y-1.5">
             {result.content
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line.startsWith("-"))
-            .map((line, i) => (
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line.startsWith("-"))
+              .map((line, i) => (
                 <div key={i} className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 mb-1.5">
-                <span className="text-blue-400 mt-0.5 shrink-0">•</span>
-                <span className="leading-relaxed">{line.slice(1).trim()}</span>
+                  <span className="text-blue-400 mt-0.5 shrink-0">•</span>
+                  <span className="leading-relaxed">{line.slice(1).trim()}</span>
                 </div>
-            ))
-            }
+              ))}
           </div>
         )}
       </div>
@@ -178,10 +170,10 @@ interface AIActionBarProps {
 }
 
 export function AIActionBar({ note }: AIActionBarProps) {
-  const enabled        = useAIStore((s) => s.enabled);
+  const enabled          = useAIStore((s) => s.enabled);
   const connectionStatus = useAIStore((s) => s.connectionStatus);
-  console.log("AIActionBar:", { enabled, connectionStatus, noteId: note.id });
-  const updateNote     = useNoteStore((s) => s.updateNote);
+  const updateNote       = useNoteStore((s) => s.updateNote);
+  const allNotes         = useNoteStore((s) => s.notes);
 
   const [loadingAction, setLoadingAction] = useState<ActionType | null>(null);
   const [result, setResult]               = useState<AIResult | null>(null);
@@ -189,7 +181,6 @@ export function AIActionBar({ note }: AIActionBarProps) {
   const [applyingTags, setApplyingTags]   = useState(false);
   const [tagsApplied, setTagsApplied]     = useState(false);
 
-  // Don't render if AI isn't connected + enabled
   if (!enabled || connectionStatus !== "connected") return null;
 
   function dismiss() {
@@ -199,7 +190,6 @@ export function AIActionBar({ note }: AIActionBarProps) {
   }
 
   async function runAction(action: ActionType) {
-    // Toggle off if already showing this result
     if (result?.action === action) { dismiss(); return; }
 
     setLoadingAction(action);
@@ -208,14 +198,26 @@ export function AIActionBar({ note }: AIActionBarProps) {
     setTagsApplied(false);
 
     try {
+      // ── Check cache first ──────────────────────────────────────────────
+      const cached = getCached(note, action);
+      if (cached) {
+        setResult({ action, content: cached.content, tags: cached.tags });
+        setLoadingAction(null);
+        return;
+      }
+
+      // ── Call AI ────────────────────────────────────────────────────────
       if (action === "summarize") {
-        const { summary } = await summarizeNote(note);
+        const { summary } = await summarizeNote(note, allNotes);
+        setCached(note, action, { content: summary, cachedAt: Date.now() });
         setResult({ action, content: summary });
       } else if (action === "tags") {
-        const { tags } = await generateTags(note);
+        const { tags } = await generateTags(note, allNotes);
+        setCached(note, action, { content: "", tags, cachedAt: Date.now() });
         setResult({ action, content: "", tags });
       } else if (action === "explain") {
-        const { explanation } = await explainNote(note);
+        const { explanation } = await explainNote(note, allNotes);
+        setCached(note, action, { content: explanation, cachedAt: Date.now() });
         setResult({ action, content: explanation });
       }
     } catch (err) {
@@ -225,33 +227,29 @@ export function AIActionBar({ note }: AIActionBarProps) {
     }
   }
 
-async function handleApplyTags(tags: string[]) {
-  setApplyingTags(true);
-  try {
-    // TagBar uses JSON array format, not comma-separated string
-    const existing: string[] = (() => {
-      if (!note.tags) return [];
-      try { return JSON.parse(note.tags) as string[]; }
-      catch { return []; }
-    })();
-    const merged = [...new Set([...existing, ...tags])];
-    await updateNote(note.id, { tags: JSON.stringify(merged) });
-    setTagsApplied(true);
-  } catch {
-    setError("Failed to apply tags.");
-  } finally {
-    setApplyingTags(false);
+  async function handleApplyTags(tags: string[]) {
+    setApplyingTags(true);
+    try {
+      const existing: string[] = (() => {
+        if (!note.tags) return [];
+        try { return JSON.parse(note.tags) as string[]; }
+        catch { return []; }
+      })();
+      const merged = [...new Set([...existing, ...tags])];
+      await updateNote(note.id, { tags: JSON.stringify(merged) });
+      setTagsApplied(true);
+    } catch {
+      setError("Failed to apply tags.");
+    } finally {
+      setApplyingTags(false);
+    }
   }
-}
 
   const isLoading = loadingAction !== null;
 
   return (
     <>
-      {/* ── Action buttons — rendered inline into the editor's button row ── */}
       <div className="flex items-center gap-1.5">
-
-        {/* Divider */}
         <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 mx-0.5" />
 
         <AIBtn
