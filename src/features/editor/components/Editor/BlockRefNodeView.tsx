@@ -6,6 +6,7 @@ import type { NodeViewProps } from "@tiptap/react";
 import { listen } from "@tauri-apps/api/event";
 import { getNoteById } from "@/features/notes/db/queries";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 interface TipTapNode {
   type: string;
@@ -37,13 +38,18 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
     snapshot: string;
   };
 
-  // Snapshot is the source of truth — always display it, only upgrade if blockId resolves
-  const [text, setText]         = useState<string>(snapshot || "");
-  const [sourceTitle, setTitle] = useState<string>("");
-  const [missing, setMissing]   = useState(false);
-  const [hovered, setHovered]   = useState(false);
-  const [loading, setLoading]   = useState(true);
-  const wrapRef                 = useRef<HTMLDivElement>(null);
+  // "verified" = blockId resolved to a live block in the source note's JSON
+  // "unverified" = using FTS fallback, can't confirm block still exists as-is
+  // "missing" = source note deleted entirely
+  const isFtsKey = blockId?.includes("-fts");
+
+  const [text, setText]           = useState<string>(snapshot || "");
+  const [sourceTitle, setTitle]   = useState<string>("");
+  const [missing, setMissing]     = useState(false);
+  const [verified, setVerified]   = useState(!isFtsKey); // real blockId = optimistically verified
+  const [hovered, setHovered]     = useState(false);
+  const [loading, setLoading]     = useState(true);
+  const wrapRef                   = useRef<HTMLDivElement>(null);
 
   const openTab        = useUIStore((s) => s.openTab);
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
@@ -54,7 +60,7 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
       const note = await getNoteById(sourceNoteId);
       if (!note) {
         setMissing(true);
-        // Keep snapshot — don't overwrite with anything worse
+        setVerified(false);
         setLoading(false);
         return;
       }
@@ -62,45 +68,58 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
       setTitle(note.title);
       setMissing(false);
 
-      // Only try to refine the text if we have a blockId to look up.
-      // If found, use the live block text. If not found, keep snapshot as-is.
-      if (blockId && !blockId.includes("-fts")) {
+      if (!isFtsKey) {
+        // Try to resolve the real blockId
         try {
           const doc: TipTapNode = JSON.parse(note.content);
           const byId = findBlockById(doc, blockId);
           if (byId) {
             const t = extractPlaintext(byId).trim();
-            if (t) setText(t);
+            if (t) { setText(t); setVerified(true); }
+            else setVerified(false);
+          } else {
+            // blockId not found — note hasn't been edited yet with BlockIdExtension
+            setVerified(false);
           }
-          // No match — snapshot stays, which is correct
-        } catch { /* JSON parse failed — snapshot stays */ }
+        } catch {
+          setVerified(false);
+        }
+      } else {
+        // FTS key — snapshot is correct but we can't pin to a specific block
+        setVerified(false);
       }
-      // blockId is a fts fallback key like "noteId-fts" — snapshot is already correct
     } catch {
-      // Network/DB error — snapshot stays
+      // DB error — snapshot stays
     } finally {
       setLoading(false);
     }
-  }, [sourceNoteId, blockId, snapshot]);
+  }, [sourceNoteId, blockId, isFtsKey, snapshot]);
 
   useEffect(() => { fetchContent(); }, [fetchContent]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<{ blockId: string; plaintext: string }>("block-updated", (event) => {
-      if (event.payload.blockId === blockId) setText(event.payload.plaintext);
+      if (event.payload.blockId === blockId) {
+        setText(event.payload.plaintext);
+        setVerified(true);
+      }
     }).then((fn) => { unlisten = fn; }).catch(() => {});
     return () => { unlisten?.(); };
   }, [blockId]);
 
-  function handleClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (missing) return;
-    const isMac  = navigator.platform.toUpperCase().includes("MAC");
-    const isCtrl = isMac ? e.metaKey : e.ctrlKey;
-    useUIStore.getState().setPendingScrollQuery(`blockId:${blockId}`);
-    if (isCtrl) { openTabInPane2(sourceNoteId); } else { openTab(sourceNoteId); }
-  }
+function handleClick(e: React.MouseEvent) {
+  e.stopPropagation();
+  if (missing) return;
+  const isMac  = navigator.platform.toUpperCase().includes("MAC");
+  const isCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+  const inStore = useNoteStore.getState().notes.some((n) => n.id === sourceNoteId);
+  if (!inStore) { setMissing(true); return; }
+
+  useUIStore.getState().setPendingScrollQuery(`blockId:${blockId}`);
+  if (isCtrl) { openTabInPane2(sourceNoteId); } else { openTab(sourceNoteId); }
+}
 
   return (
     <NodeViewWrapper>
@@ -110,7 +129,13 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onClick={handleClick}
-        title={missing ? "Source deleted" : `From: ${sourceTitle} · Click to open · Ctrl+click for new tab`}
+        title={
+          missing
+            ? "Source note deleted"
+            : !verified
+            ? `From: ${sourceTitle} · Approximate match · Click to open`
+            : `From: ${sourceTitle} · Click to open · Ctrl+click for new tab`
+        }
         className={[
           "group relative my-1.5 px-3 py-2.5 rounded-lg border transition-all duration-100 cursor-pointer select-none",
           missing
@@ -118,11 +143,18 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
             : "border-indigo-100 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/30 hover:border-indigo-200 dark:hover:border-indigo-800 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/50",
         ].join(" ")}
       >
-        {/* Left accent bar */}
-        <div className={[
-          "absolute left-0 top-2 bottom-2 w-0.5 rounded-full",
-          missing ? "bg-zinc-300 dark:bg-zinc-600" : "bg-indigo-300 dark:bg-indigo-700",
-        ].join(" ")} />
+        {/* Left accent bar — dashed when unverified */}
+        <div
+          className={[
+            "absolute left-0 top-2 bottom-2 w-0.5 rounded-full",
+            missing
+              ? "bg-zinc-300 dark:bg-zinc-600"
+              : verified
+              ? "bg-indigo-300 dark:bg-indigo-700"
+              : "bg-indigo-200 dark:bg-indigo-800",
+          ].join(" ")}
+          style={!verified && !missing ? { backgroundImage: "repeating-linear-gradient(to bottom, currentColor 0px, currentColor 3px, transparent 3px, transparent 6px)" } : undefined}
+        />
 
         {/* Content */}
         <div className="pl-2 pr-16">
@@ -140,7 +172,7 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
           )}
         </div>
 
-        {/* Source label */}
+        {/* Source label + status badge */}
         <div className={[
           "absolute right-7 top-1/2 -translate-y-1/2 flex items-center gap-1 transition-opacity duration-100",
           hovered ? "opacity-100" : "opacity-0",
@@ -151,6 +183,11 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
             </span>
           ) : (
             <>
+              {!verified && (
+                <span className="text-[10px] text-amber-400 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+                  ~approx
+                </span>
+              )}
               <span className="text-[10px] text-indigo-400 dark:text-indigo-500 max-w-24 truncate">
                 {sourceTitle}
               </span>
