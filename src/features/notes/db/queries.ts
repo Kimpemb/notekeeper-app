@@ -1002,14 +1002,22 @@ export async function searchBlocks(
     [sanitized, excludeNoteId, limit]
   );
 
-  // Each note becomes one result — the matched plaintext snippet is the "block"
-  return rows.map((r) => ({
-    noteId:    r.id,
-    noteTitle: r.title,
-    blockId:   `${r.id}-fts`,
-    blockType: "paragraph",
-    plaintext: r.plaintext.slice(0, 200),
-  }));
+  const q = query.trim().toLowerCase();
+
+  return rows.map((r) => {
+    // Find the line in plaintext that actually contains the query
+    const lines = r.plaintext.split("\n").map((l) => l.trim()).filter(Boolean);
+    const matchedLine = lines.find((l) => l.toLowerCase().includes(q));
+    const plaintext = matchedLine ?? lines[0] ?? r.plaintext.slice(0, 150);
+
+    return {
+      noteId:    r.id,
+      noteTitle: r.title,
+      blockId:   `${r.id}-fts`,
+      blockType: "paragraph",
+      plaintext,
+    };
+  });
 }
 
 export async function backfillNoteBlocks(): Promise<void> {

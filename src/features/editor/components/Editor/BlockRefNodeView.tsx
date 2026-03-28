@@ -30,15 +30,6 @@ function findBlockById(node: TipTapNode, blockId: string): TipTapNode | null {
   return null;
 }
 
-function findBlockByText(node: TipTapNode, snapshot: string): TipTapNode | null {
-  if (!node.content) return null;
-  for (const child of node.content) {
-    const text = extractPlaintext(child).trim();
-    if (text && snapshot.trim() && text.includes(snapshot.trim())) return child;
-  }
-  return null;
-}
-
 export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
   const { sourceNoteId, blockId, snapshot } = node.attrs as {
     sourceNoteId: string;
@@ -46,6 +37,7 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
     snapshot: string;
   };
 
+  // Snapshot is the source of truth — always display it, only upgrade if blockId resolves
   const [text, setText]         = useState<string>(snapshot || "");
   const [sourceTitle, setTitle] = useState<string>("");
   const [missing, setMissing]   = useState(false);
@@ -61,8 +53,8 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
     try {
       const note = await getNoteById(sourceNoteId);
       if (!note) {
-        setText(snapshot || "(source deleted)");
         setMissing(true);
+        // Keep snapshot — don't overwrite with anything worse
         setLoading(false);
         return;
       }
@@ -70,31 +62,22 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
       setTitle(note.title);
       setMissing(false);
 
-      // Always show snapshot immediately — refine if we can find the exact block
-      setText(snapshot || note.plaintext.slice(0, 150));
-
-      try {
-        const doc: TipTapNode = JSON.parse(note.content);
-
-        // Try by blockId first (notes edited after BlockIdExtension was added)
-        const byId = findBlockById(doc, blockId);
-        if (byId) {
-          const t = extractPlaintext(byId).trim();
-          if (t) { setText(t); setLoading(false); return; }
-        }
-
-        // Fall back to finding the block whose text contains the snapshot
-        const byText = findBlockByText(doc, snapshot);
-        if (byText) {
-          const t = extractPlaintext(byText).trim();
-          if (t) { setText(t); setLoading(false); return; }
-        }
-
-        // Last resort — snapshot is already set above
-      } catch { /* JSON parse failed — snapshot is already displayed */ }
-
+      // Only try to refine the text if we have a blockId to look up.
+      // If found, use the live block text. If not found, keep snapshot as-is.
+      if (blockId && !blockId.includes("-fts")) {
+        try {
+          const doc: TipTapNode = JSON.parse(note.content);
+          const byId = findBlockById(doc, blockId);
+          if (byId) {
+            const t = extractPlaintext(byId).trim();
+            if (t) setText(t);
+          }
+          // No match — snapshot stays, which is correct
+        } catch { /* JSON parse failed — snapshot stays */ }
+      }
+      // blockId is a fts fallback key like "noteId-fts" — snapshot is already correct
     } catch {
-      setText(snapshot || "(failed to load)");
+      // Network/DB error — snapshot stays
     } finally {
       setLoading(false);
     }
@@ -152,7 +135,7 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
                 ? "text-zinc-400 dark:text-zinc-500 italic"
                 : "text-zinc-700 dark:text-zinc-300",
             ].join(" ")}>
-              {text}
+              {text || snapshot || "(empty block)"}
             </p>
           )}
         </div>
