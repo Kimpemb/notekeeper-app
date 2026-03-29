@@ -1,5 +1,4 @@
 // src/features/graph/useGraphSearch.ts
-// Search highlight, auto-pan to first match, Enter key cycling.
 
 import { useEffect, useRef, useState, RefObject } from "react";
 import * as d3 from "d3";
@@ -33,17 +32,16 @@ export function useGraphSearch({
   const matchIndexRef  = useRef(0);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Highlight + auto-pan to first match ────────────────────────────────
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     const q   = searchQuery.trim().toLowerCase();
 
-    // Reset index on every query change
     matchIndexRef.current = 0;
     setMatchIndex(0);
 
-    svg.selectAll<SVGCircleElement, GraphNode>("circle")
+    // Scope to .nodes group only — excludes rings (.rings) and rename overlay
+    svg.select(".nodes").selectAll<SVGCircleElement, GraphNode>("circle")
       .attr("stroke", (d) => {
         if (focusNodeId === d.id) return "#fff";
         return q && d.title.toLowerCase().includes(q) ? "#fff" : "transparent";
@@ -52,7 +50,9 @@ export function useGraphSearch({
         if (!q) return focusNodeId === d.id ? 1 : 0.85;
         return d.title.toLowerCase().includes(q) ? 1 : 0.2;
       });
-    svg.selectAll<SVGTextElement, GraphNode>("text")
+
+    // Scope to .labels group only — excludes rename foreignObject
+    svg.select(".labels").selectAll<SVGTextElement, GraphNode>("text")
       .attr("opacity", (d) => {
         if (focusNodeId === d.id) return 1;
         return q && d.title.toLowerCase().includes(q) ? 1 : 0;
@@ -65,7 +65,10 @@ export function useGraphSearch({
       if (!svgRef.current || !zoomRef.current || !containerRef.current) return;
       if (!simSettledRef.current) return;
 
-      const matches = simNodesRef.current.filter((n) => n.title.toLowerCase().includes(q));
+      // Read from simNodesRef — always includes newly created nodes
+      const matches = simNodesRef.current.filter((n) =>
+        n.title.toLowerCase().includes(q)
+      );
       if (matches.length === 0) return;
 
       const target = matches[0];
@@ -86,7 +89,6 @@ export function useGraphSearch({
     return () => { if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current); };
   }, [searchQuery, focusNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Enter key — cycle through matches ──────────────────────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Enter") return;
@@ -94,7 +96,7 @@ export function useGraphSearch({
       if (!svgRef.current || !zoomRef.current || !containerRef.current) return;
       if (!simSettledRef.current) return;
 
-      const q = searchQuery.trim().toLowerCase();
+      const q       = searchQuery.trim().toLowerCase();
       const matches = simNodesRef.current.filter((n) => n.title.toLowerCase().includes(q));
       if (matches.length === 0) return;
 
@@ -102,13 +104,12 @@ export function useGraphSearch({
       matchIndexRef.current = nextIndex;
       setMatchIndex(nextIndex);
 
-      const target = matches[nextIndex];
-      const nx = target.x ?? 0;
-      const ny = target.y ?? 0;
-
-      const width  = containerRef.current.clientWidth;
-      const height = containerRef.current.clientHeight;
-      const k      = d3.zoomTransform(svgRef.current).k;
+      const target  = matches[nextIndex];
+      const nx      = target.x ?? 0;
+      const ny      = target.y ?? 0;
+      const width   = containerRef.current.clientWidth;
+      const height  = containerRef.current.clientHeight;
+      const k       = d3.zoomTransform(svgRef.current).k;
 
       d3.select(svgRef.current).transition().duration(400).call(
         zoomRef.current.transform,
@@ -120,9 +121,10 @@ export function useGraphSearch({
     return () => window.removeEventListener("keydown", onKey);
   }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Compute current match count for the counter display
   const q          = searchQuery.trim().toLowerCase();
-  const matchCount = q ? simNodesRef.current.filter((n) => n.title.toLowerCase().includes(q)).length : 0;
+  const matchCount = q
+    ? simNodesRef.current.filter((n) => n.title.toLowerCase().includes(q)).length
+    : 0;
 
   return { matchIndex, matchCount };
 }

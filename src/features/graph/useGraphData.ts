@@ -1,8 +1,9 @@
 // src/features/graph/useGraphData.ts
+// Loads graph data once on mount. No auto-refresh — the graph manages
+// its own state after initial load via simNodesRef / simEdgesRef.
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getAllNotes, getAllBacklinks } from "@/features/notes/db/queries";
-import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { GraphData, GraphNode, GraphEdge } from "./graphTypes";
 
 interface UseGraphDataResult {
@@ -11,7 +12,6 @@ interface UseGraphDataResult {
   error: string | null;
   refresh: () => void;
   lastUpdated: number | null;
-  suppressNextAutoRefresh: () => void;
 }
 
 export function useGraphData(): UseGraphDataResult {
@@ -21,42 +21,9 @@ export function useGraphData(): UseGraphDataResult {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [tick, setTick]               = useState(0);
 
-  // When set to true, the next notes-hash change is swallowed and this flag
-  // resets. Used by createNodeAt so the store update from storeCreateNote
-  // does not trigger a full simulation rebuild mid-animation.
-  const suppressRef = useRef(false);
-
-  const suppressNextAutoRefresh = useCallback(() => {
-    suppressRef.current = true;
-  }, []);
-
+  // Manual refresh only — no auto-refresh on store changes
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
-  // ── Auto-refresh when notes change in the store ───────────────────────────
-  const notes       = useNoteStore((s) => s.notes);
-  const prevHashRef = useRef<string>("");
-
-  useEffect(() => {
-    const hash = notes.map((n) => `${n.id}:${n.updated_at}`).join("|");
-    if (hash === prevHashRef.current) return;
-
-    const wasEmpty = prevHashRef.current === "";
-    prevHashRef.current = hash;
-
-    if (wasEmpty) return; // first load — let the tick=0 fetch handle it
-
-    if (suppressRef.current) {
-      // A creation animation is in flight — skip this rebuild entirely.
-      // The graph will refresh naturally once the rename is committed
-      // (which updates updated_at and triggers a normal hash change).
-      suppressRef.current = false;
-      return;
-    }
-
-    setTick((t) => t + 1);
-  }, [notes]);
-
-  // ── Fetch ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -116,5 +83,5 @@ export function useGraphData(): UseGraphDataResult {
     return () => { cancelled = true; };
   }, [tick]);
 
-  return { data, isLoading, error, refresh, lastUpdated, suppressNextAutoRefresh };
+  return { data, isLoading, error, refresh, lastUpdated };
 }
