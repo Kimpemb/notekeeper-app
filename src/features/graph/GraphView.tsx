@@ -12,6 +12,7 @@ import { GraphControls } from "./GraphControls";
 import { useGraphSimulation } from "./useGraphSimulation";
 import { useGraphSearch } from "./useGraphSearch";
 import { useGraphEdit } from "./useGraphEdit";
+import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ function getNeighbourhood(focusId: string, edges: GraphEdge[], depth: number): S
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   function GraphView({ initialFocusNoteId }, ref) {
 
-  const { data, isLoading, error, refresh, lastUpdated, suppressNextAutoRefresh } = useGraphData();
+  const { data, isLoading, error, refresh, lastUpdated } = useGraphData();
   const setActiveNote           = useNoteStore((s) => s.setActiveNote);
   const notes                   = useNoteStore((s) => s.notes);
   const closeGraph              = useUIStore((s) => s.closeGraph);
@@ -123,6 +124,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const [focusNodeId, setFocusNodeId]     = useState<string | null>(
     initialFocusNoteId ?? savedState.focusNodeId
   );
+
+  // ── Delete confirmation state ─────────────────────────────────────────────
+  const [confirmDelete, setConfirmDelete] = useState<{ nodeId: string; title: string } | null>(null);
 
   const isLocalGraph = !!initialFocusNoteId;
 
@@ -180,15 +184,18 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   }, []);
 
   // ── Graph edit hook ───────────────────────────────────────────────────────
-  // suppressNextAutoRefresh is threaded in as suppressRefresh so that
-  // createNodeAt can block the store-update cascade from tearing down the
-  // simulation while the fly+pulse+rename animation is in flight.
   const { createNodeAt, deleteNode, renameNode, createLink } = useGraphEdit({
     simNodesRef,
     simEdgesRef,
     showToast,
-    suppressRefresh: suppressNextAutoRefresh,
   });
+
+  // ── Delete confirmation ───────────────────────────────────────────────────
+  // Fired by right-click in D3 — sets state to show ConfirmModal.
+  // Actual deletion only happens when the user confirms.
+  const requestDeleteNode = useCallback((nodeId: string, title: string) => {
+    setConfirmDelete({ nodeId, title });
+  }, []);
 
   const handleExport = useCallback(() => {
     if (!svgRef.current || !containerRef.current) return;
@@ -229,14 +236,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   // ── Escape key ────────────────────────────────────────────────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (focusNodeId) { setFocusNodeId(null); return; }
-        handleClose();
-      }
+      if (e.key !== "Escape") return;
+      // ConfirmModal handles its own Escape via capture listener — don't
+      // also close the graph panel when the modal is open
+      if (confirmDelete) return;
+      if (focusNodeId) { setFocusNodeId(null); return; }
+      handleClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleClose, focusNodeId]);
+  }, [handleClose, focusNodeId, confirmDelete]);
 
   const toggleFullscreen = useCallback(() => setFullscreen((f) => !f), []);
 
@@ -266,7 +275,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   }, []);
 
   // ── D3 simulation ─────────────────────────────────────────────────────────
-  useGraphSimulation({
+  const { deleteNodeById } = useGraphSimulation({
     svgRef, minimapRef, containerRef, zoomRef,
     simNodesRef, simEdgesRef,
     simSettledRef, hoverExitTimerRef, isHoveringPreviewRef,
@@ -274,10 +283,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     showTagColors, tagColorMap, focusNodeId, timelineMode,
     setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
     setFocusNodeId, showToast, handleClose,
-    onCreateNode: createNodeAt,
-    onRenameNode: renameNode,
-    onCreateLink: createLink,
-    onDeleteNode: deleteNode,
+    onCreateNode:        createNodeAt,
+    onRenameNode:        renameNode,
+    onCreateLink:        createLink,
+    onDeleteNode:        deleteNode,
+    onRequestDeleteNode: requestDeleteNode,
   });
 
   // ── Search ────────────────────────────────────────────────────────────────
@@ -448,10 +458,37 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         </div>
       </div>
 
+      {/* Delete confirmation modal
+          - open (not isOpen) per ConfirmModal's Props interface
+          - danger renders the confirm button red
+          - deleteNode patches simNodesRef/simEdgesRef first, then deleteNodeById
+            rebinds D3 selections against the already-updated refs */}
+      {confirmDelete && (
+        <ConfirmModal
+          open
+          danger
+          title="Delete note?"
+          message={`Move "${confirmDelete.title}" to trash? You can restore it from the sidebar.`}
+          confirmLabel="Move to trash"
+          onConfirm={() => {
+            const { nodeId } = confirmDelete;
+            setConfirmDelete(null);
+            deleteNode(nodeId, (_id) => {
+              deleteNodeById(nodeId);
+            });
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+
       <style>{`
         @keyframes graphToastIn {
           from { opacity: 0; transform: translateY(6px); }
           to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes graphPulse {
+          0%   { stroke-width: 1; stroke-opacity: 0.8; }
+          100% { stroke-width: 0.5; stroke-opacity: 0; }
         }
       `}</style>
     </>
