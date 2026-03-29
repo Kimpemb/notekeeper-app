@@ -18,10 +18,9 @@ export interface SimilarityResult {
 export interface AISmiliarityResult {
   noteId: string;
   title: string;
-  reason: string; // short explanation from Gemini
+  reason: string;
 }
 
-/** One row from suggestion_feedback, passed in from queries.ts */
 export interface FeedbackEntry {
   source_id: string;
   target_id: string;
@@ -122,10 +121,8 @@ export function scoreCandidate(
   const sourceKws     = new Set(extractKeywords(sourceNote.title));
   const candidateKws  = new Set(extractKeywords(candidate.title));
 
-  // ── Tag score ─────────────────────────────────────────────────────────────
   const sharedTags: string[] = [];
   let tagScore = 0;
-
   for (const tag of sourceTags) {
     if (candidateTags.has(tag)) {
       sharedTags.push(tag);
@@ -134,10 +131,8 @@ export function scoreCandidate(
     }
   }
 
-  // ── Keyword score ─────────────────────────────────────────────────────────
   const sharedKeywords: string[] = [];
   let keywordScore = 0;
-
   for (const kw of sourceKws) {
     if (candidateKws.has(kw)) {
       sharedKeywords.push(kw);
@@ -147,11 +142,9 @@ export function scoreCandidate(
 
   let score = tagScore + keywordScore;
 
-  // ── Recency boost ─────────────────────────────────────────────────────────
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   if ((candidate.updated_at ?? 0) >= sevenDaysAgo) score *= 1.3;
 
-  // ── Confidence gate ───────────────────────────────────────────────────────
   if (score < 2) return null;
 
   const confidence: "Strong" | "Possible" = score >= 6 ? "Strong" : "Possible";
@@ -172,7 +165,6 @@ export function getSimilarityResults(
   const totalNotes   = allNotes.length;
 
   const results: SimilarityResult[] = [];
-
   for (const candidate of allNotes) {
     const result = scoreCandidate(
       sourceNote, candidate, tagFrequency, totalNotes, feedbackMap, backlinkIds
@@ -186,65 +178,72 @@ export function getSimilarityResults(
 // ─── Public API — AI fallback ─────────────────────────────────────────────────
 
 /**
- * Called when algorithmic results are weak (fewer than 2 results).
- * Sends note title + plaintext + candidate titles to Gemini and asks
- * which notes are semantically related.
- * Returns up to 3 AI-suggested notes with a short reason each.
+ * Uses index numbers in the prompt instead of UUIDs — Gemini reliably
+ * returns numbers, not UUIDs. We map back to notes by index after parsing.
+ * Only fires when algorithmic results are weak (< 2).
+ * Silently returns [] on any error — AI suggestions are additive, not critical.
  */
 export async function getAISimilarNotes(
   sourceNote: Note,
   allNotes: Note[],
   existingResultIds: Set<string>
 ): Promise<AISmiliarityResult[]> {
-  // Only consider notes not already surfaced by the algorithm
+  // Minimum content check — don't fire AI on empty notes
+  const body = (sourceNote.plaintext ?? "").trim();
+  if (body.length < 20 && sourceNote.title.length < 10) return [];
+
   const candidates = allNotes
     .filter((n) => n.id !== sourceNote.id && !existingResultIds.has(n.id))
-    .slice(0, 40); // cap candidates to keep prompt lean
+    .slice(0, 30);
 
   if (candidates.length === 0) return [];
 
+  // Use 1-based index numbers — not UUIDs — so Gemini can reference them reliably
   const candidateList = candidates
-    .map((n, i) => `${i + 1}. [${n.id}] ${n.title}`)
+    .map((n, i) => `${i + 1}. ${n.title}${n.plaintext ? ` — ${n.plaintext.slice(0, 80)}` : ""}`)
     .join("\n");
 
-  const prompt = `You are a helpful assistant finding semantically related notes in a personal knowledge base.
+  const prompt = `You are finding semantically related notes in a personal knowledge base.
 
 Source note:
 Title: ${sourceNote.title}
-Content: ${(sourceNote.plaintext ?? "").slice(0, 1500)}
+Content: ${body.slice(0, 1000)}
 
-Candidate notes:
+Candidates:
 ${candidateList}
 
-Which of these candidates are meaningfully related to the source note? Rules:
-- Return at most 3 candidates
-- Only include genuinely related notes — not just similar words
+Which candidates are meaningfully related to the source note?
+Rules:
+- Return at most 3
+- Only genuinely related notes — shared topic, theme, or concept
 - Format each result on its own line exactly like this:
-[NOTE_ID] | reason why it's related (one sentence)
-- Return ONLY the results, no intro, no preamble
-- If none are related, return: NONE`;
+NUMBER | one sentence reason
+Example: 3 | Both discuss football players and their legacy.
+- Return ONLY the results, one per line, nothing else
+- If none are related, return the single word: NONE`;
 
   try {
     const { callGemini } = await import("../../../features/ai/lib/client");
     const raw = await callGemini(prompt);
 
-    if (raw.trim() === "NONE") return [];
+    if (raw.trim().toUpperCase() === "NONE") return [];
 
     return raw
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line.startsWith("["))
+      .filter((line) => /^\d+\s*\|/.test(line))
       .map((line) => {
-        const match = line.match(/^\[([^\]]+)\]\s*\|\s*(.+)$/);
-        if (!match) return null;
-        const [, noteId, reason] = match;
-        const note = candidates.find((n) => n.id === noteId);
-        if (!note) return null;
-        return { noteId, title: note.title, reason: reason.trim() };
+        const pipeIdx = line.indexOf("|");
+        const numStr  = line.slice(0, pipeIdx).trim();
+        const reason  = line.slice(pipeIdx + 1).trim();
+        const index   = parseInt(numStr, 10) - 1; // convert to 0-based
+        const note    = candidates[index];
+        if (!note || !reason) return null;
+        return { noteId: note.id, title: note.title, reason };
       })
       .filter((r): r is AISmiliarityResult => r !== null)
       .slice(0, 3);
   } catch {
-    return []; // silently fail — AI suggestions are additive, not critical
+    return [];
   }
 }

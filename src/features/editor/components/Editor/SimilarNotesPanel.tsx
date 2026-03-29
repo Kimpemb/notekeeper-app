@@ -210,13 +210,21 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
                 {!aiLoading && (
                   <div className="px-3 pb-2 space-y-1.5">
                     {aiResults.map((r) => (
-                      <AISuggestionCard
-                        key={r.noteId}
-                        result={r}
-                        onNavigate={() => setActiveNote(r.noteId)}
-                        onDismiss={() => handleDismissAI(r.noteId)}
-                      />
-                    ))}
+  <AISuggestionCard
+    key={r.noteId}
+    result={r}
+    onNavigate={() => setActiveNote(r.noteId)}
+    onDismiss={() => handleDismissAI(r.noteId)}
+    onLink={() => {
+      window.dispatchEvent(
+        new CustomEvent("idemora:insert-link", {
+          detail: { noteId: r.noteId, noteTitle: r.title },
+        })
+      );
+      handleDismissAI(r.noteId);
+    }}
+  />
+))}
                   </div>
                 )}
               </>
@@ -324,11 +332,12 @@ function SimilarNoteCard({
 // ─── AI Suggestion Card ───────────────────────────────────────────────────────
 
 function AISuggestionCard({
-  result, onNavigate, onDismiss,
+  result, onNavigate, onDismiss, onLink,
 }: {
   result: AISmiliarityResult;
   onNavigate: () => void;
   onDismiss: () => void;
+  onLink: () => void;
 }) {
   return (
     <div className="rounded-lg border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 overflow-hidden">
@@ -355,7 +364,16 @@ function AISuggestionCard({
         {result.reason}
       </p>
 
-      <div className="flex items-center px-3 pb-2.5">
+      <div className="flex items-center gap-1.5 px-3 pb-2.5">
+        <button onClick={onLink}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 transition-colors duration-100"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M4 2H2a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            <path d="M6 1h3v3M9 1L5.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Link →
+        </button>
         <button onClick={onDismiss}
           className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
         >
