@@ -110,7 +110,7 @@ export function useGraphSimulation({
   showTagColors, tagColorMap, focusNodeId, timelineMode,
   setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
   setFocusNodeId, showToast, handleClose,
-  onCreateNode, onRenameNode, onCreateLink, onDeleteNode,
+  onCreateNode, onRenameNode, onCreateLink,
   onRequestDeleteNode,
 }: UseGraphSimulationProps): UseGraphSimulationResult {
 
@@ -132,7 +132,7 @@ export function useGraphSimulation({
   // ── Imperative delete handle ──────────────────────────────────────────────
   // Called by GraphView AFTER the user confirms and AFTER useGraphEdit has
   // already patched simNodesRef/simEdgesRef. This only rebinds D3 selections.
-  const deleteNodeById = useCallback((nodeId: string) => {
+  const deleteNodeById = useCallback(() => {
     const nodeG  = nodeGRef.current;
     const ringG  = ringGRef.current;
     const labelG = labelGRef.current;
@@ -474,66 +474,71 @@ export function useGraphSimulation({
     // ── Rename input ──────────────────────────────────────────────────────
     // foreignObject lives inside `g` (the zoom group) using graph-space coords
     // so it tracks the node correctly during pan and zoom.
-    function showRenameInput(d: GraphNode) {
-      g.selectAll(".rename-overlay").remove();
+    function showRenameInput(d: GraphNode, isCreation = false) {
+  g.selectAll(".rename-overlay").remove();
 
-      const r        = rScale(d.linkCount);
-      const foWidth  = 160;
-      const foHeight = 28;
+  const r        = rScale(d.linkCount);
+  const foWidth  = 180;
+  const foHeight = 30;
 
-      const fo = g.append("foreignObject")
-        .attr("class", "rename-overlay")
-        .attr("x",      (d.x ?? 0) - foWidth / 2)
-        .attr("y",      (d.y ?? 0) - r - foHeight - 6)
-        .attr("width",  foWidth)
-        .attr("height", foHeight);
+  const fo = g.append("foreignObject")
+    .attr("class", "rename-overlay")
+    .attr("x",      (d.x ?? 0) - foWidth / 2)
+    .attr("y",      (d.y ?? 0) - r - foHeight - 6)
+    .attr("width",  foWidth)
+    .attr("height", foHeight);
 
-      const input = fo.append("xhtml:input")
-        .attr("type",  "text")
-        .attr("value", d.title)
-        .style("width",         "100%")
-        .style("height",        "100%")
-        .style("background",    "rgba(24,24,24,0.97)")
-        .style("border",        "1px solid rgba(99,102,241,0.7)")
-        .style("border-radius", "5px")
-        .style("color",         LABEL_COLOR)
-        .style("font-size",     "12px")
-        .style("padding",       "0 8px")
-        .style("outline",       "none")
-        .style("box-sizing",    "border-box");
+  const input = fo.append("xhtml:input")
+    .attr("type",  "text")
+    .attr("value", isCreation ? "" : d.title)
+    .attr("placeholder", "Note title…")
+    .style("width",         "100%")
+    .style("height",        "100%")
+    .style("background",    "rgba(24,24,24,0.97)")
+    .style("border",        "1px solid rgba(99,102,241,0.7)")
+    .style("border-radius", "5px")
+    .style("color",         LABEL_COLOR)
+    .style("font-size",     "12px")
+    .style("padding",       "0 8px")
+    .style("outline",       "none")
+    .style("box-sizing",    "border-box");
 
-      const inputEl = input.node() as HTMLInputElement;
-      inputEl.focus();
-      inputEl.select();
+  const inputEl = input.node() as HTMLInputElement;
+  inputEl.focus();
+  if (!isCreation) inputEl.select();
 
-      function commit() {
-        const newTitle = inputEl.value.trim();
-        g.selectAll(".rename-overlay").remove();
-        if (!newTitle || newTitle === d.title) {
-          d.fx = null; d.fy = null;
-          return;
-        }
-        onRenameNode(d.id, newTitle, (nodeId, title) => {
-          labelSelRef.current
-            ?.filter((n) => n.id === nodeId)
-            .text(title)
-            .each(function(n) { n.title = title; });
-          d.fx = null; d.fy = null;
-        }).catch(console.error);
-      }
-
-      function cancel() {
-        g.selectAll(".rename-overlay").remove();
-        d.fx = null; d.fy = null;
-      }
-
-      inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter")  { e.preventDefault(); commit(); }
-        if (e.key === "Escape") { e.preventDefault(); cancel(); }
-        e.stopPropagation();
-      });
-      inputEl.addEventListener("blur", commit);
+  function commit() {
+    const newTitle = inputEl.value.trim();
+    g.selectAll(".rename-overlay").remove();
+    
+    const finalTitle = newTitle || "Untitled";
+    
+    if (finalTitle === d.title && !isCreation) {
+      d.fx = null; d.fy = null;
+      return;
     }
+    
+    onRenameNode(d.id, finalTitle, (nodeId, title) => {
+      labelSelRef.current
+        ?.filter((n) => n.id === nodeId)
+        .text(title)
+        .each(function(n) { n.title = title; });
+      d.fx = null; d.fy = null;
+    }).catch(console.error);
+  }
+
+  function cancel() {
+    g.selectAll(".rename-overlay").remove();
+    d.fx = null; d.fy = null;
+  }
+
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter")  { e.preventDefault(); commit(); }
+    if (e.key === "Escape") { e.preventDefault(); cancel(); }
+    e.stopPropagation();
+  });
+  inputEl.addEventListener("blur", commit);
+}
 
     // ── Ring drag (link creation) ─────────────────────────────────────────
     // Defined before the dblclick handler so it's available when new rings
@@ -745,86 +750,86 @@ export function useGraphSimulation({
 
     // ── Double-click canvas → create node ────────────────────────────────
     svg.on("dblclick.create", function (event) {
-      const target = event.target as Element;
-      if (target.closest(".nodes") || target.closest(".rings") ||
-          target.closest(".labels") || target.closest(".rename-overlay")) return;
+  const target = event.target as Element;
+  if (target.closest(".nodes") || target.closest(".rings") ||
+      target.closest(".labels") || target.closest(".rename-overlay")) return;
 
-      const transform = d3.zoomTransform(svgRef.current!);
-      const [px, py]  = d3.pointer(event, svgRef.current);
-      const [gx, gy]  = transform.invert([px, py]);
+  const transform = d3.zoomTransform(svgRef.current!);
+  const [px, py]  = d3.pointer(event, svgRef.current);
+  const [gx, gy]  = transform.invert([px, py]);
 
-      onCreateNode(gx, gy, (newNode) => {
-        // Update sim data without restarting alpha — existing nodes stay put
-        simulation.nodes(simNodesRef.current);
+  onCreateNode(gx, gy, (newNode) => {
+    // Update sim data without restarting alpha — existing nodes stay put
+    simulation.nodes(simNodesRef.current);
 
-        // New circle with all events attached
-        node = nodeG.selectAll<SVGCircleElement, GraphNode>("circle")
-          .data(simNodesRef.current, (d) => d.id)
-          .join(
-            (enter) => enter.append("circle")
-              .attr("r",            (d) => rScale(d.linkCount))
-              .attr("fill",         TAG_PALETTE[0])
-              .attr("fill-opacity", 0.85)
-              .attr("stroke",       "transparent")
-              .attr("stroke-width", 2)
-              .attr("cx",           newNode.x ?? 0)
-              .attr("cy",           newNode.y ?? 0)
-              .style("cursor",      "pointer")
-              .call((sel) => attachNodeEvents(sel)),
-            (update) => update,
-            (exit)   => exit.remove(),
-          );
-        nodeSelRef.current = node;
+    // New circle with all events attached
+    node = nodeG.selectAll<SVGCircleElement, GraphNode>("circle")
+      .data(simNodesRef.current, (d) => d.id)
+      .join(
+        (enter) => enter.append("circle")
+          .attr("r",            (d) => rScale(d.linkCount))
+          .attr("fill",         TAG_PALETTE[0])
+          .attr("fill-opacity", 0.85)
+          .attr("stroke",       "transparent")
+          .attr("stroke-width", 2)
+          .attr("cx",           newNode.x ?? 0)
+          .attr("cy",           newNode.y ?? 0)
+          .style("cursor",      "pointer")
+          .call((sel) => attachNodeEvents(sel)),
+        (update) => update,
+        (exit)   => exit.remove(),
+      );
+    nodeSelRef.current = node;
 
-        // New ring — re-apply ringDrag to merged selection so new ring gets drag
-        ring = ringG.selectAll<SVGCircleElement, GraphNode>("circle")
-          .data(simNodesRef.current, (d) => d.id)
-          .join(
-            (enter) => enter.append("circle")
-              .attr("r",            (d) => rScale(d.linkCount) + RING_GAP + RING_WIDTH)
-              .attr("fill",         "none")
-              .attr("stroke",       RING_STROKE)
-              .attr("stroke-width", RING_WIDTH)
-              .attr("opacity",      0)
-              .attr("cx",           newNode.x ?? 0)
-              .attr("cy",           newNode.y ?? 0)
-              .style("cursor",      "crosshair"),
-            (update) => update,
-            (exit)   => exit.remove(),
-          );
-        ringSelRef.current = ring;
-        ring.call(ringDrag);
+    // New ring — re-apply ringDrag to merged selection so new ring gets drag
+    ring = ringG.selectAll<SVGCircleElement, GraphNode>("circle")
+      .data(simNodesRef.current, (d) => d.id)
+      .join(
+        (enter) => enter.append("circle")
+          .attr("r",            (d) => rScale(d.linkCount) + RING_GAP + RING_WIDTH)
+          .attr("fill",         "none")
+          .attr("stroke",       RING_STROKE)
+          .attr("stroke-width", RING_WIDTH)
+          .attr("opacity",      0)
+          .attr("cx",           newNode.x ?? 0)
+          .attr("cy",           newNode.y ?? 0)
+          .style("cursor",      "crosshair"),
+        (update) => update,
+        (exit)   => exit.remove(),
+      );
+    ringSelRef.current = ring;
+    ring.call(ringDrag);
 
-        // New label — visible immediately
-        label = labelG.selectAll<SVGTextElement, GraphNode>("text")
-          .data(simNodesRef.current, (d) => d.id)
-          .join(
-            (enter) => enter.append("text")
-              .text((d) => d.title)
-              .attr("font-size",      11)
-              .attr("fill",           LABEL_COLOR)
-              .attr("text-anchor",    "middle")
-              .attr("dy",             (d) => -(rScale(d.linkCount) + 4))
-              .attr("pointer-events", "all")
-              .attr("opacity",        1)
-              .attr("x",              newNode.x ?? 0)
-              .attr("y",              newNode.y ?? 0)
-              .style("cursor",        "text")
-              .call((sel) => sel.on("dblclick", (evt, d) => {
-                evt.stopPropagation();
-                showRenameInput(d);
-              })),
-            (update) => update,
-            (exit)   => exit.remove(),
-          );
-        labelSelRef.current = label;
+    // New label — visible immediately
+    label = labelG.selectAll<SVGTextElement, GraphNode>("text")
+      .data(simNodesRef.current, (d) => d.id)
+      .join(
+        (enter) => enter.append("text")
+          .text((d) => d.title)
+          .attr("font-size",      11)
+          .attr("fill",           LABEL_COLOR)
+          .attr("text-anchor",    "middle")
+          .attr("dy",             (d) => -(rScale(d.linkCount) + 4))
+          .attr("pointer-events", "all")
+          .attr("opacity",        1)
+          .attr("x",              newNode.x ?? 0)
+          .attr("y",              newNode.y ?? 0)
+          .style("cursor",        "text")
+          .call((sel) => sel.on("dblclick", (evt, d) => {
+            evt.stopPropagation();
+            showRenameInput(d, false);
+          })),
+        (update) => update,
+        (exit)   => exit.remove(),
+      );
+    labelSelRef.current = label;
 
-        setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
+    setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
 
-        // Open rename immediately after node appears
-        setTimeout(() => showRenameInput(newNode), 50);
-      }).catch(console.error);
-    });
+    // Open rename immediately after node appears (isCreation = true)
+    setTimeout(() => showRenameInput(newNode, true), 50);
+  }).catch(console.error);
+});
 
     // ── Simulation ────────────────────────────────────────────────────────
     const simulation = d3.forceSimulation<GraphNode>(simNodes)

@@ -54,34 +54,35 @@ export function useGraphEdit({
   // and tear down the entire simulation, losing the new node.
   // The store is reconciled when the user closes the graph (useGraphData.refresh).
   const createNodeAt = useCallback(async (
-    x: number,
-    y: number,
-    onCreated: (node: GraphNode) => void,
-  ): Promise<void> => {
-    try {
-      const note = await dbCreateNote({ title: "Untitled" });
+  x: number,
+  y: number,
+  onCreated: (node: GraphNode) => void,
+): Promise<void> => {
+  try {
+    const note = await dbCreateNote({ title: "Untitled" });
 
-      const newNode: GraphNode = {
-        id:         note.id,
-        title:      note.title,
-        tags:       [],
-        linkCount:  0,
-        created_at: note.created_at,
-        x,
-        y,
-        fx: x,
-        fy: y,
-      };
+    const newNode: GraphNode = {
+      id:         note.id,
+      title:      note.title,
+      tags:       [],
+      linkCount:  0,
+      created_at: note.created_at,
+      x,
+      y,
+      fx: x,
+      fy: y,
+    };
 
-      simNodesRef.current = [...simNodesRef.current, newNode];
-
-      // onCreated patches D3 DOM selections in useGraphSimulation
-      onCreated(newNode);
-    } catch (err) {
-      showToast("Failed to create note");
-      console.error("[useGraphEdit] createNodeAt:", err);
-    }
-  }, [simNodesRef, showToast]);
+    // Update the ref BEFORE calling onCreated
+    simNodesRef.current = [...simNodesRef.current, newNode];
+    
+    // Now call onCreated with the real node
+    onCreated(newNode);
+  } catch (err) {
+    showToast("Failed to create note");
+    console.error("[useGraphEdit] createNodeAt:", err);
+  }
+}, [simNodesRef, showToast]);
 
   // ── Delete ────────────────────────────────────────────────────────────────
   // The one mutation that does go through the store, because the sidebar
