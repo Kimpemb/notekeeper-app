@@ -55,15 +55,21 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v1.2.0
+            ## What's new in v1.4.0
 
-            **AI Integration (Tier 1)**
-            - Connect your own Gemini API key — stored locally, never leaves your device
-            - Summarize any note into clean bullet points
-            - Generate and selectively apply tags
-            - Explain dense or shorthand notes in plain language
-            - AI actions only appear when connected and enabled
-            - Full setup flow in Settings → AI
+            **Backup System (Tier 3)**
+            - Export your entire vault as an AES-256-GCM encrypted .nkbackup file
+            - Restore from any .nkbackup file with full note, backlink, and settings recovery
+            - Wrong password and corrupted file detection with clean error messages
+            - Backups are gzip compressed before encryption — 84% smaller than uncompressed (5.5MB → 907KB on real vaults)
+            - Backups are signed to Idemora — cannot be restored in any other app
+
+            **Auto-Backup**
+            - Schedule automatic backups on app launch — daily, weekly, or on change only
+            - Change detection via SHA-256 bundle hash — no unnecessary backups if nothing changed
+            - Point your backup folder at iCloud Drive, Dropbox, or Google Drive for automatic cloud sync
+            - Last backup timestamp displayed in settings
+            - Silent failure on launch — auto-backup never blocks or crashes the app
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
