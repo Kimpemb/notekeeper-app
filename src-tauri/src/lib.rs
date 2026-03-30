@@ -106,6 +106,67 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn send_telegram_backup(
+    bot_token: String,
+    chat_id: String,
+    file_name: String,
+    file_bytes: Vec<u8>,
+) -> Result<(), String> {
+    let url = format!("https://api.telegram.org/bot{}/sendDocument", bot_token);
+
+    let file_part = reqwest::multipart::Part::bytes(file_bytes)
+        .file_name(file_name.clone())
+        .mime_str("application/octet-stream")
+        .map_err(|e| e.to_string())?;
+
+    let form = reqwest::multipart::Form::new()
+        .text("chat_id", chat_id)
+        .text("caption", format!("Idemora backup — {}", file_name))
+        .part("document", file_part);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Telegram API error: {}", body));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_telegram_chat_id(bot_token: String) -> Result<String, String> {
+    let url = format!("https://api.telegram.org/bot{}/getUpdates", bot_token);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let chat_id = json["result"]
+        .as_array()
+        .and_then(|arr| arr.last())
+        .and_then(|update| update["message"]["chat"]["id"].as_i64())
+        .map(|id| id.to_string())
+        .ok_or_else(|| "No messages found. Send any message to your bot first, then try again.".to_string())?;
+
+    Ok(chat_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -125,6 +186,8 @@ pub fn run() {
             open_in_browser,
             check_for_updates,
             install_update,
+            send_telegram_backup,
+            get_telegram_chat_id,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

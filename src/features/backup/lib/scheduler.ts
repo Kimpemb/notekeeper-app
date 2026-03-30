@@ -12,12 +12,15 @@
 //   backup_last_hash     SHA-256 hash of last bundle JSON
 
 const SETTINGS = {
-  enabled:   "backup_enabled",
-  frequency: "backup_frequency",
-  folder:    "backup_folder",
-  password:  "backup_auto_password",
-  lastAt:    "backup_last_at",
-  lastHash:  "backup_last_hash",
+  enabled:      "backup_enabled",
+  frequency:    "backup_frequency",
+  folder:       "backup_folder",
+  password:     "backup_auto_password",
+  lastAt:       "backup_last_at",
+  lastHash:     "backup_last_hash",
+  tgEnabled:    "backup_tg_enabled",   // ← add
+  tgBotToken:   "backup_tg_token",     // ← add
+  tgChatId:     "backup_tg_chat_id",   // ← add
 } as const;
 
 const MS = {
@@ -88,6 +91,21 @@ export async function runScheduledBackupIfDue(): Promise<void> {
     const fileName = `idemora-auto-${date}.nkbackup`;
 
     await saveBackupToFolder(encrypted, folder, fileName);
+
+    // ── Send to Telegram if configured ───────────────────────────────────────
+    const tgEnabled  = await getSetting(SETTINGS.tgEnabled);
+    const tgToken    = await getSetting(SETTINGS.tgBotToken);
+    const tgChatId   = await getSetting(SETTINGS.tgChatId);
+
+    if (tgEnabled === "true" && tgToken?.trim() && tgChatId?.trim()) {
+      try {
+        const { sendTelegramBackup } = await import("@/features/backup/lib/telegram");
+        const encryptedBytes = new TextEncoder().encode(encrypted);
+        await sendTelegramBackup(tgToken, tgChatId, fileName, encryptedBytes);
+      } catch (tgErr) {
+        console.warn("[scheduler] Telegram send failed silently:", tgErr);
+      }
+    }
 
     // ── Update tracking ───────────────────────────────────────────────────────
     await setSetting(SETTINGS.lastAt,   new Date().toISOString());

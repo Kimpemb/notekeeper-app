@@ -1,16 +1,17 @@
 // src/features/backup/components/BackupModal.tsx
 //
-// Three flows:
-// Export   — password entry → encrypt → download .nkbackup
-// Restore  — upload .nkbackup → password entry → decrypt → restore DB
-// Auto     — configure scheduled backups to a user-chosen folder
+// Four flows:
+// Export    — password entry → encrypt → download .nkbackup
+// Restore   — upload .nkbackup → password entry → decrypt → restore DB
+// Auto      — configure scheduled backups to a user-chosen folder
+// Telegram  — configure + send backup via Telegram bot
 
 import { useState, useEffect } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Flow   = "idle" | "export" | "restore" | "auto";
+type Flow   = "idle" | "export" | "restore" | "auto" | "telegram";
 type Status = "idle" | "loading" | "success" | "error";
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -24,15 +25,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 function PasswordInput({
-  value,
-  onChange,
-  placeholder,
-  disabled,
+  value, onChange, placeholder, disabled,
 }: {
-  value:        string;
-  onChange:     (v: string) => void;
-  placeholder?: string;
-  disabled?:    boolean;
+  value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean;
 }) {
   const [show, setShow] = useState(false);
   return (
@@ -82,7 +77,6 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
   const [message,   setMessage]   = useState<string | null>(null);
   const [loading,   setLoading]   = useState(true);
 
-  // Load existing settings on mount
   useEffect(() => {
     (async () => {
       const { getSchedulerSettings } = await import("@/features/backup/lib/scheduler");
@@ -103,15 +97,13 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
 
   async function handleSave() {
     if (enabled) {
-      if (!folder.trim())        { setMessage("Please select a backup folder."); return; }
-      if (!password.trim())      { setMessage("Please enter a backup password."); return; }
-      if (password.length < 8)   { setMessage("Password must be at least 8 characters."); return; }
-      if (password !== confirm)  { setMessage("Passwords do not match."); return; }
+      if (!folder.trim())       { setMessage("Please select a backup folder."); return; }
+      if (!password.trim())     { setMessage("Please enter a backup password."); return; }
+      if (password.length < 8)  { setMessage("Password must be at least 8 characters."); return; }
+      if (password !== confirm) { setMessage("Passwords do not match."); return; }
     }
-
     setStatus("loading");
     setMessage(null);
-
     try {
       const { saveSchedulerSettings } = await import("@/features/backup/lib/scheduler");
       await saveSchedulerSettings({ enabled, frequency, folder, password });
@@ -130,19 +122,13 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <button onClick={onBack} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">
-          ← Back
-        </button>
+        <button onClick={onBack} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">← Back</button>
         <span className="text-xs text-zinc-300 dark:text-zinc-600">/</span>
         <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Auto-backup</span>
       </div>
 
-      {loading ? (
-        <p className="text-xs text-zinc-400 animate-pulse">Loading…</p>
-      ) : (
+      {loading ? <p className="text-xs text-zinc-400 animate-pulse">Loading…</p> : (
         <div className="space-y-4">
-
-          {/* Enable toggle */}
           <div className="flex items-center justify-between p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
             <div>
               <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Enable auto-backup</p>
@@ -158,7 +144,6 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
 
           {enabled && (
             <>
-              {/* Frequency */}
               <div>
                 <SectionTitle>Frequency</SectionTitle>
                 <div className="flex gap-2">
@@ -178,9 +163,22 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
                 </div>
               </div>
 
-              {/* Folder */}
               <div>
-                <SectionTitle>Backup folder</SectionTitle>
+                <div className="flex items-center gap-1.5 mb-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">Backup folder</p>
+                  <div className="relative group">
+                    <button className="w-3.5 h-3.5 rounded-full border border-zinc-300 dark:border-zinc-600 text-zinc-400 dark:text-zinc-500 flex items-center justify-center hover:border-zinc-400 dark:hover:border-zinc-400 transition-colors">
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                        <path d="M4 2h.01M4 3.5v2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                      </svg>
+                    </button>
+                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 p-2.5 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-zinc-200 text-xs leading-relaxed shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none z-50">
+                      <p className="font-medium mb-1 text-white">How cloud sync works</p>
+                      <p>iCloud Drive and OneDrive create a real folder on your computer — just point Idemora there and it syncs automatically.</p>
+                      <p className="mt-1.5">Google Drive requires the <span className="text-blue-300">Google Drive for Desktop</span> app to work the same way.</p>
+                    </div>
+                  </div>
+                </div>
                 <div className="flex gap-2">
                   <div className="flex-1 px-3 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 truncate">
                     {folder || "No folder selected"}
@@ -193,11 +191,10 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
                   </button>
                 </div>
                 <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1.5 leading-snug">
-                  Point this at your Dropbox, iCloud Drive, or Google Drive folder for automatic cloud sync.
+                  Point this at your iCloud Drive, OneDrive, or Google Drive folder for automatic cloud sync.
                 </p>
               </div>
 
-              {/* Password */}
               <div>
                 <SectionTitle>Backup password</SectionTitle>
                 <div className="space-y-2">
@@ -211,11 +208,231 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
             </>
           )}
 
-          {/* Last backup */}
           {lastAt && (
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
               Last backup: {new Date(lastAt).toLocaleString()}
             </p>
+          )}
+
+          {message && (
+            <p className={`text-xs ${status === "error" ? "text-red-500 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
+              {status === "success" ? `✓ ${message}` : message}
+            </p>
+          )}
+
+          <button
+            onClick={handleSave}
+            disabled={isLoading}
+            className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors duration-150 flex items-center justify-center gap-2"
+          >
+            {isLoading && <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/></svg>}
+            {isLoading ? "Saving…" : "Save settings"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Telegram flow ────────────────────────────────────────────────────────────
+
+function TelegramFlow({ onBack }: { onBack: () => void }) {
+  const [botToken,  setBotToken]  = useState("");
+  const [chatId,    setChatId]    = useState("");
+  const [password,  setPassword]  = useState("");
+  const [confirm,   setConfirm]   = useState("");
+  const [tgEnabled, setTgEnabled] = useState(false);
+  const [status,    setStatus]    = useState<Status>("idle");
+  const [message,   setMessage]   = useState<string | null>(null);
+  const [loading,   setLoading]   = useState(true);
+  const [step,      setStep]      = useState<"setup" | "ready">("setup");
+
+  useEffect(() => {
+    (async () => {
+      const { getSetting } = await import("@/features/notes/db/queries");
+      const token   = await getSetting("backup_tg_token");
+      const chat    = await getSetting("backup_tg_chat_id");
+      const enabled = await getSetting("backup_tg_enabled");
+      if (token)   setBotToken(token);
+      if (chat)    { setChatId(chat); setStep("ready"); }
+      setTgEnabled(enabled === "true");
+      setLoading(false);
+    })();
+  }, []);
+
+  async function handleFetchChatId() {
+    if (!botToken.trim()) { setMessage("Please enter your bot token."); return; }
+    setStatus("loading");
+    setMessage(null);
+    try {
+      const { getTelegramChatId } = await import("../lib/telegram");
+      const id = await getTelegramChatId(botToken);
+      setChatId(id);
+      setStep("ready");
+      setStatus("idle");
+      setMessage(null);
+    } catch (err) {
+      setStatus("error");
+      setMessage(err instanceof Error ? err.message : "Could not fetch chat ID.");
+    }
+  }
+
+  async function handleSave() {
+    if (!botToken.trim()) { setMessage("Bot token is required."); return; }
+    if (!chatId.trim())   { setMessage("Chat ID is required. Fetch it first."); return; }
+    if (tgEnabled) {
+      if (!password.trim())     { setMessage("Please enter a backup password."); return; }
+      if (password.length < 8)  { setMessage("Password must be at least 8 characters."); return; }
+      if (password !== confirm) { setMessage("Passwords do not match."); return; }
+    }
+    setStatus("loading");
+    setMessage(null);
+    try {
+      const { setSetting } = await import("@/features/notes/db/queries");
+      await setSetting("backup_tg_token",   botToken);
+      await setSetting("backup_tg_chat_id", chatId);
+      await setSetting("backup_tg_enabled", tgEnabled ? "true" : "false");
+      if (tgEnabled) await setSetting("backup_tg_password", password);
+      setStatus("success");
+      setMessage(tgEnabled ? "Telegram backup enabled." : "Settings saved.");
+      setPassword("");
+      setConfirm("");
+    } catch {
+      setStatus("error");
+      setMessage("Failed to save settings.");
+    }
+  }
+
+  async function handleSendNow() {
+    if (!botToken.trim() || !chatId.trim()) { setMessage("Configure and save your bot first."); return; }
+    if (!password.trim()) { setMessage("Enter a password to encrypt the backup."); return; }
+    setStatus("loading");
+    setMessage(null);
+    try {
+      const { assembleBundle }    = await import("@/features/backup/lib/bundler");
+      const { compress }          = await import("@/features/backup/lib/compression");
+      const { encrypt }           = await import("@/features/backup/lib/crypto");
+      const { sendTelegramBackup} = await import("@/features/backup/lib/telegram");
+
+      const bundle     = await assembleBundle();
+      const json       = JSON.stringify(bundle);
+      const compressed = await compress(json);
+      const encrypted  = await encrypt(compressed, password);
+
+      const date      = new Date().toISOString().slice(0, 10);
+      const fileName  = `idemora-backup-${date}.nkbackup`;
+      const bytes     = new TextEncoder().encode(encrypted);
+
+      await sendTelegramBackup(botToken, chatId, fileName, bytes);
+      setStatus("success");
+      setMessage(`Sent — ${bundle.noteCount} note${bundle.noteCount !== 1 ? "s" : ""} backed up to Telegram.`);
+      setPassword("");
+    } catch (err) {
+      setStatus("error");
+      setMessage(err instanceof Error ? err.message : "Send failed.");
+    }
+  }
+
+  const isLoading = status === "loading" || loading;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">← Back</button>
+        <span className="text-xs text-zinc-300 dark:text-zinc-600">/</span>
+        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Telegram backup</span>
+      </div>
+
+      {loading ? <p className="text-xs text-zinc-400 animate-pulse">Loading…</p> : (
+        <div className="space-y-4">
+
+          {/* Setup guide */}
+          <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800 space-y-1.5">
+  <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">How to set up your bot</p>
+  <ol className="text-xs text-zinc-400 dark:text-zinc-500 space-y-1 list-decimal list-inside leading-relaxed">
+    <li>Open Telegram → search <span className="font-mono text-zinc-500 dark:text-zinc-400">@BotFather</span> → send <span className="font-mono text-zinc-500 dark:text-zinc-400">/newbot</span></li>
+    <li>Enter a display name, then a username ending in <span className="font-mono text-zinc-500 dark:text-zinc-400">bot</span> — BotFather will give you a token</li>
+    <li>Click the bot link in BotFather's reply → tap <span className="font-medium text-zinc-500 dark:text-zinc-400">Start</span> → send it any message (e.g. <span className="font-mono text-zinc-500 dark:text-zinc-400">hi</span>)</li>
+    <li>Paste your token below → click <span className="font-medium text-zinc-500 dark:text-zinc-400">Fetch chat ID</span></li>
+    <li>If Fetch fails, go back to Telegram → send your bot another message → retry</li>
+  </ol>
+  <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed pt-0.5">
+    The bot must receive at least one message from you before the app can detect it.
+  </p>
+</div>
+
+          {/* Bot token */}
+          <div>
+            <SectionTitle>Bot token</SectionTitle>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={botToken}
+                onChange={(e) => setBotToken(e.target.value)}
+                placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+                disabled={isLoading}
+                autoComplete="off"
+                spellCheck={false}
+                className="flex-1 px-3 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 placeholder-zinc-300 dark:placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+              />
+              <button
+                onClick={handleFetchChatId}
+                disabled={isLoading}
+                className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition-colors disabled:opacity-50"
+              >
+                Fetch chat ID
+              </button>
+            </div>
+          </div>
+
+          {/* Chat ID */}
+          {chatId && (
+            <div>
+              <SectionTitle>Chat ID</SectionTitle>
+              <div className="px-3 py-2 text-xs rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 font-mono">
+                {chatId} ✓
+              </div>
+            </div>
+          )}
+
+          {step === "ready" && (
+            <>
+              {/* Auto-send toggle */}
+              <div className="flex items-center justify-between p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
+                <div>
+                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Send on every auto-backup</p>
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">Deliver to Telegram after each scheduled backup</p>
+                </div>
+                <button
+                  onClick={() => setTgEnabled((v) => !v)}
+                  className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${tgEnabled ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-700"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${tgEnabled ? "translate-x-4" : ""}`} />
+                </button>
+              </div>
+
+              {/* Password for send now */}
+              <div>
+                <SectionTitle>Backup password</SectionTitle>
+                <div className="space-y-2">
+                  <PasswordInput value={password} onChange={setPassword} placeholder="Password (min. 8 characters)" disabled={isLoading} />
+                  {tgEnabled && <PasswordInput value={confirm} onChange={setConfirm} placeholder="Confirm password" disabled={isLoading} />}
+                </div>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1.5 leading-snug">
+                  Used to encrypt the backup before sending.
+                </p>
+              </div>
+
+              {/* Send now */}
+              <button
+                onClick={handleSendNow}
+                disabled={isLoading}
+                className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors duration-150 flex items-center justify-center gap-2"
+              >
+                {isLoading && <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/></svg>}
+                {isLoading ? "Sending…" : "Send backup now"}
+              </button>
+            </>
           )}
 
           {/* Status message */}
@@ -225,19 +442,16 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
             </p>
           )}
 
-          {/* Save */}
-          <button
-            onClick={handleSave}
-            disabled={isLoading}
-            className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors duration-150 flex items-center justify-center gap-2"
-          >
-            {isLoading && (
-              <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/>
-              </svg>
-            )}
-            {isLoading ? "Saving…" : "Save settings"}
-          </button>
+          {/* Save settings */}
+          {step === "ready" && (
+            <button
+              onClick={handleSave}
+              disabled={isLoading}
+              className="w-full py-1.5 rounded-lg text-xs font-medium bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 transition-colors disabled:opacity-50"
+            >
+              Save settings
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -263,17 +477,13 @@ export function BackupModal() {
     setMessage(null);
   }
 
-  // ── Export ──────────────────────────────────────────────────────────────────
-
   async function handleExport() {
     const { exportBackup } = await import("@/features/backup/lib/backup");
-    if (!password.trim())          { setMessage("Please enter a password."); return; }
-    if (password !== confirm)      { setMessage("Passwords do not match."); return; }
-    if (password.length < 8)       { setMessage("Password must be at least 8 characters."); return; }
-
+    if (!password.trim())         { setMessage("Please enter a password."); return; }
+    if (password !== confirm)     { setMessage("Passwords do not match."); return; }
+    if (password.length < 8)      { setMessage("Password must be at least 8 characters."); return; }
     setStatus("loading");
     setMessage(null);
-
     try {
       const result = await exportBackup(password);
       setStatus("success");
@@ -286,15 +496,11 @@ export function BackupModal() {
     }
   }
 
-  // ── Restore ─────────────────────────────────────────────────────────────────
-
   async function handleRestore() {
     const { restoreBackup } = await import("@/features/backup/lib/backup");
     if (!password.trim()) { setMessage("Please enter the backup password."); return; }
-
     setStatus("loading");
     setMessage(null);
-
     try {
       const result = await restoreBackup(password);
       await loadNotes();
@@ -309,11 +515,8 @@ export function BackupModal() {
 
   const isLoading = status === "loading";
 
-  // ── Auto-backup flow ────────────────────────────────────────────────────────
-
-  if (flow === "auto") return <AutoBackupFlow onBack={reset} />;
-
-  // ── Idle ────────────────────────────────────────────────────────────────────
+  if (flow === "auto")     return <AutoBackupFlow onBack={reset} />;
+  if (flow === "telegram") return <TelegramFlow   onBack={reset} />;
 
   if (flow === "idle") {
     return (
@@ -327,12 +530,7 @@ export function BackupModal() {
                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Export backup</p>
                 <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-snug">Encrypt and download all your notes as a .nkbackup file.</p>
               </div>
-              <button
-                onClick={() => { setFlow("export"); setMessage(null); }}
-                className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition-colors duration-150"
-              >
-                Export
-              </button>
+              <button onClick={() => { setFlow("export"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition-colors duration-150">Export</button>
             </div>
           </div>
 
@@ -342,12 +540,7 @@ export function BackupModal() {
                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Restore from backup</p>
                 <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-snug">Upload a .nkbackup file and restore your notes.</p>
               </div>
-              <button
-                onClick={() => { setFlow("restore"); setMessage(null); }}
-                className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition-colors duration-150"
-              >
-                Restore
-              </button>
+              <button onClick={() => { setFlow("restore"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition-colors duration-150">Restore</button>
             </div>
           </div>
 
@@ -357,12 +550,17 @@ export function BackupModal() {
                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Auto-backup</p>
                 <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-snug">Schedule automatic backups to iCloud, Dropbox, or any local folder.</p>
               </div>
-              <button
-                onClick={() => { setFlow("auto"); setMessage(null); }}
-                className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition-colors duration-150"
-              >
-                Configure
-              </button>
+              <button onClick={() => { setFlow("auto"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition-colors duration-150">Configure</button>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Telegram backup</p>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-snug">Send encrypted backups to your private Telegram chat.</p>
+              </div>
+              <button onClick={() => { setFlow("telegram"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition-colors duration-150">Configure</button>
             </div>
           </div>
 
@@ -377,8 +575,6 @@ export function BackupModal() {
     );
   }
 
-  // ── Export flow ─────────────────────────────────────────────────────────────
-
   if (flow === "export") {
     return (
       <div>
@@ -387,7 +583,6 @@ export function BackupModal() {
           <span className="text-xs text-zinc-300 dark:text-zinc-600">/</span>
           <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Export backup</span>
         </div>
-
         {status === "success" ? (
           <div className="space-y-3">
             <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800">
@@ -401,11 +596,7 @@ export function BackupModal() {
             <PasswordInput value={password} onChange={setPassword} placeholder="Password (min. 8 characters)" disabled={isLoading} />
             <PasswordInput value={confirm}  onChange={setConfirm}  placeholder="Confirm password"             disabled={isLoading} />
             {message && <p className="text-xs text-red-500 dark:text-red-400">{message}</p>}
-            <button
-              onClick={handleExport}
-              disabled={isLoading}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors duration-150 flex items-center justify-center gap-2"
-            >
+            <button onClick={handleExport} disabled={isLoading} className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors duration-150 flex items-center justify-center gap-2">
               {isLoading && <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/></svg>}
               {isLoading ? "Encrypting…" : "Export & Download"}
             </button>
@@ -415,8 +606,6 @@ export function BackupModal() {
     );
   }
 
-  // ── Restore flow ────────────────────────────────────────────────────────────
-
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
@@ -424,7 +613,6 @@ export function BackupModal() {
         <span className="text-xs text-zinc-300 dark:text-zinc-600">/</span>
         <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Restore from backup</span>
       </div>
-
       {status === "success" ? (
         <div className="space-y-3">
           <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800">
@@ -441,11 +629,7 @@ export function BackupModal() {
           <SectionTitle>Enter backup password</SectionTitle>
           <PasswordInput value={password} onChange={setPassword} placeholder="Backup password" disabled={isLoading} />
           {message && <p className="text-xs text-red-500 dark:text-red-400">{message}</p>}
-          <button
-            onClick={handleRestore}
-            disabled={isLoading}
-            className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors duration-150 flex items-center justify-center gap-2"
-          >
+          <button onClick={handleRestore} disabled={isLoading} className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors duration-150 flex items-center justify-center gap-2">
             {isLoading && <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/></svg>}
             {isLoading ? "Restoring…" : "Select file & Restore"}
           </button>
