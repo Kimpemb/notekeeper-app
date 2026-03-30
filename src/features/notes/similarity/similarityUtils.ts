@@ -118,8 +118,14 @@ export function scoreCandidate(
 
   const sourceTags    = new Set(parseTags(sourceNote.tags));
   const candidateTags = new Set(parseTags(candidate.tags));
-  const sourceKws     = new Set(extractKeywords(sourceNote.title));
-  const candidateKws  = new Set(extractKeywords(candidate.title));
+const sourceKws    = new Set([
+  ...extractKeywords(sourceNote.title),
+  ...extractKeywords(sourceNote.plaintext ?? ""),
+]);
+const candidateKws = new Set([
+  ...extractKeywords(candidate.title),
+  ...extractKeywords(candidate.plaintext ?? ""),
+]);
 
   const sharedTags: string[] = [];
   let tagScore = 0;
