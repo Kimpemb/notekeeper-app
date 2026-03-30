@@ -55,7 +55,7 @@ export function useSampleNotes() {
       for (let i = 0; i < SAMPLE_NOTES.length; i++) {
         const sample = SAMPLE_NOTES[i];
         try {
-          const result = await createNote({
+          await createNote({
             title: sample.title,
             content: JSON.stringify(sample.content),
             parent_id: null,
