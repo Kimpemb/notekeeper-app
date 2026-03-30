@@ -33,7 +33,7 @@ export async function getAppDataDir(): Promise<string> {
   return await invoke<string>("get_app_data_dir");
 }
 
-// --- Image helpers ---
+// ─── Image helpers ────────────────────────────────────────────────────────────
 
 export async function pickImageFile(): Promise<string | null> {
   const path = await open({
@@ -66,4 +66,60 @@ export async function pickAttachmentFile(): Promise<string | null> {
     filters: [{ name: "Attachments", extensions: ["pdf", "mp3", "wav", "ogg", "m4a", "aac"] }],
   });
   return (path as string) ?? null;
+}
+
+// ─── Backup helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Opens a save dialog and writes the encrypted backup string to a .nkbackup file.
+ * Returns true on success, false if the user cancels.
+ */
+export async function saveBackupFile(contents: string, defaultName: string): Promise<boolean> {
+  const path = await save({
+    defaultPath: defaultName,
+    filters: [{ name: "Idemora Backup", extensions: ["nkbackup"] }],
+  });
+  if (!path) return false;
+  await invoke("write_file", { path, contents });
+  return true;
+}
+
+/**
+ * Opens a file picker filtered to .nkbackup files.
+ * Returns the file contents as a string, or null if cancelled.
+ */
+export async function openBackupFile(): Promise<string | null> {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: "Idemora Backup", extensions: ["nkbackup"] }],
+  });
+  if (!path) return null;
+  return await invoke<string>("read_file", { path });
+}
+
+/**
+ * Opens a folder picker dialog.
+ * Returns the selected folder path, or null if cancelled.
+ */
+export async function pickBackupFolder(): Promise<string | null> {
+  const path = await open({
+    directory: true,
+    multiple:  false,
+  });
+  return (path as string) ?? null;
+}
+
+/**
+ * Writes an encrypted backup string directly to a folder path (no dialog).
+ * Used by the scheduler for silent auto-backups.
+ */
+export async function saveBackupToFolder(
+  contents:   string,
+  folderPath: string,
+  fileName:   string
+): Promise<string> {
+  const sep      = folderPath.includes("\\") ? "\\" : "/";
+  const fullPath = `${folderPath}${sep}${fileName}`;
+  await invoke("write_file", { path: fullPath, contents });
+  return fullPath;
 }

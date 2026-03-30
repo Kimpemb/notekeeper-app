@@ -31,7 +31,6 @@ export function useSampleNotes() {
   // Sync flag if notes exist but flag is wrong
   useEffect(() => {
     if (settingsLoaded && hasSampleNotes && !settings.hasInsertedSampleNotes) {
-      console.log("✅ Sample notes exist, syncing flag");
       updateSetting("hasInsertedSampleNotes", true);
       setSetting("hasInsertedSampleNotes", "true").catch(console.error);
     }
@@ -40,15 +39,6 @@ export function useSampleNotes() {
   // Main insertion logic
   useEffect(() => {
     const flag = directFlag !== null ? directFlag : settings.hasInsertedSampleNotes;
-    
-    console.log("🔍 useSampleNotes - checking conditions:", {
-      settingsLoaded,
-      hasInsertedSampleNotes: flag,
-      notesLength: notes.length,
-      hasSampleNotes,
-      hasStarted,
-      directFlag,
-    });
 
     const shouldRun =
       settingsLoaded &&
@@ -59,28 +49,22 @@ export function useSampleNotes() {
 
     if (!shouldRun) return;
 
-    console.log("🚀 Starting sample notes insertion...");
     setHasStarted(true);
 
     const run = async () => {
       for (let i = 0; i < SAMPLE_NOTES.length; i++) {
         const sample = SAMPLE_NOTES[i];
-        console.log(`📄 Creating (${i + 1}/3): ${sample.title}`);
         try {
           const result = await createNote({
             title: sample.title,
             content: JSON.stringify(sample.content),
             parent_id: null,
           });
-          console.log(`   ✅ Created: ${result.title}`);
         } catch (err) {
           console.error(`   ❌ Failed: ${sample.title}`, err);
         }
       }
-      console.log("🏁 All notes created, updating flag...");
-      await updateSetting("hasInsertedSampleNotes", true);
-      await setSetting("hasInsertedSampleNotes", "true");
-      console.log("🎉 Done!");
+      
     };
 
     run();

@@ -30,6 +30,7 @@ import { cancelSidebarCollapse } from "@/lib/sidebarTimer";
 import { OnboardingModal, useSampleNotes } from "./features/onboarding";
 import { UpdateToast } from "@/features/ui/components/UpdateToast";
 import { useAIStore } from "./features/ai/store/useAIStore";
+import { runScheduledBackupIfDue } from "@/features/backup/lib/scheduler";
 
 
 
@@ -145,10 +146,11 @@ useEffect(() => {
       return Promise.all([
         useUIStore.getState().loadSettings(),
         useAppSettings.getState().load(),
-        useAIStore.getState().loadAISettings(), // ← add here
+        useAIStore.getState().loadAISettings(),
       ]);
     })
     .then(() => loadNotes())
+    .then(() => runScheduledBackupIfDue()) // ← add this line
     .catch((err) => setDbError(String(err)));
 }, [loadNotes]);
 

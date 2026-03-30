@@ -6,6 +6,7 @@ import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
 import { AISetupModal } from "@/features/ai/components/AISetupModal";
 import { useAIStore } from "@/features/ai/store/useAIStore";
+import { BackupModal } from "@/features/backup/components/BackupModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -136,7 +137,7 @@ function Select<T extends string>({
 
 // ─── Sidebar nav tabs (unchanged) ─────────────────────────────────────────────
 
-type Section = "appearance" | "editor" | "keybindings" | "data" | "ai";
+type Section = "appearance" | "editor" | "keybindings" | "data" | "ai" | "backup";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -191,6 +192,16 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
       </svg>
     ),
   },
+  {
+  id: "backup",
+  label: "Backup",
+  icon: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M7 1v8M4 6l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M2 10v1.5A1.5 1.5 0 003.5 13h7a1.5 1.5 0 001.5-1.5V10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  ),
+},
 ];
 
 // ─── Keybindings reference (unchanged) ────────────────────────────────────────
@@ -524,6 +535,11 @@ export function SettingsModal() {
           {section === "ai" && (
             <div>
               <AISetupModal />
+            </div>
+          )}
+          {section === "backup" && (
+            <div>
+              <BackupModal />
             </div>
           )}
         </div>

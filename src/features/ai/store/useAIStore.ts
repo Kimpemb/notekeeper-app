@@ -47,10 +47,8 @@ export const useAIStore = create<AIStore>((set, get) => ({
   loadAISettings: async () => {
   try {
     const raw = await getSetting(AI_SETTINGS_KEY);
-    console.log("loadAISettings raw:", raw); // ← add this
     if (!raw) return;
     const parsed: Partial<AISettings> = JSON.parse(raw);
-    console.log("loadAISettings parsed:", parsed); // ← and this
     set({
       provider: parsed.provider ?? "gemini",
       apiKey: parsed.apiKey ?? "",
@@ -58,7 +56,6 @@ export const useAIStore = create<AIStore>((set, get) => ({
       connectionStatus: parsed.apiKey ? "connected" : "idle",
     });
   } catch (err) {
-    console.log("loadAISettings error:", err); // ← and this
   }
 },
 
