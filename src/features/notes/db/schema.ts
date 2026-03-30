@@ -173,4 +173,29 @@ export const ALL_MIGRATIONS: string[] = [
       INSERT INTO blocks_fts(blocks_fts, rowid, block_id, note_id, plaintext)
       VALUES ('delete', old.rowid, old.block_id, old.note_id, old.plaintext);
     END`,
+
+    `CREATE TABLE IF NOT EXISTS ai_summaries (
+    note_id     TEXT    PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    summary     TEXT    NOT NULL,
+    note_hash   INTEGER NOT NULL,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ai_tag_cache (
+    note_id     TEXT    PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    tags        TEXT    NOT NULL,
+    note_hash   INTEGER NOT NULL,
+    created_at  INTEGER NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS ai_history (
+    id          TEXT    PRIMARY KEY,
+    note_id     TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    role        TEXT    NOT NULL CHECK(role IN ('user', 'assistant')),
+    content     TEXT    NOT NULL,
+    created_at  INTEGER NOT NULL
+  )`,
+ 
+  `CREATE INDEX IF NOT EXISTS idx_ai_history_note_id ON ai_history(note_id, created_at DESC)`,
 ];

@@ -1033,3 +1033,151 @@ export async function backfillNoteBlocks(): Promise<void> {
     await syncNoteBlocks(note.id, note.content);
   }
 }
+
+export interface AISummaryRow {
+  note_id: string;
+  summary: string;
+  note_hash: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function getAISummary(noteId: string, noteUpdatedAt: number): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<AISummaryRow[]>(
+    `SELECT * FROM ai_summaries WHERE note_id = $1`,
+    [noteId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  if (row.note_hash !== noteUpdatedAt) return null; // stale
+  return row.summary;
+}
+ 
+export async function upsertAISummary(
+  noteId: string,
+  summary: string,
+  noteUpdatedAt: number
+): Promise<void> {
+  const db = await getDb();
+  const ts = Date.now();
+  await db.execute(
+    `INSERT INTO ai_summaries (note_id, summary, note_hash, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT(note_id) DO UPDATE SET
+       summary    = excluded.summary,
+       note_hash  = excluded.note_hash,
+       updated_at = excluded.updated_at`,
+    [noteId, summary, noteUpdatedAt, ts, ts]
+  );
+}
+ 
+// ── ai_tag_cache ──────────────────────────────────────────────────────────────
+ 
+export interface AITagCacheRow {
+  note_id: string;
+  tags: string;
+  note_hash: number;
+  created_at: number;
+}
+ 
+export async function getAITagCache(noteId: string, noteUpdatedAt: number): Promise<string[] | null> {
+  const db = await getDb();
+  const rows = await db.select<AITagCacheRow[]>(
+    `SELECT * FROM ai_tag_cache WHERE note_id = $1`,
+    [noteId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  if (row.note_hash !== noteUpdatedAt) return null;
+  try {
+    return JSON.parse(row.tags) as string[];
+  } catch {
+    return null;
+  }
+}
+ 
+export async function upsertAITagCache(
+  noteId: string,
+  tags: string[],
+  noteUpdatedAt: number
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO ai_tag_cache (note_id, tags, note_hash, created_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT(note_id) DO UPDATE SET
+       tags      = excluded.tags,
+       note_hash = excluded.note_hash`,
+    [noteId, JSON.stringify(tags), noteUpdatedAt, Date.now()]
+  );
+}
+ 
+// ── ai_history ────────────────────────────────────────────────────────────────
+ 
+export interface AIHistoryRow {
+  id: string;
+  note_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: number;
+}
+ 
+const AI_HISTORY_LIMIT = 6; // 3 pairs (user + assistant)
+ 
+export async function getAIHistory(noteId: string): Promise<AIHistoryRow[]> {
+  const db = await getDb();
+  const rows = await db.select<AIHistoryRow[]>(
+    `SELECT * FROM ai_history
+     WHERE note_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [noteId, AI_HISTORY_LIMIT]
+  );
+  return rows.reverse(); // chronological order for prompt injection
+}
+ 
+export async function appendAIHistory(
+  noteId: string,
+  role: 'user' | 'assistant',
+  content: string
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO ai_history (id, note_id, role, content, created_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [crypto.randomUUID(), noteId, role, content, Date.now()]
+  );
+  // Prune to last AI_HISTORY_LIMIT rows for this note
+  await db.execute(
+    `DELETE FROM ai_history
+     WHERE note_id = $1
+       AND id NOT IN (
+         SELECT id FROM ai_history
+         WHERE note_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2
+       )`,
+    [noteId, AI_HISTORY_LIMIT]
+  );
+}
+ 
+export async function clearAIHistory(noteId: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(`DELETE FROM ai_history WHERE note_id = $1`, [noteId]);
+}
+ 
+// ── Bulk summary fetch for chat context ──────────────────────────────────────
+ 
+/**
+ * Returns all stored summaries — used by chat.ts to build vault-wide context.
+ * Maps noteId → summary string.
+ */
+export async function getAllAISummaries(): Promise<Map<string, string>> {
+  const db = await getDb();
+  const rows = await db.select<{ note_id: string; summary: string }[]>(
+    `SELECT note_id, summary FROM ai_summaries`
+  );
+  return new Map(rows.map((r) => [r.note_id, r.summary]));
+}
+ 

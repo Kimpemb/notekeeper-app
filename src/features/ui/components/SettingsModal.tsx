@@ -234,6 +234,7 @@ const KEYBINDINGS: { category: string; shortcuts: { keys: string[]; action: stri
       { keys: ["Ctrl", "'"], action: "Toggle outline" },
       { keys: ["Ctrl", "T"], action: "Toggle file tree" },
       { keys: ["Ctrl", "Shift", "G"], action: "Toggle graph view" },
+      { keys: ["Ctrl", "Shift", "A"], action: "Toggle AI chat panel" },
     ],
   },
   {

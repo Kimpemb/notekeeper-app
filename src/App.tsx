@@ -255,6 +255,11 @@ useEffect(() => {
       e.preventDefault();
       if (activePaneId === 2) { triggerNav(pane2GoForward); } else { triggerNav(goForward); }
     }
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "a") {
+  e.preventDefault();
+  const { chatOpen1, openChat, closeChat } = useUIStore.getState();
+  chatOpen1 ? closeChat(1) : openChat(1);
+}
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
       e.preventDefault();
       useUIStore.getState().setRefreshStatus("reloading");

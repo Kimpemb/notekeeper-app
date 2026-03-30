@@ -30,8 +30,9 @@ import { SubPagesSection } from "./SubPagesSection";
 import { SubPageNode } from "./SubPageNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
-import { syncNoteBlocks }  from "@/features/notes/db/queries";
+import { syncNoteBlocks } from "@/features/notes/db/queries";
 import { AIActionBar } from "@/features/ai/components/AIActionBar";
+import { ChatPanel } from "@/features/ai/components/ChatPanel";
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -44,7 +45,7 @@ import {
   BlockIdExtension,
   BlockRefNode,
   DataviewNode,
-  } from "./extensions";
+} from "./extensions";
 
 import {
   extractNoteLinkIds, scrollToHeadingText, scrollToQuery,
@@ -96,6 +97,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const myBacklinksOpen      = useUIStore((s) => paneId === 1 ? s.pane1BacklinksOpen      : s.pane2BacklinksOpen);
   const mySimilarOpen        = useUIStore((s) => paneId === 1 ? s.pane1SimilarOpen        : s.pane2SimilarOpen);
   const myVersionHistoryOpen = useUIStore((s) => paneId === 1 ? s.pane1VersionHistoryOpen : s.pane2VersionHistoryOpen);
+  const myChatOpen           = useUIStore((s) => paneId === 1 ? s.chatOpen1               : s.chatOpen2);
 
   const toggleOutline    = useUIStore((s) => s.toggleOutline);
   const toggleBacklinks  = useUIStore((s) => s.toggleBacklinks);
@@ -144,7 +146,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   const initialContent = note?.content ? JSON.parse(note.content) : "";
 
-const editor = useEditor({
+  const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
       CodeBlock, Callout, CheckList, CheckItem, EditorTable, TableRow, TableHeader, TableCell,
@@ -260,16 +262,14 @@ const editor = useEditor({
     },
   });
 
-function closeSlashMenuInternal() { setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false; }
-function closeLinkSuggestInternal() { setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null; }
-function closeBlockRefSuggestInternal() { setBlockRefOpen(false); setBlockRefQuery(""); blockRefTriggerStart.current = null; }
-function closeSlashMenu() { closeSlashMenuInternal(); editor?.commands.focus(); }
-function closeLinkSuggest() { closeLinkSuggestInternal(); editor?.commands.focus(); }
-function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.commands.focus(); }
-
+  function closeSlashMenuInternal() { setSlashOpen(false); setSlashQuery(""); slashStartPos.current = null; slashFromBubble.current = false; }
+  function closeLinkSuggestInternal() { setLinkOpen(false); setLinkQuery(""); linkBracketStart.current = null; }
+  function closeBlockRefSuggestInternal() { setBlockRefOpen(false); setBlockRefQuery(""); blockRefTriggerStart.current = null; }
+  function closeSlashMenu() { closeSlashMenuInternal(); editor?.commands.focus(); }
+  function closeLinkSuggest() { closeLinkSuggestInternal(); editor?.commands.focus(); }
+  function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.commands.focus(); }
 
   // ── Update spellcheck on the live editor when the setting changes ─────────
-  // useEditor constructs editorProps once, so we need to push updates manually.
   useEffect(() => {
     if (!editor) return;
     editor.setOptions({
@@ -281,8 +281,6 @@ function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.comman
         },
       },
     });
-    // Also update the DOM attribute directly so the browser spell-check
-    // engine responds immediately without waiting for a re-render.
     const el = editor.view.dom as HTMLElement;
     el.setAttribute("spellcheck", String(spellCheck));
   }, [editor, spellCheck]);
@@ -358,11 +356,11 @@ function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.comman
   }, [editor, isActiveTab]);
 
   const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
-  lastSavedContent.current = content;
-  if (!editor) return;
-  syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
-  syncNoteBlocks(savedNoteId, content).catch(console.error); // ← add this
-}, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+    lastSavedContent.current = content;
+    if (!editor) return;
+    syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
+    syncNoteBlocks(savedNoteId, content).catch(console.error);
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete });
 
@@ -385,8 +383,19 @@ function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.comman
     return () => window.removeEventListener("keydown", handle);
   }, [isActiveTab]);
 
-  if (!note) return null;
+  // ── Chat panel — open via slash menu custom event ─────────────────────────
+  // MUST be above the if (!note) return null early return to obey Rules of Hooks
+  useEffect(() => {
+    function handleOpenChat(e: Event) {
+      const { paneId: targetPane } = (e as CustomEvent).detail;
+      if (targetPane === paneId) useUIStore.getState().openChat(paneId);
+    }
+    window.addEventListener("idemora:open-chat", handleOpenChat);
+    return () => window.removeEventListener("idemora:open-chat", handleOpenChat);
+  }, [paneId]);
 
+  // ── Early return — all hooks must be above this line ─────────────────────
+  if (!note) return null;
 
   function handleTitleFocus() { titleFocusedRef.current = true; }
   function handleTitleBlur() {
@@ -654,11 +663,11 @@ function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.comman
         )}
 
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
-  <div className="w-full mx-auto px-8 py-6 min-h-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl cursor-text" onClick={handleEditorAreaClick}>
-    <FrontmatterEditor
-      frontmatter={note.frontmatter ?? null}
-      onChange={(frontmatter) => updateNote(note.id, { frontmatter })}
-    />
+          <div className="w-full mx-auto px-8 py-6 min-h-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl cursor-text" onClick={handleEditorAreaClick}>
+            <FrontmatterEditor
+              frontmatter={note.frontmatter ?? null}
+              onChange={(frontmatter) => updateNote(note.id, { frontmatter })}
+            />
             <h1
               ref={titleRef}
               contentEditable suppressContentEditableWarning spellCheck={false}
@@ -673,9 +682,9 @@ function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.comman
             </h1>
             <TagBar noteId={note.id} tags={note.tags} />
             <div key={note.id} ref={editorWrapRef}>
-  <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
-  <div className="h-[25vh]" />
-</div>
+              <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
+              <div className="h-[25vh]" />
+            </div>
           </div>
           <SubPagesSection noteId={note.id} paneId={paneId} />
         </div>
@@ -687,6 +696,7 @@ function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.comman
       {myOutlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
       {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
       {mySimilarOpen   && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
+      {myChatOpen      && isActiveTab && <ChatPanel noteId={note.id} paneId={paneId} />}
       {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (
@@ -707,14 +717,14 @@ function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.comman
         <NoteLinkSuggest position={linkPos} editor={editor} query={linkQuery} bracketStart={linkBracketStart.current} onClose={closeLinkSuggest} />
       )}
       {blockRefOpen && editor && blockRefTriggerStart.current !== null && (
-  <BlockRefSuggest
-    position={blockRefPos}
-    editor={editor}
-    query={blockRefQuery}
-    triggerStart={blockRefTriggerStart.current}
-    onClose={closeBlockRefSuggest}
-  />
-)}
+        <BlockRefSuggest
+          position={blockRefPos}
+          editor={editor}
+          query={blockRefQuery}
+          triggerStart={blockRefTriggerStart.current}
+          onClose={closeBlockRefSuggest}
+        />
+      )}
     </div>
   );
 }

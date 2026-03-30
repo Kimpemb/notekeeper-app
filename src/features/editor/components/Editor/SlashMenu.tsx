@@ -57,19 +57,19 @@ export function SlashMenu({
       action: onSubPageCreate,
     },
 
-{
-  id: "block-ref",
-  label: "Embed Block",
-  description: "Embed a block from another note — block reference, transclude",
+    {
+  id: "chat",
+  label: "Ask AI",
+  description: "Chat with your notes — ask, question, AI",
   icon: (
-    <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-500">
-      <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
-      <path d="M3 4h6M3 6.5h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-      <path d="M7 8.5l2 1.5-2 1.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-violet-500">
+      <path d="M6 1C3.24 1 1 3 1 5.45c0 1.37.64 2.6 1.66 3.42L2.5 11l2-.97c.48.13.98.2 1.5.2 2.76 0 5-2 5-4.45S8.76 1 6 1z"
+        stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+      <path d="M3.5 5h5M3.5 7h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
     </svg>
   ),
   action: () => {
-    editor.chain().focus().insertContent("((").run();
+    window.dispatchEvent(new CustomEvent("idemora:open-chat", { detail: { paneId: _paneId } }));
   },
 },
 
