@@ -18,7 +18,6 @@ import { syncNoteBlocks, enqueueEmbeddingJobs } from "@/features/notes/db/querie
 import { nudgeIndexer }                          from "@/features/ai/lib/indexer";
 import { useAIStore }                            from "@/features/ai/store/useAIStore";
 
-
 const HARD_CAP_MS = 30_000;
 
 interface UseAutoSaveOptions {
@@ -38,10 +37,10 @@ export function useAutoSave({
   const setSaveStatus = useUIStore((s) => s.setSaveStatus);
   const autosaveDelay = useAppSettings((s) => s.settings.autosaveDelay);
 
-  const debounceTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hardCapTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isDirty         = useRef(false);
-  const isActiveTabRef  = useRef(isActiveTab);
+  const debounceTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hardCapTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDirty          = useRef(false);
+  const isActiveTabRef   = useRef(isActiveTab);
   const autosaveDelayRef = useRef(autosaveDelay);
 
   useEffect(() => { isActiveTabRef.current = isActiveTab; }, [isActiveTab]);
@@ -88,7 +87,6 @@ export function useAutoSave({
           await enqueueEmbeddingJobs(
             blocks.map((b) => ({ blockId: b.block_id, noteId }))
           )
-
           nudgeIndexer()   // don't wait 30s — try to embed right now
         } catch (err) {
           // Embedding pipeline errors must never break the save flow
@@ -107,8 +105,6 @@ export function useAutoSave({
     if (!isActiveTabRef.current) return;
     setSaveStatus("saving");
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    // Read the latest delay from the ref so changes take effect immediately
-    // without needing to recreate this callback.
     debounceTimer.current = setTimeout(save, autosaveDelayRef.current);
     if (!hardCapTimer.current) hardCapTimer.current = setTimeout(save, HARD_CAP_MS);
   }, [save, setSaveStatus]);

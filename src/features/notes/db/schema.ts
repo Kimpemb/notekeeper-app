@@ -235,4 +235,11 @@ export const ALL_MIGRATIONS: string[] = [
 
 `CREATE INDEX IF NOT EXISTS idx_embedding_jobs_status
   ON embedding_jobs(status, next_attempt_at)`,
+
+  `CREATE TABLE IF NOT EXISTS ai_conversation_summary (
+    note_id     TEXT    PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    summary     TEXT    NOT NULL,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    updated_at  INTEGER NOT NULL
+  )`,
 ];

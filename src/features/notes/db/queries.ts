@@ -1494,3 +1494,58 @@ export async function getSurroundingBlocks(
  
   return allBlocks.slice(start, end + 1).map((b) => b.plaintext).filter(Boolean)
 }
+
+// ─── Phase 4: Rolling conversation summary ────────────────────────────────────
+
+export interface ConversationSummaryRow {
+  note_id:       string
+  summary:       string
+  message_count: number
+  updated_at:    number
+}
+
+/**
+ * Get the rolling summary for a note's conversation history.
+ * Returns null if no summary exists yet.
+ */
+export async function getConversationSummary(
+  noteId: string
+): Promise<ConversationSummaryRow | null> {
+  const db   = await getDb()
+  const rows = await db.select<ConversationSummaryRow[]>(
+    `SELECT * FROM ai_conversation_summary WHERE note_id = $1`,
+    [noteId]
+  )
+  return rows[0] ?? null
+}
+
+/**
+ * Save or update the rolling summary for a note's conversation.
+ */
+export async function saveConversationSummary(
+  noteId:       string,
+  summary:      string,
+  messageCount: number
+): Promise<void> {
+  const db = await getDb()
+  await db.execute(
+    `INSERT INTO ai_conversation_summary (note_id, summary, message_count, updated_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT(note_id) DO UPDATE SET
+       summary       = excluded.summary,
+       message_count = excluded.message_count,
+       updated_at    = excluded.updated_at`,
+    [noteId, summary, messageCount, Date.now()]
+  )
+}
+
+/**
+ * Clear the rolling summary for a note — called when user clears conversation.
+ */
+export async function clearConversationSummary(noteId: string): Promise<void> {
+  const db = await getDb()
+  await db.execute(
+    `DELETE FROM ai_conversation_summary WHERE note_id = $1`,
+    [noteId]
+  )
+}

@@ -1,11 +1,11 @@
 // src/features/ai/components/ChatPanel.tsx
 //
-// "Chat with your notes" side panel — Phase 2
-// True token-by-token streaming, inline citations, confidence indicator.
+// "Chat with your notes" side panel — Phase 4
+// Streaming, citations, confidence, related notes (cross-note connection pass).
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { streamChatWithNotes, type ChatMessage } from "@/features/ai/lib/chat";
-import { clearAIHistory } from "@/features/notes/db/queries";
+import { streamChatWithNotes, type ChatMessage, type RelatedNote } from "@/features/ai/lib/chat";
+import { clearAIHistory, clearConversationSummary } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAIStore } from "@/features/ai/store/useAIStore";
@@ -20,6 +20,7 @@ interface MessageMeta {
   sourceNoteIds:  string[];
   usedEmbeddings: boolean;
   confidence:     "high" | "low";
+  relatedNotes:   RelatedNote[];
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -35,11 +36,11 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
 
-  const notes            = useNoteStore((s) => s.notes);
-  const openTab          = useUIStore((s) => s.openTab);
-  const openTabInPane2   = useUIStore((s) => s.openTabInPane2);
-  const closeChat        = useUIStore((s) => s.closeChat);
-  const aiEnabled        = useAIStore((s) => s.enabled);
+  const notes          = useNoteStore((s) => s.notes);
+  const openTab        = useUIStore((s) => s.openTab);
+  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
+  const closeChat      = useUIStore((s) => s.closeChat);
+  const aiEnabled      = useAIStore((s) => s.enabled);
   const connectionStatus = useAIStore((s) => s.connectionStatus);
 
   const isAIAvailable = aiEnabled && connectionStatus === "connected";
@@ -84,8 +85,6 @@ export function ChatPanel({ noteId, paneId }: Props) {
     setStreamingId(assistantId);
     setError(null);
 
-    // Track whether onError already handled cleanup so the outer
-    // catch doesn't double-fire (streamComplete throws after calling onError)
     let errorHandled = false;
 
     try {
@@ -110,9 +109,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
           },
           onError: (err) => {
             errorHandled = true;
-            // Remove the empty/partial assistant message
             setMessages((prev) => prev.filter((m) => m.id !== assistantId));
-            // Friendlier message for quota errors
             const msg =
               err.message.toLowerCase().includes("quota") ||
               err.message.toLowerCase().includes("exhausted")
@@ -125,18 +122,16 @@ export function ChatPanel({ noteId, paneId }: Props) {
         }
       );
 
-      // Only store metadata if stream completed successfully
       setMetaMap((prev) =>
         new Map(prev).set(assistantId, {
           sourceTitles:   meta.sourceTitles,
           sourceNoteIds:  meta.sourceNoteIds,
           usedEmbeddings: meta.usedEmbeddings,
           confidence:     meta.confidence,
+          relatedNotes:   meta.relatedNotes,
         })
       );
     } catch {
-      // streamComplete calls onError then re-throws — if onError already
-      // ran, ignore this. Otherwise show a generic fallback.
       if (!errorHandled) {
         setMessages((prev) => prev.filter((m) => m.id !== assistantId));
         setError("Something went wrong. Please try again.");
@@ -157,7 +152,10 @@ export function ChatPanel({ noteId, paneId }: Props) {
     setMessages([]);
     setMetaMap(new Map());
     setError(null);
-    await clearAIHistory(noteId);
+    await Promise.all([
+      clearAIHistory(noteId),
+      clearConversationSummary(noteId),
+    ]);
   }
 
   function handleOpenNote(id: string) {
@@ -237,7 +235,10 @@ export function ChatPanel({ noteId, paneId }: Props) {
                 <div key={msg.id}>
                   <MessageBubble message={msg} isStreaming={isStreaming} />
                   {msg.role === "assistant" && meta && !isStreaming && (
-                    <MessageFooter meta={meta} onOpenNote={handleOpenNote} />
+                    <MessageFooter
+                      meta={meta}
+                      onOpenNote={handleOpenNote}
+                    />
                   )}
                 </div>
               );
@@ -310,6 +311,8 @@ function MessageFooter({
 }) {
   return (
     <div className="px-4 pb-2 pl-9 space-y-1.5">
+
+      {/* Weak grounding warning */}
       {meta.confidence === "low" && (
         <div className="flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-amber-400 shrink-0">
@@ -322,6 +325,7 @@ function MessageFooter({
         </div>
       )}
 
+      {/* Source note pills */}
       {meta.sourceTitles.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {meta.sourceTitles.map((title, i) => (
@@ -341,6 +345,29 @@ function MessageFooter({
         </div>
       )}
 
+      {/* Related notes — cross-note connection pass */}
+      {meta.relatedNotes.length > 0 && (
+        <div className="pt-0.5">
+          <p className="text-[10px] text-zinc-400 dark:text-zinc-600 mb-1">You also wrote about this in</p>
+          <div className="flex flex-wrap gap-1">
+            {meta.relatedNotes.map((note) => (
+              <button
+                key={note.noteId}
+                onClick={() => onOpenNote(note.noteId)}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-50 dark:bg-blue-950/30 text-blue-500 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors duration-100 max-w-[140px]"
+                title={note.title}
+              >
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                  <path d="M4 1v6M1 4h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                </svg>
+                <span className="truncate">{note.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Retrieval mode badge */}
       <p className="text-[10px] text-zinc-300 dark:text-zinc-700">
         {meta.usedEmbeddings ? "✦ semantic search" : "◦ keyword search"}
       </p>
@@ -434,7 +461,6 @@ function MessageBubble({
             </span>
           </div>
 
-          {/* Typing dots — before first token */}
           {isStreaming && message.content === "" && (
             <div className="pl-5 flex items-center gap-1 py-1">
               {[0, 1, 2].map((i) => (
@@ -447,7 +473,6 @@ function MessageBubble({
             </div>
           )}
 
-          {/* Message text with blinking cursor while streaming */}
           {message.content !== "" && (
             <div className="text-sm text-zinc-700 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap pl-5">
               {message.content}
