@@ -24,79 +24,75 @@ export interface SemanticResult {
 
 /**
  * Embed a search query using RETRIEVAL_QUERY task type.
- * Gemini embedding-004 is task-aware — using the wrong task type
+ * gemini-embedding-001 is task-aware — using the wrong task type
  * silently degrades search quality, so we override here at query time.
  * For non-Gemini providers this falls back to the default embed() call.
+ *
+ * Returns null if embedding fails for any reason (quota, network, etc.)
+ * so the caller can degrade gracefully to keyword-only search.
  */
-async function embedQuery(query: string): Promise<Float32Array> {
+async function embedQuery(query: string): Promise<Float32Array | null> {
   const provider = useAIStore.getState().getProvider()
 
-  // Gemini provider supports task type override via a direct fetch.
-  // We reach into the provider's apiKey for this one specialised call.
-  // All other providers use the standard embed() interface.
   if (useAIStore.getState().provider === "gemini") {
-    const apiKey = useAIStore.getState().apiKey
-    const url    = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-004:embedContent?key=${apiKey}`
+    try {
+      const apiKey = useAIStore.getState().apiKey
+      const url    = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL_ID}:embedContent?key=${apiKey}`
 
-    const res = await fetch(url, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model:    "models/gemini-embedding-004",
-        content:  { parts: [{ text: query.slice(0, 2000) }] },
-        taskType: "RETRIEVAL_QUERY",   // ← different from RETRIEVAL_DOCUMENT
-      }),
-    })
+      const res = await fetch(url, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model:    `models/${EMBED_MODEL_ID}`,
+          content:  { parts: [{ text: query.slice(0, 2000) }] },
+          taskType: "RETRIEVAL_QUERY",
+        }),
+      })
 
-    if (res.ok) {
-      const data = await res.json()
-      const values: number[] = data.embedding?.values ?? []
-      if (values.length > 0) return new Float32Array(values)
+      if (res.ok) {
+        const data = await res.json()
+        const values: number[] = data.embedding?.values ?? []
+        if (values.length > 0) return new Float32Array(values)
+      }
+
+      // Non-OK response (e.g. 429 quota) — return null, don't throw
+      return null
+    } catch {
+      return null
     }
   }
 
   // Fallback — standard embed() for other providers
-  const result = await provider.embed(query)
-  return result.vector
+  try {
+    const result = await provider.embed(query)
+    return result.vector
+  } catch {
+    return null
+  }
 }
 
 // ─── Main search function ─────────────────────────────────────────────────────
 
-/**
- * Search all embeddings for the given query.
- * Returns up to `topK` results sorted by cosine similarity.
- *
- * Performance note: loading all embeddings into memory and scoring in JS
- * is fast enough for ~50k chunks (< 30ms). If vaults grow beyond that,
- * we add ANN indexing in a later phase.
- */
 export async function semanticSearch(
   query:  string,
   topK:   number = 15
 ): Promise<SemanticResult[]> {
   if (!query.trim()) return []
 
-  // Embed the query
-  let queryVector: Float32Array
-  try {
-    queryVector = await embedQuery(query)
-  } catch {
-    // If embedding the query fails, return empty — don't crash chat
-    return []
-  }
+  const queryVector = await embedQuery(query)
 
-  // Load all stored embeddings for the active model
+  // embedQuery returns null on any failure — degrade to keyword-only
+  if (!queryVector) return []
+
   const embeddings = await getAllEmbeddings(EMBED_MODEL_ID)
   if (embeddings.length === 0) return []
 
-  // Score every embedding
   const scored = embeddings.map((e) => ({
     block_id: e.block_id,
     note_id:  e.note_id,
     score:    cosineSimilarity(queryVector, e.vector),
   }))
 
-  // Sort descending, take topK
   return scored
     .sort((a, b) => b.score - a.score)
     .slice(0, topK)

@@ -1467,3 +1467,30 @@ export async function enqueueUnindexedBlocks(activeModelId: string): Promise<num
   return unindexed.length
 }
 
+export async function getSurroundingBlocks(
+  blockId:    string,
+  noteId:     string,
+  windowSize: number = 2
+): Promise<string[]> {
+  const db = await getDb()
+ 
+  // Get all blocks for this note in insertion order (proxy for document order)
+  const allBlocks = await db.select<{ block_id: string; plaintext: string }[]>(
+    `SELECT block_id, plaintext
+     FROM note_blocks
+     WHERE note_id = $1
+       AND plaintext != ''
+     ORDER BY rowid ASC`,
+    [noteId]
+  )
+ 
+  if (allBlocks.length === 0) return []
+ 
+  const idx = allBlocks.findIndex((b) => b.block_id === blockId)
+  if (idx === -1) return []
+ 
+  const start = Math.max(0, idx - windowSize)
+  const end   = Math.min(allBlocks.length - 1, idx + windowSize)
+ 
+  return allBlocks.slice(start, end + 1).map((b) => b.plaintext).filter(Boolean)
+}

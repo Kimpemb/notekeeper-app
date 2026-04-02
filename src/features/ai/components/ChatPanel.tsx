@@ -1,11 +1,10 @@
 // src/features/ai/components/ChatPanel.tsx
 //
-// "Chat with your notes" side panel.
-// Follows the exact same layout pattern as SimilarNotesPanel / BacklinksPanel.
-// Opens via slash menu /chat or keyboard shortcut.
+// "Chat with your notes" side panel — Phase 2
+// True token-by-token streaming, inline citations, confidence indicator.
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { chatWithNotes, type ChatMessage } from "@/features/ai/lib/chat";
+import { streamChatWithNotes, type ChatMessage } from "@/features/ai/lib/chat";
 import { clearAIHistory } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
@@ -16,19 +15,29 @@ interface Props {
   paneId: 1 | 2;
 }
 
+interface MessageMeta {
+  sourceTitles:   string[];
+  sourceNoteIds:  string[];
+  usedEmbeddings: boolean;
+  confidence:     "high" | "low";
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChatPanel({ noteId, paneId }: Props) {
-  const [messages, setMessages]   = useState<ChatMessage[]>([]);
-  const [input, setInput]         = useState("");
-  const [loading, setLoading]     = useState(false);
-  const [sourceTitles, setSourceTitles] = useState<string[]>([]);
-  const [error, setError]         = useState<string | null>(null);
+  const [messages, setMessages]       = useState<ChatMessage[]>([]);
+  const [metaMap, setMetaMap]         = useState<Map<string, MessageMeta>>(new Map());
+  const [input, setInput]             = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [error, setError]             = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
 
   const notes            = useNoteStore((s) => s.notes);
+  const openTab          = useUIStore((s) => s.openTab);
+  const openTabInPane2   = useUIStore((s) => s.openTabInPane2);
   const closeChat        = useUIStore((s) => s.closeChat);
   const aiEnabled        = useAIStore((s) => s.enabled);
   const connectionStatus = useAIStore((s) => s.connectionStatus);
@@ -36,21 +45,18 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const isAIAvailable = aiEnabled && connectionStatus === "connected";
   const currentNote   = notes.find((n) => n.id === noteId);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Focus input when panel opens
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [noteId]);
 
-  // Reset messages when note changes
   useEffect(() => {
     setMessages([]);
+    setMetaMap(new Map());
     setError(null);
-    setSourceTitles([]);
   }, [noteId]);
 
   const handleSend = useCallback(async () => {
@@ -64,28 +70,79 @@ export function ChatPanel({ noteId, paneId }: Props) {
       createdAt: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const assistantId = crypto.randomUUID();
+    const assistantMsg: ChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      createdAt: Date.now(),
+    };
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput("");
     setLoading(true);
+    setStreamingId(assistantId);
     setError(null);
-    setSourceTitles([]);
+
+    // Track whether onError already handled cleanup so the outer
+    // catch doesn't double-fire (streamComplete throws after calling onError)
+    let errorHandled = false;
 
     try {
-      const result = await chatWithNotes(q, notes, noteId, currentNote);
+      const meta = await streamChatWithNotes(
+        q,
+        notes,
+        noteId,
+        currentNote,
+        {
+          onChunk: (token) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: m.content + token }
+                  : m
+              )
+            );
+          },
+          onDone: () => {
+            setStreamingId(null);
+            setLoading(false);
+          },
+          onError: (err) => {
+            errorHandled = true;
+            // Remove the empty/partial assistant message
+            setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+            // Friendlier message for quota errors
+            const msg =
+              err.message.toLowerCase().includes("quota") ||
+              err.message.toLowerCase().includes("exhausted")
+                ? "Daily API quota reached. Chat will work again tomorrow, or upgrade your Gemini plan."
+                : err.message;
+            setError(msg);
+            setStreamingId(null);
+            setLoading(false);
+          },
+        }
+      );
 
-      const assistantMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: result.answer,
-        createdAt: Date.now(),
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-      setSourceTitles(result.sourceTitles);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
-      setLoading(false);
+      // Only store metadata if stream completed successfully
+      setMetaMap((prev) =>
+        new Map(prev).set(assistantId, {
+          sourceTitles:   meta.sourceTitles,
+          sourceNoteIds:  meta.sourceNoteIds,
+          usedEmbeddings: meta.usedEmbeddings,
+          confidence:     meta.confidence,
+        })
+      );
+    } catch {
+      // streamComplete calls onError then re-throws — if onError already
+      // ran, ignore this. Otherwise show a generic fallback.
+      if (!errorHandled) {
+        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+        setError("Something went wrong. Please try again.");
+        setStreamingId(null);
+        setLoading(false);
+      }
     }
   }, [input, loading, isAIAvailable, notes, noteId, currentNote]);
 
@@ -98,9 +155,14 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
   async function handleClear() {
     setMessages([]);
-    setSourceTitles([]);
+    setMetaMap(new Map());
     setError(null);
     await clearAIHistory(noteId);
+  }
+
+  function handleOpenNote(id: string) {
+    if (paneId === 2) openTabInPane2(id);
+    else openTab(id);
   }
 
   return (
@@ -168,21 +230,18 @@ export function ChatPanel({ noteId, paneId }: Props) {
           <EmptyState currentNoteTitle={currentNote?.title} />
         ) : (
           <div className="py-3 space-y-1">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
-
-            {loading && <TypingIndicator />}
-
-            {/* Source attribution */}
-            {!loading && sourceTitles.length > 0 && (
-              <div className="px-4 pt-1 pb-2">
-                <p className="text-[10px] text-zinc-400 dark:text-zinc-600 leading-relaxed">
-                  <span className="font-medium">Sources: </span>
-                  {sourceTitles.join(", ")}
-                </p>
-              </div>
-            )}
+            {messages.map((msg) => {
+              const meta        = metaMap.get(msg.id);
+              const isStreaming = msg.id === streamingId;
+              return (
+                <div key={msg.id}>
+                  <MessageBubble message={msg} isStreaming={isStreaming} />
+                  {msg.role === "assistant" && meta && !isStreaming && (
+                    <MessageFooter meta={meta} onOpenNote={handleOpenNote} />
+                  )}
+                </div>
+              );
+            })}
 
             {error && (
               <div className="mx-4 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50">
@@ -240,13 +299,64 @@ export function ChatPanel({ noteId, paneId }: Props) {
   );
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Message footer ───────────────────────────────────────────────────────────
+
+function MessageFooter({
+  meta,
+  onOpenNote,
+}: {
+  meta: MessageMeta;
+  onOpenNote: (id: string) => void;
+}) {
+  return (
+    <div className="px-4 pb-2 pl-9 space-y-1.5">
+      {meta.confidence === "low" && (
+        <div className="flex items-center gap-1.5">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-amber-400 shrink-0">
+            <path d="M5 1L9 9H1L5 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+            <path d="M5 4v2M5 7.5v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+          </svg>
+          <p className="text-[10px] text-amber-500 dark:text-amber-400 leading-relaxed">
+            Weakly grounded — answer may not reflect your notes accurately
+          </p>
+        </div>
+      )}
+
+      {meta.sourceTitles.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {meta.sourceTitles.map((title, i) => (
+            <button
+              key={meta.sourceNoteIds[i]}
+              onClick={() => onOpenNote(meta.sourceNoteIds[i])}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-violet-50 dark:hover:bg-violet-950 hover:text-violet-600 dark:hover:text-violet-400 transition-colors duration-100 max-w-[140px]"
+              title={title}
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
+                <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+              </svg>
+              <span className="truncate">{title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <p className="text-[10px] text-zinc-300 dark:text-zinc-700">
+        {meta.usedEmbeddings ? "✦ semantic search" : "◦ keyword search"}
+      </p>
+    </div>
+  );
+}
+
+// ─── Empty state ──────────────────────────────────────────────────────────────
 
 function EmptyState({ currentNoteTitle }: { currentNoteTitle?: string }) {
   const suggestions = [
     "What do I know about this topic?",
     "Summarize the key themes across my notes",
-    currentNoteTitle ? `How does this relate to my other notes?` : "What connections exist between my notes?",
+    currentNoteTitle
+      ? "How does this relate to my other notes?"
+      : "What connections exist between my notes?",
   ];
 
   return (
@@ -293,7 +403,15 @@ function SuggestionChip({ text }: { text: string }) {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+// ─── Message bubble ───────────────────────────────────────────────────────────
+
+function MessageBubble({
+  message,
+  isStreaming,
+}: {
+  message:     ChatMessage;
+  isStreaming: boolean;
+}) {
   const isUser = message.role === "user";
 
   return (
@@ -315,35 +433,31 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               Assistant
             </span>
           </div>
-          <div className="text-sm text-zinc-700 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap pl-5">
-            {message.content}
-          </div>
+
+          {/* Typing dots — before first token */}
+          {isStreaming && message.content === "" && (
+            <div className="pl-5 flex items-center gap-1 py-1">
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  className="w-1.5 h-1.5 rounded-full bg-violet-400 dark:bg-violet-600 animate-bounce"
+                  style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Message text with blinking cursor while streaming */}
+          {message.content !== "" && (
+            <div className="text-sm text-zinc-700 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap pl-5">
+              {message.content}
+              {isStreaming && (
+                <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
+              )}
+            </div>
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-function TypingIndicator() {
-  return (
-    <div className="px-4 py-2">
-      <div className="flex items-center gap-1.5">
-        <div className="w-4 h-4 rounded-full bg-violet-100 dark:bg-violet-950 flex items-center justify-center shrink-0">
-          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-            <path d="M4 1C2.34 1 1 2.19 1 3.65c0 .88.44 1.67 1.12 2.18L2 7l1.35-.65c.21.04.43.05.65.05C5.66 6.4 7 5.21 7 3.65S5.66 1 4 1z"
-              fill="currentColor" className="text-violet-500 dark:text-violet-400"/>
-          </svg>
-        </div>
-        <div className="flex items-center gap-1 px-2 py-1.5">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="w-1.5 h-1.5 rounded-full bg-violet-400 dark:bg-violet-600 animate-bounce"
-              style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }}
-            />
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

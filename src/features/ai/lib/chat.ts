@@ -6,7 +6,12 @@
 
 import { hybridSearch }    from "@/features/ai/lib/search/hybrid"
 import { useAIStore }      from "@/features/ai/store/useAIStore"
-import { getAllAISummaries, getAIHistory, appendAIHistory } from "@/features/notes/db/queries"
+import {
+  getAllAISummaries,
+  getAIHistory,
+  appendAIHistory,
+  getSurroundingBlocks,
+} from "@/features/notes/db/queries"
 import type { Note } from "@/types"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -19,9 +24,51 @@ export interface ChatMessage {
 }
 
 export interface ChatResult {
-  answer:       string
-  sourceTitles: string[]
-  usedEmbeddings: boolean   // lets UI show "indexed" vs "summary" mode
+  answer:         string
+  sourceTitles:   string[]
+  sourceNoteIds:  string[]
+  usedEmbeddings: boolean
+  confidence:     "high" | "low"
+}
+
+export interface StreamingChatOptions {
+  onChunk:  (token: string) => void
+  onDone?:  () => void
+  onError?: (err: Error) => void
+}
+
+// ─── Token budget ─────────────────────────────────────────────────────────────
+
+const MAX_CONTEXT_CHARS = 12_000
+
+function enforceTokenBudget(chunks: string[]): string[] {
+  let total = 0
+  const result: string[] = []
+  for (const chunk of chunks) {
+    if (total + chunk.length > MAX_CONTEXT_CHARS) break
+    result.push(chunk)
+    total += chunk.length
+  }
+  return result
+}
+
+// ─── Parent context expansion ─────────────────────────────────────────────────
+
+async function expandWithSurroundingBlocks(
+  results: Awaited<ReturnType<typeof hybridSearch>>
+): Promise<Map<string, string>> {
+  const expanded = new Map<string, string>()
+  await Promise.allSettled(
+    results.map(async (r) => {
+      try {
+        const surrounding = await getSurroundingBlocks(r.block_id, r.note_id, 2)
+        if (surrounding.length > 0) {
+          expanded.set(r.block_id, surrounding.join("\n"))
+        }
+      } catch { /* use original plaintext as fallback */ }
+    })
+  )
+  return expanded
 }
 
 // ─── Session memory ───────────────────────────────────────────────────────────
@@ -36,8 +83,6 @@ async function buildHistoryBlock(noteId: string): Promise<string> {
 }
 
 // ─── Summary fallback ─────────────────────────────────────────────────────────
-// Used when no embeddings exist yet — keeps the chatbot working on day one
-// before the indexer has had a chance to embed everything.
 
 function scoreByKeyword(query: string, title: string, summary: string): number {
   const q      = query.toLowerCase()
@@ -49,12 +94,13 @@ function scoreByKeyword(query: string, title: string, summary: string): number {
 async function buildSummaryFallbackContext(
   query:    string,
   allNotes: Note[]
-): Promise<{ context: string; sourceTitles: string[] }> {
+): Promise<{ context: string; sourceTitles: string[]; sourceNoteIds: string[] }> {
   const summaryMap = await getAllAISummaries()
   if (summaryMap.size === 0) {
     return {
-      context: "(No summaries stored yet. Ask the AI to summarize some notes first.)",
-      sourceTitles: [],
+      context:       "(No summaries stored yet. Ask the AI to summarize some notes first.)",
+      sourceTitles:  [],
+      sourceNoteIds: [],
     }
   }
 
@@ -71,8 +117,9 @@ async function buildSummaryFallbackContext(
 
   if (scored.length === 0) {
     return {
-      context: "(No notes closely matched this query.)",
-      sourceTitles: [],
+      context:       "(No notes closely matched this query.)",
+      sourceTitles:  [],
+      sourceNoteIds: [],
     }
   }
 
@@ -80,63 +127,77 @@ async function buildSummaryFallbackContext(
     (r) => `Note: "${r.note.title}"\nSummary: ${r.summary}`
   )
   return {
-    context:      `Relevant notes from your vault:\n${lines.join("\n\n")}`,
-    sourceTitles: scored.map((r) => r.note.title),
+    context:       `Relevant notes from your vault:\n${lines.join("\n\n")}`,
+    sourceTitles:  scored.map((r) => r.note.title),
+    sourceNoteIds: scored.map((r) => r.note.id),
   }
 }
 
-// ─── Main chat function ───────────────────────────────────────────────────────
+// ─── Context builder (shared between streaming + non-streaming) ───────────────
 
-export async function chatWithNotes(
+async function buildChatContext(
   query:        string,
   allNotes:     Note[],
-  noteId:       string,
   currentNote?: Note
-): Promise<ChatResult> {
-  const provider       = useAIStore.getState().getProvider()
-  const historyBlock   = await buildHistoryBlock(noteId)
-
-  // ── Try hybrid search first ───────────────────────────────────────────────
-  let vaultContext  = ""
-  let sourceTitles: string[] = []
+): Promise<{
+  prompt:         string
+  sourceTitles:   string[]
+  sourceNoteIds:  string[]
+  usedEmbeddings: boolean
+  confidence:     "high" | "low"
+}> {
+  let vaultContext   = ""
+  let sourceTitles:  string[] = []
+  let sourceNoteIds: string[] = []
   let usedEmbeddings = false
+  let topScore       = 0
 
   try {
     const results = await hybridSearch(query, 8)
 
     if (results.length > 0) {
       usedEmbeddings = true
-      sourceTitles   = [...new Set(results.map((r) => r.note_title))]
+      topScore       = results[0]?.rrf_score ?? 0
 
-      const contextChunks = results.map((r, i) =>
-        `[${i + 1}] From "${r.note_title}":\n${r.plaintext}`
-      )
-      vaultContext = `Relevant excerpts from your notes:\n\n${contextChunks.join("\n\n")}`
+      const seenNoteIds = new Set<string>()
+      for (const r of results) {
+        if (!seenNoteIds.has(r.note_id)) {
+          seenNoteIds.add(r.note_id)
+          sourceTitles.push(r.note_title)
+          sourceNoteIds.push(r.note_id)
+        }
+      }
+
+      const expansions  = await expandWithSurroundingBlocks(results)
+      const rawChunks   = results.map((r, i) => {
+        const text = expansions.get(r.block_id) ?? r.plaintext
+        return `[${i + 1}] From "${r.note_title}":\n${text}`
+      })
+      const budgetedChunks = enforceTokenBudget(rawChunks)
+      vaultContext = `Relevant excerpts from your notes:\n\n${budgetedChunks.join("\n\n")}`
     }
-  } catch {
-    // Hybrid search failed — fall through to summary fallback
-  }
+  } catch { /* fall through to summary fallback */ }
 
-  // ── Fall back to summaries if no embeddings yet ───────────────────────────
   if (!usedEmbeddings) {
     const fallback = await buildSummaryFallbackContext(query, allNotes)
     vaultContext   = fallback.context
     sourceTitles   = fallback.sourceTitles
+    sourceNoteIds  = fallback.sourceNoteIds
   }
 
-  // ── Current note context ──────────────────────────────────────────────────
   let currentNoteBlock = ""
   if (currentNote) {
     currentNoteBlock = `\nNote you're currently viewing:\nTitle: ${currentNote.title}\nContent: ${(currentNote.plaintext ?? "").slice(0, 1500)}`
   }
 
-  // ── Build prompt ──────────────────────────────────────────────────────────
+  const confidence: "high" | "low" =
+    !usedEmbeddings || topScore < 0.1 ? "low" : "high"
+
   const prompt = `You are a knowledgeable assistant with access to the user's personal notes vault.
 Answer the user's question using ONLY the provided note excerpts as your source.
 If the excerpts don't contain enough information to answer, say so honestly — do not guess.
 Cite sources by referencing the excerpt numbers like [1] or [2] where relevant.
 Be concise and direct.
-${historyBlock}
 ${vaultContext}
 ${currentNoteBlock}
 
@@ -144,14 +205,78 @@ User question: ${query}
 
 Answer:`
 
-  const answer = await provider.complete(prompt, {
-    temperature: 0.3,   // lower = more grounded, less creative
+  return { prompt, sourceTitles, sourceNoteIds, usedEmbeddings, confidence }
+}
+
+// ─── Streaming chat (primary path) ───────────────────────────────────────────
+
+export async function streamChatWithNotes(
+  query:       string,
+  allNotes:    Note[],
+  noteId:      string,
+  currentNote: Note | undefined,
+  streaming:   StreamingChatOptions
+): Promise<Omit<ChatResult, "answer">> {
+  const provider     = useAIStore.getState().getProvider()
+  const historyBlock = await buildHistoryBlock(noteId)
+  const ctx          = await buildChatContext(query, allNotes, currentNote)
+
+  const promptWithHistory = ctx.prompt.replace(
+    "User question:",
+    `${historyBlock}User question:`
+  )
+
+  let assembled = ""
+
+  await provider.streamComplete(promptWithHistory, {
+    temperature: 0.3,
+    maxTokens:   1024,
+    onChunk: (token) => {
+      assembled += token
+      streaming.onChunk(token)
+    },
+    onDone: async () => {
+      await appendAIHistory(noteId, "user",      query)
+      await appendAIHistory(noteId, "assistant", assembled)
+      streaming.onDone?.()
+    },
+    onError: (err) => {
+      streaming.onError?.(err)
+    },
+  })
+
+  return {
+    sourceTitles:   ctx.sourceTitles,
+    sourceNoteIds:  ctx.sourceNoteIds,
+    usedEmbeddings: ctx.usedEmbeddings,
+    confidence:     ctx.confidence,
+  }
+}
+
+// ─── Non-streaming fallback ───────────────────────────────────────────────────
+
+export async function chatWithNotes(
+  query:        string,
+  allNotes:     Note[],
+  noteId:       string,
+  currentNote?: Note
+): Promise<ChatResult> {
+  const provider     = useAIStore.getState().getProvider()
+  const historyBlock = await buildHistoryBlock(noteId)
+  const ctx          = await buildChatContext(query, allNotes, currentNote)
+
+  const promptWithHistory = ctx.prompt.replace(
+    "User question:",
+    `${historyBlock}User question:`
+  )
+
+  const answer = await provider.complete(promptWithHistory, {
+    temperature: 0.3,
     maxTokens:   1024,
   })
 
-  // ── Persist history ───────────────────────────────────────────────────────
   await appendAIHistory(noteId, "user",      query)
   await appendAIHistory(noteId, "assistant", answer)
 
-  return { answer, sourceTitles, usedEmbeddings }
+  return { answer, ...ctx }
 }
