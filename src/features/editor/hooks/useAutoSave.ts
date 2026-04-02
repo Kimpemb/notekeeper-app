@@ -14,6 +14,10 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import type { UpdateNoteInput } from "@/features/notes/db/queries";
+import { syncNoteBlocks, enqueueEmbeddingJobs } from "@/features/notes/db/queries";
+import { nudgeIndexer }                          from "@/features/ai/lib/indexer";
+import { useAIStore }                            from "@/features/ai/store/useAIStore";
+
 
 const HARD_CAP_MS = 30_000;
 
@@ -54,14 +58,44 @@ export function useAutoSave({
     clearTimers();
     isDirty.current = false;
     setSaveStatus("saving");
+
     try {
       const content   = JSON.stringify(editor.getJSON());
       const plaintext = editor.getText();
       const update: UpdateNoteInput = { content, plaintext };
+
       await updateNote(noteId, update);
       onSaveComplete?.(content, noteId);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
+
+      // ── Sync blocks and enqueue for embedding ──────────────────────────
+      // syncNoteBlocks diffs the block registry and upserts changed blocks.
+      // We then enqueue those block IDs so the indexer embeds only what changed.
+      const aiEnabled = useAIStore.getState().enabled
+      if (aiEnabled) {
+        try {
+          await syncNoteBlocks(noteId, content)
+
+          // Fetch the block IDs we just synced for this note
+          const { getDb } = await import("@/features/notes/db/client")
+          const db        = await getDb()
+          const blocks    = await db.select<{ block_id: string }[]>(
+            `SELECT block_id FROM note_blocks WHERE note_id = $1`,
+            [noteId]
+          )
+
+          await enqueueEmbeddingJobs(
+            blocks.map((b) => ({ blockId: b.block_id, noteId }))
+          )
+
+          nudgeIndexer()   // don't wait 30s — try to embed right now
+        } catch (err) {
+          // Embedding pipeline errors must never break the save flow
+          console.warn("[AutoSave] embedding enqueue failed:", err)
+        }
+      }
+
     } catch (err) {
       console.error("[AutoSave] failed:", err);
       setSaveStatus("error");

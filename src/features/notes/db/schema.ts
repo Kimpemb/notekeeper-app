@@ -198,4 +198,41 @@ export const ALL_MIGRATIONS: string[] = [
   )`,
  
   `CREATE INDEX IF NOT EXISTS idx_ai_history_note_id ON ai_history(note_id, created_at DESC)`,
+
+  // ── Phase 0: Embeddings storage ──────────────────────────────────────────────
+// Stores one embedding vector per block per model.
+// vector: raw Float32Array bytes (BLOB). model_id tracks which embedding
+// model produced it — if the user switches providers, mismatched rows
+// are detected and re-queued automatically.
+`CREATE TABLE IF NOT EXISTS embeddings (
+  block_id    TEXT    NOT NULL,
+  note_id     TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  model_id    TEXT    NOT NULL,
+  vector      BLOB    NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (block_id, model_id)
+)`,
+
+`CREATE INDEX IF NOT EXISTS idx_embeddings_note_id ON embeddings(note_id)`,
+
+// ── Phase 0: Embedding job queue ─────────────────────────────────────────────
+// SQLite-backed queue — survives app restarts. The indexer worker picks
+// up pending jobs, embeds the block, writes to embeddings, marks done.
+// status: 'pending' | 'processing' | 'done' | 'failed'
+// attempts: incremented on each try, capped at 3 before marking failed.
+// next_attempt_at: unix ms — worker skips jobs where this is in the future
+// (exponential backoff on 429s without a separate retry mechanism).
+`CREATE TABLE IF NOT EXISTS embedding_jobs (
+  block_id        TEXT    PRIMARY KEY,
+  note_id         TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  status          TEXT    NOT NULL DEFAULT 'pending'
+                          CHECK(status IN ('pending','processing','done','failed')),
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  last_error      TEXT,
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  updated_at      INTEGER NOT NULL
+)`,
+
+`CREATE INDEX IF NOT EXISTS idx_embedding_jobs_status
+  ON embedding_jobs(status, next_attempt_at)`,
 ];

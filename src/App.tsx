@@ -141,7 +141,7 @@ export default function App() {
   // Bootstrap DB, settings, and notes
 useEffect(() => {
   initDb()
-    .then(() => {
+    .then(async () => {
       setDbReady(true);
       return Promise.all([
         useUIStore.getState().loadSettings(),
@@ -150,7 +150,7 @@ useEffect(() => {
       ]);
     })
     .then(() => loadNotes())
-    .then(() => runScheduledBackupIfDue()) // ← add this line
+    .then(() => runScheduledBackupIfDue())
     .catch((err) => setDbError(String(err)));
 }, [loadNotes]);
 

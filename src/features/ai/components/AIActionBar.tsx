@@ -62,6 +62,8 @@ function AIBtn({
 
 // ─── Result panel ─────────────────────────────────────────────────────────────
 
+// ─── Result panel ─────────────────────────────────────────────────────────────
+
 function ResultPanel({
   result, onDismiss, onApplyTags, applyingTags, tagsApplied,
 }: {
@@ -84,6 +86,43 @@ function ResultPanel({
     tags:      "Suggested Tags",
     explain:   "Explanation",
   };
+
+  // Helper to render content (handles both bullet lists and plain text)
+  function renderContent() {
+    if (result.action === "tags") return null;
+
+    const lines = result.content
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    // Check if content is a bullet list (starts with - or •)
+    const isBulletList = lines.some(
+      (l) => l.startsWith("-") || l.startsWith("•")
+    );
+
+    if (isBulletList) {
+      // Render bullet points
+      return lines
+        .filter((l) => l.startsWith("-") || l.startsWith("•"))
+        .map((line, i) => {
+          const content = line.replace(/^[-•]\s*/, '');
+          return (
+            <div key={i} className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 mb-1.5">
+              <span className="text-blue-400 mt-0.5 shrink-0">•</span>
+              <span className="leading-relaxed">{content}</span>
+            </div>
+          );
+        });
+    }
+
+    // Render plain paragraphs (for explain action)
+    return lines.map((line, i) => (
+      <p key={i} className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed mb-2 last:mb-0">
+        {line}
+      </p>
+    ));
+  }
 
   return (
     <div className="absolute top-12 right-3 z-30 w-80 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden">
@@ -146,16 +185,7 @@ function ResultPanel({
           </div>
         ) : (
           <div className="space-y-1.5">
-            {result.content
-              .split("\n")
-              .map((line) => line.trim())
-              .filter((line) => line.startsWith("-"))
-              .map((line, i) => (
-                <div key={i} className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  <span className="text-blue-400 mt-0.5 shrink-0">•</span>
-                  <span className="leading-relaxed">{line.slice(1).trim()}</span>
-                </div>
-              ))}
+            {renderContent()}
           </div>
         )}
       </div>

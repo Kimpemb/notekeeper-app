@@ -2,21 +2,29 @@
 
 import { create } from "zustand";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
+import { createGeminiProvider } from "@/features/ai/lib/providers/gemini";
+import type { AIProvider } from "@/features/ai/lib/provider";
+import { startIndexer, stopIndexer } from "@/features/ai/lib/indexer"
+
 
 const AI_SETTINGS_KEY = "ai_settings_v1";
+let indexerStarted = false
 
-export type AIProvider = "gemini";
+
+// AIProviderName is the string identifier stored in settings
+// AIProvider (imported) is the interface that providers implement
+export type AIProviderName = "gemini" | "openai" | "anthropic";
 export type ConnectionStatus = "idle" | "testing" | "connected" | "error";
 
 interface AISettings {
-  provider: AIProvider;
+  provider: AIProviderName;   // ← string name, not the interface
   apiKey: string;
   enabled: boolean;
 }
 
 interface AIStore {
   // ── Persisted state ──────────────────────────────────────────────────────
-  provider: AIProvider;
+  provider: AIProviderName;   // ← string name, not the interface
   apiKey: string;
   enabled: boolean;
 
@@ -32,16 +40,31 @@ interface AIStore {
   setEnabled: (enabled: boolean) => Promise<void>;
   testConnection: () => Promise<boolean>;
   clearConnection: () => Promise<void>;
+
+  /**
+   * Returns the active AIProvider instance using the current apiKey.
+   * Throws ProviderError if no key is configured or provider is unknown.
+   * Call this in new code instead of importing callGemini directly.
+   */
+  getProvider: () => AIProvider;  // ← returns the interface, takes AIProviderName from state
 }
 
 export const useAIStore = create<AIStore>((set, get) => ({
   // ── Defaults ─────────────────────────────────────────────────────────────
-  provider: "gemini",
+  provider: "gemini",           // ← AIProviderName string
   apiKey: "",
   enabled: false,
   connectionStatus: "idle",
   connectionError: null,
   isLoading: false,
+
+  // ── Get active provider instance ──────────────────────────────────────────
+  getProvider: (): AIProvider => {
+    const { apiKey, provider } = get();
+    if (provider === "gemini") return createGeminiProvider(apiKey);
+    // "openai" and "anthropic" slot in here in Phase 5
+    throw new Error(`Provider "${provider}" not yet implemented.`);
+  },
 
   // ── Load from SQLite settings ─────────────────────────────────────────────
   loadAISettings: async () => {
@@ -51,11 +74,17 @@ export const useAIStore = create<AIStore>((set, get) => ({
     const parsed: Partial<AISettings> = JSON.parse(raw);
     set({
       provider: parsed.provider ?? "gemini",
-      apiKey: parsed.apiKey ?? "",
-      enabled: parsed.enabled ?? false,
+      apiKey:   parsed.apiKey   ?? "",
+      enabled:  parsed.enabled  ?? false,
       connectionStatus: parsed.apiKey ? "connected" : "idle",
     });
-  } catch (err) {
+    // Only start the indexer once per session
+    if (parsed.apiKey && parsed.enabled && !indexerStarted) {
+      indexerStarted = true
+      await startIndexer()
+    }
+  } catch {
+    // silently ignore
   }
 },
 
@@ -64,8 +93,8 @@ export const useAIStore = create<AIStore>((set, get) => ({
     const current = get();
     const merged: AISettings = {
       provider: settings.provider ?? current.provider,
-      apiKey: settings.apiKey ?? current.apiKey,
-      enabled: settings.enabled ?? current.enabled,
+      apiKey:   settings.apiKey   ?? current.apiKey,
+      enabled:  settings.enabled  ?? current.enabled,
     };
     set(merged);
     await setSetting(AI_SETTINGS_KEY, JSON.stringify(merged));
@@ -81,7 +110,7 @@ export const useAIStore = create<AIStore>((set, get) => ({
     await get().saveAISettings({ enabled });
   },
 
-  // ── Test Gemini connection ────────────────────────────────────────────────
+  // ── Test connection via active provider ───────────────────────────────────
   testConnection: async () => {
     const { apiKey, provider } = get();
     if (!apiKey.trim()) {
@@ -92,15 +121,19 @@ export const useAIStore = create<AIStore>((set, get) => ({
     set({ connectionStatus: "testing", connectionError: null });
 
     try {
-      const { testGeminiConnection } = await import("@/features/ai/lib/client");
-      const ok = await testGeminiConnection(apiKey);
+      const activeProvider = get().getProvider();
+      const ok = await activeProvider.testConnection();
 
       if (ok) {
         await get().saveAISettings({ apiKey, provider, enabled: true });
         set({ connectionStatus: "connected", connectionError: null });
+        await startIndexer()   // ← start indexer once key is confirmed valid
         return true;
       } else {
-        set({ connectionStatus: "error", connectionError: "Invalid API key or connection failed." });
+        set({
+          connectionStatus: "error",
+          connectionError: "Invalid API key or connection failed.",
+        });
         return false;
       }
     } catch (err) {
@@ -112,14 +145,17 @@ export const useAIStore = create<AIStore>((set, get) => ({
     }
   },
 
+
   // ── Clear API key and reset ───────────────────────────────────────────────
   clearConnection: async () => {
-    await get().saveAISettings({ apiKey: "", enabled: false });
-    set({
-      apiKey: "",
-      enabled: false,
-      connectionStatus: "idle",
-      connectionError: null,
-    });
-  },
+  stopIndexer()
+  indexerStarted = false   // ← allow restart if user re-adds a key
+  await get().saveAISettings({ apiKey: "", enabled: false });
+  set({
+    apiKey: "",
+    enabled: false,
+    connectionStatus: "idle",
+    connectionError: null,
+  });
+},
 }));

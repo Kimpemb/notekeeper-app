@@ -102,3 +102,10 @@ async function getStoredApiKey(): Promise<string> {
   const { useAIStore } = await import("@/features/ai/store/useAIStore");
   return useAIStore.getState().apiKey;
 }
+
+// ─── Backwards compatibility re-exports ──────────────────────────────────────
+// actions.ts, chat.ts, and similarityUtils.ts all import callGemini from here.
+// They keep working unchanged. New code imports from providers/gemini.ts directly.
+
+export { createGeminiProvider } from "@/features/ai/lib/providers/gemini"
+export type { AIProvider, ProviderError } from "@/features/ai/lib/provider"
