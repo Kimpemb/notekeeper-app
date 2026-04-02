@@ -1,7 +1,7 @@
 // src/features/ai/lib/chat.ts
 //
 // "Chat with your notes" — answers questions using hybrid search
-// (semantic + keyword) to retrieve relevant blocks as context.
+// (semantic + keyword + metadata re-ranking) to retrieve relevant blocks.
 // Falls back gracefully if no embeddings exist yet (uses summaries).
 
 import { hybridSearch }    from "@/features/ai/lib/search/hybrid"
@@ -133,7 +133,7 @@ async function buildSummaryFallbackContext(
   }
 }
 
-// ─── Context builder (shared between streaming + non-streaming) ───────────────
+// ─── Context builder ──────────────────────────────────────────────────────────
 
 async function buildChatContext(
   query:        string,
@@ -153,11 +153,15 @@ async function buildChatContext(
   let topScore       = 0
 
   try {
-    const results = await hybridSearch(query, 8)
+    // Pass currentNoteId so Phase 3 re-ranking can apply backlink + family boosts
+    const results = await hybridSearch(query, 8, {
+      currentNoteId: currentNote?.id,
+    })
 
     if (results.length > 0) {
       usedEmbeddings = true
-      topScore       = results[0]?.rrf_score ?? 0
+      // Use final_score (post-boost) for confidence signal
+      topScore = results[0]?.final_score ?? results[0]?.rrf_score ?? 0
 
       const seenNoteIds = new Set<string>()
       for (const r of results) {
@@ -168,8 +172,8 @@ async function buildChatContext(
         }
       }
 
-      const expansions  = await expandWithSurroundingBlocks(results)
-      const rawChunks   = results.map((r, i) => {
+      const expansions     = await expandWithSurroundingBlocks(results)
+      const rawChunks      = results.map((r, i) => {
         const text = expansions.get(r.block_id) ?? r.plaintext
         return `[${i + 1}] From "${r.note_title}":\n${text}`
       })

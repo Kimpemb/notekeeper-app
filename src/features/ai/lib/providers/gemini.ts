@@ -17,7 +17,7 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BASE_URL        = "https://generativelanguage.googleapis.com/v1beta"
-const COMPLETE_MODEL = "gemini-2.5-flash-lite"
+const COMPLETE_MODEL = "gemini-3.1-flash-lite-preview"
 const EMBED_MODEL     = "gemini-embedding-001"
 
 // ─── Raw API response shapes ──────────────────────────────────────────────────
