@@ -30,7 +30,6 @@ import { SubPagesSection } from "./SubPagesSection";
 import { SubPageNode } from "./SubPageNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
-import { syncNoteBlocks } from "@/features/notes/db/queries";
 import { AIActionBar } from "@/features/ai/components/AIActionBar";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
 
@@ -323,27 +322,45 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   }, [onScrollChange]);
 
   useEffect(() => {
-    if (!editor || !note) return;
-    const incoming = note.content ?? null;
-    if (incoming === lastSavedContent.current) return;
+  if (!editor || !note) return;
+  const incoming = note.content ?? null;
+  if (incoming === lastSavedContent.current) return;
+
+  // Never overwrite the editor while the user is actively editing.
+  // The editor is source of truth while focused or dirty — only
+  // accept incoming content if the editor does not have focus.
+  if (editor.isFocused) {
     lastSavedContent.current = incoming;
-    const timer = setTimeout(() => {
-      if (editor.isDestroyed) return;
-      const { from, to } = editor.state.selection;
-      editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-      try {
-        const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
-        if ($from.parent.isTextblock) {
-          editor.commands.setTextSelection({ from, to });
-        }
-      } catch { /**/ }
-      if (titleRef.current && !titleFocusedRef.current) {
-        const isUntitled = /^Untitled-\d+$/.test(note.title);
-        titleRef.current.textContent = isUntitled ? "" : note.title;
+    return;
+  }
+
+  try {
+    const incomingNorm = JSON.stringify(JSON.parse(incoming ?? "null"));
+    const savedNorm    = JSON.stringify(JSON.parse(lastSavedContent.current ?? "null"));
+    if (incomingNorm === savedNorm) {
+      lastSavedContent.current = incoming;
+      return;
+    }
+  } catch { /* malformed JSON — fall through */ }
+
+  lastSavedContent.current = incoming;
+  const timer = setTimeout(() => {
+    if (editor.isDestroyed || editor.isFocused) return;
+    const { from, to } = editor.state.selection;
+    editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
+    try {
+      const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
+      if ($from.parent.isTextblock) {
+        editor.commands.setTextSelection({ from, to });
       }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+    } catch { /**/ }
+    if (titleRef.current && !titleFocusedRef.current) {
+      const isUntitled = /^Untitled-\d+$/.test(note.title);
+      titleRef.current.textContent = isUntitled ? "" : note.title;
+    }
+  }, 0);
+  return () => clearTimeout(timer);
+}, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
@@ -383,7 +400,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     lastSavedContent.current = content;
     if (!editor) return;
     syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
-    syncNoteBlocks(savedNoteId, content).catch(console.error);
   }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete });
