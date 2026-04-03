@@ -33,7 +33,6 @@ export function NoteTreeItem({
   const notes        = useNoteStore((s) => s.notes);
   const activeNoteId   = useNoteStore((s) => s.activeNoteId);  // already existed
   const activePaneId   = useUIStore((s) => s.activePaneId);    // newly added
-  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);  // newly added
   const setActive    = useNoteStore((s) => s.setActiveNote);
   const createChild  = useNoteStore((s) => s.createChildNote);
   const deleteNote   = useNoteStore((s) => s.deleteNote);
@@ -45,6 +44,7 @@ export function NoteTreeItem({
   const expandedNodes        = useUIStore((s) => s.expandedNodes);
   const toggleNode           = useUIStore((s) => s.toggleNode);
   const replaceTab           = useUIStore((s) => s.replaceTab);
+  const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
   const openTab              = useUIStore((s) => s.openTab);
   const openInSplit          = useUIStore((s) => s.openInSplit);
   const openGraphForNote     = useUIStore((s) => s.openGraphForNote);
@@ -165,39 +165,39 @@ export function NoteTreeItem({
   const indentPx = depth * 14;
 
   function handleClick(e: React.MouseEvent) {
-    const isMac  = navigator.platform.toUpperCase().includes("MAC");
-    const isCtrl = isMac ? e.metaKey : e.ctrlKey;
+  const isMac  = navigator.platform.toUpperCase().includes("MAC");
+  const isCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-    if (isCtrl) {
-      e.preventDefault();
-      toggleNoteSelection(noteId);
-      lastSelectedIdRef.current = noteId;
-      setFocusedNoteId(noteId);
-      return;
-    }
-
-    if (e.shiftKey && lastSelectedIdRef.current && flatOrderedIds.length > 0) {
-      e.preventDefault();
-      selectNoteRange(lastSelectedIdRef.current, noteId, flatOrderedIds);
-      setFocusedNoteId(noteId);
-      return;
-    }
-
-    if (selectedNoteIds.size > 0) clearSelection();
+  if (isCtrl) {
+    e.preventDefault();
+    toggleNoteSelection(noteId);
+    lastSelectedIdRef.current = noteId;
     setFocusedNoteId(noteId);
+    return;
+  }
 
-    if (isActive) {
-  if (hasChildren) toggleNode(noteId);
-} else {
-  if (activePaneId === 2) {
-    openTabInPane2(noteId);
+  if (e.shiftKey && lastSelectedIdRef.current && flatOrderedIds.length > 0) {
+    e.preventDefault();
+    selectNoteRange(lastSelectedIdRef.current, noteId, flatOrderedIds);
+    setFocusedNoteId(noteId);
+    return;
+  }
+
+  if (selectedNoteIds.size > 0) clearSelection();
+  setFocusedNoteId(noteId);
+
+  if (isActive) {
+    if (hasChildren) toggleNode(noteId);
   } else {
-    setActive(noteId);
-    replaceTab(noteId);
+    if (activePaneId === 2) {
+      replacePane2Tab(noteId);
+    } else {
+      setActive(noteId);
+      replaceTab(noteId);
+    }
+    lastSelectedIdRef.current = noteId;
   }
-  lastSelectedIdRef.current = noteId;
 }
-  }
 
   function handleChevronClick(e: React.MouseEvent) {
     e.stopPropagation();

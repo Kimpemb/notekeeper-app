@@ -235,6 +235,7 @@ interface UIStore {
   setPane2ActiveTab: (tabId: string) => void;
   closePane2Tab: (tabId: string) => void;
   openTabInPane2: (noteId: string) => void;
+  replacePane2Tab: (noteId: string) => void;
   activePaneId: 1 | 2;
   setActivePaneId: (pane: 1 | 2) => void;
   paneActiveNoteId: (pane: 1 | 2) => string | null;
@@ -590,6 +591,29 @@ export const useUIStore = create<UIStore>((set, get) => {
       saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
       get().pane2PushNav(noteId);
     },
+    replacePane2Tab: (noteId) => {
+  const { pane2Tabs, pane2ActiveTabId } = get();
+  if (pane2Tabs.length === 0 || pane2ActiveTabId === null) {
+    const tab: Tab = { id: makeTabId(), noteId };
+    set({ pane2Tabs: [tab], pane2ActiveTabId: tab.id });
+    saveSession({ ...get(), pane2Tabs: [tab], pane2ActiveTabId: tab.id });
+    get().pane2PushNav(noteId);
+    return;
+  }
+  const existing = pane2Tabs.find((t) => t.noteId === noteId);
+  if (existing) {
+    set({ pane2ActiveTabId: existing.id });
+    saveSession({ ...get(), pane2ActiveTabId: existing.id });
+    get().pane2PushNav(noteId);
+    return;
+  }
+  const next = pane2Tabs.map((t) =>
+    t.id === pane2ActiveTabId ? { ...t, noteId } : t
+  );
+  set({ pane2Tabs: next });
+  saveSession({ ...get(), pane2Tabs: next });
+  get().pane2PushNav(noteId);
+},
     activePaneId: 1,
     setActivePaneId: (pane) => set({ activePaneId: pane }),
     paneActiveNoteId: (pane) => {
