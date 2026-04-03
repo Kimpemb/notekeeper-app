@@ -40,7 +40,9 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
     setAIResults([]);
     try {
       const similar = await getSimilarNotes(noteId, notes);
-      const filtered = similar.filter((r) => !dismissedRef.current.has(r.id));
+      const filtered = similar.filter(
+        (r) => !dismissedRef.current.has(r.id) && !linkedIdsRef.current.has(r.id)
+      );
       setResults(filtered);
 
       // ── AI fallback — only if connected and results are weak ─────────────
@@ -60,8 +62,11 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
+  const linkedIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     dismissedRef.current = new Set();
+    linkedIdsRef.current = new Set();
     setAIResults([]);
   }, [noteId]);
 
@@ -75,6 +80,7 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
       );
       await recordSuggestionFeedback(noteId, note.id, "accepted");
       dismissedRef.current.add(note.id);
+      linkedIdsRef.current.add(note.id);
       setResults((prev) => prev.filter((r) => r.id !== note.id));
     } catch (err) { console.error(err); }
     finally { setLinking(null); }
@@ -294,7 +300,10 @@ function SimilarNoteCard({
 
       {note.sharedKeywords.length > 0 && (
         <p className="px-3 pb-2 text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed">
-          {note.sharedKeywords.join(", ")}
+          {note.sharedKeywords.slice(0, 5).join(", ")}
+          {note.sharedKeywords.length > 5 && (
+            <span className="text-zinc-300 dark:text-zinc-600"> +{note.sharedKeywords.length - 5} more</span>
+          )}
         </p>
       )}
 
