@@ -200,7 +200,7 @@ export function NoteTreeItem({
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, flip: window.innerHeight - e.clientY < 280 });
+    setContextMenu({ x: e.clientX, y: e.clientY, flip: window.innerHeight - e.clientY < 220 });
   }
 
   async function commitRename() {
@@ -252,10 +252,11 @@ export function NoteTreeItem({
             className="flex-1 bg-white dark:bg-zinc-600 text-zinc-900 dark:text-zinc-100 text-base px-1 rounded outline-none border border-zinc-300 dark:border-zinc-500 min-w-0"
           />
         ) : (
-<span
-  className="flex-1 text-base leading-none flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
-  style={{ maskImage: "linear-gradient(to right, black 75%, transparent 100%)", WebkitMaskImage: "linear-gradient(to right, black 75%, transparent 100%)" }}
->            {note.title}
+          <span
+            className="flex-1 text-base leading-none flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
+            style={{ maskImage: "linear-gradient(to right, black 75%, transparent 100%)", WebkitMaskImage: "linear-gradient(to right, black 75%, transparent 100%)" }}
+          >
+            {note.title}
             {isPinned && (
               <span className="shrink-0 opacity-40">
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
@@ -288,7 +289,7 @@ export function NoteTreeItem({
               ? { bottom: window.innerHeight - contextMenu.y }
               : { top: contextMenu.y }),
           }}
-          className="z-50 min-w-[192px] py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+          className="z-50 min-w-[180px] py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 max-h-56 overflow-y-auto"
         >
           <CtxItem label="New sub-note"        id="new-sub-note"         focused={focusedItem === "new-sub-note"}         onHover={() => setFocusedItem("new-sub-note")}         onClick={() => triggerItem("new-sub-note")} />
           <CtxItem label="Open in new tab"     id="open-in-new-tab"      focused={focusedItem === "open-in-new-tab"}      onHover={() => setFocusedItem("open-in-new-tab")}      onClick={() => triggerItem("open-in-new-tab")} />
@@ -354,14 +355,14 @@ function CtxItem({ label, focused, onHover, onClick, danger = false, suffix }: {
     <button
       onMouseEnter={onHover}
       onClick={onClick}
-      className={`w-full flex items-center justify-between px-4 py-2.5 text-base transition-colors duration-75 ${
+      className={`w-full flex items-center justify-between px-3 py-1.5 text-sm transition-colors duration-75 ${
         danger
           ? focused ? "bg-red-50 dark:bg-red-950 text-red-500" : "text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
           : focused ? "bg-zinc-100 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200" : "text-zinc-700 dark:text-zinc-300"
       }`}
     >
       {label}
-      {suffix && <span className="text-zinc-400 dark:text-zinc-500 ml-3 text-lg leading-none">{suffix}</span>}
+      {suffix && <span className="text-zinc-400 dark:text-zinc-500 ml-3 text-base leading-none">{suffix}</span>}
     </button>
   );
 }
