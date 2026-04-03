@@ -327,29 +327,12 @@ export function CommandPalette() {
       action: async () => { closePalette(); await createOrOpenDailyNote(); },
     },
     {
-      kind: "action", id: "toggle-graph", label: graphOpen ? "Close Graph View" : "Open Graph View", hint: "Ctrl+Shift+G",
-      action: () => { graphOpen ? closeGraph() : openGraph(); closePalette(); },
-    },
-    {
       kind: "action", id: "toggle-sidebar", label: "Toggle Sidebar", hint: "Ctrl+\\",
       action: () => { toggleSidebar(); closePalette(); },
     },
     {
-      kind: "action", id: "toggle-tips", label: "Toggle Tips Panel", hint: "Ctrl+Shift+E",
-      action: () => { toggleTips(); closePalette(); },
-    },
-    {
-      kind: "action", id: "reload-notes", label: "Reload Notes", hint: "Ctrl+Shift+L",
-      action: async () => {
-        closePalette();
-        useUIStore.getState().setRefreshStatus("reloading");
-        await loadNotes();
-        useUIStore.getState().setRefreshStatus("reloaded");
-      },
-    },
-    {
-      kind: "action", id: "toggle-theme", label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "",
-      action: () => { toggleTheme(); closePalette(); },
+      kind: "action", id: "toggle-graph", label: graphOpen ? "Close Graph View" : "Open Graph View", hint: "Ctrl+Shift+G",
+      action: () => { graphOpen ? closeGraph() : openGraph(); closePalette(); },
     },
     {
       kind: "action", id: "toggle-backlinks", label: "Toggle Backlinks", hint: "Ctrl+;",
@@ -364,21 +347,41 @@ export function CommandPalette() {
       action: () => { toggleFileTree(useUIStore.getState().activePaneId); closePalette(); },
     },
     {
+      kind: "action", id: "toggle-tips", label: "Toggle Tips Panel", hint: "Ctrl+Shift+E",
+      action: () => { toggleTips(); closePalette(); },
+    },
+    {
+      kind: "action", id: "toggle-theme", label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "",
+      action: () => { toggleTheme(); closePalette(); },
+    },
+    {
+      kind: "action", id: "reload-notes", label: "Reload Notes", hint: "Ctrl+Shift+L",
+      action: async () => {
+        closePalette();
+        useUIStore.getState().setRefreshStatus("reloading");
+        await loadNotes();
+        useUIStore.getState().setRefreshStatus("reloaded");
+      },
+    },
+    {
+      kind: "action", id: "voice-typing", label: "Voice Typing", hint: "Win+H / Fn twice",
+      action: () => {
+        closePalette();
+        const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+        const shortcut = isMac ? "Press Fn twice" : "Press Win+H";
+        alert(`${shortcut} to start dictation`);
+      },
+    },
+    {
       kind: "action", id: "open-shortcuts", label: "Keyboard Shortcuts", hint: "Ctrl+Shift+?",
       action: () => { openShortcuts(); closePalette(); },
     },
-    // ── Voice typing ─────────────────────────────────────────────────────────────
-{
-  kind: "action", id: "voice-typing", label: "Voice Typing", hint: "Win+H / Fn twice",
-  action: () => {
-    closePalette();
-    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-    const shortcut = isMac ? "Press Fn twice" : "Press Win+H";
-    alert(`${shortcut} to start dictation`);
-  },
-},
     {
-      kind: "action", id: "export-all",  label: "Export All Notes",    hint: "JSON",
+      kind: "action", id: "import", label: "Import Notes", hint: "JSON file",
+      action: () => { openImport(); closePalette(); },
+    },
+    {
+      kind: "action", id: "export-all", label: "Export All Notes", hint: "JSON",
       action: async () => { await exportHandlers?.exportAll(); closePalette(); },
     },
     {
@@ -386,21 +389,12 @@ export function CommandPalette() {
       action: async () => { await exportHandlers?.exportNoteJson(); closePalette(); },
     },
     {
-  kind: "action", id: "import", label: "Import Notes", hint: "JSON file",
-  action: () => { openImport(); closePalette(); },
-},
-
-    {
-      kind: "action", id: "export-md",   label: "Export Current Note", hint: "Markdown",
+      kind: "action", id: "export-md", label: "Export Current Note", hint: "Markdown",
       action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); },
     },
     {
-      kind: "action", id: "export-pdf",  label: "Export Current Note", hint: "PDF",
+      kind: "action", id: "export-pdf", label: "Export Current Note", hint: "PDF",
       action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); },
-    },
-    {
-      kind: "action", id: "import", label: "Import Notes", hint: "JSON file",
-      action: () => { openImport(); closePalette(); },
     },
   ], [
     theme, closePalette, openTemplatePicker, toggleTheme, toggleBacklinks, toggleOutline,
