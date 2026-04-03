@@ -160,6 +160,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       Extension.create({ name: "searchHighlightPlugin",  addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
     ],
     content: initialContent,
+    autofocus: false,
     editorProps: {
       attributes: {
         class: "tiptap h-full outline-none",
@@ -288,6 +289,29 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   useEffect(() => {
     if (!scrollRef.current || initialScrollTop === 0) return;
     scrollRef.current.scrollTop = initialScrollTop;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus title on new/untitled notes so the user can type the title immediately.
+  // Runs once on mount — editor has autofocus:false so it won't compete.
+  useEffect(() => {
+    if (!titleRef.current) return;
+    const isUntitledNote = /^Untitled-\d+$/.test(note?.title ?? "");
+    if (isUntitledNote) {
+      // Small timeout lets the DOM settle before claiming focus
+      const t = setTimeout(() => {
+        titleRef.current?.focus();
+        // Place cursor at end of any existing title text
+        const range = document.createRange();
+        const sel = window.getSelection();
+        if (titleRef.current && sel) {
+          range.selectNodeContents(titleRef.current);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }, 50);
+      return () => clearTimeout(t);
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

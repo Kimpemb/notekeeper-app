@@ -103,11 +103,10 @@ export function useAutoSave({
   const scheduleSave = useCallback(() => {
     isDirty.current = true;
     if (!isActiveTabRef.current) return;
-    setSaveStatus("saving");
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(save, autosaveDelayRef.current);
     if (!hardCapTimer.current) hardCapTimer.current = setTimeout(save, HARD_CAP_MS);
-  }, [save, setSaveStatus]);
+  }, [save]);
 
   useEffect(() => {
     if (!editor) return;
