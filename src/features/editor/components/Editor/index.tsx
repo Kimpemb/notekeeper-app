@@ -131,6 +131,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const [linkPos, setLinkPos]     = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [linkQuery, setLinkQuery] = useState("");
   const linkBracketStart          = useRef<number | null>(null);
+  const [panelsOpen, setPanelsOpen] = useState(false);
 
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
@@ -423,6 +424,46 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     return () => window.removeEventListener("keydown", handle);
   }, [isActiveTab]);
 
+  // ── Panel & AI shortcuts ──────────────────────────────────────────────────
+useEffect(() => {
+  function handle(e: KeyboardEvent) {
+    if (!isActiveTab || activePaneId !== paneId) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (!ctrl) return;
+
+    if (e.key === "g" && !e.shiftKey) {
+      e.preventDefault();
+      openGraphForNote(noteId);
+      return;
+    }
+    if (e.key === "S" && e.shiftKey) {
+      e.preventDefault();
+      toggleSimilar(paneId);
+      return;
+    }
+    if (e.key === "U" && e.shiftKey) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "summarize" } }));
+      return;
+    }
+    if (e.key === "E" && e.shiftKey) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "explain" } }));
+      return;
+    }
+  }
+  window.addEventListener("keydown", handle);
+  return () => window.removeEventListener("keydown", handle);
+}, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote, toggleSimilar]);
+
+useEffect(() => {
+  function handle() {
+    if (isActiveTab && activePaneId === paneId) openGraphForNote(noteId);
+  }
+  window.addEventListener("idemora:open-local-graph", handle);
+  return () => window.removeEventListener("idemora:open-local-graph", handle);
+}, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote]);
+
 useEffect(() => {
     if (!editor) return;
     const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
@@ -613,54 +654,83 @@ useEffect(() => {
   const isUntitled = /^Untitled-\d+$/.test(note.title);
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
-      <div className="flex flex-col flex-1 h-full overflow-hidden">
+  <div className="flex h-full w-full overflow-hidden">
+    <div className="flex flex-col flex-1 h-full overflow-hidden">
 
         {findReplaceOpen && editor && (
-          <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
-        )}
+        <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
+      )}
 
         {showEditorButtons && (
-          <div className="absolute top-15 right-3 z-30 flex items-center gap-1.5">
-            <button
-              onClick={() => openGraphForNote(noteId)}
-              title="Open local graph for this note"
-              className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-            >
-              <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
-                <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
-                <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
-                <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
-                <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
-                <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
-                <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              </svg>
-              Local Graph
-            </button>
-            {!myOutlineOpen && (
-              <button onClick={() => toggleOutline(paneId)} title="Toggle outline (Ctrl+')"
-                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600">
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                Outline
-              </button>
-            )}
-            {!myBacklinksOpen && (
-              <button onClick={() => toggleBacklinks(paneId)} title="Toggle backlinks (Ctrl+;)"
-                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600">
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                Backlinks
-              </button>
-            )}
-            {!mySimilarOpen && (
-              <button onClick={() => toggleSimilar(paneId)} title="Toggle similar notes"
-                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600">
-                <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
-                Similar
-              </button>
-            )}
-            <AIActionBar note={note} />
-          </div>
+          <div className="flex items-center gap-1.5 justify-end px-3 py-1.5 shrink-0 flex-wrap border-b border-zinc-100 dark:border-zinc-800">
+    {/* Panels group */}
+    <div className="flex items-center gap-1.5">
+      <div
+        className={`flex items-center gap-1.5 overflow-hidden transition-all duration-200 ease-in-out ${
+          panelsOpen ? "max-w-xs opacity-100" : "max-w-0 opacity-0"
+        }`}
+      >
+        {!myOutlineOpen && (
+          <button onClick={() => toggleOutline(paneId)}
+            className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+            Outline
+          </button>
         )}
+        {!myBacklinksOpen && (
+          <button onClick={() => toggleBacklinks(paneId)}
+            className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Backlinks
+          </button>
+        )}
+        {!mySimilarOpen && (
+          <button onClick={() => toggleSimilar(paneId)}
+            className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
+            <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
+            Similar
+          </button>
+        )}
+      </div>
+
+      {(!myOutlineOpen || !myBacklinksOpen || !mySimilarOpen) && (
+        <button
+          onClick={() => setPanelsOpen((o) => !o)}
+          className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 ${
+            panelsOpen
+              ? "text-zinc-700 dark:text-zinc-200 border-zinc-300 dark:border-zinc-600"
+              : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
+          }`}
+        >
+          <svg
+            width="9" height="9" viewBox="0 0 9 9" fill="none"
+            className={`transition-transform duration-200 ${panelsOpen ? "" : "rotate-180"}`}
+          >
+            <path d="M6.5 4.5L3 2M6.5 4.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
+    </div>
+
+    {/* Local Graph — always visible */}
+    <button
+      onClick={() => openGraphForNote(noteId)}
+      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+    >
+      <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+        <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+        <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+        <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+        <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+        <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+        <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+      </svg>
+      Local Graph
+    </button>
+
+    <AIActionBar note={note} />
+  </div>
+)}
 
         {editor && taskListToolbarPos && isActiveTab && (
           <div
@@ -739,14 +809,14 @@ useEffect(() => {
         </div>
 
         <StatusBar editor={editor ?? null} paneId={paneId} />
-        {myVersionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} paneId={paneId} />}
+      {myVersionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} paneId={paneId} />}
       </div>
 
       {myOutlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
-      {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
-      {mySimilarOpen   && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
-      {myChatOpen      && isActiveTab && <ChatPanel noteId={note.id} paneId={paneId} />}
-      {editor && <TableToolbar editor={editor} />}
+    {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
+    {mySimilarOpen   && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
+    {myChatOpen      && isActiveTab && <ChatPanel noteId={note.id} paneId={paneId} />}
+    {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (
         <SlashMenu

@@ -35,15 +35,19 @@ function getTipAction(description: string, _keys?: string[]): (() => void) | und
     "Go forward": () => noteStore.goForward(),
     "Bold": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true })),
     "Italic": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true })),
-    "Strikethrough": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, shiftKey: true, bubbles: true })),
+    "Strikethrough": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', ctrlKey: true, shiftKey: true, bubbles: true })),
     "Inline code": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', ctrlKey: true, bubbles: true })),
     "Find & replace": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', ctrlKey: true, bubbles: true })),
     "Undo": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })),
     "Redo": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, bubbles: true })),
     "Toggle backlinks": () => uiStore.toggleBacklinks(uiStore.activePaneId),
     "Toggle outline": () => uiStore.toggleOutline(uiStore.activePaneId),
+    "Toggle similar notes": () => uiStore.toggleSimilar(uiStore.activePaneId),
+    "Open local graph": () => window.dispatchEvent(new CustomEvent("idemora:open-local-graph")),
     "Open/close graph": () => uiStore.graphOpen ? uiStore.closeGraph() : uiStore.openGraph(),
     "Open today's note": () => noteStore.createOrOpenDailyNote(),
+    "Summarize note": () => window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "summarize" } })),
+    "Explain note": () => window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "explain" } })),
   };
 
   return actionMap[description];
@@ -53,83 +57,90 @@ const TIPS_BY_CATEGORY: { title: string; tips: Tip[] }[] = [
   {
     title: "Global",
     tips: [
-      { keys: ["Ctrl", "K"],     description: "Open command palette" },
-      { keys: ["Ctrl", "N"],     description: "New note" },
-      { keys: ["Ctrl", "Shift", "N"], description: "New note in new tab" },
-      { keys: ["Ctrl", "Shift", "E"], description: "Toggle tips panel" },
+      { keys: ["Ctrl", "K"],            description: "Open command palette" },
+      { keys: ["Ctrl", "N"],            description: "New note" },
+      { keys: ["Ctrl", "Shift", "N"],   description: "New note in new tab" },
+      { keys: ["Ctrl", "Shift", "I"],   description: "Toggle tips panel" },
     ],
   },
   {
     title: "View",
     tips: [
-      { keys: ["Ctrl", "\\"],    description: "Toggle sidebar" },
-      { keys: ["Ctrl", "T"],     description: "Toggle file tree" },
-      { keys: ["Ctrl", "Shift", "G"], description: "Toggle graph view" },
-      { keys: ["Ctrl", "F"],     description: "Search notes" },
+      { keys: ["Ctrl", "\\"],           description: "Toggle sidebar" },
+      { keys: ["Ctrl", "T"],            description: "Toggle file tree" },
+      { keys: ["Ctrl", "Shift", "G"],   description: "Toggle graph view" },
+      { keys: ["Ctrl", "F"],            description: "Search notes" },
     ],
   },
   {
     title: "Tabs",
     tips: [
-      { keys: ["Ctrl", "W"],     description: "Close tab" },
-      { keys: ["Ctrl", "Tab"],   description: "Next tab" },
+      { keys: ["Ctrl", "W"],            description: "Close tab" },
+      { keys: ["Ctrl", "Tab"],          description: "Next tab" },
       { keys: ["Ctrl", "Shift", "Tab"], description: "Previous tab" },
-      { keys: ["Ctrl", "Shift", "T"], description: "Reopen closed tab" },
+      { keys: ["Ctrl", "Shift", "T"],   description: "Reopen closed tab" },
     ],
   },
   {
     title: "Navigation",
     tips: [
-      { keys: ["Ctrl", "["],     description: "Go back" },
-      { keys: ["Ctrl", "]"],     description: "Go forward" },
-      { keys: ["Ctrl", "Shift", "L"], description: "Reload notes" },
-      { keys: ["Ctrl", "Shift", "?"], description: "Keyboard shortcuts" },
+      { keys: ["Ctrl", "["],            description: "Go back" },
+      { keys: ["Ctrl", "]"],            description: "Go forward" },
+      { keys: ["Ctrl", "Shift", "L"],   description: "Reload notes" },
+      { keys: ["Ctrl", "Shift", "?"],   description: "Keyboard shortcuts" },
     ],
   },
   {
     title: "Formatting",
     tips: [
-      { keys: ["Ctrl", "B"],     description: "Bold" },
-      { keys: ["Ctrl", "I"],     description: "Italic" },
-      { keys: ["Ctrl", "Shift", "S"], description: "Strikethrough" },
-      { keys: ["Ctrl", "E"],     description: "Inline code" },
+      { keys: ["Ctrl", "B"],            description: "Bold" },
+      { keys: ["Ctrl", "I"],            description: "Italic" },
+      { keys: ["Ctrl", "Shift", "X"],   description: "Strikethrough" },
+      { keys: ["Ctrl", "E"],            description: "Inline code" },
     ],
   },
   {
     title: "Editor",
     tips: [
-      { keys: ["Ctrl", "Z"],     description: "Undo" },
-      { keys: ["Ctrl", "Shift", "Z"], description: "Redo" },
-      { keys: ["Ctrl", "H"],     description: "Find & replace" },
-      { action: "Type /",        description: "Slash menu" },
-      { action: "Win+H / Fn twice", description: "Voice typing (system dictation)" }
+      { keys: ["Ctrl", "Z"],            description: "Undo" },
+      { keys: ["Ctrl", "Shift", "Z"],   description: "Redo" },
+      { keys: ["Ctrl", "H"],            description: "Find & replace" },
+      { action: "Type /",               description: "Slash menu" },
+      { action: "Win+H / Fn twice",     description: "Voice typing (system dictation)" },
     ],
   },
   {
-    title: "Linking & Menus",
+    title: "Panels",
     tips: [
-      { action: "Type [[",       description: "Wiki link" },
-      { keys: ["Esc"],           description: "Dismiss menu" },
-      { keys: ["Ctrl", ";"],     description: "Toggle backlinks" },
-      { keys: ["Ctrl", "'"],     description: "Toggle outline" },
+      { keys: ["Ctrl", ";"],            description: "Toggle backlinks" },
+      { keys: ["Ctrl", "'"],            description: "Toggle outline" },
+      { keys: ["Ctrl", "Shift", "S"],   description: "Toggle similar notes" },
+      { keys: ["Ctrl", "G"],            description: "Open local graph" },
+    ],
+  },
+  {
+    title: "AI",
+    tips: [
+      { keys: ["Ctrl", "Shift", "U"],   description: "Summarize note" },
+      { keys: ["Ctrl", "Shift", "E"],   description: "Explain note" },
     ],
   },
   {
     title: "Graph",
     tips: [
-      { keys: ["Ctrl", "Shift", "G"], description: "Open/close graph" },
-      { action: "Shift + Click", description: "Focus node in graph" },
-      { action: "Ctrl + Click",  description: "Open node in new tab" },
-      { keys: ["Enter"],         description: "Cycle search matches" },
+      { keys: ["Ctrl", "Shift", "G"],   description: "Open/close graph" },
+      { action: "Shift + Click",        description: "Focus node in graph" },
+      { action: "Ctrl + Click",         description: "Open node in new tab" },
+      { keys: ["Enter"],                description: "Cycle search matches" },
     ],
   },
   {
     title: "Daily & Org",
     tips: [
-      { action: "Daily note",    description: "Open today's note" },
-      { action: "Drag note",     description: "Reorder notes" },
-      { action: "Right-click → Pin", description: "Pin to top" },
-      { action: "Right-click → Move", description: "Re-parent note" },
+      { action: "Daily note",           description: "Open today's note" },
+      { action: "Drag note",            description: "Reorder notes" },
+      { action: "Right-click → Pin",    description: "Pin to top" },
+      { action: "Right-click → Move",   description: "Re-parent note" },
     ],
   },
 ];
@@ -143,9 +154,9 @@ function Key({ label }: { label: string }) {
 }
 
 export function TipsPanel() {
-  const tipsOpen = useUIStore((s) => s.tipsOpen);
+  const tipsOpen  = useUIStore((s) => s.tipsOpen);
   const closeTips = useUIStore((s) => s.closeTips);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const panelRef  = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!tipsOpen) return;
@@ -158,10 +169,7 @@ export function TipsPanel() {
 
   const handleTipClick = (tip: Tip) => {
     const action = getTipAction(tip.description, tip.keys);
-    if (action) {
-      action();
-      closeTips();
-    }
+    if (action) { action(); closeTips(); }
   };
 
   return (
@@ -190,7 +198,6 @@ export function TipsPanel() {
             </svg>
           </button>
         </div>
-
         <div className="overflow-x-auto pb-3 px-5" style={{ scrollbarWidth: "none" }}>
           <div className="flex gap-8 min-w-max">
             {TIPS_BY_CATEGORY.map((category) => (
@@ -205,9 +212,9 @@ export function TipsPanel() {
                       <div
                         key={i}
                         onClick={() => handleTipClick(tip)}
-                        className={`flex items-start gap-2 ${hasAction ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded transition-colors duration-100' : ''}`}
-                        style={{ padding: hasAction ? '2px 4px' : '0' }}
-                        title={hasAction ? 'Click to execute' : ''}
+                        className={`flex items-start gap-2 ${hasAction ? "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded transition-colors duration-100" : ""}`}
+                        style={{ padding: hasAction ? "2px 4px" : "0" }}
+                        title={hasAction ? "Click to execute" : ""}
                       >
                         <div className="flex items-center gap-0.5 shrink-0 min-w-[6.5rem]">
                           {tip.keys ? (

@@ -7,7 +7,8 @@ import { getSetting, setSetting } from "@/features/notes/db/queries";
 import { AISetupModal } from "@/features/ai/components/AISetupModal";
 import { useAIStore } from "@/features/ai/store/useAIStore";
 import { BackupModal } from "@/features/backup/components/BackupModal";
-
+import { SHORTCUT_GROUPS } from "@/lib/keybindings";
+import type { ShortcutGroup, Shortcut } from "@/lib/keybindings";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface AppSettings {
@@ -206,57 +207,6 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
 
 // ─── Keybindings reference (unchanged) ────────────────────────────────────────
 
-const KEYBINDINGS: { category: string; shortcuts: { keys: string[]; action: string }[] }[] = [
-  {
-    category: "Navigation",
-    shortcuts: [
-      { keys: ["Ctrl", "K"], action: "Command palette" },
-      { keys: ["Ctrl", "\\"], action: "Toggle sidebar" },
-      { keys: ["Ctrl", "["], action: "Go back" },
-      { keys: ["Ctrl", "]"], action: "Go forward" },
-      { keys: ["Ctrl", "F"], action: "Focus sidebar search" },
-    ],
-  },
-  {
-    category: "Notes",
-    shortcuts: [
-      { keys: ["Ctrl", "N"], action: "New note" },
-      { keys: ["Ctrl", "Shift", "N"], action: "New note in new tab" },
-      { keys: ["Ctrl", "W"], action: "Close tab" },
-      { keys: ["Ctrl", "Tab"], action: "Next tab" },
-      { keys: ["Ctrl", "Shift", "T"], action: "Reopen closed tab" },
-    ],
-  },
-  {
-    category: "Panels",
-    shortcuts: [
-      { keys: ["Ctrl", ";"], action: "Toggle backlinks" },
-      { keys: ["Ctrl", "'"], action: "Toggle outline" },
-      { keys: ["Ctrl", "T"], action: "Toggle file tree" },
-      { keys: ["Ctrl", "Shift", "G"], action: "Toggle graph view" },
-      { keys: ["Ctrl", "Shift", "A"], action: "Toggle AI chat panel" },
-    ],
-  },
-  {
-    category: "Editor",
-    shortcuts: [
-      { keys: ["Ctrl", "H"], action: "Find & replace" },
-      { keys: ["Ctrl", "B"], action: "Bold" },
-      { keys: ["Ctrl", "I"], action: "Italic" },
-      { keys: ["Ctrl", "Shift", "S"], action: "Strikethrough" },
-      { keys: ["Ctrl", "`"], action: "Inline code" },
-    ],
-  },
-  {
-    category: "App",
-    shortcuts: [
-      { keys: ["Ctrl", ","], action: "Settings" },
-      { keys: ["Ctrl", "Shift", "?"], action: "Keyboard shortcuts" },
-      { keys: ["Ctrl", "Shift", "L"], action: "Reload notes" },
-      { keys: ["Ctrl", "Shift", "E"], action: "Toggle tips" },
-    ],
-  },
-];
 
 function KeyChip({ children }: { children: React.ReactNode }) {
   return (
@@ -466,35 +416,33 @@ export function SettingsModal() {
             </div>
           )}
 
-          {section === "keybindings" && (
-            <div>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-4">
-                Keybindings are fixed in this version. Custom bindings are coming in a future release.
-              </p>
-              {KEYBINDINGS.map((group) => (
-                <div key={group.category}>
-                  <SectionTitle>{group.category}</SectionTitle>
-                  <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 overflow-hidden mb-4">
-                    {group.shortcuts.map((shortcut, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 last:border-0 bg-white dark:bg-zinc-900"
-                      >
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                          {shortcut.action}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          {shortcut.keys.map((key, j) => (
-                            <KeyChip key={j}>{key}</KeyChip>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+         {section === "keybindings" && (
+  <div>
+    <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-4">
+      Keybindings are fixed in this version. Custom bindings are coming in a future release.
+    </p>
+    {SHORTCUT_GROUPS.map((group: ShortcutGroup) => (
+      <div key={group.title}>
+        <SectionTitle>{group.title}</SectionTitle>
+        <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 overflow-hidden mb-4">
+          {group.shortcuts.map((shortcut: Shortcut, i: number) => (
+            <div
+              key={i}
+              className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 last:border-0 bg-white dark:bg-zinc-900"
+            >
+              <span className="text-sm text-zinc-700 dark:text-zinc-300">{shortcut.label}</span>
+              <div className="flex items-center gap-1">
+                {shortcut.keys.map((key: string, j: number) => (
+                  <KeyChip key={j}>{key}</KeyChip>
+                ))}
+              </div>
             </div>
-          )}
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+)}
 
           {section === "data" && (
             <div>

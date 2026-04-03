@@ -283,7 +283,7 @@ useEffect(() => {
       useUIStore.getState().setRefreshStatus("reloading");
       loadNotes().then(() => { useUIStore.getState().setRefreshStatus("reloaded"); });
     }
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === "e") {
+    if (ctrl && e.shiftKey && e.key.toLowerCase() === "i") {
       e.preventDefault();
       toggleTips();
     }

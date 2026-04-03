@@ -4,7 +4,7 @@
 // Only visible when AI is enabled and a note is active.
 // Results render in a dismissible panel below the buttons.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAIStore } from "@/features/ai/store/useAIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { summarizeNote, generateTags, explainNote } from "@/features/ai/lib/actions";
@@ -210,6 +210,15 @@ export function AIActionBar({ note }: AIActionBarProps) {
   const [error, setError]                 = useState<string | null>(null);
   const [applyingTags, setApplyingTags]   = useState(false);
   const [tagsApplied, setTagsApplied]     = useState(false);
+
+useEffect(() => {
+  function handle(e: Event) {
+    const { action } = (e as CustomEvent<{ action: ActionType }>).detail;
+    runAction(action);
+  }
+  window.addEventListener("idemora:ai-action", handle);
+  return () => window.removeEventListener("idemora:ai-action", handle);
+}, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!enabled || connectionStatus !== "connected") return null;
 

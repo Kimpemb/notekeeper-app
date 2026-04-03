@@ -31,7 +31,9 @@ export function NoteTreeItem({
   noteId, depth, flatOrderedIds, lastSelectedIdRef, focusedNoteId, setFocusedNoteId,
 }: Props) {
   const notes        = useNoteStore((s) => s.notes);
-  const activeNoteId = useNoteStore((s) => s.activeNoteId);
+  const activeNoteId   = useNoteStore((s) => s.activeNoteId);  // already existed
+  const activePaneId   = useUIStore((s) => s.activePaneId);    // newly added
+  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);  // newly added
   const setActive    = useNoteStore((s) => s.setActiveNote);
   const createChild  = useNoteStore((s) => s.createChildNote);
   const deleteNote   = useNoteStore((s) => s.deleteNote);
@@ -185,12 +187,16 @@ export function NoteTreeItem({
     setFocusedNoteId(noteId);
 
     if (isActive) {
-      if (hasChildren) toggleNode(noteId);
-    } else {
-      setActive(noteId);
-      replaceTab(noteId);
-      lastSelectedIdRef.current = noteId;
-    }
+  if (hasChildren) toggleNode(noteId);
+} else {
+  if (activePaneId === 2) {
+    openTabInPane2(noteId);
+  } else {
+    setActive(noteId);
+    replaceTab(noteId);
+  }
+  lastSelectedIdRef.current = noteId;
+}
   }
 
   function handleChevronClick(e: React.MouseEvent) {
