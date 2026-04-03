@@ -40,6 +40,8 @@ document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") e.preventDefault();
 });
 
+
+
 interface BreadcrumbSegment { id: string; title: string; }
 
 function buildBreadcrumb(
@@ -130,13 +132,29 @@ export default function App() {
   const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
   // Track window maximize state
+  // Disable browser zoom outside graph
+  useEffect(() => {
+    function preventZoom(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "-" || e.key === "=" || e.key === "0")) {
+        e.preventDefault();
+      }
+    }
+    function preventWheelZoom(e: WheelEvent) {
+      if (e.ctrlKey) e.preventDefault();
+    }
+    window.addEventListener("keydown", preventZoom);
+    window.addEventListener("wheel", preventWheelZoom, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", preventZoom);
+      window.removeEventListener("wheel", preventWheelZoom);
+    };
+  }, []);
+
+  // Track window maximize state
   useEffect(() => {
     appWindow.isMaximized().then(setIsWindowMaximized);
-    const unlisten = appWindow.onResized(() => {
-      appWindow.isMaximized().then(setIsWindowMaximized);
-    });
-    return () => { unlisten.then(fn => fn()); };
   }, [appWindow]);
+
 
   // Bootstrap DB, settings, and notes
 useEffect(() => {
