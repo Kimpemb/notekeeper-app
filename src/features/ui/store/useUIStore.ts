@@ -229,8 +229,8 @@ interface UIStore {
   splitOpen: boolean;
   splitDirection: SplitDirection;
   openInSplit: (noteId: string) => void;
-  closePane2: () => void;
-  toggleSplitDirection: () => void;
+  closePane1: () => void;
+  closePane2: () => void;  toggleSplitDirection: () => void;
   swapPanes: () => void;
   setPane2ActiveTab: (tabId: string) => void;
   closePane2Tab: (tabId: string) => void;
@@ -529,6 +529,11 @@ export const useUIStore = create<UIStore>((set, get) => {
         set({ pane2Tabs: next, pane2ActiveTabId: tab.id, activePaneId: 2 });
         saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
       }
+    },
+    closePane1: () => {
+      // Promote pane 2 to pane 1 by swapping, then closing what is now pane 2
+      get().swapPanes();
+      get().closePane2();
     },
     closePane2: () => {
       set({

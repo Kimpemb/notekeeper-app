@@ -6,13 +6,13 @@ export function SplitDivider() {
   const toggleSplitDirection = useUIStore((s) => s.toggleSplitDirection);
   const swapPanes            = useUIStore((s) => s.swapPanes);
   const closePane2           = useUIStore((s) => s.closePane2);
+  const closePane1           = useUIStore((s) => s.closePane1);
 
   const isHorizontal = splitDirection === "horizontal";
 
   const btnClass = "flex items-center justify-center w-5 h-5 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-100";
 
   if (isHorizontal) {
-    // Panes are side by side — divider is a vertical bar
     return (
       <div className="group relative flex items-center justify-center w-2 shrink-0 h-full cursor-col-resize">
         <div className="w-[1px] h-full bg-zinc-200 dark:bg-zinc-800 group-hover:bg-zinc-300 dark:group-hover:bg-zinc-700 transition-colors duration-150" />
@@ -29,9 +29,18 @@ export function SplitDivider() {
               <path d="M10 7.5H1M3.5 5.5l-2 2 2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-          <button onClick={closePane2} title="Close split pane" className={btnClass}>
-            <svg width="9" height="9" viewBox="0 0 8 8" fill="none">
-              <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          <button onClick={closePane1} title="Close left pane" className={btnClass}>
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <rect x="0.5" y="0.5" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M5 0.5v10" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M2 4l1.5 1.5L2 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button onClick={closePane2} title="Close right pane" className={btnClass}>
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <rect x="0.5" y="0.5" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M5 0.5v10" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M8 4L6.5 5.5 8 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
         </div>
@@ -39,7 +48,6 @@ export function SplitDivider() {
     );
   }
 
-  // Panes are top/bottom — divider is a horizontal bar
   return (
     <div className="group relative flex items-center justify-center h-2.5 min-h-[10px] shrink-0 w-full cursor-row-resize">
       <div className="h-[1px] w-full bg-zinc-200 dark:bg-zinc-800 group-hover:bg-zinc-300 dark:group-hover:bg-zinc-700 transition-colors duration-150" />
@@ -56,9 +64,18 @@ export function SplitDivider() {
             <path d="M7.5 10V1M5.5 3.5l2-2 2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
-        <button onClick={closePane2} title="Close split pane" className={btnClass}>
-          <svg width="9" height="9" viewBox="0 0 8 8" fill="none">
-            <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+        <button onClick={closePane1} title="Close top pane" className={btnClass}>
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <rect x="0.5" y="0.5" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+            <path d="M0.5 5.5h10" stroke="currentColor" strokeWidth="1.1"/>
+            <path d="M4 2.5l1.5 1.5L7 2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <button onClick={closePane2} title="Close bottom pane" className={btnClass}>
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <rect x="0.5" y="0.5" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+            <path d="M0.5 5.5h10" stroke="currentColor" strokeWidth="1.1"/>
+            <path d="M4 8L5.5 6.5 7 8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
       </div>
