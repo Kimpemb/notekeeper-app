@@ -32,7 +32,6 @@ interface Props {
 
 export function SearchResults({ query }: Props) {
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
-  const activeNoteId = useNoteStore((s) => s.activeNoteId);
   const setPendingScrollQuery = useUIStore((s) => s.setPendingScrollQuery);
 
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -88,7 +87,7 @@ export function SearchResults({ query }: Props) {
         setSelectedIndex((prev) => Math.max(prev - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        handleResultClick(results[selectedIndex]);
+        handleResultClick(results[selectedIndex], selectedIndex);
       }
     }
 
@@ -105,19 +104,18 @@ export function SearchResults({ query }: Props) {
   }, [selectedIndex, results]);
 
   // ── Handle click ─────────────────────────────
-  function handleResultClick(result: SearchResult) {
+  function handleResultClick(result: SearchResult, index: number) {
   const { replaceTab, sidebarState } = useUIStore.getState();
   
-  // Set active note first so the editor starts mounting
+  setSelectedIndex(index);
   setActiveNote(result.id);
   replaceTab(result.id);
   
-  // Delay pendingScrollQuery so it fires after the editor has remounted and painted
   setTimeout(() => {
-  setPendingScrollQuery(query.trim());
-}, 350);
+    setPendingScrollQuery(query.trim());
+  }, 350);
 
-if (sidebarState === "peek") useUIStore.getState().setSidebarState("closed");
+  if (sidebarState === "peek") useUIStore.getState().setSidebarState("closed");
 }
 
   // ── Loading / No results ─────────────────────────────
@@ -151,13 +149,13 @@ if (sidebarState === "peek") useUIStore.getState().setSidebarState("closed");
       className="px-2 space-y-0.5 pb-2 overflow-y-auto max-h-[calc(100vh-10rem)]"
     >
       {results.map((result, index) => {
-        const isActive = result.id === activeNoteId || index === selectedIndex;
+        const isActive = index === selectedIndex;
         return (
           <li
             key={result.id}
             ref={(el) => void (itemRefs.current[index] = el)}          >
             <button
-              onClick={() => handleResultClick(result)}
+              onClick={() => handleResultClick(result, index)}
               className={`w-full text-left px-2.5 py-2 rounded-md transition-colors duration-75 group ${
                 isActive
                   ? "bg-zinc-200 dark:bg-zinc-700"
