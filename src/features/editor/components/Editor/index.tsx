@@ -407,6 +407,15 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     return () => window.removeEventListener("keydown", handle);
   }, [isActiveTab]);
 
+useEffect(() => {
+    if (!editor) return;
+    const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
+    if (s["subPage"]) {
+      s["subPage"].paneId = paneId;
+      s["subPage"].parentNoteId = noteId;
+    }
+  }, [editor, paneId, noteId]);
+
   // ── Chat panel — open via slash menu custom event ─────────────────────────
   // MUST be above the if (!note) return null early return to obey Rules of Hooks
   useEffect(() => {

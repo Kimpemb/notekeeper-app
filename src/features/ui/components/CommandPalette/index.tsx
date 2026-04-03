@@ -257,6 +257,8 @@ export function CommandPalette() {
   const visitedNoteIds     = useNoteStore((s) => s.visitedNoteIds);
   const setActiveNote      = useNoteStore((s) => s.setActiveNote);
   const loadNotes          = useNoteStore((s) => s.loadNotes);
+  const activePaneId       = useUIStore((s) => s.activePaneId);
+  const openTabInPane2     = useUIStore((s) => s.openTabInPane2);
   const createOrOpenDailyNote = useNoteStore((s) => s.createOrOpenDailyNote);
 
   const [query, setQuery]                   = useState("");
@@ -450,6 +452,15 @@ export function CommandPalette() {
 
   const noteList = query.trim() ? searchedNotes : recentNotes;
 
+function openNote(noteId: string) {
+    if (activePaneId === 2) {
+      openTabInPane2(noteId);
+    } else {
+      setActiveNote(noteId);
+    }
+    closePalette();
+  }
+
   function handleInputKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Tab") {
       e.preventDefault();
@@ -468,7 +479,7 @@ export function CommandPalette() {
       e.preventDefault();
       if (activeSide === "notes") {
         const note = noteList[selectedNote];
-        if (note) { setActiveNote(note.id); closePalette(); }
+        if (note) openNote(note.id);
       } else {
         filteredActions[selectedAction]?.action();
       }
@@ -534,7 +545,7 @@ export function CommandPalette() {
                       <NoteRow
                         key={note.id} note={note} index={i} query={query} notes={notes}
                         isSelected={activeSide === "notes" && i === selectedNote}
-                        onClick={() => { setActiveNote(note.id); closePalette(); }}
+                        onClick={() => openNote(note.id)}
                         onMouseEnter={() => setSelectedNote(i)}
                         refCallback={(el) => { noteItemRefs.current[i] = el; }}
                       />
@@ -551,7 +562,7 @@ export function CommandPalette() {
                           <NoteRow
                             key={note.id} note={note} index={i} query="" notes={notes}
                             isSelected={activeSide === "notes" && i === selectedNote}
-                            onClick={() => { setActiveNote(note.id); closePalette(); }}
+                            onClick={() => openNote(note.id)}
                             onMouseEnter={() => setSelectedNote(i)}
                             refCallback={(el) => { noteItemRefs.current[i] = el; }}
                           />
@@ -569,7 +580,7 @@ export function CommandPalette() {
                             <NoteRow
                               key={note.id} note={note} index={globalIndex} query="" notes={notes}
                               isSelected={activeSide === "notes" && globalIndex === selectedNote}
-                              onClick={() => { setActiveNote(note.id); closePalette(); }}
+                              onClick={() => openNote(note.id)}
                               onMouseEnter={() => setSelectedNote(globalIndex)}
                               refCallback={(el) => { noteItemRefs.current[globalIndex] = el; }}
                             />
