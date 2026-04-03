@@ -507,7 +507,11 @@ export function useGraphSimulation({
   inputEl.focus();
   if (!isCreation) inputEl.select();
 
+  let committed = false;
+
   function commit() {
+    if (committed) return;
+    committed = true;
     const newTitle = inputEl.value.trim();
     g.selectAll(".rename-overlay").remove();
     
@@ -528,9 +532,18 @@ export function useGraphSimulation({
   }
 
   function cancel() {
+    if (committed) return;
+    committed = true;
     g.selectAll(".rename-overlay").remove();
     d.fx = null; d.fy = null;
   }
+
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter")  { e.preventDefault(); commit(); }
+    if (e.key === "Escape") { e.preventDefault(); cancel(); }
+    e.stopPropagation();
+  });
+  inputEl.addEventListener("blur", commit);
 
   inputEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter")  { e.preventDefault(); commit(); }
