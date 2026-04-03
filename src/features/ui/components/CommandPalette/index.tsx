@@ -150,6 +150,12 @@ if (id === "explain") return (
       <rect x="8" y="7.5" width="4" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
     </svg>
   );
+  if (id === "toggle-ai-chat") return (
+  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+    <path d="M2 2h10a1 1 0 011 1v6a1 1 0 01-1 1H8l-3 2v-2H2a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+    <path d="M4.5 6.5h5M4.5 4.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+  </svg>
+);
   if (id === "export-all") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
       <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -264,6 +270,7 @@ const SHORTCUTS = [
   { label: "Open local graph",        keys: ["Ctrl", "G"] },
   { label: "Summarize note",          keys: ["Ctrl", "Shift", "U"] },
   { label: "Explain note",            keys: ["Ctrl", "Shift", "E"] },
+  { label: "Toggle AI chat",  keys: ["Ctrl", "Shift", "A"] },
   { label: "Keyboard shortcuts",      keys: ["Ctrl", "Shift", "?"] },
   { label: "Voice typing",            keys: ["Win+H", "Fn twice"] },
 ];
@@ -402,6 +409,24 @@ export function CommandPalette() {
 {
   kind: "action", id: "explain", label: "Explain Note", hint: "Ctrl+Shift+E",
   action: () => { window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "explain" } })); closePalette(); },
+},
+{
+  kind: "action", id: "toggle-ai-chat", label: "Toggle AI Chat", hint: "Ctrl+Shift+A",
+  action: () => {
+    const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
+    const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
+    chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+    closePalette();
+  },
+},
+{
+  kind: "action", id: "toggle-ai-chat", label: "Toggle AI Chat", hint: "Ctrl+Shift+A",
+  action: () => {
+    const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
+    const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
+    chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+    closePalette();
+  },
 },
     {
       kind: "action", id: "toggle-theme", label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "",

@@ -275,8 +275,9 @@ useEffect(() => {
     }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "a") {
   e.preventDefault();
-  const { chatOpen1, openChat, closeChat } = useUIStore.getState();
-  chatOpen1 ? closeChat(1) : openChat(1);
+  const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
+  const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
+  chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
 }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
       e.preventDefault();
