@@ -83,7 +83,6 @@ function convertNode(node: PmNode, indent = 0, listIndex = 0): string {
       const lines: string[] = [];
       children.forEach((child, i) => {
         if (i === 0) {
-          // First child inline with bullet
           const text = inlineContent(child.content);
           lines.push(`${pad}${bullet} ${text}`);
         } else {
@@ -148,7 +147,6 @@ function convertNode(node: PmNode, indent = 0, listIndex = 0): string {
       const body    = node.content?.find((n) => n.type === "toggleBody");
       const title   = inlineContent(summary?.content);
       const inner   = body ? convertNodes(body.content ?? []) : "";
-      // Render as a details/summary block comment for portability
       const bodyLines = inner.trim().split("\n").map((l) => `  ${l}`).join("\n");
       return `<details>\n<summary>${title}</summary>\n\n${bodyLines}\n\n</details>\n`;
     }
@@ -157,8 +155,19 @@ function convertNode(node: PmNode, indent = 0, listIndex = 0): string {
       return convertTable(node);
     }
 
+    // ── Idemora-specific nodes — encoded as HTML comments for round-trip ───────
+
+    case "dataview": {
+      const query = (node.attrs?.query as string) ?? "";
+      return `<!-- dataview: ${JSON.stringify({ query })} -->\n`;
+    }
+
+    case "blockRef": {
+      const { sourceNoteId, blockId, snapshot } = node.attrs ?? {};
+      return `<!-- blockref: ${JSON.stringify({ sourceNoteId, blockId, snapshot })} -->\n`;
+    }
+
     default:
-      // Fallback — recurse into children
       return convertNodes(node.content ?? [], indent);
   }
 }
@@ -181,7 +190,6 @@ function convertTable(tableNode: PmNode): string {
       return text.replace(/\|/g, "\\|");
     });
     lines.push(`| ${cells.join(" | ")} |`);
-    // Add separator after header row
     if (rowIndex === 0) {
       lines.push(`| ${cells.map(() => "---").join(" | ")} |`);
     }
@@ -192,7 +200,12 @@ function convertTable(tableNode: PmNode): string {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export function prosemirrorToMarkdown(title: string, contentJson: string): string {
+export function prosemirrorToMarkdown(
+  title: string,
+  contentJson: string,
+  tags?: string | null,
+  frontmatter?: string | null
+): string {
   let doc: PmNode;
   try {
     doc = JSON.parse(contentJson);
@@ -200,6 +213,28 @@ export function prosemirrorToMarkdown(title: string, contentJson: string): strin
     return `# ${title}\n`;
   }
 
+  const yamlLines: string[] = [];
+
+  if (tags) {
+    try {
+      const parsed = JSON.parse(tags);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        yamlLines.push(`tags: ${JSON.stringify(parsed)}`);
+      }
+    } catch { /* skip malformed */ }
+  }
+
+  if (frontmatter) {
+    try {
+      JSON.parse(frontmatter); // validate
+      yamlLines.push(`frontmatter: ${frontmatter}`);
+    } catch { /* skip malformed */ }
+  }
+
   const body = convertNodes(doc.content ?? []);
-  return `# ${title}\n\n${body}`.trimEnd() + "\n";
+  const header = yamlLines.length > 0
+    ? `---\n${yamlLines.join("\n")}\n---\n\n`
+    : "";
+
+  return `${header}# ${title}\n\n${body}`.trimEnd() + "\n";
 }

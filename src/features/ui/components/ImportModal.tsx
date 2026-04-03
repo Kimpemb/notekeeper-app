@@ -22,6 +22,123 @@ const STRATEGY_LABELS: Record<Strategy, { label: string; desc: string }> = {
   copy:      { label: "Import as copies", desc: "All notes imported with new IDs — no conflicts" },
 };
 
+// ── Markdown inline parser ────────────────────────────────────────────────────
+function parseInlineContent(
+  text: string,
+  notesByTitle: Map<string, string>
+): object[] {
+  const nodes: object[] = [];
+  const wikilinkRe = /\[\[([^\]]+)\]\]/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = wikilinkRe.exec(text)) !== null) {
+    if (match.index > last) {
+      nodes.push({ type: "text", text: text.slice(last, match.index) });
+    }
+    const label = match[1].trim();
+    const linkedId = notesByTitle.get(label.toLowerCase());
+    if (linkedId) {
+      nodes.push({ type: "noteLink", attrs: { id: linkedId, label } });
+    } else {
+      nodes.push({ type: "text", text: match[0] });
+    }
+    last = match.index + match[0].length;
+  }
+
+  if (last < text.length) {
+    nodes.push({ type: "text", text: text.slice(last) });
+  }
+
+  return nodes.length > 0 ? nodes : [{ type: "text", text }];
+}
+
+function markdownToDoc(markdown: string, notesByTitle: Map<string, string>): object {
+  const lines = markdown.split("\n");
+  const contentNodes: object[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trimEnd();
+
+    // ── Idemora HTML comment nodes ─────────────────────────────────────────
+    const dataviewMatch = trimmed.match(/^<!-- dataview: (.+) -->$/);
+    if (dataviewMatch) {
+      try {
+        const { query } = JSON.parse(dataviewMatch[1]);
+        contentNodes.push({ type: "dataview", attrs: { query } });
+      } catch { /* skip malformed */ }
+      continue;
+    }
+
+    const blockrefMatch = trimmed.match(/^<!-- blockref: (.+) -->$/);
+    if (blockrefMatch) {
+      try {
+        const { sourceNoteId, blockId, snapshot } = JSON.parse(blockrefMatch[1]);
+        contentNodes.push({ type: "blockRef", attrs: { sourceNoteId, blockId, snapshot } });
+      } catch { /* skip malformed */ }
+      continue;
+    }
+
+    // ── Standard markdown ──────────────────────────────────────────────────
+    if (trimmed.startsWith("### ")) {
+      contentNodes.push({ type: "heading", attrs: { level: 3 }, content: parseInlineContent(trimmed.slice(4), notesByTitle) });
+    } else if (trimmed.startsWith("## ")) {
+      contentNodes.push({ type: "heading", attrs: { level: 2 }, content: parseInlineContent(trimmed.slice(3), notesByTitle) });
+    } else if (trimmed.startsWith("# ")) {
+      // Skip — title line
+    } else if (trimmed === "") {
+      // Skip blank lines
+    } else {
+      contentNodes.push({ type: "paragraph", content: parseInlineContent(trimmed, notesByTitle) });
+    }
+  }
+
+  return { type: "doc", content: contentNodes.length > 0 ? contentNodes : [{ type: "paragraph" }] };
+}
+
+// ── YAML frontmatter parser ───────────────────────────────────────────────────
+interface ParsedFrontmatter {
+  tags: string | null;
+  frontmatter: string | null;
+  body: string;
+}
+
+function extractYamlFrontmatter(content: string): ParsedFrontmatter {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!fmMatch) return { tags: null, frontmatter: null, body: content };
+
+  const yamlBlock = fmMatch[1];
+  const body = fmMatch[2];
+
+  let tags: string | null = null;
+  let frontmatter: string | null = null;
+
+  // Parse tags: ["foo", "bar"] or tags: foo, bar
+  const tagsMatch = yamlBlock.match(/^tags:\s*(.+)$/m);
+  if (tagsMatch) {
+    const raw = tagsMatch[1].trim();
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) tags = JSON.stringify(parsed);
+    } catch {
+      // comma-separated fallback
+      const items = raw.split(",").map((t) => t.trim()).filter(Boolean);
+      if (items.length > 0) tags = JSON.stringify(items);
+    }
+  }
+
+  // Parse frontmatter: {"status":"in progress"} or any remaining keys
+  const fmMatch2 = yamlBlock.match(/^frontmatter:\s*(.+)$/m);
+  if (fmMatch2) {
+    try {
+      JSON.parse(fmMatch2[1].trim()); // validate
+      frontmatter = fmMatch2[1].trim();
+    } catch { /* ignore malformed */ }
+  }
+
+  return { tags, frontmatter, body };
+}
+
 export function ImportModal() {
   const importOpen  = useUIStore((s) => s.importOpen);
   const closeImport = useUIStore((s) => s.closeImport);
@@ -64,39 +181,56 @@ export function ImportModal() {
   const parseFile = useCallback(async (content: string, ext: string) => {
     try {
       let notes: Note[];
+
       if (ext === "md") {
-        const lines = content.split("\n");
+        const existingNotes = useNoteStore.getState().notes;
+        const maxSortOrder = existingNotes.reduce((max, n) => Math.max(max, n.sort_order ?? 0), -1);
+
+        // Extract YAML frontmatter if present
+        const { tags, frontmatter, body } = extractYamlFrontmatter(content);
+
+        const lines = body.split("\n");
         const titleLine = lines.find((l) => l.startsWith("# "));
         const title = titleLine ? titleLine.replace(/^# /, "").trim() : "Imported Note";
-        const plaintext = lines.filter((l) => !l.startsWith("# ")).join("\n").trim();
-        const paragraphs = plaintext.split("\n\n").filter(Boolean).map((p) => ({
-          type: "paragraph", content: [{ type: "text", text: p }],
-        }));
-        const doc = JSON.stringify({ type: "doc", content: paragraphs.length ? paragraphs : [{ type: "paragraph" }] });
-        notes = [{ 
-          id: crypto.randomUUID(), 
-          title, 
-          content: doc, 
-          plaintext, 
-          tags: null, 
-          frontmatter: null,
-          parent_id: null, 
-          sync_id: crypto.randomUUID(), 
-          created_at: Date.now(), 
-          updated_at: Date.now(), 
-          deleted_at: null, 
-          sort_order: 0 
-        }];
+        const bodyLines = lines.filter((l) => !l.startsWith("# ")).join("\n");
+
+        const newNote: Note = {
+          id: crypto.randomUUID(),
+          title,
+          content: "",
+          plaintext: bodyLines.trim(),
+          tags,
+          frontmatter,
+          parent_id: null,
+          sync_id: crypto.randomUUID(),
+          created_at: Date.now(),
+          updated_at: Date.now(),
+          deleted_at: null,
+          sort_order: maxSortOrder + 1,
+        };
+
+        const notesByTitle = new Map<string, string>(
+          existingNotes.map((n) => [n.title.toLowerCase(), n.id])
+        );
+        notesByTitle.set(title.toLowerCase(), newNote.id);
+
+        const doc = markdownToDoc(bodyLines, notesByTitle);
+        newNote.content = JSON.stringify(doc);
+        notes = [newNote];
+
       } else {
-        const parsed = JSON.parse(content);
+        const cleaned = content.replace(/^\uFEFF/, "").trim();
+        const parsed = JSON.parse(cleaned);
         if (!Array.isArray(parsed)) throw new Error("File must contain a JSON array of notes.");
         if (parsed.length === 0) throw new Error("The file contains no notes.");
         const looksValid = parsed.every((n: unknown) =>
-          typeof n === "object" && n !== null && "id" in n && "title" in n && "content" in n && "created_at" in n
+          typeof n === "object" && n !== null &&
+          "id" in n && "title" in n && "content" in n && "created_at" in n
         );
         if (!looksValid) throw new Error("This file doesn't look like an Idemora export. Only .json files exported from Idemora can be imported.");
         notes = parsed as Note[];
       }
+
       const existingIds = new Set(useNoteStore.getState().notes.map((n) => n.id));
       const duplicateCount = notes.filter((n) => existingIds.has(n.id)).length;
       setPreview({ notes, duplicateCount, newCount: notes.length - duplicateCount });
@@ -129,8 +263,10 @@ export function ImportModal() {
         if (!filePath) return;
         const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
         if (ext !== "json" && ext !== "md") { setError("Only .json and .md files are supported."); setStage("error"); return; }
-        try { const text = await invoke<string>("read_file", { path: filePath }); await parseFile(text, ext); }
-        catch (err) { setError(String(err)); setStage("error"); }
+        try {
+          const text = await invoke<string>("read_file", { path: filePath });
+          await parseFile(text, ext);
+        } catch (err) { setError(String(err)); setStage("error"); }
       }
     });
     return () => { unlisten.then((fn) => fn()); };
@@ -182,6 +318,10 @@ export function ImportModal() {
                 <p className="text-xs text-zinc-400 dark:text-zinc-600 mt-0.5">or</p>
               </div>
               <button onClick={handlePickFile} className="px-4 py-2 rounded-lg text-sm font-medium bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors duration-150">Choose file</button>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center mt-1">
+                <span className="font-medium">.md</span> imports text and wikilinks only.{" "}
+                Use <span className="font-medium">.json</span> for full fidelity — tags, embeds, and dataview blocks.
+              </p>
             </div>
           )}
 
@@ -241,8 +381,17 @@ export function ImportModal() {
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 9l4 4 6-7" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{imported} {imported === 1 ? "note" : "notes"} imported</p>
-                <p className="text-xs text-zinc-400 mt-0.5">Your notes are ready</p>
+                {imported === 0 ? (
+                  <>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Nothing imported</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">All notes already exist — try "Overwrite" or "Import as copies".</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{imported} {imported === 1 ? "note" : "notes"} imported</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">Your notes are ready</p>
+                  </>
+                )}
               </div>
             </div>
           )}

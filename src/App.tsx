@@ -336,10 +336,22 @@ useEffect(() => {
         catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
       exportNoteMarkdown: async () => {
-        if (!activeNote) return; setExporting(true);
-        try { const md = prosemirrorToMarkdown(activeNote.title, activeNote.content ?? ""); await exportNotesToFile(md, `${noteSlug(activeNote.title)}.md`); }
-        catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
-      },
+  if (!activeNote) return;
+  setExporting(true);
+  try {
+    const md = prosemirrorToMarkdown(
+      activeNote.title,
+      activeNote.content ?? "",
+      activeNote.tags,        // ← add this
+      activeNote.frontmatter  // ← add this
+    );
+    await exportNotesToFile(md, `${noteSlug(activeNote.title)}.md`);
+  } catch (err) {
+    console.error("Export failed:", err);
+  } finally {
+    setExporting(false);
+  }
+},
       exportNotePdf: async () => {
         if (!activeNote) return;
         try { await exportToPdf(activeNote.title, activeNote.content ?? ""); }

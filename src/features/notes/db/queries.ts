@@ -634,66 +634,90 @@
   }
 
   export async function importNotes(json: string): Promise<number> {
-    const db = await getDb();
-    const raw = JSON.parse(json);
-    if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
-    const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
-    let imported = 0;
-    for (const note of notes) {
-      if (await getNoteById(note.id)) continue;
+  const db = await getDb();
+  const raw = JSON.parse(json);
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
+  const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
+  let imported = 0;
+  for (const note of notes) {
+    const rows = await db.select<{ id: string; deleted_at: number | null }[]>(
+      `SELECT id, deleted_at FROM notes WHERE id = $1`, [note.id]
+    );
+    if (rows.length > 0 && rows[0].deleted_at === null) continue; // active — skip
+    if (rows.length > 0) {
+      // Trashed — restore and overwrite
       await db.execute(
-        `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
-        note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null, note.sort_order]
+        `UPDATE notes SET deleted_at = NULL, title = $1, content = $2, plaintext = $3,
+         tags = $4, frontmatter = $5, updated_at = $6 WHERE id = $7`,
+        [note.title, note.content, note.plaintext, note.tags, note.frontmatter, now(), note.id]
       );
       imported++;
+      continue;
     }
-    return imported;
+    await db.execute(
+      `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
+      note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null, note.sort_order]
+    );
+    imported++;
   }
+  return imported;
+}
 
   export async function importNotesOverwrite(json: string): Promise<number> {
-    const db = await getDb();
-    const raw = JSON.parse(json);
-    if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
-    const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
-    let count = 0;
-    for (const note of notes) {
-      await db.execute(
-        `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        ON CONFLICT(id) DO UPDATE SET
-          title=excluded.title, content=excluded.content, plaintext=excluded.plaintext,
-          tags=excluded.tags, frontmatter=excluded.frontmatter, updated_at=excluded.updated_at, sort_order=excluded.sort_order`,
-        [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
-        note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null, note.sort_order]
-      );
-      count++;
-    }
-    return count;
+  const db = await getDb();
+  const raw = JSON.parse(json);
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
+  const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
+  let count = 0;
+  for (const note of notes) {
+    await db.execute(
+      `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      ON CONFLICT(id) DO UPDATE SET
+        title=excluded.title, content=excluded.content, plaintext=excluded.plaintext,
+        tags=excluded.tags, frontmatter=excluded.frontmatter, updated_at=excluded.updated_at,
+        sort_order=excluded.sort_order, deleted_at=NULL`,
+      [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
+      note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null, note.sort_order]
+    );
+    count++;
   }
+  return count;
+}
 
   export async function importNotesAsCopies(json: string): Promise<number> {
-    const db = await getDb();
-    const raw = JSON.parse(json);
-    if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
-    const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
-    const idMap = new Map<string, string>();
-    for (const note of notes) idMap.set(note.id, uuid());
-    let count = 0;
-    for (const note of notes) {
-      const newId       = idMap.get(note.id)!;
-      const newParentId = note.parent_id ? (idMap.get(note.parent_id) ?? null) : null;
-      await db.execute(
-        `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [newId, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
-        newParentId, uuid(), now(), now(), null, note.sort_order]
-      );
-      count++;
-    }
-    return count;
+  const db = await getDb();
+  const raw = JSON.parse(json);
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
+  const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
+
+  // Build old→new ID map upfront
+  const idMap = new Map<string, string>();
+  for (const note of notes) idMap.set(note.id, uuid());
+
+  let count = 0;
+  for (const note of notes) {
+    const newId = idMap.get(note.id)!;
+    const newParentId = note.parent_id ? (idMap.get(note.parent_id) ?? null) : null;
+
+    // Remap any noteLink IDs inside the TipTap JSON content
+    let remappedContent = note.content;
+    for (const [oldId, newId_] of idMap.entries()) {
+  remappedContent = remappedContent.replace(new RegExp(oldId, 'g'), newId_);
+}
+
+    await db.execute(
+      `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [newId, note.title, remappedContent, note.plaintext, note.tags, note.frontmatter,
+      newParentId, uuid(), now(), now(), null, note.sort_order]
+    );
+    count++;
   }
+  return count;
+}
 
   // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -992,17 +1016,17 @@
     const q = query.trim().toLowerCase();
     const db = await getDb();
 
-    const rows = await db.select<{ id: string; title: string; plaintext: string }[]>(
-      `SELECT n.id, n.title, n.plaintext
-      FROM notes_fts f
-      JOIN notes n ON n.id = f.id
-      WHERE notes_fts MATCH $1
-        AND n.id != $2
-        AND n.deleted_at IS NULL
-      ORDER BY rank
-      LIMIT $3`,
-      [sanitized, excludeNoteId, limit]
-    );
+      const rows = await db.select<{ id: string; title: string; plaintext: string }[]>(
+        `SELECT n.id, n.title, n.plaintext
+        FROM notes_fts f
+        JOIN notes n ON n.id = f.id
+        WHERE notes_fts MATCH $1
+          AND n.id != $2
+          AND n.deleted_at IS NULL
+        ORDER BY rank
+        LIMIT $3`,
+        [sanitized, excludeNoteId, limit]
+      );
 
     return rows.flatMap((r) => {
       // Split into lines, find all lines containing the query, return each as a separate result

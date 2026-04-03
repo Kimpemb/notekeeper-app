@@ -379,23 +379,23 @@ export function CommandPalette() {
       action: () => { openShortcuts(); closePalette(); },
     },
     {
-      kind: "action", id: "import", label: "Import Notes", hint: "JSON file",
+      kind: "action", id: "import", label: "Import Notes", hint: ".json · .md",
       action: () => { openImport(); closePalette(); },
     },
     {
-      kind: "action", id: "export-all", label: "Export All Notes", hint: "JSON",
+      kind: "action", id: "export-all", label: "Export All Notes as JSON", hint: "",
       action: async () => { await exportHandlers?.exportAll(); closePalette(); },
     },
     {
-      kind: "action", id: "export-json", label: "Export Current Note", hint: "JSON",
+      kind: "action", id: "export-json", label: "Export Current Note as JSON", hint: "",
       action: async () => { await exportHandlers?.exportNoteJson(); closePalette(); },
     },
     {
-      kind: "action", id: "export-md", label: "Export Current Note", hint: "Markdown",
+      kind: "action", id: "export-md", label: "Export Current Note as Markdown", hint: "",
       action: async () => { await exportHandlers?.exportNoteMarkdown(); closePalette(); },
     },
     {
-      kind: "action", id: "export-pdf", label: "Export Current Note", hint: "PDF",
+      kind: "action", id: "export-pdf", label: "Export Current Note as PDF", hint: "",
       action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); },
     },
   ], [
