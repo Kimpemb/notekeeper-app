@@ -33,6 +33,8 @@ import { BlockRefSuggest } from "./BlockRefSuggest";
 import { AIActionBar } from "@/features/ai/components/AIActionBar";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
 
+
+
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
   EditorTable, TableRow, TableHeader, TableCell,
@@ -44,6 +46,7 @@ import {
   BlockIdExtension,
   BlockRefNode,
   DataviewNode,
+  DragHandleExtension,           // ← add this
 } from "./extensions";
 
 import {
@@ -158,6 +161,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({ name: "findReplacePlugin",      addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
       Extension.create({ name: "searchHighlightPlugin",  addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
+      DragHandleExtension,
     ],
     content: initialContent,
     autofocus: false,
