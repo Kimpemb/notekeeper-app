@@ -325,6 +325,12 @@ export function useDragReorder({
     }
 
     // ── Core: resolve what the handle is sitting next to ─────────────────────
+    //
+    // Strategy: sample points to the right of the handle at increasing offsets
+    // until we hit an element inside the editor DOM. A fixed 20px offset fails
+    // when the editor has wide left padding or the handle sits near the viewport
+    // edge. We also try two vertical positions (centre and 25% from top) in case
+    // the centre lands in a gap between inline elements.
 
     function resolveHandleTarget(handleEl: HTMLElement): {
       dragDom: HTMLElement;
@@ -333,19 +339,38 @@ export function useDragReorder({
       listParentPos: number;
     } | null {
       const handleRect = handleEl.getBoundingClientRect();
-      const sampleX = handleRect.right + 20;
-      const sampleY = handleRect.top + handleRect.height / 2;
+      const editorDom  = ed.view.dom;
+      const editorRect = editorDom.getBoundingClientRect();
 
-      const elements = document.elementsFromPoint(sampleX, sampleY);
-      const editorDom = ed.view.dom;
+      // X probes: start at 20px right of handle, step by 20px up to the editor
+      // right edge. This covers narrow and wide padding layouts.
+      const xProbes: number[] = [];
+      for (let offset = 20; handleRect.right + offset < editorRect.right; offset += 20) {
+        xProbes.push(handleRect.right + offset);
+      }
+      // Always include a point well inside the editor as a final fallback
+      xProbes.push(editorRect.left + editorRect.width * 0.5);
+
+      // Y probes: vertical centre first, then 25% from top (avoids inter-line gaps)
+      const yProbes = [
+        handleRect.top + handleRect.height * 0.5,
+        handleRect.top + handleRect.height * 0.25,
+      ];
 
       let targetEl: HTMLElement | null = null;
-      for (const el of elements) {
-        if (editorDom.contains(el) && el !== editorDom) {
-          targetEl = el as HTMLElement;
-          break;
+
+      outer: for (const sampleY of yProbes) {
+        for (const sampleX of xProbes) {
+          const elements = document.elementsFromPoint(sampleX, sampleY);
+          for (const el of elements) {
+            if (editorDom.contains(el) && el !== editorDom) {
+              targetEl = el as HTMLElement;
+              break outer;
+            }
+          }
         }
       }
+
       if (!targetEl) return null;
 
       let pos: number;
