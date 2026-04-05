@@ -32,6 +32,7 @@ import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
 import { AIActionBar } from "@/features/ai/components/AIActionBar";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
+import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
 
 
 
@@ -173,6 +174,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       },
     },
     onSelectionUpdate: ({ editor: e }) => {
+      if (isDraggingRef.current) return;   // ← restore this line
       if (slashFromBubble.current) return;
       const { from, to, $from } = e.state.selection;
 
@@ -487,6 +489,9 @@ useEffect(() => {
     window.addEventListener("idemora:open-chat", handleOpenChat);
     return () => window.removeEventListener("idemora:open-chat", handleOpenChat);
   }, [paneId]);
+
+
+  const { isDraggingRef } = useDragReorder({ editor: editor ?? null, scrollRef, editorWrapRef });
 
   // ── Early return — all hooks must be above this line ─────────────────────
   if (!note) return null;

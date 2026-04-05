@@ -14,6 +14,9 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { CodeBlockNodeView } from "./CodeBlockNodeView";
 import { CalloutNodeView } from "./CalloutNodeView";
 import { DragHandle } from "@tiptap/extension-drag-handle";
+import { offset } from "@floating-ui/dom";
+
+
 import {
   ToggleNodeView,
   ToggleSummaryNodeView,
@@ -890,12 +893,12 @@ declare module "@tiptap/core" {
   }
 }
 
+
 export const DragHandleExtension = DragHandle.configure({
   render() {
     const el = document.createElement("div");
     el.classList.add("drag-handle");
-    el.setAttribute("data-drag-handle", ""); // tells the extension THIS is the handle
-    // NO draggable="true" — the extension manages drag itself
+    el.setAttribute("data-drag-handle", "");
     el.innerHTML = `
       <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
         <circle cx="2.5" cy="2.5" r="1.5"/>
@@ -908,11 +911,12 @@ export const DragHandleExtension = DragHandle.configure({
     `;
     return el;
   },
+  nested: true,
   computePositionConfig: {
-    placement: "left-start",
+    placement: "left",
     strategy: "fixed",
+    middleware: [offset({ mainAxis: 0 })],
   },
-  // NO onNodeChange — no custom drag logic at all
 });
 
 export { BlockIdExtension } from "./BlockIdExtension";
