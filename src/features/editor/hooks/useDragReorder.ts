@@ -34,18 +34,16 @@ export function useDragReorder({
 
   const dragState = useRef<{
     active: boolean;
-    // The actual DOM node being dragged
     dragDom: HTMLElement;
-    // Its ProseMirror position
     nodePos: number;
-    // Whether it's a list item (taskItem / listItem)
     isListItem: boolean;
-    // If list item — the parent list's PM position
     listParentPos: number;
     startX: number;
     startY: number;
     thresholdMet: boolean;
-    insertAfterIndex: number;
+    // pos value of the block the dragged node should land AFTER,
+    // or null to mean "insert before everything"
+    insertAfterPos: number | null;
   } | null>(null);
 
   // ── Indicator ─────────────────────────────────────────────────────────────
@@ -75,7 +73,6 @@ export function useDragReorder({
 
     // ── DOM helpers ───────────────────────────────────────────────────────────
 
-    // Given a DOM node, walk up until we find a direct child of .ProseMirror
     function getTopLevelDom(node: HTMLElement): HTMLElement | null {
       const root = ed.view.dom;
       let current: HTMLElement | null = node;
@@ -85,7 +82,6 @@ export function useDragReorder({
       return current && current.parentElement === root ? current : null;
     }
 
-    // Get rects for all visible top-level blocks
     function getTopLevelBlockRects() {
       const { doc } = ed.view.state;
       const results: { rect: DOMRect; pos: number; size: number; dom: HTMLElement }[] = [];
@@ -99,7 +95,6 @@ export function useDragReorder({
       return results;
     }
 
-    // Get rects for children of a list node
     function getListItemRects(listParentPos: number) {
       const { doc } = ed.view.state;
       const listNode = doc.nodeAt(listParentPos);
@@ -117,52 +112,91 @@ export function useDragReorder({
     }
 
     // ── Insertion math ────────────────────────────────────────────────────────
+    //
+    // Returns the `pos` value of the block that the dragged node should land
+    // AFTER, or null to mean "insert before everything".
+    //
+    // Using pos values (not indices) as the currency between findInsertionPos
+    // and showIndicator eliminates the index-skew bug that occurred when the
+    // dragged block sat between the "insert after" block and the one below it
+    // in the visible array.
 
-    function findInsertionIndex(
+    function findInsertionPos(
       clientY: number,
       blocks: { rect: DOMRect; pos: number; size: number }[],
       dragPos: number
-    ): number {
-      if (blocks.length === 0) return -1;
+    ): number | null {
+      if (blocks.length === 0) return null;
+
       const viewportHeight = window.innerHeight;
-      const nonDragged = blocks
-        .map((b, i) => ({ ...b, originalIndex: i }))
-        .filter((b) => b.pos !== dragPos)
-        .filter((b) => b.rect.bottom > 0 && b.rect.top < viewportHeight);
-      if (nonDragged.length === 0) return -1;
-      for (let i = 0; i < nonDragged.length; i++) {
-        const midY = nonDragged[i].rect.top + nonDragged[i].rect.height / 2;
+
+      // Work only with blocks that are (a) not the dragged one and (b) on screen
+      const candidates = blocks.filter(
+        (b) => b.pos !== dragPos && b.rect.bottom > 0 && b.rect.top < viewportHeight
+      );
+
+      if (candidates.length === 0) return null;
+
+      for (let i = 0; i < candidates.length; i++) {
+        const midY = candidates[i].rect.top + candidates[i].rect.height / 2;
         if (clientY < midY) {
-          return i === 0 ? -1 : nonDragged[i - 1].originalIndex;
+          // Cursor is above this block's midpoint — insert before it
+          return i === 0
+            ? null                      // before all blocks
+            : candidates[i - 1].pos;   // after the previous candidate
         }
       }
-      return nonDragged[nonDragged.length - 1].originalIndex;
+
+      // Cursor is below all midpoints — insert after the last candidate
+      return candidates[candidates.length - 1].pos;
     }
 
     function showIndicator(
-      blocks: { rect: DOMRect }[],
-      insertAfterIndex: number
+      blocks: { rect: DOMRect; pos: number }[],
+      insertAfterPos: number | null,
+      dragPos: number
     ) {
       const indicator = indicatorRef.current;
       if (!indicator || blocks.length === 0) return;
+
+      // The visible non-dragged list — same filter as findInsertionPos
+      const visible = blocks.filter((b) => b.pos !== dragPos);
+      if (visible.length === 0) return;
+
       let y: number;
-      if (insertAfterIndex < 0) {
-        y = blocks[0].rect.top;
-      } else if (insertAfterIndex >= blocks.length - 1) {
-        y = blocks[blocks.length - 1].rect.bottom;
+
+      if (insertAfterPos === null) {
+        // Place the line above the first visible block
+        y = visible[0].rect.top;
       } else {
-        const above = blocks[insertAfterIndex];
-        const below = blocks[insertAfterIndex + 1];
-        y = above.rect.bottom + (below.rect.top - above.rect.bottom) * 0.5;
+        const aboveIdx = visible.findIndex((b) => b.pos === insertAfterPos);
+
+        if (aboveIdx === -1) {
+          // Fallback: pos not found in visible set — hide and bail
+          indicator.style.display = "none";
+          return;
+        }
+
+        if (aboveIdx === visible.length - 1) {
+          // After the last visible block
+          y = visible[visible.length - 1].rect.bottom;
+        } else {
+          // In the gap between aboveIdx and aboveIdx + 1
+          const above = visible[aboveIdx];
+          const below = visible[aboveIdx + 1];
+          y = above.rect.bottom + (below.rect.top - above.rect.bottom) * 0.5;
+        }
       }
+
       const editorEl = editorWrapRef.current;
       if (!editorEl) return;
       const editorRect = editorEl.getBoundingClientRect();
       const inset = 8;
+
       indicator.style.display = "block";
-      indicator.style.top = `${y}px`;
-      indicator.style.left = `${editorRect.left + inset}px`;
-      indicator.style.width = `${editorRect.width - inset * 2}px`;
+      indicator.style.top    = `${y}px`;
+      indicator.style.left   = `${editorRect.left + inset}px`;
+      indicator.style.width  = `${editorRect.width - inset * 2}px`;
     }
 
     function hideIndicator() {
@@ -170,14 +204,14 @@ export function useDragReorder({
     }
 
     function dimDraggedBlock(dom: HTMLElement) {
-      dom.style.opacity = "0.4";
+      dom.style.opacity   = "0.4";
       dom.style.transition = "opacity 120ms ease";
       draggedDomRef.current = dom;
     }
 
     function undimDraggedBlock() {
       if (draggedDomRef.current) {
-        draggedDomRef.current.style.opacity = "";
+        draggedDomRef.current.style.opacity   = "";
         draggedDomRef.current.style.transition = "";
         draggedDomRef.current = null;
       }
@@ -192,14 +226,6 @@ export function useDragReorder({
     }
 
     // ── Core: resolve what the handle is sitting next to ─────────────────────
-    //
-    // The extension already did the hard work of scoring which node the handle
-    // belongs to and positioned itself next to it. We read that back by:
-    //   1. Getting the handle element's bounding rect
-    //   2. Sampling a point just to the RIGHT of the handle (into the block)
-    //   3. Walking up from that element to find the ProseMirror node
-    //
-    // This works for both top-level blocks and list items.
 
     function resolveHandleTarget(handleEl: HTMLElement): {
       dragDom: HTMLElement;
@@ -208,13 +234,9 @@ export function useDragReorder({
       listParentPos: number;
     } | null {
       const handleRect = handleEl.getBoundingClientRect();
-
-      // Sample a point 20px to the right of the handle's right edge,
-      // at the vertical centre of the handle — this lands inside the block
       const sampleX = handleRect.right + 20;
       const sampleY = handleRect.top + handleRect.height / 2;
 
-      // Walk elements at that point, find the first one inside the editor
       const elements = document.elementsFromPoint(sampleX, sampleY);
       const editorDom = ed.view.dom;
 
@@ -227,7 +249,6 @@ export function useDragReorder({
       }
       if (!targetEl) return null;
 
-      // Try to get PM position from this element
       let pos: number;
       try {
         pos = ed.view.posAtDOM(targetEl, 0);
@@ -235,14 +256,12 @@ export function useDragReorder({
         return null;
       }
 
-      // Resolve to find what node this position belongs to
       const { doc } = ed.view.state;
       const $pos = doc.resolve(Math.max(0, pos));
 
       const LIST_ITEM_TYPES = new Set(["listItem", "taskItem"]);
-      const LIST_TYPES = new Set(["bulletList", "orderedList", "taskList"]);
+      const LIST_TYPES      = new Set(["bulletList", "orderedList", "taskList"]);
 
-      // Check if we're inside a list item
       for (let depth = $pos.depth; depth > 0; depth--) {
         const node = $pos.node(depth);
         if (LIST_ITEM_TYPES.has(node.type.name)) {
@@ -250,7 +269,6 @@ export function useDragReorder({
           const itemDom = ed.view.nodeDOM(itemPos) as HTMLElement | null;
           if (!itemDom) return null;
 
-          // Find the parent list
           for (let pd = depth - 1; pd >= 0; pd--) {
             const parent = $pos.node(pd);
             if (LIST_TYPES.has(parent.type.name)) {
@@ -266,7 +284,6 @@ export function useDragReorder({
         }
       }
 
-      // Not a list item — find the top-level block
       const topDom = getTopLevelDom(targetEl);
       if (!topDom) return null;
 
@@ -277,7 +294,6 @@ export function useDragReorder({
         return null;
       }
 
-      // Resolve to the actual top-level node position
       const $topPos = doc.resolve(Math.max(0, topPos));
       const nodePos = $topPos.depth > 0 ? $topPos.before(1) : topPos;
 
@@ -310,7 +326,7 @@ export function useDragReorder({
         startX: e.clientX,
         startY: e.clientY,
         thresholdMet: false,
-        insertAfterIndex: -1,
+        insertAfterPos: null,
       };
     }
 
@@ -339,9 +355,9 @@ export function useDragReorder({
         ? getListItemRects(ds.listParentPos)
         : getTopLevelBlockRects();
 
-      const insertAfterIndex = findInsertionIndex(e.clientY, blocks, ds.nodePos);
-      ds.insertAfterIndex = insertAfterIndex;
-      showIndicator(blocks, insertAfterIndex);
+      const insertAfterPos = findInsertionPos(e.clientY, blocks, ds.nodePos);
+      ds.insertAfterPos = insertAfterPos;
+      showIndicator(blocks, insertAfterPos, ds.nodePos);
     }
 
     function onMouseUp(e: MouseEvent) {
@@ -377,20 +393,20 @@ export function useDragReorder({
         const reordered = [...items];
         const [dragged] = reordered.splice(dragIndex, 1);
 
-        const insertAfter = ds.insertAfterIndex;
-        if (insertAfter < 0) {
+        // insertAfterPos is a pos value — find where it sits in the original
+        // items array and insert accordingly
+        if (ds.insertAfterPos === null) {
           reordered.splice(0, 0, dragged);
         } else {
-          const ref = items[insertAfter];
-          const newIdx = reordered.findIndex((n) => n.pos === ref.pos);
-          if (newIdx === -1) reordered.push(dragged);
-          else reordered.splice(newIdx + 1, 0, dragged);
+          const refIdx = reordered.findIndex((n) => n.pos === ds.insertAfterPos);
+          if (refIdx === -1) reordered.push(dragged);
+          else reordered.splice(refIdx + 1, 0, dragged);
         }
 
         const unchanged = reordered.every((n, i) => n.pos === items[i].pos);
         if (unchanged) return;
 
-        const originalSize = items.reduce((acc, n) => acc + n.node.nodeSize, 0);
+        const originalSize  = items.reduce((acc, n) => acc + n.node.nodeSize, 0);
         const reorderedSize = reordered.reduce((acc, n) => acc + n.node.nodeSize, 0);
         if (originalSize !== reorderedSize) return;
 
@@ -431,20 +447,18 @@ export function useDragReorder({
       const reordered = [...topLevelNodes];
       const [dragged] = reordered.splice(dragIndex, 1);
 
-      const insertAfter = ds.insertAfterIndex;
-      if (insertAfter < 0) {
+      if (ds.insertAfterPos === null) {
         reordered.splice(0, 0, dragged);
       } else {
-        const insertAfterNode = topLevelNodes[insertAfter];
-        const newIdx = reordered.findIndex((n) => n.pos === insertAfterNode.pos);
-        if (newIdx === -1) reordered.push(dragged);
-        else reordered.splice(newIdx + 1, 0, dragged);
+        const refIdx = reordered.findIndex((n) => n.pos === ds.insertAfterPos);
+        if (refIdx === -1) reordered.push(dragged);
+        else reordered.splice(refIdx + 1, 0, dragged);
       }
 
       const unchanged = reordered.every((n, i) => n.pos === topLevelNodes[i].pos);
       if (unchanged) return;
 
-      const originalSize = topLevelNodes.reduce((acc, n) => acc + n.node.nodeSize, 0);
+      const originalSize  = topLevelNodes.reduce((acc, n) => acc + n.node.nodeSize, 0);
       const reorderedSize = reordered.reduce((acc, n) => acc + n.node.nodeSize, 0);
       if (originalSize !== reorderedSize) return;
 

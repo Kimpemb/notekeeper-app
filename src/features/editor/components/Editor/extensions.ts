@@ -913,10 +913,10 @@ export const DragHandleExtension = DragHandle.configure({
   },
   nested: true,
   computePositionConfig: {
-    placement: "left",
-    strategy: "fixed",
-    middleware: [offset({ mainAxis: 0 })],
-  },
+  placement: "left-start",
+  strategy: "fixed",
+  middleware: [offset({ mainAxis: 0, crossAxis: 4 })],
+},
 });
 
 export { BlockIdExtension } from "./BlockIdExtension";
