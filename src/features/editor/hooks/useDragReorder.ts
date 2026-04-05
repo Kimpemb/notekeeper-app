@@ -3,7 +3,8 @@
 // Pure mousemove-based block reordering — no HTML5 drag API involved.
 //
 // Game-dev approach: DOM first, ProseMirror positions last.
-//   mousedown  → read handle's pixel position → find DOM node underneath → get PM pos
+//   mousemove  → find block under cursor → position handle
+//   mousedown  → if handle clicked → begin drag
 //   mousemove  → find insertion point from visible block rects
 //   mouseup    → convert to PM positions → dispatch targeted transaction
 
@@ -16,6 +17,7 @@ interface UseDragReorderOptions {
   editor: Editor | null;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   editorWrapRef: React.RefObject<HTMLDivElement | null>;
+  getEditorLeft: () => number;
 }
 
 interface UseDragReorderResult {
@@ -30,12 +32,15 @@ export function useDragReorder({
   editor,
   scrollRef,
   editorWrapRef,
+  getEditorLeft,
 }: UseDragReorderOptions): UseDragReorderResult {
-  const indicatorRef    = useRef<HTMLDivElement | null>(null);
-  const draggedDomRef   = useRef<HTMLElement | null>(null);
-  const isDraggingRef   = useRef<boolean>(false);
-  const scrollAnimRef   = useRef<number | null>(null);  // rAF id for auto-scroll loop
-  const scrollClientYRef = useRef<number>(0);           // latest clientY, read inside rAF
+  const indicatorRef     = useRef<HTMLDivElement | null>(null);
+  const handleRef        = useRef<HTMLDivElement | null>(null);
+  const draggedDomRef    = useRef<HTMLElement | null>(null);
+  const isDraggingRef    = useRef<boolean>(false);
+  const scrollAnimRef    = useRef<number | null>(null);
+  const scrollClientYRef = useRef<number>(0);
+  const hoveredBlockRef  = useRef<{ dom: HTMLElement; pos: number; isListItem: boolean; listParentPos: number } | null>(null);
 
   const dragState = useRef<{
     active: boolean;
@@ -46,37 +51,96 @@ export function useDragReorder({
     startX: number;
     startY: number;
     thresholdMet: boolean;
-    // pos value of the block the dragged node should land AFTER,
-    // or null to mean "insert before everything"
     insertAfterPos: number | null;
-    // Rects cached at drag-start; cleared on scroll so they rebuild next frame
     cachedBlocks: BlockRect[] | null;
   } | null>(null);
 
-  // ── Indicator ─────────────────────────────────────────────────────────────
+  // ── Create handle and indicator elements ──────────────────────────────────
   useEffect(() => {
+    // Indicator
     const indicator = document.createElement("div");
     indicator.style.cssText = [
-      "display: none",
-      "position: fixed",
-      "height: 2px",
-      "background: rgba(59, 130, 246, 0.75)",
-      "border-radius: 1px",
-      "pointer-events: none",
-      "z-index: 9999",
-      "transform: translateY(-1px)",
+      "display:none",
+      "position:fixed",
+      "height:2px",
+      "background:rgba(59,130,246,0.75)",
+      "border-radius:1px",
+      "pointer-events:none",
+      "z-index:9999",
+      "transform:translateY(-1px)",
     ].join(";");
     document.body.appendChild(indicator);
     indicatorRef.current = indicator;
+
+    // Handle
+    const handle = document.createElement("div");
+    handle.className = "drag-handle";
+    handle.setAttribute("data-drag-handle", "");
+    handle.style.cssText = [
+      "display:none",
+      "position:fixed",
+      "z-index:100",
+      "width:20px",
+      "height:24px",
+      "align-items:center",
+      "justify-content:center",
+      "border-radius:4px",
+      "cursor:grab",
+      "color:#c4c4c4",
+      "background:transparent",
+      "user-select:none",
+    ].join(";");
+    handle.innerHTML = `
+      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="2.5" cy="2.5" r="1.5"/>
+        <circle cx="7.5" cy="2.5" r="1.5"/>
+        <circle cx="2.5" cy="7" r="1.5"/>
+        <circle cx="7.5" cy="7" r="1.5"/>
+        <circle cx="2.5" cy="11.5" r="1.5"/>
+        <circle cx="7.5" cy="11.5" r="1.5"/>
+      </svg>
+    `;
+    handle.addEventListener("mouseenter", () => {
+      handle.style.color = "#9ca3af";
+      handle.style.background = "rgba(0,0,0,0.06)";
+    });
+    handle.addEventListener("mouseleave", () => {
+      handle.style.color = "#c4c4c4";
+      handle.style.background = "transparent";
+    });
+    document.body.appendChild(handle);
+    handleRef.current = handle;
+
     return () => {
       indicator.remove();
+      handle.remove();
       indicatorRef.current = null;
+      handleRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     if (!editor) return;
     const ed = editor;
+
+    // ── Handle positioning ────────────────────────────────────────────────────
+
+    function showHandle(dom: HTMLElement) {
+      const handle = handleRef.current;
+      if (!handle) return;
+      const rect = dom.getBoundingClientRect();
+      const left = getEditorLeft() - 28;
+      handle.style.display = "flex";
+      handle.style.left = `${left}px`;
+      handle.style.top = `${rect.top + 4}px`;
+    }
+
+    function hideHandle() {
+      const handle = handleRef.current;
+      if (!handle) return;
+      handle.style.display = "none";
+      hoveredBlockRef.current = null;
+    }
 
     // ── DOM helpers ───────────────────────────────────────────────────────────
 
@@ -118,8 +182,6 @@ export function useDragReorder({
       return results;
     }
 
-    // Returns cached rects, building them on first call per drag.
-    // Scroll clears the cache so the next mousemove reads fresh values.
     function getBlocks(): BlockRect[] {
       const ds = dragState.current;
       if (!ds) return [];
@@ -131,231 +193,23 @@ export function useDragReorder({
       return blocks;
     }
 
-    // ── Insertion math ────────────────────────────────────────────────────────
-    //
-    // Returns the `pos` value of the block that the dragged node should land
-    // AFTER, or null to mean "insert before everything".
+    // ── Block detection from cursor ───────────────────────────────────────────
 
-    function findInsertionPos(
-      clientY: number,
-      blocks: BlockRect[],
-      dragPos: number
-    ): number | null {
-      if (blocks.length === 0) return null;
-
-      const viewportHeight = window.innerHeight;
-
-      const candidates = blocks.filter(
-        (b) => b.pos !== dragPos && b.rect.bottom > 0 && b.rect.top < viewportHeight
-      );
-
-      if (candidates.length === 0) return null;
-
-      for (let i = 0; i < candidates.length; i++) {
-        const midY = candidates[i].rect.top + candidates[i].rect.height / 2;
-        if (clientY < midY) {
-          return i === 0
-            ? null
-            : candidates[i - 1].pos;
-        }
-      }
-
-      return candidates[candidates.length - 1].pos;
-    }
-
-    function showIndicator(
-      blocks: BlockRect[],
-      insertAfterPos: number | null,
-      dragPos: number
-    ) {
-      const indicator = indicatorRef.current;
-      if (!indicator || blocks.length === 0) return;
-
-      const visible = blocks.filter((b) => b.pos !== dragPos);
-      if (visible.length === 0) return;
-
-      let y: number;
-
-      if (insertAfterPos === null) {
-        y = visible[0].rect.top;
-      } else {
-        const aboveIdx = visible.findIndex((b) => b.pos === insertAfterPos);
-
-        if (aboveIdx === -1) {
-          indicator.style.display = "none";
-          return;
-        }
-
-        if (aboveIdx === visible.length - 1) {
-          y = visible[visible.length - 1].rect.bottom;
-        } else {
-          const above = visible[aboveIdx];
-          const below = visible[aboveIdx + 1];
-          y = above.rect.bottom + (below.rect.top - above.rect.bottom) * 0.5;
-        }
-      }
-
-      const editorEl = editorWrapRef.current;
-      if (!editorEl) return;
-      const editorRect = editorEl.getBoundingClientRect();
-      const inset = 8;
-
-      indicator.style.display = "block";
-      indicator.style.top    = `${y}px`;
-      indicator.style.left   = `${editorRect.left + inset}px`;
-      indicator.style.width  = `${editorRect.width - inset * 2}px`;
-    }
-
-    function hideIndicator() {
-      if (indicatorRef.current) indicatorRef.current.style.display = "none";
-    }
-
-    function dimDraggedBlock(dom: HTMLElement) {
-      dom.style.opacity    = "0.4";
-      dom.style.transition = "opacity 120ms ease";
-      draggedDomRef.current = dom;
-    }
-
-    function undimDraggedBlock() {
-      if (draggedDomRef.current) {
-        draggedDomRef.current.style.opacity   = "";
-        draggedDomRef.current.style.transition = "";
-        draggedDomRef.current = null;
-      }
-    }
-
-    // ── Scroll invalidation ───────────────────────────────────────────────────
-    //
-    // Scroll shifts every block rect by the scroll delta. Clearing cachedBlocks
-    // causes getBlocks() to rebuild on the next mousemove event.
-
-    function onScrollDuringDrag() {
-      if (dragState.current) dragState.current.cachedBlocks = null;
-    }
-
-    function attachScrollListener() {
-      const el = scrollRef.current;
-      if (el) el.addEventListener("scroll", onScrollDuringDrag, { passive: true });
-    }
-
-    function detachScrollListener() {
-      const el = scrollRef.current;
-      if (el) el.removeEventListener("scroll", onScrollDuringDrag);
-    }
-
-    // ── Auto-scroll ───────────────────────────────────────────────────────────
-    //
-    // When the cursor is within SCROLL_ZONE px of the top or bottom edge of the
-    // scroll container, we drive scrollTop via a rAF loop so the user can drag
-    // past the visible area without touching the keyboard.
-    //
-    // Speed scales linearly from 0 at the zone boundary to SCROLL_MAX_SPEED at
-    // the very edge, so the scroll feels proportional to how far into the zone
-    // the cursor has moved.
-
-    const SCROLL_ZONE      = 80;  // px from edge that triggers scroll
-    const SCROLL_MAX_SPEED = 16;  // px per frame at maximum proximity
-
-    function stopScrollAnim() {
-      if (scrollAnimRef.current !== null) {
-        cancelAnimationFrame(scrollAnimRef.current);
-        scrollAnimRef.current = null;
-      }
-    }
-
-    function scrollLoop() {
-      const el = scrollRef.current;
-      if (!el || !dragState.current?.active) {
-        scrollAnimRef.current = null;
-        return;
-      }
-
-      const clientY = scrollClientYRef.current;
-      const rect    = el.getBoundingClientRect();
-
-      const distFromTop    = clientY - rect.top;
-      const distFromBottom = rect.bottom - clientY;
-
-      let delta = 0;
-      if (distFromTop < SCROLL_ZONE && distFromTop >= 0) {
-        // Cursor near top — scroll up (negative delta)
-        delta = -SCROLL_MAX_SPEED * (1 - distFromTop / SCROLL_ZONE);
-      } else if (distFromBottom < SCROLL_ZONE && distFromBottom >= 0) {
-        // Cursor near bottom — scroll down (positive delta)
-        delta = SCROLL_MAX_SPEED * (1 - distFromBottom / SCROLL_ZONE);
-      }
-
-      if (delta !== 0) {
-        el.scrollTop += delta;
-        // Scroll event fires → onScrollDuringDrag → cache invalidated automatically
-        scrollAnimRef.current = requestAnimationFrame(scrollLoop);
-      } else {
-        scrollAnimRef.current = null;
-      }
-    }
-
-    // Called on every mousemove while dragging. Starts the loop if cursor is
-    // in a scroll zone, stops it if it has left.
-    function tickScroll(clientY: number) {
-      scrollClientYRef.current = clientY;
-      const el = scrollRef.current;
-      if (!el) return;
-
-      const rect         = el.getBoundingClientRect();
-      const distFromTop  = clientY - rect.top;
-      const distFromBot  = rect.bottom - clientY;
-      const inZone       = (distFromTop < SCROLL_ZONE && distFromTop >= 0)
-                        || (distFromBot  < SCROLL_ZONE && distFromBot  >= 0);
-
-      if (inZone && scrollAnimRef.current === null) {
-        scrollAnimRef.current = requestAnimationFrame(scrollLoop);
-      } else if (!inZone) {
-        stopScrollAnim();
-      }
-    }
-
-    function cancelDrag() {
-      detachScrollListener();
-      stopScrollAnim();
-      dragState.current = null;
-      isDraggingRef.current = false;
-      hideIndicator();
-      undimDraggedBlock();
-      editorWrapRef.current?.classList.remove("is-dragging-block");
-    }
-
-    // ── Core: resolve what the handle is sitting next to ─────────────────────
-    //
-    // Strategy: sample points to the right of the handle at increasing offsets
-    // until we hit an element inside the editor DOM. A fixed 20px offset fails
-    // when the editor has wide left padding or the handle sits near the viewport
-    // edge. We also try two vertical positions (centre and 25% from top) in case
-    // the centre lands in a gap between inline elements.
-
-    function resolveHandleTarget(handleEl: HTMLElement): {
+    function resolveBlockFromPoint(_clientX: number, clientY: number): {
       dragDom: HTMLElement;
       nodePos: number;
       isListItem: boolean;
       listParentPos: number;
     } | null {
-      const handleRect = handleEl.getBoundingClientRect();
       const editorDom  = ed.view.dom;
       const editorRect = editorDom.getBoundingClientRect();
 
-      // X probes: start at 20px right of handle, step by 20px up to the editor
-      // right edge. This covers narrow and wide padding layouts.
-      const xProbes: number[] = [];
-      for (let offset = 20; handleRect.right + offset < editorRect.right; offset += 20) {
-        xProbes.push(handleRect.right + offset);
-      }
-      // Always include a point well inside the editor as a final fallback
-      xProbes.push(editorRect.left + editorRect.width * 0.5);
-
-      // Y probes: vertical centre first, then 25% from top (avoids inter-line gaps)
-      const yProbes = [
-        handleRect.top + handleRect.height * 0.5,
-        handleRect.top + handleRect.height * 0.25,
+      const xProbes = [
+        editorRect.left + 60,
+        editorRect.left + editorRect.width * 0.3,
+        editorRect.left + editorRect.width * 0.5,
       ];
+      const yProbes = [clientY, clientY + 4];
 
       let targetEl: HTMLElement | null = null;
 
@@ -429,7 +283,230 @@ export function useDragReorder({
       };
     }
 
+    // ── Insertion math ────────────────────────────────────────────────────────
+
+    function findInsertionPos(
+      clientY: number,
+      blocks: BlockRect[],
+      dragPos: number
+    ): number | null {
+      if (blocks.length === 0) return null;
+      const viewportHeight = window.innerHeight;
+      const candidates = blocks.filter(
+        (b) => b.pos !== dragPos && b.rect.bottom > 0 && b.rect.top < viewportHeight
+      );
+      if (candidates.length === 0) return null;
+      for (let i = 0; i < candidates.length; i++) {
+        const midY = candidates[i].rect.top + candidates[i].rect.height / 2;
+        if (clientY < midY) {
+          return i === 0 ? null : candidates[i - 1].pos;
+        }
+      }
+      return candidates[candidates.length - 1].pos;
+    }
+
+    function showIndicator(
+      blocks: BlockRect[],
+      insertAfterPos: number | null,
+      dragPos: number
+    ) {
+      const indicator = indicatorRef.current;
+      if (!indicator || blocks.length === 0) return;
+      const visible = blocks.filter((b) => b.pos !== dragPos);
+      if (visible.length === 0) return;
+
+      let y: number;
+      if (insertAfterPos === null) {
+        y = visible[0].rect.top;
+      } else {
+        const aboveIdx = visible.findIndex((b) => b.pos === insertAfterPos);
+        if (aboveIdx === -1) { indicator.style.display = "none"; return; }
+        if (aboveIdx === visible.length - 1) {
+          y = visible[visible.length - 1].rect.bottom;
+        } else {
+          const above = visible[aboveIdx];
+          const below = visible[aboveIdx + 1];
+          y = above.rect.bottom + (below.rect.top - above.rect.bottom) * 0.5;
+        }
+      }
+
+      const editorEl = editorWrapRef.current;
+      if (!editorEl) return;
+      const editorRect = editorEl.getBoundingClientRect();
+      const inset = 8;
+      indicator.style.display = "block";
+      indicator.style.top   = `${y}px`;
+      indicator.style.left  = `${editorRect.left + inset}px`;
+      indicator.style.width = `${editorRect.width - inset * 2}px`;
+    }
+
+    function hideIndicator() {
+      if (indicatorRef.current) indicatorRef.current.style.display = "none";
+    }
+
+    function dimDraggedBlock(dom: HTMLElement) {
+      dom.style.opacity    = "0.4";
+      dom.style.transition = "opacity 120ms ease";
+      draggedDomRef.current = dom;
+    }
+
+    function undimDraggedBlock() {
+      if (draggedDomRef.current) {
+        draggedDomRef.current.style.opacity    = "";
+        draggedDomRef.current.style.transition = "";
+        draggedDomRef.current = null;
+      }
+    }
+
+    // ── Scroll ────────────────────────────────────────────────────────────────
+
+    function onScrollDuringDrag() {
+      if (dragState.current) dragState.current.cachedBlocks = null;
+    }
+
+    function attachScrollListener() {
+      scrollRef.current?.addEventListener("scroll", onScrollDuringDrag, { passive: true });
+    }
+
+    function detachScrollListener() {
+      scrollRef.current?.removeEventListener("scroll", onScrollDuringDrag);
+    }
+
+    const SCROLL_ZONE      = 80;
+    const SCROLL_MAX_SPEED = 16;
+
+    function stopScrollAnim() {
+      if (scrollAnimRef.current !== null) {
+        cancelAnimationFrame(scrollAnimRef.current);
+        scrollAnimRef.current = null;
+      }
+    }
+
+    function scrollLoop() {
+      const el = scrollRef.current;
+      if (!el || !dragState.current?.active) { scrollAnimRef.current = null; return; }
+      const clientY = scrollClientYRef.current;
+      const rect    = el.getBoundingClientRect();
+      const distFromTop    = clientY - rect.top;
+      const distFromBottom = rect.bottom - clientY;
+      let delta = 0;
+      if (distFromTop < SCROLL_ZONE && distFromTop >= 0)
+        delta = -SCROLL_MAX_SPEED * (1 - distFromTop / SCROLL_ZONE);
+      else if (distFromBottom < SCROLL_ZONE && distFromBottom >= 0)
+        delta = SCROLL_MAX_SPEED * (1 - distFromBottom / SCROLL_ZONE);
+      if (delta !== 0) {
+        el.scrollTop += delta;
+        scrollAnimRef.current = requestAnimationFrame(scrollLoop);
+      } else {
+        scrollAnimRef.current = null;
+      }
+    }
+
+    function tickScroll(clientY: number) {
+      scrollClientYRef.current = clientY;
+      const el = scrollRef.current;
+      if (!el) return;
+      const rect        = el.getBoundingClientRect();
+      const distFromTop = clientY - rect.top;
+      const distFromBot = rect.bottom - clientY;
+      const inZone = (distFromTop < SCROLL_ZONE && distFromTop >= 0)
+                  || (distFromBot  < SCROLL_ZONE && distFromBot  >= 0);
+      if (inZone && scrollAnimRef.current === null)
+        scrollAnimRef.current = requestAnimationFrame(scrollLoop);
+      else if (!inZone)
+        stopScrollAnim();
+    }
+
+    function cancelDrag() {
+      detachScrollListener();
+      stopScrollAnim();
+      dragState.current = null;
+      isDraggingRef.current = false;
+      hideIndicator();
+      undimDraggedBlock();
+      editorWrapRef.current?.classList.remove("is-dragging-block");
+    }
+
     // ── Event handlers ────────────────────────────────────────────────────────
+
+    function onMouseMove(e: MouseEvent) {
+      const handle = handleRef.current;
+
+      // ── Dragging ───────────────────────────────────────────────────────────
+      const ds = dragState.current;
+      if (ds) {
+        const dx = Math.abs(e.clientX - ds.startX);
+        const dy = Math.abs(e.clientY - ds.startY);
+
+        if (!ds.thresholdMet) {
+          if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+            ds.thresholdMet = true;
+            ds.active = true;
+            isDraggingRef.current = true;
+            editorWrapRef.current?.classList.add("is-dragging-block");
+            dimDraggedBlock(ds.dragDom);
+            attachScrollListener();
+          } else {
+            return;
+          }
+        }
+
+        if (!ds.active) return;
+        tickScroll(e.clientY);
+        const blocks = getBlocks();
+        const insertAfterPos = findInsertionPos(e.clientY, blocks, ds.nodePos);
+        ds.insertAfterPos = insertAfterPos;
+        showIndicator(blocks, insertAfterPos, ds.nodePos);
+        return;
+      }
+
+      // ── Hovering — keep handle alive if cursor is on it ───────────────────
+      if (handle && (e.target === handle || handle.contains(e.target as Node))) return;
+
+      const editorEl = editorWrapRef.current;
+      if (!editorEl || !handle) return;
+
+      const editorRect = editorEl.getBoundingClientRect();
+
+      // Extend the left boundary to include the handle's gutter column
+      // so the handle stays visible as the cursor moves toward it
+      const handleLeft = handle.style.display !== "none"
+        ? parseFloat(handle.style.left || "0")
+        : editorRect.left;
+
+      const inEditor = (
+        e.clientX >= Math.min(handleLeft, editorRect.left) &&
+        e.clientX <= editorRect.right &&
+        e.clientY >= editorRect.top &&
+        e.clientY <= editorRect.bottom
+      );
+
+      if (!inEditor) {
+        hideHandle();
+        return;
+      }
+
+      // Only re-resolve block if cursor is inside the actual editor content
+      // — not in the gutter — to avoid flicker while hovering the handle zone
+      if (e.clientX >= editorRect.left) {
+        const target = resolveBlockFromPoint(e.clientX, e.clientY);
+        if (!target) {
+          hideHandle();
+          return;
+        }
+
+        hoveredBlockRef.current = {
+          dom: target.dragDom,
+          pos: target.nodePos,
+          isListItem: target.isListItem,
+          listParentPos: target.listParentPos,
+        };
+
+        showHandle(target.dragDom);
+      }
+      // If in gutter (between handle and editor left edge), do nothing —
+      // handle stays exactly where it is, hoveredBlockRef stays valid
+    }
 
     function onMouseDown(e: MouseEvent) {
       const handleEl = (e.target as HTMLElement).closest(".drag-handle") as HTMLElement | null;
@@ -438,52 +515,21 @@ export function useDragReorder({
       e.preventDefault();
       e.stopPropagation();
 
-      const target = resolveHandleTarget(handleEl);
-      if (!target) return;
+      const hovered = hoveredBlockRef.current;
+      if (!hovered) return;
 
       dragState.current = {
         active: false,
-        dragDom: target.dragDom,
-        nodePos: target.nodePos,
-        isListItem: target.isListItem,
-        listParentPos: target.listParentPos,
+        dragDom: hovered.dom,
+        nodePos: hovered.pos,
+        isListItem: hovered.isListItem,
+        listParentPos: hovered.listParentPos,
         startX: e.clientX,
         startY: e.clientY,
         thresholdMet: false,
         insertAfterPos: null,
         cachedBlocks: null,
       };
-    }
-
-    function onMouseMove(e: MouseEvent) {
-      const ds = dragState.current;
-      if (!ds) return;
-
-      const dx = Math.abs(e.clientX - ds.startX);
-      const dy = Math.abs(e.clientY - ds.startY);
-
-      if (!ds.thresholdMet) {
-        if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
-          ds.thresholdMet = true;
-          ds.active = true;
-          isDraggingRef.current = true;
-          editorWrapRef.current?.classList.add("is-dragging-block");
-          dimDraggedBlock(ds.dragDom);
-          attachScrollListener();  // start watching for scroll invalidation
-        } else {
-          return;
-        }
-      }
-
-      if (!ds.active) return;
-
-      tickScroll(e.clientY);  // start/stop auto-scroll based on cursor proximity
-
-      // getBlocks() returns cached rects, rebuilding only after scroll
-      const blocks = getBlocks();
-      const insertAfterPos = findInsertionPos(e.clientY, blocks, ds.nodePos);
-      ds.insertAfterPos = insertAfterPos;
-      showIndicator(blocks, insertAfterPos, ds.nodePos);
     }
 
     function onMouseUp(e: MouseEvent) {
@@ -616,17 +662,18 @@ export function useDragReorder({
       if (e.key === "Escape" && dragState.current) cancelDrag();
     }
 
-    document.addEventListener("mousedown", onMouseDown, true);
     document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mousedown", onMouseDown, true);
     document.addEventListener("mouseup", onMouseUp);
     document.addEventListener("keydown", onKeyDown);
 
     return () => {
-      document.removeEventListener("mousedown", onMouseDown, true);
       document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mousedown", onMouseDown, true);
       document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("keydown", onKeyDown);
       cancelDrag();
+      hideHandle();
     };
   }, [editor]);
 

@@ -894,30 +894,68 @@ declare module "@tiptap/core" {
 }
 
 
-export const DragHandleExtension = DragHandle.configure({
-  render() {
-    const el = document.createElement("div");
-    el.classList.add("drag-handle");
-    el.setAttribute("data-drag-handle", "");
-    el.innerHTML = `
-      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="2.5" cy="2.5" r="1.5"/>
-        <circle cx="7.5" cy="2.5" r="1.5"/>
-        <circle cx="2.5" cy="7"   r="1.5"/>
-        <circle cx="7.5" cy="7"   r="1.5"/>
-        <circle cx="2.5" cy="11.5" r="1.5"/>
-        <circle cx="7.5" cy="11.5" r="1.5"/>
-      </svg>
-    `;
-    return el;
-  },
-  nested: true,
-  computePositionConfig: {
-  placement: "left-start",
-  strategy: "fixed",
-  middleware: [offset({ mainAxis: 0, crossAxis: 4 })],
-},
-});
+export function createDragHandleExtension(getEditorLeft: () => number) {
+  return DragHandle.configure({
+    render() {
+      const el = document.createElement("div");
+      el.classList.add("drag-handle");
+      el.setAttribute("data-drag-handle", "");
+      el.innerHTML = `
+        <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="2.5" cy="2.5" r="1.5"/>
+          <circle cx="7.5" cy="2.5" r="1.5"/>
+          <circle cx="2.5" cy="7"   r="1.5"/>
+          <circle cx="7.5" cy="7"   r="1.5"/>
+          <circle cx="2.5" cy="11.5" r="1.5"/>
+          <circle cx="7.5" cy="11.5" r="1.5"/>
+        </svg>
+      `;
+
+      const observer = new MutationObserver(() => {
+        const editorLeft = getEditorLeft();
+        if (editorLeft > 0) {
+          const correctLeft = `${editorLeft - 28}px`;
+          if (el.style.left !== correctLeft) {
+            el.style.left = correctLeft;
+          }
+        }
+      });
+
+      observer.observe(el, { attributes: true, attributeFilter: ["style"] });
+
+      return el;
+    },
+    onNodeChange({ editor: ed, node }) {
+      if (!node) return;
+      const handle = document.querySelector(".drag-handle") as HTMLElement | null;
+      if (!handle) return;
+
+      const editorLeft = getEditorLeft();
+      if (editorLeft > 0) {
+        handle.style.left = `${editorLeft - 28}px`;
+      }
+
+      const { state, view } = ed;
+      let nodePos = -1;
+      state.doc.descendants((n, pos) => {
+        if (n === node) { nodePos = pos; return false; }
+      });
+      if (nodePos === -1) return;
+
+      const dom = view.nodeDOM(nodePos) as HTMLElement | null;
+      if (!dom) return;
+
+      const rect = dom.getBoundingClientRect();
+      handle.style.top = `${rect.top + 4}px`;
+    },
+    nested: true,
+    computePositionConfig: {
+      placement: "left-start",
+      strategy: "fixed",
+      middleware: [offset({ mainAxis: 20, crossAxis: 0 })],
+    },
+  });
+}
 
 export { BlockIdExtension } from "./BlockIdExtension";
 export { BlockRefNode }     from "./BlockRefNode";

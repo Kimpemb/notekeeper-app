@@ -12,9 +12,9 @@
   background: transparent;
   transition: color 100ms ease, background 100ms ease;
   user-select: none;
-  /* Fully visible when the extension renders it — 
-     the extension handles show/hide by mounting/unmounting */
   opacity: 1;
+  width: 24px;
+  height: 24px;
 }
 
 .drag-handle:hover {

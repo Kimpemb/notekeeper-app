@@ -47,7 +47,6 @@ import {
   BlockIdExtension,
   BlockRefNode,
   DataviewNode,
-  DragHandleExtension,           // ← add this
 } from "./extensions";
 
 import {
@@ -115,11 +114,12 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   // ── Settings ──────────────────────────────────────────────────────────────
   const spellCheck = useAppSettings((s) => s.settings.spellCheck);
 
-  const titleRef         = useRef<HTMLHeadingElement>(null);
-  const editorWrapRef    = useRef<HTMLDivElement>(null);
-  const scrollRef        = useRef<HTMLDivElement>(null);
-  const lastSavedContent = useRef<string | null>(note?.content ?? null);
-  const titleFocusedRef  = useRef(false);
+ const titleRef              = useRef<HTMLHeadingElement>(null);
+const editorWrapRef         = useRef<HTMLDivElement>(null);
+const editorTextColumnRef   = useRef<HTMLDivElement>(null);
+const scrollRef             = useRef<HTMLDivElement>(null);
+const lastSavedContent      = useRef<string | null>(note?.content ?? null);
+const titleFocusedRef       = useRef(false);
 
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
@@ -150,6 +150,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   const initialContent = note?.content ? JSON.parse(note.content) : "";
 
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
@@ -162,7 +163,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({ name: "findReplacePlugin",      addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
       Extension.create({ name: "searchHighlightPlugin",  addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
-      DragHandleExtension,
     ],
     content: initialContent,
     autofocus: false,
@@ -491,8 +491,15 @@ useEffect(() => {
   }, [paneId]);
 
 
-  const { isDraggingRef } = useDragReorder({ editor: editor ?? null, scrollRef, editorWrapRef });
-
+const { isDraggingRef } = useDragReorder({
+  editor: editor ?? null,
+  scrollRef,
+  editorWrapRef,
+  getEditorLeft: () => {
+    if (!editorTextColumnRef.current) return 0;
+    return editorTextColumnRef.current.getBoundingClientRect().left + 64;
+  },
+});
   // ── Early return — all hooks must be above this line ─────────────────────
   if (!note) return null;
 
@@ -791,7 +798,7 @@ useEffect(() => {
         )}
 
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
-          <div className="w-full mx-auto px-8 py-6 min-h-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl cursor-text" onClick={handleEditorAreaClick}>
+         <div ref={editorTextColumnRef} className="w-full mx-auto pl-16 pr-8 py-6 min-h-full max-w-4xl xl:max-w-240 2xl:max-w-5xl cursor-text" onClick={handleEditorAreaClick}>
             <FrontmatterEditor
               frontmatter={note.frontmatter ?? null}
               onChange={(frontmatter) => updateNote(note.id, { frontmatter })}
