@@ -183,16 +183,14 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2500);
   }, []);
 
-  // ── Graph edit hook ───────────────────────────────────────────────────────
+  // ── Graph edit hook (no onDataMutated needed - events handle sync) ─────────
   const { createNodeAt, deleteNode, renameNode, createLink } = useGraphEdit({
-    simNodesRef,
-    simEdgesRef,
-    showToast,
-  });
+  simNodesRef,
+  simEdgesRef,
+  showToast,
+});
 
   // ── Delete confirmation ───────────────────────────────────────────────────
-  // Fired by right-click in D3 — sets state to show ConfirmModal.
-  // Actual deletion only happens when the user confirms.
   const requestDeleteNode = useCallback((nodeId: string, title: string) => {
     setConfirmDelete({ nodeId, title });
   }, []);
@@ -237,8 +235,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
-      // ConfirmModal handles its own Escape via capture listener — don't
-      // also close the graph panel when the modal is open
       if (confirmDelete) return;
       if (focusNodeId) { setFocusNodeId(null); return; }
       handleClose();
@@ -458,11 +454,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         </div>
       </div>
 
-      {/* Delete confirmation modal
-          - open (not isOpen) per ConfirmModal's Props interface
-          - danger renders the confirm button red
-          - deleteNode patches simNodesRef/simEdgesRef first, then deleteNodeById
-            rebinds D3 selections against the already-updated refs */}
+      {/* Delete confirmation modal */}
       {confirmDelete && (
         <ConfirmModal
           open
