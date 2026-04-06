@@ -495,6 +495,7 @@ const { isDraggingRef } = useDragReorder({
   editor: editor ?? null,
   scrollRef,
   editorWrapRef,
+  editorTextColumnRef,   // ← add this line
   getEditorLeft: () => {
     if (!editorTextColumnRef.current) return 0;
     return editorTextColumnRef.current.getBoundingClientRect().left + 64;

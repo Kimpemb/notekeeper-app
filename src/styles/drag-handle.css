@@ -1,10 +1,11 @@
 /* src/styles/drag-handle.css */
+/* Appearance only — zero position values. JS owns all position. */
 
 .drag-handle {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 24px;
   height: 24px;
   border-radius: 4px;
   cursor: grab;
@@ -12,12 +13,15 @@
   background: transparent;
   transition: color 100ms ease, background 100ms ease;
   user-select: none;
-  opacity: 1;
-  width: 24px;
-  height: 24px;
 }
 
 .drag-handle:hover {
+  color: #9ca3af;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* Active state while menu is open — keep handle highlighted */
+.drag-handle.is-menu-open {
   color: #9ca3af;
   background: rgba(0, 0, 0, 0.06);
 }
@@ -37,6 +41,11 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
+.dark .drag-handle.is-menu-open {
+  color: #71717a;
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .dark .drag-handle:active {
   color: #a1a1aa;
   background: rgba(255, 255, 255, 0.1);
@@ -45,4 +54,23 @@
 .drag-handle svg {
   flex-shrink: 0;
   pointer-events: none;
+}
+
+
+/* Ghost preview — appearance only, JS owns top/left/width */
+
+.drag-ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 99;
+  opacity: 0.5;
+  border-radius: 4px;
+  background: var(--color-background-primary, #ffffff);
+  cursor: grabbing;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.dark .drag-ghost {
+  opacity: 0.45;
+  background: var(--color-background-secondary, #1c1c1e);
 }
