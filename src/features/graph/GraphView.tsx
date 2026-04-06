@@ -85,7 +85,7 @@ function getNeighbourhood(focusId: string, edges: GraphEdge[], depth: number): S
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   function GraphView({ initialFocusNoteId }, ref) {
 
-  const { data, isLoading, error, refresh, lastUpdated } = useGraphData();
+  const { data, isLoading, error, refresh, lastUpdated, patchData } = useGraphData();
   const setActiveNote           = useNoteStore((s) => s.setActiveNote);
   const notes                   = useNoteStore((s) => s.notes);
   const closeGraph              = useUIStore((s) => s.closeGraph);
@@ -128,6 +128,15 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   // ── Delete confirmation state ─────────────────────────────────────────────
   const [confirmDelete, setConfirmDelete] = useState<{ nodeId: string; title: string } | null>(null);
 
+  // ── Pending node IDs ──────────────────────────────────────────────────────
+  //
+  // Tracks nodes that have been committed (title saved) but not yet linked.
+  // Added in handleRenameNode alongside patchData.addNode — that's the moment
+  // the node enters `data`, which is the only moment the orphan/neighbourhood
+  // filters can strip it. The rename input is already gone by then so the
+  // state update cannot destroy it. Removed once linked or deleted.
+  const [pendingNodeIds, setPendingNodeIds] = useState<Set<string>>(new Set());
+
   const isLocalGraph = !!initialFocusNoteId;
 
   useEffect(() => {
@@ -145,23 +154,41 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
   const allTags = useMemo(() => Array.from(tagColorMap.keys()), [tagColorMap]);
 
+  // ── Visible nodes/edges ───────────────────────────────────────────────────
+  //
+  // pendingNodeIds is in the dep array so the memo recomputes when a node is
+  // committed (title saved). Filter ordering: orphan filter must run with the
+  // pendingNodeIds exemption, or a linkCount-0 node gets stripped before the
+  // neighbourhood exemption can save it.
   const { visibleNodes, visibleEdges } = useMemo(() => {
     if (!data) return { visibleNodes: [], visibleEdges: [] };
+
     let nodes = data.nodes;
     let edges = data.edges;
-    if (!showOrphans) nodes = nodes.filter((n) => n.linkCount > 0);
+
+    // Orphan filter — exempt freshly created nodes so they aren't discarded
+    // before the user has had a chance to link them.
+    if (!showOrphans) {
+      nodes = nodes.filter((n) => n.linkCount > 0 || pendingNodeIds.has(n.id));
+    }
+
+    // Neighbourhood filter (focused mode) — exempt freshly created nodes for
+    // the same reason: they have no edges yet so getNeighbourhood won't find
+    // them, but they should remain visible so the user can link them.
     if (focusNodeId) {
       const neighbourhood = getNeighbourhood(focusNodeId, edges, depth);
-      nodes = nodes.filter((n) => neighbourhood.has(n.id));
+      nodes = nodes.filter((n) => neighbourhood.has(n.id) || pendingNodeIds.has(n.id));
     }
+
     const nodeIds = new Set(nodes.map((n) => n.id));
     edges = edges.filter((e) => {
       const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
       const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
       return nodeIds.has(sid) && nodeIds.has(tid);
     });
+
     return { visibleNodes: nodes, visibleEdges: edges };
-  }, [data, showOrphans, focusNodeId, depth]);
+  }, [data, showOrphans, focusNodeId, depth, pendingNodeIds]);
 
   // ── Slide-in on mount ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -183,12 +210,88 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2500);
   }, []);
 
-  // ── Graph edit hook (no onDataMutated needed - events handle sync) ─────────
+  // ── Graph edit hook ────────────────────────────────────────────────────────
   const { createNodeAt, deleteNode, renameNode, createLink } = useGraphEdit({
-  simNodesRef,
-  simEdgesRef,
-  showToast,
-});
+    simNodesRef,
+    simEdgesRef,
+    showToast,
+  });
+
+  // ── patchData-wired adapters ───────────────────────────────────────────────
+  //
+  // These sit between GraphView and useGraphSimulation. Each one calls the
+  // underlying graph edit hook, then — on success — patches `data` so that
+  // visibleNodes/visibleEdges stay consistent with the live simulation state.
+
+  const handleCreateNode = useCallback(async (
+    x: number,
+    y: number,
+    onCreated: (node: GraphNode) => void,
+  ) => {
+    // No React state touched here. The node doesn't exist in `data` yet so
+    // the filters can't reach it. Pure D3 — create the DB record, patch the
+    // sim, show the rename input. Nothing React-side changes until the user
+    // commits a title in handleRenameNode.
+    await createNodeAt(x, y, onCreated);
+  }, [createNodeAt]);
+
+  const handleRenameNode = useCallback(async (
+    nodeId: string,
+    newTitle: string,
+    onRenamed: (nodeId: string, title: string) => void,
+  ) => {
+    const isNewNode = !data?.nodes.some((n) => n.id === nodeId);
+
+    await renameNode(nodeId, newTitle, (id, title) => {
+      if (isNewNode) {
+        const simNode = simNodesRef.current.find((n) => n.id === id);
+        if (simNode) {
+          // Add to pending AND patch data in the same breath. The rename input
+          // is already gone at this point (user hit Enter/blur), so this state
+          // update cannot trigger a D3 rebuild that destroys anything. The node
+          // enters `data` exempted from the orphan/neighbourhood filters.
+          setPendingNodeIds((prev) => new Set(prev).add(id));
+          patchData.addNode({ ...simNode, title });
+        }
+      } else {
+        patchData.updateNodeTitle(id, title);
+      }
+
+      onRenamed(id, title);
+    });
+  }, [renameNode, data, simNodesRef, patchData]);
+
+  const handleCreateLink = useCallback(async (
+    sourceId: string,
+    targetId: string,
+    onLinked: (edge: GraphEdge) => void,
+  ) => {
+    await createLink(sourceId, targetId, (newEdge) => {
+      onLinked(newEdge);
+      patchData.addEdge(newEdge);
+      setPendingNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(sourceId);
+        next.delete(targetId);
+        return next;
+      });
+    });
+  }, [createLink, patchData]);
+
+  const handleDeleteNode = useCallback(async (
+    nodeId: string,
+    onDeleted: (nodeId: string) => void,
+  ) => {
+    await deleteNode(nodeId, (id) => {
+      onDeleted(id);
+      patchData.removeNode(id);
+      setPendingNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    });
+  }, [deleteNode, patchData]);
 
   // ── Delete confirmation ───────────────────────────────────────────────────
   const requestDeleteNode = useCallback((nodeId: string, title: string) => {
@@ -279,10 +382,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     showTagColors, tagColorMap, focusNodeId, timelineMode,
     setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
     setFocusNodeId, showToast, handleClose,
-    onCreateNode:        createNodeAt,
-    onRenameNode:        renameNode,
-    onCreateLink:        createLink,
-    onDeleteNode:        deleteNode,
+    onCreateNode:        handleCreateNode,
+    onRenameNode:        handleRenameNode,
+    onCreateLink:        handleCreateLink,
+    onDeleteNode:        handleDeleteNode,
     onRequestDeleteNode: requestDeleteNode,
   });
 
@@ -465,7 +568,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           onConfirm={() => {
             const { nodeId } = confirmDelete;
             setConfirmDelete(null);
-            deleteNode(nodeId, (_id) => {
+            handleDeleteNode(nodeId, (_id) => {
               deleteNodeById(nodeId);
             });
           }}

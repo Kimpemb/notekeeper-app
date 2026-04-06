@@ -8,6 +8,13 @@
 // a full rebuild: the initial node/edge set, loading state, and visual toggles.
 // Store-driven state (notes array, activeNoteId etc.) is deliberately excluded.
 //
+// pendingNodeIdsRef — a ref (not state) — is passed in so the D3 effect can
+// read it inside the double-click handler without being in the dep array.
+// The corresponding state twin (pendingNodeIds) lives in GraphView and drives
+// the visibleNodes memo. This decoupling is the fix for the rename-input-
+// destruction bug: state drives the memo (reactive), the ref drives the D3
+// world (stable, never triggers a rebuild).
+//
 // Performance notes:
 //   • alphaDecay is raised to 0.04 (default 0.0228) so the sim settles ~2×
 //     faster — fewer ticks means faster time-to-interactive.
@@ -84,6 +91,7 @@ export interface UseGraphSimulationProps {
   simSettledRef:        MutableRefObject<boolean>;
   hoverExitTimerRef:    MutableRefObject<ReturnType<typeof setTimeout> | null>;
   isHoveringPreviewRef: MutableRefObject<boolean>;
+
   visibleNodes:         GraphNode[];
   visibleEdges:         GraphEdge[];
   allNotes:             Note[];
@@ -613,13 +621,10 @@ export function useGraphSimulation({
           onCreateLink(sourceId, targetId, (_newEdge) => {
             // Step 1: tell forceLink about the updated edges array so it
             // resolves string IDs → object references before the next tick.
-            // Without this the tick handler reads .x off a string → undefined.
             const forceLink = simulation.force("link") as d3.ForceLink<GraphNode, GraphEdge>;
             forceLink.links(simEdgesRef.current);
 
-            // Step 2: rebind the D3 link selection — forceLink has now
-            // mutated our new edge's source/target into object refs, so the
-            // key function will match correctly.
+            // Step 2: rebind the D3 link selection
             link = linkG.selectAll<SVGLineElement, GraphEdge>("line")
               .data(simEdgesRef.current, (e) => {
                 const s = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
@@ -636,8 +641,7 @@ export function useGraphSimulation({
               );
             linkSelRef.current = link;
 
-            // Step 3: stamp positions immediately using current node coords —
-            // the sim has settled so we can't wait for a tick that may never come.
+            // Step 3: stamp positions immediately using current node coords
             const nodeById = new Map(simNodesRef.current.map((n) => [n.id, n]));
             link.filter((e) => {
               const s = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
@@ -862,7 +866,18 @@ export function useGraphSimulation({
         labelSelRef.current = label;
 
         setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
-        setTimeout(() => showRenameInput(newNode, true), 100);
+
+        // Show rename input immediately — no setTimeout.
+        //
+        // Previously this was setTimeout(..., 100) as a workaround for the
+        // rebuild race: any state update that flowed through visibleNodes into
+        // the D3 effect dep array would tear down the graph, destroying the
+        // foreignObject before the user could type.
+        //
+        // That race is now gone. pendingNodeIdsRef (a ref) is what the D3
+        // effect sees — ref mutations are invisible to the dep array, so no
+        // rebuild fires. The rename input is safe to show immediately.
+        showRenameInput(newNode, true);
       }).catch(console.error);
     });
 
