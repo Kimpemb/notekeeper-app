@@ -43,7 +43,7 @@ type BlockRect = { rect: DOMRect; pos: number; size: number; dom: HTMLElement };
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DRAG_THRESHOLD     = 6;
-const SHOW_HANDLE_DELAY  = 70;
+const SHOW_HANDLE_DELAY  = 30;
 const SCROLL_ZONE        = 80;
 const SCROLL_MAX_SPEED   = 16;
 const MOUSEMOVE_THROTTLE = 16; // ~1 frame at 60fps
@@ -106,7 +106,7 @@ export function useDragReorder({
 
     const rect      = dom.getBoundingClientRect();
     const gripLeft  = getEditorLeft() - 28;  // grip flush with editor left margin
-    const insertLeft = gripLeft - 28;        // + sits 28px left of grip
+    const insertLeft = gripLeft - 20;        // + sits 28px left of grip
 
     grip.style.display  = "flex";
     grip.style.left     = `${gripLeft}px`;
@@ -283,6 +283,7 @@ export function useDragReorder({
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       el.removeEventListener("scroll", onScroll);
+      document.removeEventListener("wheel", onScroll);              // ← add this
       if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
     };
   }, [scrollRef, cancelShowHandleTimer, closeMenu, menuOpenRef]);
@@ -634,105 +635,106 @@ export function useDragReorder({
     // ── Event handlers ────────────────────────────────────────────────────
 
     function onMouseMove(e: MouseEvent) {
-      const now        = performance.now();
-      const isDragging = !!dragState.current?.active;
-      if (!isDragging && now - lastMoveTimeRef.current < MOUSEMOVE_THROTTLE) return;
-      lastMoveTimeRef.current = now;
+  const now        = performance.now();
+  const isDragging = !!dragState.current?.active;
+  if (!isDragging && now - lastMoveTimeRef.current < MOUSEMOVE_THROTTLE) return;
+  lastMoveTimeRef.current = now;
 
-      const grip = gripRef.current;
+  // ── Dragging ────────────────────────────────────────────────────────────
+  const ds = dragState.current;
+  if (ds) {
+    const dx = Math.abs(e.clientX - ds.startX);
+    const dy = Math.abs(e.clientY - ds.startY);
 
-      // ── Dragging ──────────────────────────────────────────────────────────
-      const ds = dragState.current;
-      if (ds) {
-        const dx = Math.abs(e.clientX - ds.startX);
-        const dy = Math.abs(e.clientY - ds.startY);
+    if (!ds.thresholdMet) {
+      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+        ds.thresholdMet       = true;
+        ds.active             = true;
+        isDraggingRef.current = true;
+        editorWrapRef.current?.classList.add("is-dragging-block");
+        if (insertRef.current) insertRef.current.style.display = "none";
+        dimDraggedBlock(ds.dragDom);
+        attachScrollListener();
 
-        if (!ds.thresholdMet) {
-          if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
-            ds.thresholdMet       = true;
-            ds.active             = true;
-            isDraggingRef.current = true;
-            editorWrapRef.current?.classList.add("is-dragging-block");
-            // Hide insert button during drag — only grip is relevant
-            if (insertRef.current) insertRef.current.style.display = "none";
-            dimDraggedBlock(ds.dragDom);
-            attachScrollListener();
-
-            if (ds.isListItem) {
-              ds.listBounds = getListBounds(ds.listParentPos);
-            }
-
-            initGhost(ds.dragDom);
-            moveGhost(ds.dragDom, e.clientY);
-          } else {
-            return;
-          }
+        if (ds.isListItem) {
+          ds.listBounds = getListBounds(ds.listParentPos);
         }
 
-        if (!ds.active) return;
-        tickScroll(e.clientY);
+        initGhost(ds.dragDom);
         moveGhost(ds.dragDom, e.clientY);
-
-        if (ds.isListItem && !ds.escapedList && ds.listBounds) {
-          const escaped = e.clientY < ds.listBounds.top || e.clientY > ds.listBounds.bottom;
-          if (escaped) {
-            ds.escapedList  = true;
-            ds.cachedBlocks = null;
-          }
-        }
-
-        const blocks         = getBlocks();
-        const insertAfterPos = findInsertionPos(e.clientY, blocks, ds.nodePos);
-        ds.insertAfterPos    = insertAfterPos;
-        showIndicator(blocks, insertAfterPos, ds.nodePos);
+      } else {
         return;
       }
+    }
 
-      // ── First mousemove after scroll — clear flag, skip frame ─────────────
-      if (isScrollingRef.current) { isScrollingRef.current = false; return; }
+    if (!ds.active) return;
+    tickScroll(e.clientY);
+    moveGhost(ds.dragDom, e.clientY);
 
-      // ── Freeze loop while menu is open ────────────────────────────────────
-      if (menuOpenRef.current) return;
-
-      // ── Keep both elements alive if cursor is on either ───────────────────
-      const insert = insertRef.current;
-      const overGrip   = grip   && (e.target === grip   || grip.contains(e.target as Node));
-      const overInsert = insert && (e.target === insert || insert.contains(e.target as Node));
-      if (overGrip || overInsert) return;
-
-      const editorEl = editorWrapRef.current;
-      if (!editorEl || !grip) return;
-
-      const editorRect  = editorEl.getBoundingClientRect();
-      // Use insert's left edge as the outer boundary if visible, else grip's
-      const outerLeft = insert && insert.style.display !== "none"
-        ? parseFloat(insert.style.left || "0")
-        : grip.style.display !== "none"
-          ? parseFloat(grip.style.left || "0")
-          : editorRect.left;
-
-      const inEditor = (
-        e.clientX >= Math.min(outerLeft, editorRect.left) &&
-        e.clientX <= editorRect.right &&
-        e.clientY >= editorRect.top   &&
-        e.clientY <= editorRect.bottom
-      );
-
-      if (!inEditor) { hideHandle(); return; }
-
-      if (e.clientX >= editorRect.left) {
-        const target = resolveBlockFromPoint(e.clientX, e.clientY);
-        if (!target) { hideHandle(); return; }
-
-        hoveredBlockRef.current = {
-          dom:           target.dragDom,
-          pos:           target.nodePos,
-          isListItem:    target.isListItem,
-          listParentPos: target.listParentPos,
-        };
-        scheduleShowHandle(target.dragDom);
+    if (ds.isListItem && !ds.escapedList && ds.listBounds) {
+      const escaped = e.clientY < ds.listBounds.top || e.clientY > ds.listBounds.bottom;
+      if (escaped) {
+        ds.escapedList  = true;
+        ds.cachedBlocks = null;
       }
     }
+
+    const blocks         = getBlocks();
+    const insertAfterPos = findInsertionPos(e.clientY, blocks, ds.nodePos);
+    ds.insertAfterPos    = insertAfterPos;
+    showIndicator(blocks, insertAfterPos, ds.nodePos);
+    return;
+  }
+
+  // ── First mousemove after scroll — clear flag, skip frame ───────────────
+    if (isScrollingRef.current) return;
+
+  // ── Freeze loop while menu is open ──────────────────────────────────────
+  if (menuOpenRef.current) return;
+
+  // ── Keep both elements alive if cursor is on either ─────────────────────
+  const grip   = gripRef.current;
+  const insert = insertRef.current;
+  const overGrip   = grip   && (e.target === grip   || grip.contains(e.target as Node));
+  const overInsert = insert && (e.target === insert || insert.contains(e.target as Node));
+  if (overGrip || overInsert) return;
+
+  const editorEl = editorWrapRef.current;
+  if (!editorEl || !grip) return;
+
+  const editorRect = editorEl.getBoundingClientRect();
+
+  // Gutter: extends from just beyond the + button leftward to the editor's
+  // right edge. Computed from getEditorLeft() so it's always correct
+  // regardless of whether the buttons are currently visible.
+  // gripLeft = getEditorLeft() - 28
+  // insertLeft = gripLeft - 20  (your current spacing)
+  // + 8px breathing room so the cursor doesn't need to be pixel-perfect
+  const gutterLeft = getEditorLeft() - 56;
+
+  const inZone = (
+    e.clientX >= gutterLeft        &&
+    e.clientX <= editorRect.right  &&
+    e.clientY >= editorRect.top    &&
+    e.clientY <= editorRect.bottom
+  );
+
+  if (!inZone) { hideHandle(); return; }
+
+  // Resolve which block the cursor is over. When in the gutter we still
+  // probe into the editor column so resolveBlockFromPoint always finds
+  // something — it uses fixed xProbes inside the editor, not clientX.
+  const target = resolveBlockFromPoint(e.clientX, e.clientY);
+  if (!target) { hideHandle(); return; }
+
+  hoveredBlockRef.current = {
+    dom:           target.dragDom,
+    pos:           target.nodePos,
+    isListItem:    target.isListItem,
+    listParentPos: target.listParentPos,
+  };
+  scheduleShowHandle(target.dragDom);
+}
 
     function onMouseDown(e: MouseEvent) {
       if (menuOpenRef.current) {
