@@ -1,11 +1,12 @@
 /* src/styles/drag-handle.css */
 /* Appearance only — zero position values. JS owns all position. */
 
-.drag-handle {
+/* ── Grip (⠿) ────────────────────────────────────────────────────────────── */
+.drag-handle-grip {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  width: 20px;
   height: 24px;
   border-radius: 4px;
   cursor: grab;
@@ -15,50 +16,70 @@
   user-select: none;
 }
 
-.drag-handle:hover {
+.drag-handle-grip:hover {
   color: #9ca3af;
   background: rgba(0, 0, 0, 0.06);
 }
 
-/* Active state while menu is open — keep handle highlighted */
-.drag-handle.is-menu-open {
-  color: #9ca3af;
-  background: rgba(0, 0, 0, 0.06);
-}
-
-.drag-handle:active {
+.drag-handle-grip:active {
   cursor: grabbing;
   color: #71717a;
   background: rgba(0, 0, 0, 0.1);
 }
 
-.dark .drag-handle {
-  color: #3f3f46;
-}
-
-.dark .drag-handle:hover {
-  color: #71717a;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.dark .drag-handle.is-menu-open {
-  color: #71717a;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.dark .drag-handle:active {
-  color: #a1a1aa;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.drag-handle svg {
+.drag-handle-grip svg {
   flex-shrink: 0;
   pointer-events: none;
 }
 
+/* ── Insert (+) ──────────────────────────────────────────────────────────── */
+.drag-handle-insert {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #c4c4c4;
+  background: transparent;
+  transition: color 100ms ease, background 100ms ease;
+  user-select: none;
+}
 
-/* Ghost preview — appearance only, JS owns top/left/width */
+.drag-handle-insert:hover {
+  color: #9ca3af;
+  background: rgba(0, 0, 0, 0.06);
+}
 
+.drag-handle-insert:active {
+  color: #71717a;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.drag-handle-insert svg {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+/* ── Dark mode ───────────────────────────────────────────────────────────── */
+.dark .drag-handle-grip,
+.dark .drag-handle-insert {
+  color: #3f3f46;
+}
+
+.dark .drag-handle-grip:hover,
+.dark .drag-handle-insert:hover {
+  color: #71717a;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dark .drag-handle-grip:active {
+  color: #a1a1aa;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Ghost preview ───────────────────────────────────────────────────────── */
 .drag-ghost {
   position: fixed;
   pointer-events: none;

@@ -15,7 +15,8 @@
 // Fixes in this version:
 //   B — hide handle during text selection
 //   R — throttle getBoundingClientRect in onMouseMove
-//   E — drag list item out of its list to become a top-level paragraph
+//   E — drag list item out of its list, preserving type + checked state
+//   C — + insert button, independent element (Option A)
 
 import { useEffect, useRef, useCallback } from "react";
 import type { Editor } from "@tiptap/react";
@@ -41,11 +42,11 @@ type BlockRect = { rect: DOMRect; pos: number; size: number; dom: HTMLElement };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const DRAG_THRESHOLD       = 6;
-const SHOW_HANDLE_DELAY    = 70;
-const SCROLL_ZONE          = 80;
-const SCROLL_MAX_SPEED     = 16;
-const MOUSEMOVE_THROTTLE   = 16; // R — ~1 frame at 60fps
+const DRAG_THRESHOLD     = 6;
+const SHOW_HANDLE_DELAY  = 70;
+const SCROLL_ZONE        = 80;
+const SCROLL_MAX_SPEED   = 16;
+const MOUSEMOVE_THROTTLE = 16; // ~1 frame at 60fps
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -57,14 +58,16 @@ export function useDragReorder({
   getEditorLeft,
 }: UseDragReorderOptions): UseDragReorderResult {
 
-  const indicatorRef     = useRef<HTMLDivElement | null>(null);
-  const handleRef        = useRef<HTMLDivElement | null>(null);
-  const ghostRef         = useRef<HTMLDivElement | null>(null);
-  const draggedDomRef    = useRef<HTMLElement | null>(null);
-  const isDraggingRef    = useRef<boolean>(false);
-  const scrollAnimRef    = useRef<number | null>(null);
+  const indicatorRef   = useRef<HTMLDivElement | null>(null);
+  const gripRef        = useRef<HTMLDivElement | null>(null);  // the ⠿ drag grip
+  const insertRef      = useRef<HTMLDivElement | null>(null);  // the + insert button
+  const ghostRef       = useRef<HTMLDivElement | null>(null);
+  const editorRef      = useRef<Editor | null>(null);
+  const draggedDomRef  = useRef<HTMLElement | null>(null);
+  const isDraggingRef  = useRef<boolean>(false);
+  const scrollAnimRef  = useRef<number | null>(null);
   const scrollClientYRef = useRef<number>(0);
-  const lastMoveTimeRef  = useRef<number>(0); // R — throttle timestamp
+  const lastMoveTimeRef  = useRef<number>(0);
   const hoveredBlockRef  = useRef<{
     dom: HTMLElement; pos: number; isListItem: boolean; listParentPos: number;
   } | null>(null);
@@ -79,30 +82,39 @@ export function useDragReorder({
     nodePos:        number;
     isListItem:     boolean;
     listParentPos:  number;
-    escapedList:    boolean; // E — true once cursor leaves list boundary
+    escapedList:    boolean;
     startX:         number;
     startY:         number;
     thresholdMet:   boolean;
     insertAfterPos: number | null;
     cachedBlocks:   BlockRect[] | null;
-    listBounds:     { top: number; bottom: number } | null; // E — list el bounds
+    listBounds:     { top: number; bottom: number } | null;
   } | null>(null);
 
   // ── Block action menu ─────────────────────────────────────────────────────
+  // Pass gripRef as handleRef so menu positioning anchors to the grip
   const { menuRef, menuOpenRef, openMenu, closeMenu } = useBlockMenu({
-    handleRef,
+    handleRef: gripRef,
     editorWrapRef,
   });
 
-  // ── showHandle ────────────────────────────────────────────────────────────
+  // ── showHandle — positions both elements independently ───────────────────
   const showHandle = useCallback((dom: HTMLElement) => {
-    const handle = handleRef.current;
-    if (!handle) return;
-    const rect = dom.getBoundingClientRect();
-    const left = getEditorLeft() - 28;
-    handle.style.display = "flex";
-    handle.style.left    = `${left}px`;
-    handle.style.top     = `${rect.top + 4}px`;
+    const grip   = gripRef.current;
+    const insert = insertRef.current;
+    if (!grip || !insert) return;
+
+    const rect      = dom.getBoundingClientRect();
+    const gripLeft  = getEditorLeft() - 28;  // grip flush with editor left margin
+    const insertLeft = gripLeft - 28;        // + sits 28px left of grip
+
+    grip.style.display  = "flex";
+    grip.style.left     = `${gripLeft}px`;
+    grip.style.top      = `${rect.top + 4}px`;
+
+    insert.style.display = "flex";
+    insert.style.left    = `${insertLeft}px`;
+    insert.style.top     = `${rect.top + 4}px`;
   }, [getEditorLeft]);
 
   // ── scheduleShowHandle ────────────────────────────────────────────────────
@@ -121,7 +133,7 @@ export function useDragReorder({
     }
   }, []);
 
-  // ── Create handle, indicator, ghost ──────────────────────────────────────
+  // ── Create grip, insert button, indicator, ghost ─────────────────────────
   useEffect(() => {
     // Drop indicator
     const indicator = document.createElement("div");
@@ -133,18 +145,18 @@ export function useDragReorder({
     document.body.appendChild(indicator);
     indicatorRef.current = indicator;
 
-    // Drag handle
-    const handle = document.createElement("div");
-    handle.className = "drag-handle";
-    handle.setAttribute("data-drag-handle", "");
-    handle.style.cssText = [
+    // ── Grip (⠿) ────────────────────────────────────────────────────────────
+    const grip = document.createElement("div");
+    grip.className = "drag-handle-grip";
+    grip.setAttribute("data-drag-handle", "");
+    grip.style.cssText = [
       "display:none", "position:fixed", "z-index:100",
       "width:20px", "height:24px",
       "align-items:center", "justify-content:center",
       "border-radius:4px", "cursor:grab",
       "color:#c4c4c4", "background:transparent", "user-select:none",
     ].join(";");
-    handle.innerHTML = `
+    grip.innerHTML = `
       <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
         <circle cx="2.5" cy="2.5"  r="1.5"/>
         <circle cx="7.5" cy="2.5"  r="1.5"/>
@@ -154,18 +166,67 @@ export function useDragReorder({
         <circle cx="7.5" cy="11.5" r="1.5"/>
       </svg>
     `;
-    handle.addEventListener("mouseenter", () => {
+    grip.addEventListener("mouseenter", () => {
       if (menuOpenRef.current) return;
-      handle.style.color      = "#9ca3af";
-      handle.style.background = "rgba(0,0,0,0.06)";
+      grip.style.color      = "#9ca3af";
+      grip.style.background = "rgba(0,0,0,0.06)";
     });
-    handle.addEventListener("mouseleave", () => {
+    grip.addEventListener("mouseleave", () => {
       if (menuOpenRef.current) return;
-      handle.style.color      = "#c4c4c4";
-      handle.style.background = "transparent";
+      grip.style.color      = "#c4c4c4";
+      grip.style.background = "transparent";
     });
-    document.body.appendChild(handle);
-    handleRef.current = handle;
+    document.body.appendChild(grip);
+    gripRef.current = grip;
+
+    // ── Insert (+) button ────────────────────────────────────────────────────
+    const insert = document.createElement("div");
+    insert.className = "drag-handle-insert";
+    insert.setAttribute("data-insert-btn", "");
+    insert.style.cssText = [
+      "display:none", "position:fixed", "z-index:100",
+      "width:20px", "height:24px",
+      "align-items:center", "justify-content:center",
+      "border-radius:4px", "cursor:pointer",
+      "color:#c4c4c4", "background:transparent", "user-select:none",
+    ].join(";");
+    insert.innerHTML = `
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5 1v8M1 5h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    `;
+    insert.addEventListener("mouseenter", () => {
+      insert.style.color      = "#9ca3af";
+      insert.style.background = "rgba(0,0,0,0.06)";
+    });
+    insert.addEventListener("mouseleave", () => {
+      insert.style.color      = "#c4c4c4";
+      insert.style.background = "transparent";
+    });
+    insert.addEventListener("click", (e: MouseEvent) => {
+      e.stopPropagation();
+
+      const hovered = hoveredBlockRef.current;
+      const ed      = editorRef.current;
+      if (!hovered || !ed) return;
+
+      const { state, view } = ed;
+      const hoveredNode = state.doc.nodeAt(hovered.pos);
+      if (!hoveredNode) return;
+
+      const insertPos = hovered.pos + hoveredNode.nodeSize;
+      const tr = state.tr.insert(insertPos, state.schema.nodes.paragraph.create());
+
+      try {
+        const $pos = tr.doc.resolve(insertPos + 1);
+        tr.setSelection(Selection.near($pos));
+      } catch { /**/ }
+
+      view.dispatch(tr);
+      view.focus();
+    });
+    document.body.appendChild(insert);
+    insertRef.current = insert;
 
     // Ghost preview
     const ghost = document.createElement("div");
@@ -174,13 +235,13 @@ export function useDragReorder({
     document.body.appendChild(ghost);
     ghostRef.current = ghost;
 
-    // ResizeObserver — snap handle when editor column shifts
+    // ResizeObserver — snap both elements when editor column shifts
     const colEl = editorTextColumnRef.current;
     let ro: ResizeObserver | null = null;
     if (colEl) {
       ro = new ResizeObserver(() => {
         const hovered = hoveredBlockRef.current;
-        if (hovered && handleRef.current?.style.display !== "none") {
+        if (hovered && gripRef.current?.style.display !== "none") {
           showHandle(hovered.dom);
         }
       });
@@ -190,53 +251,54 @@ export function useDragReorder({
     return () => {
       ro?.disconnect();
       indicator.remove();
-      handle.remove();
+      grip.remove();
+      insert.remove();
       ghost.remove();
       indicatorRef.current = null;
-      handleRef.current    = null;
+      gripRef.current      = null;
+      insertRef.current    = null;
       ghostRef.current     = null;
     };
   }, [editorTextColumnRef, showHandle, menuOpenRef]);
 
-  // ── Scroll — hide handle, restore only on mousemove ──────────────────────
-  // ── Scroll — hide handle, restore only on mousemove ──────────────────────
-useEffect(() => {
-  const el = scrollRef.current;
-  if (!el) return;
+  // ── Scroll — hide both elements, restore only on mousemove ───────────────
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
 
-  function onScroll() {
-    cancelShowHandleTimer();
-    if (menuOpenRef.current) closeMenu();
-    const handle = handleRef.current;
-    if (handle) handle.style.display = "none";
-    hoveredBlockRef.current   = null;
-    isScrollingRef.current    = true;
-    if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
-    scrollEndTimerRef.current = setTimeout(() => {
-      isScrollingRef.current    = false;
-      scrollEndTimerRef.current = null;
-    }, 300);
-  }
+    function onScroll() {
+      cancelShowHandleTimer();
+      if (menuOpenRef.current) closeMenu();
+      if (gripRef.current)   gripRef.current.style.display   = "none";
+      if (insertRef.current) insertRef.current.style.display = "none";
+      hoveredBlockRef.current   = null;
+      isScrollingRef.current    = true;
+      if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
+      scrollEndTimerRef.current = setTimeout(() => {
+        isScrollingRef.current    = false;
+        scrollEndTimerRef.current = null;
+      }, 300);
+    }
 
-  el.addEventListener("scroll", onScroll, { passive: true });
-  return () => {
-    el.removeEventListener("scroll", onScroll);
-    if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
-  };
-}, [scrollRef, cancelShowHandleTimer, closeMenu, menuOpenRef]);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
+    };
+  }, [scrollRef, cancelShowHandleTimer, closeMenu, menuOpenRef]);
 
   // ── Main mouse + keyboard loop ────────────────────────────────────────────
   useEffect(() => {
     if (!editor) return;
     const ed = editor;
+    editorRef.current = ed;
 
     // ── Handle visibility ─────────────────────────────────────────────────
 
     function hideHandle() {
       cancelShowHandleTimer();
-      const handle = handleRef.current;
-      if (!handle) return;
-      handle.style.display    = "none";
+      if (gripRef.current)   gripRef.current.style.display   = "none";
+      if (insertRef.current) insertRef.current.style.display = "none";
       hoveredBlockRef.current = null;
     }
 
@@ -260,7 +322,6 @@ useEffect(() => {
       clone.style.transform     = "none";
       clone.style.flex          = "unset";
 
-      // B — dark mode: force text color since clone lives outside editor scope
       const dark = document.documentElement.classList.contains("dark");
       if (dark) {
         clone.style.color = "#e4e4e7";
@@ -331,7 +392,6 @@ useEffect(() => {
       return results;
     }
 
-    // E — get the list parent DOM element's bounding rect
     function getListBounds(listParentPos: number): { top: number; bottom: number } | null {
       const listDom = ed.view.nodeDOM(listParentPos) as HTMLElement | null;
       if (!listDom) return null;
@@ -343,7 +403,6 @@ useEffect(() => {
       const ds = dragState.current;
       if (!ds) return [];
       if (ds.cachedBlocks) return ds.cachedBlocks;
-      // E — if escaped, use top-level blocks regardless of isListItem
       const blocks = (ds.isListItem && !ds.escapedList)
         ? getListItemRects(ds.listParentPos)
         : getTopLevelBlockRects();
@@ -567,7 +626,7 @@ useEffect(() => {
     // ── B — hide handle during text selection ─────────────────────────────
 
     function onSelectionChange() {
-      if (dragState.current) return; // don't interfere during drag
+      if (dragState.current) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) hideHandle();
     }
@@ -575,13 +634,12 @@ useEffect(() => {
     // ── Event handlers ────────────────────────────────────────────────────
 
     function onMouseMove(e: MouseEvent) {
-      // R — throttle: skip frames faster than MOUSEMOVE_THROTTLE ms
-      const now = performance.now();
+      const now        = performance.now();
       const isDragging = !!dragState.current?.active;
       if (!isDragging && now - lastMoveTimeRef.current < MOUSEMOVE_THROTTLE) return;
       lastMoveTimeRef.current = now;
 
-      const handle = handleRef.current;
+      const grip = gripRef.current;
 
       // ── Dragging ──────────────────────────────────────────────────────────
       const ds = dragState.current;
@@ -595,10 +653,11 @@ useEffect(() => {
             ds.active             = true;
             isDraggingRef.current = true;
             editorWrapRef.current?.classList.add("is-dragging-block");
+            // Hide insert button during drag — only grip is relevant
+            if (insertRef.current) insertRef.current.style.display = "none";
             dimDraggedBlock(ds.dragDom);
             attachScrollListener();
 
-            // E — cache list bounds at drag start so we can detect escape
             if (ds.isListItem) {
               ds.listBounds = getListBounds(ds.listParentPos);
             }
@@ -614,12 +673,11 @@ useEffect(() => {
         tickScroll(e.clientY);
         moveGhost(ds.dragDom, e.clientY);
 
-        // E — check if cursor has escaped the list boundary
         if (ds.isListItem && !ds.escapedList && ds.listBounds) {
           const escaped = e.clientY < ds.listBounds.top || e.clientY > ds.listBounds.bottom;
           if (escaped) {
             ds.escapedList  = true;
-            ds.cachedBlocks = null; // force re-measure with top-level blocks
+            ds.cachedBlocks = null;
           }
         }
 
@@ -636,19 +694,25 @@ useEffect(() => {
       // ── Freeze loop while menu is open ────────────────────────────────────
       if (menuOpenRef.current) return;
 
-      // ── Keep handle alive if cursor is on it ──────────────────────────────
-      if (handle && (e.target === handle || handle.contains(e.target as Node))) return;
+      // ── Keep both elements alive if cursor is on either ───────────────────
+      const insert = insertRef.current;
+      const overGrip   = grip   && (e.target === grip   || grip.contains(e.target as Node));
+      const overInsert = insert && (e.target === insert || insert.contains(e.target as Node));
+      if (overGrip || overInsert) return;
 
       const editorEl = editorWrapRef.current;
-      if (!editorEl || !handle) return;
+      if (!editorEl || !grip) return;
 
-      const editorRect = editorEl.getBoundingClientRect();
-      const handleLeft = handle.style.display !== "none"
-        ? parseFloat(handle.style.left || "0")
-        : editorRect.left;
+      const editorRect  = editorEl.getBoundingClientRect();
+      // Use insert's left edge as the outer boundary if visible, else grip's
+      const outerLeft = insert && insert.style.display !== "none"
+        ? parseFloat(insert.style.left || "0")
+        : grip.style.display !== "none"
+          ? parseFloat(grip.style.left || "0")
+          : editorRect.left;
 
       const inEditor = (
-        e.clientX >= Math.min(handleLeft, editorRect.left) &&
+        e.clientX >= Math.min(outerLeft, editorRect.left) &&
         e.clientX <= editorRect.right &&
         e.clientY >= editorRect.top   &&
         e.clientY <= editorRect.bottom
@@ -673,16 +737,19 @@ useEffect(() => {
     function onMouseDown(e: MouseEvent) {
       if (menuOpenRef.current) {
         const menu   = menuRef.current;
-        const handle = handleRef.current;
+        const grip   = gripRef.current;
         const target = e.target as Node;
-        const clickedMenu   = menu   && (menu.contains(target)   || menu   === target);
-        const clickedHandle = handle && (handle.contains(target) || handle === target);
+        const clickedMenu   = menu && (menu.contains(target) || menu === target);
+        const clickedHandle = grip && (grip.contains(target) || grip === target);
         if (!clickedMenu && !clickedHandle) { closeMenu(); return; }
         if (clickedMenu) return;
       }
 
-      const handleEl = (e.target as HTMLElement).closest(".drag-handle") as HTMLElement | null;
-      if (!handleEl) return;
+      // C — insert button has its own click listener, don't start a drag for it
+      if ((e.target as HTMLElement).closest("[data-insert-btn]")) return;
+
+      const gripEl = (e.target as HTMLElement).closest("[data-drag-handle]") as HTMLElement | null;
+      if (!gripEl) return;
 
       if (e.button === 0 || e.button === 2) {
         e.preventDefault();
@@ -713,235 +780,219 @@ useEffect(() => {
     }
 
     function onContextMenu(e: MouseEvent) {
-      if ((e.target as HTMLElement).closest(".drag-handle")) e.preventDefault();
+      if ((e.target as HTMLElement).closest("[data-drag-handle]")) e.preventDefault();
     }
 
     function onMouseUp(e: MouseEvent) {
-  const ds = dragState.current;
+      const ds = dragState.current;
 
-  hideIndicator();
-  hideGhost();
-  undimDraggedBlock();
-  detachScrollListener();
-  stopScrollAnim();
-  editorWrapRef.current?.classList.remove("is-dragging-block");
-  isDraggingRef.current = false;
-  dragState.current     = null;
+      hideIndicator();
+      hideGhost();
+      undimDraggedBlock();
+      detachScrollListener();
+      stopScrollAnim();
+      editorWrapRef.current?.classList.remove("is-dragging-block");
+      isDraggingRef.current = false;
+      dragState.current     = null;
 
-  if (!ds) return;
+      if (!ds) return;
 
-  // ── Click without drag → open menu ──────────────────────────────────────
-  if (!ds.thresholdMet) {
-    const hovered = hoveredBlockRef.current;
-    if (hovered) openMenu(hovered.dom, hovered.pos, ed);
-    return;
-  }
+      // ── Click without drag → open menu ──────────────────────────────────
+      if (!ds.thresholdMet) {
+        const hovered = hoveredBlockRef.current;
+        if (hovered) openMenu(hovered.dom, hovered.pos, ed);
+        return;
+      }
 
-  if (!ds.active) return;
+      if (!ds.active) return;
 
-  const { view }  = ed;
-  const { state } = view;
-  const { doc }   = state;
+      const { view }  = ed;
+      const { state } = view;
+      const { doc }   = state;
 
-  function refocusIfInEditor() {
-    const editorEl = editorWrapRef.current;
-    if (!editorEl) return;
-    const rect = editorEl.getBoundingClientRect();
-    if (
-      e.clientX >= rect.left && e.clientX <= rect.right &&
-      e.clientY >= rect.top  && e.clientY <= rect.bottom
-    ) view.focus();
-  }
+      function refocusIfInEditor() {
+        const editorEl = editorWrapRef.current;
+        if (!editorEl) return;
+        const rect = editorEl.getBoundingClientRect();
+        if (
+          e.clientX >= rect.left && e.clientX <= rect.right &&
+          e.clientY >= rect.top  && e.clientY <= rect.bottom
+        ) view.focus();
+      }
 
-  // ── E — list item escaped: insert wrapped in its original list type ────────
-if (ds.isListItem && ds.escapedList) {
-  const listNode = doc.nodeAt(ds.listParentPos);
-  if (!listNode) return;
+      // ── E — list item escaped: insert wrapped in its original list type ──
+      if (ds.isListItem && ds.escapedList) {
+        const listNode = doc.nodeAt(ds.listParentPos);
+        if (!listNode) return;
 
-  // Find the dragged list item node
-  let draggedItem: PmNode | null = null;
-  listNode.forEach((child: PmNode, childOffset: number) => {
-    if (ds.listParentPos + 1 + childOffset === ds.nodePos) draggedItem = child;
-  });
-  if (!draggedItem) return;
+        let draggedItem: PmNode | null = null;
+        listNode.forEach((child: PmNode, childOffset: number) => {
+          if (ds.listParentPos + 1 + childOffset === ds.nodePos) draggedItem = child;
+        });
+        if (!draggedItem) return;
 
-  const itemNode   = draggedItem as PmNode;
-  const { schema } = state;
+        const itemNode   = draggedItem as PmNode;
+        const { schema } = state;
 
-  // ── Determine the correct wrapper and item node types ───────────────────
-  // Walk up from the list node type name to find the matching item type.
-  // taskList → taskItem, bulletList → listItem, orderedList → listItem
-  const listTypeName = listNode.type.name; // "bulletList" | "orderedList" | "taskList"
-  const itemTypeName = itemNode.type.name; // "listItem"   | "taskItem"
+        const listTypeName = listNode.type.name;
+        const itemTypeName = itemNode.type.name;
 
-  // Preserve attrs (checked state, etc.) and full content (nested paragraphs,
-  // nested lists, etc.) — don't flatten to a single paragraph.
-  const newItem = schema.nodes[itemTypeName].create(
-    itemNode.attrs,   // preserves checked: true/false on taskItem
-    itemNode.content, // preserves everything inside the item
-  );
-  const wrappedList = schema.nodes[listTypeName].create(null, newItem);
+        const newItem = schema.nodes[itemTypeName].create(
+          itemNode.attrs,
+          itemNode.content,
+        );
+        const wrappedList = schema.nodes[listTypeName].create(null, newItem);
 
-  // Collect siblings — list items that are NOT the dragged one
-  const siblings: PmNode[] = [];
-  listNode.forEach((child: PmNode, childOffset: number) => {
-    if (ds.listParentPos + 1 + childOffset !== ds.nodePos) siblings.push(child);
-  });
+        const siblings: PmNode[] = [];
+        listNode.forEach((child: PmNode, childOffset: number) => {
+          if (ds.listParentPos + 1 + childOffset !== ds.nodePos) siblings.push(child);
+        });
 
-  // Resolve where in the top-level node array to insert
-  const topLevelNodes: { pos: number; node: PmNode }[] = [];
-  doc.forEach((node: PmNode, pos: number) => topLevelNodes.push({ pos, node }));
+        const topLevelNodes: { pos: number; node: PmNode }[] = [];
+        doc.forEach((node: PmNode, pos: number) => topLevelNodes.push({ pos, node }));
 
-  let insertAt: number;
-  if (ds.insertAfterPos === null) {
-    insertAt = 0;
-  } else {
-    const ref = topLevelNodes.find((n) => n.pos === ds.insertAfterPos);
-    insertAt  = ref ? ref.pos + ref.node.nodeSize : doc.content.size;
-  }
+        let insertAt: number;
+        if (ds.insertAfterPos === null) {
+          insertAt = 0;
+        } else {
+          const ref = topLevelNodes.find((n) => n.pos === ds.insertAfterPos);
+          insertAt  = ref ? ref.pos + ref.node.nodeSize : doc.content.size;
+        }
 
-  const tr = state.tr;
+        const tr = state.tr;
 
-  if (siblings.length === 0) {
-    // List becomes empty — replace the entire list with the wrapped single item
-    tr.replaceWith(ds.listParentPos, ds.listParentPos + listNode.nodeSize, wrappedList);
+        if (siblings.length === 0) {
+          tr.replaceWith(ds.listParentPos, ds.listParentPos + listNode.nodeSize, wrappedList);
 
-    // Adjust insertAt for the size difference between old list and new wrapped list
-    if (insertAt > ds.listParentPos) {
-      const shift = listNode.nodeSize - wrappedList.nodeSize;
-      insertAt   -= shift;
+          if (insertAt > ds.listParentPos) {
+            const shift = listNode.nodeSize - wrappedList.nodeSize;
+            insertAt   -= shift;
+          }
+
+          const currentPos = ds.listParentPos;
+          if (insertAt !== currentPos) {
+            tr.delete(currentPos, currentPos + wrappedList.nodeSize);
+            const finalPos = insertAt > currentPos
+              ? insertAt - wrappedList.nodeSize
+              : insertAt;
+            tr.insert(Math.max(0, finalPos), wrappedList);
+          }
+        } else {
+          const listContentStart = ds.listParentPos + 1;
+          const listContentEnd   = ds.listParentPos + listNode.nodeSize - 1;
+          tr.replaceWith(listContentStart, listContentEnd, siblings);
+
+          if (insertAt > ds.nodePos) {
+            insertAt -= itemNode.nodeSize;
+          }
+
+          tr.insert(Math.max(0, insertAt), wrappedList);
+        }
+
+        try {
+          const resolvedInsert = siblings.length === 0
+            ? Math.min(ds.listParentPos + 1, tr.doc.content.size - 1)
+            : Math.min(insertAt + 1, tr.doc.content.size - 1);
+          const $pos = tr.doc.resolve(Math.max(0, resolvedInsert));
+          tr.setSelection(Selection.near($pos));
+        } catch { /**/ }
+
+        view.dispatch(tr);
+        refocusIfInEditor();
+        return;
+      }
+
+      // ── List item reorder (within list) ─────────────────────────────────
+      if (ds.isListItem && !ds.escapedList) {
+        const listNode = doc.nodeAt(ds.listParentPos);
+        if (!listNode) return;
+
+        const items: { pos: number; node: PmNode }[] = [];
+        listNode.forEach((child: PmNode, childOffset: number) => {
+          items.push({ pos: ds.listParentPos + 1 + childOffset, node: child });
+        });
+        if (items.length < 2) return;
+
+        const dragIndex = items.findIndex((item) => item.pos === ds.nodePos);
+        if (dragIndex === -1) return;
+
+        const reordered = [...items];
+        const [dragged] = reordered.splice(dragIndex, 1);
+
+        if (ds.insertAfterPos === null) {
+          reordered.splice(0, 0, dragged);
+        } else {
+          const refIdx = reordered.findIndex((n) => n.pos === ds.insertAfterPos);
+          if (refIdx === -1) reordered.push(dragged);
+          else reordered.splice(refIdx + 1, 0, dragged);
+        }
+
+        const unchanged = reordered.every((n, i) => n.pos === items[i].pos);
+        if (unchanged) return;
+
+        const originalSize  = items.reduce((acc, n) => acc + n.node.nodeSize, 0);
+        const reorderedSize = reordered.reduce((acc, n) => acc + n.node.nodeSize, 0);
+        if (originalSize !== reorderedSize) return;
+
+        const listStart = ds.listParentPos + 1;
+        const listEnd   = ds.listParentPos + listNode.nodeSize - 1;
+        const tr        = state.tr;
+        tr.replaceWith(listStart, listEnd, reordered.map((n) => n.node));
+
+        try {
+          const finalIdx = reordered.findIndex((n) => n.node === dragged.node);
+          const newPos   = ds.listParentPos + 1 +
+            reordered.slice(0, finalIdx).reduce((acc, n) => acc + n.node.nodeSize, 0);
+          const $pos = tr.doc.resolve(Math.min(newPos + 1, tr.doc.content.size - 1));
+          tr.setSelection(Selection.near($pos));
+        } catch { /**/ }
+
+        view.dispatch(tr);
+        refocusIfInEditor();
+        return;
+      }
+
+      // ── Top-level block reorder ──────────────────────────────────────────
+      const topLevelNodes: { pos: number; node: PmNode }[] = [];
+      doc.forEach((node: PmNode, pos: number) => topLevelNodes.push({ pos, node }));
+      if (topLevelNodes.length < 2) return;
+
+      const dragIndex = topLevelNodes.findIndex((n) => n.pos === ds.nodePos);
+      if (dragIndex === -1) return;
+
+      const reordered = [...topLevelNodes];
+      const [dragged] = reordered.splice(dragIndex, 1);
+
+      if (ds.insertAfterPos === null) {
+        reordered.splice(0, 0, dragged);
+      } else {
+        const refIdx = reordered.findIndex((n) => n.pos === ds.insertAfterPos);
+        if (refIdx === -1) reordered.push(dragged);
+        else reordered.splice(refIdx + 1, 0, dragged);
+      }
+
+      const unchanged = reordered.every((n, i) => n.pos === topLevelNodes[i].pos);
+      if (unchanged) return;
+
+      const originalSize  = topLevelNodes.reduce((acc, n) => acc + n.node.nodeSize, 0);
+      const reorderedSize = reordered.reduce((acc, n) => acc + n.node.nodeSize, 0);
+      if (originalSize !== reorderedSize) return;
+
+      const finalInsertAt = reordered.findIndex((n) => n.node === dragged.node);
+      const tr            = state.tr;
+      tr.replaceWith(0, doc.content.size, reordered.map((n) => n.node));
+
+      try {
+        const newPos = reordered
+          .slice(0, finalInsertAt)
+          .reduce((acc, n) => acc + n.node.nodeSize, 0);
+        const $pos = tr.doc.resolve(Math.min(newPos + 1, tr.doc.content.size - 1));
+        tr.setSelection(Selection.near($pos));
+      } catch { /**/ }
+
+      view.dispatch(tr);
+      refocusIfInEditor();
     }
-
-    // If the wrapped list didn't land where we want it, move it
-    const currentPos = ds.listParentPos;
-    if (insertAt !== currentPos) {
-      tr.delete(currentPos, currentPos + wrappedList.nodeSize);
-      const finalPos = insertAt > currentPos
-        ? insertAt - wrappedList.nodeSize
-        : insertAt;
-      tr.insert(Math.max(0, finalPos), wrappedList);
-    }
-  } else {
-    // List keeps remaining siblings
-    // Step 1: remove the dragged item from the list
-    const listContentStart = ds.listParentPos + 1;
-    const listContentEnd   = ds.listParentPos + listNode.nodeSize - 1;
-    tr.replaceWith(listContentStart, listContentEnd, siblings);
-
-    // Step 2: adjust insertAt — list shrank by the dragged item's nodeSize
-    if (insertAt > ds.nodePos) {
-      insertAt -= itemNode.nodeSize;
-    }
-
-    // Step 3: insert the wrapped list at the resolved position
-    tr.insert(Math.max(0, insertAt), wrappedList);
-  }
-
-  // Place cursor inside the first text position of the dropped item
-  try {
-    const resolvedInsert = siblings.length === 0
-      ? Math.min(ds.listParentPos + 1, tr.doc.content.size - 1)
-      : Math.min(insertAt + 1, tr.doc.content.size - 1);
-    const $pos = tr.doc.resolve(Math.max(0, resolvedInsert));
-    tr.setSelection(Selection.near($pos));
-  } catch { /**/ }
-
-  view.dispatch(tr);
-  refocusIfInEditor();
-  return;
-}
-
-  // ── List item reorder (within list) ─────────────────────────────────────
-  if (ds.isListItem && !ds.escapedList) {
-    const listNode = doc.nodeAt(ds.listParentPos);
-    if (!listNode) return;
-
-    const items: { pos: number; node: PmNode }[] = [];
-    listNode.forEach((child: PmNode, childOffset: number) => {
-      items.push({ pos: ds.listParentPos + 1 + childOffset, node: child });
-    });
-    if (items.length < 2) return;
-
-    const dragIndex = items.findIndex((item) => item.pos === ds.nodePos);
-    if (dragIndex === -1) return;
-
-    const reordered = [...items];
-    const [dragged] = reordered.splice(dragIndex, 1);
-
-    if (ds.insertAfterPos === null) {
-      reordered.splice(0, 0, dragged);
-    } else {
-      const refIdx = reordered.findIndex((n) => n.pos === ds.insertAfterPos);
-      if (refIdx === -1) reordered.push(dragged);
-      else reordered.splice(refIdx + 1, 0, dragged);
-    }
-
-    const unchanged = reordered.every((n, i) => n.pos === items[i].pos);
-    if (unchanged) return;
-
-    const originalSize  = items.reduce((acc, n) => acc + n.node.nodeSize, 0);
-    const reorderedSize = reordered.reduce((acc, n) => acc + n.node.nodeSize, 0);
-    if (originalSize !== reorderedSize) return;
-
-    const listStart = ds.listParentPos + 1;
-    const listEnd   = ds.listParentPos + listNode.nodeSize - 1;
-    const tr        = state.tr;
-    tr.replaceWith(listStart, listEnd, reordered.map((n) => n.node));
-
-    try {
-      const finalIdx = reordered.findIndex((n) => n.node === dragged.node);
-      const newPos   = ds.listParentPos + 1 +
-        reordered.slice(0, finalIdx).reduce((acc, n) => acc + n.node.nodeSize, 0);
-      const $pos = tr.doc.resolve(Math.min(newPos + 1, tr.doc.content.size - 1));
-      tr.setSelection(Selection.near($pos));
-    } catch { /**/ }
-
-    view.dispatch(tr);
-    refocusIfInEditor();
-    return;
-  }
-
-  // ── Top-level block reorder ──────────────────────────────────────────────
-  const topLevelNodes: { pos: number; node: PmNode }[] = [];
-  doc.forEach((node: PmNode, pos: number) => topLevelNodes.push({ pos, node }));
-  if (topLevelNodes.length < 2) return;
-
-  const dragIndex = topLevelNodes.findIndex((n) => n.pos === ds.nodePos);
-  if (dragIndex === -1) return;
-
-  const reordered = [...topLevelNodes];
-  const [dragged] = reordered.splice(dragIndex, 1);
-
-  if (ds.insertAfterPos === null) {
-    reordered.splice(0, 0, dragged);
-  } else {
-    const refIdx = reordered.findIndex((n) => n.pos === ds.insertAfterPos);
-    if (refIdx === -1) reordered.push(dragged);
-    else reordered.splice(refIdx + 1, 0, dragged);
-  }
-
-  const unchanged = reordered.every((n, i) => n.pos === topLevelNodes[i].pos);
-  if (unchanged) return;
-
-  const originalSize  = topLevelNodes.reduce((acc, n) => acc + n.node.nodeSize, 0);
-  const reorderedSize = reordered.reduce((acc, n) => acc + n.node.nodeSize, 0);
-  if (originalSize !== reorderedSize) return;
-
-  const finalInsertAt = reordered.findIndex((n) => n.node === dragged.node);
-  const tr            = state.tr;
-  tr.replaceWith(0, doc.content.size, reordered.map((n) => n.node));
-
-  try {
-    const newPos = reordered
-      .slice(0, finalInsertAt)
-      .reduce((acc, n) => acc + n.node.nodeSize, 0);
-    const $pos = tr.doc.resolve(Math.min(newPos + 1, tr.doc.content.size - 1));
-    tr.setSelection(Selection.near($pos));
-  } catch { /**/ }
-
-  view.dispatch(tr);
-  refocusIfInEditor();
-}
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -950,20 +1001,20 @@ if (ds.isListItem && ds.escapedList) {
       }
     }
 
-    document.addEventListener("mousemove",      onMouseMove);
-    document.addEventListener("mousedown",      onMouseDown, true);
-    document.addEventListener("mouseup",        onMouseUp);
-    document.addEventListener("keydown",        onKeyDown);
-    document.addEventListener("contextmenu",    onContextMenu, true);
-    document.addEventListener("selectionchange", onSelectionChange); // B
+    document.addEventListener("mousemove",       onMouseMove);
+    document.addEventListener("mousedown",       onMouseDown, true);
+    document.addEventListener("mouseup",         onMouseUp);
+    document.addEventListener("keydown",         onKeyDown);
+    document.addEventListener("contextmenu",     onContextMenu, true);
+    document.addEventListener("selectionchange", onSelectionChange);
 
     return () => {
-      document.removeEventListener("mousemove",      onMouseMove);
-      document.removeEventListener("mousedown",      onMouseDown, true);
-      document.removeEventListener("mouseup",        onMouseUp);
-      document.removeEventListener("keydown",        onKeyDown);
-      document.removeEventListener("contextmenu",    onContextMenu, true);
-      document.removeEventListener("selectionchange", onSelectionChange); // B
+      document.removeEventListener("mousemove",       onMouseMove);
+      document.removeEventListener("mousedown",       onMouseDown, true);
+      document.removeEventListener("mouseup",         onMouseUp);
+      document.removeEventListener("keydown",         onKeyDown);
+      document.removeEventListener("contextmenu",     onContextMenu, true);
+      document.removeEventListener("selectionchange", onSelectionChange);
       cancelDrag();
       hideHandle();
       closeMenu();
