@@ -26,13 +26,20 @@ const SCROLL_MAX_SPEED = 16;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// useAutoScroll.ts
 interface UseAutoScrollOptions {
   scrollRef:     React.RefObject<HTMLDivElement | null>;
-  dragStateRef:  React.RefObject<{ active: boolean; cachedBlocks: BlockRect[] | null; nodePos: number; insertAfterPos: number | null } | null>;
-  getBlocks:     () => BlockRect[];
+  dragStateRef:  React.RefObject<{
+    active:         boolean;
+    cachedBlocks:   BlockRect[] | null;
+    nodePos:        number;
+    insertAfterPos: number | null;
+    dragDom:        HTMLElement;          // ← add this
+  } | null>;
+  getBlocks:        () => BlockRect[];
   findInsertionPos: (clientY: number, blocks: BlockRect[], dragPos: number) => number | null;
-  showIndicator: (blocks: BlockRect[], insertAfterPos: number | null, dragPos: number) => void;
-  moveGhost:     (dom: HTMLElement, clientY: number) => void;
+  showIndicator:    (blocks: BlockRect[], insertAfterPos: number | null, dragPos: number) => void;
+  moveGhost:        (dom: HTMLElement, clientY: number) => void;
 }
 
 interface UseAutoScrollResult {
