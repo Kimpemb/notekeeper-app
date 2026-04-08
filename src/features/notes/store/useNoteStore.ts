@@ -271,13 +271,13 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   },
 
   updateNote: async (id, input) => {
-    await dbUpdateNote(id, input);
-    const updated = await getNoteById(id);
-    if (!updated) return;
-    set((state) => ({
-      notes: state.notes.map((n) => (n.id === id ? updated : n)),
-    }));
-  },
+  await dbUpdateNote(id, input);
+  set((state) => ({
+    notes: state.notes.map((n) =>
+      n.id === id ? { ...n, ...input, updated_at: Date.now() } : n
+    ),
+  }));
+},
 
   reorderNote: async (draggedId, targetId, section) => {
     const { notes, pinnedIds } = get();

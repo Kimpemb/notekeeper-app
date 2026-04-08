@@ -189,11 +189,13 @@ export function SubPagesSection({ noteId, paneId }: Props) {
                 )}
 
                 {/* Move modal for this sub-note */}
-                <MoveNoteModal
-                  open={isMoving}
-                  noteId={child.id}
-                  onClose={() => setMoveId(null)}
-                />
+                {isMoving && (
+  <MoveNoteModal
+    open={isMoving}
+    noteId={child.id}
+    onClose={() => setMoveId(null)}
+  />
+)}
               </div>
             );
           })}

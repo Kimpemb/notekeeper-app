@@ -445,7 +445,6 @@ export function useHandleElements({
     editorTextColumnRef,
     hoveredBlockRef,
     menuOpenRef,
-    showHandle,
   ]);
 
   return {

@@ -313,7 +313,9 @@ export function NoteTreeItem({
         </div>
       )}
 
-      <MoveNoteModal open={moveOpen} noteId={noteId} onClose={() => setMoveOpen(false)} />
+      {moveOpen && (
+  <MoveNoteModal open={moveOpen} noteId={noteId} onClose={() => setMoveOpen(false)} />
+)}
 
       {hasChildren && isExpanded && (
         <ul className="space-y-0.5 mt-0.5">

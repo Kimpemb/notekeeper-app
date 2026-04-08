@@ -60,7 +60,6 @@ function BlockTypeIcon({ blockType, verified }: { blockType: string; verified: b
       </svg>
     );
   }
-  // Default: paragraph
   return (
     <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className={cls}>
       <path d="M1.5 3h8M1.5 5.5h8M1.5 8h5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
@@ -77,14 +76,14 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
 
   const isFtsKey = blockId?.includes("-fts");
 
-  const [text, setText]         = useState<string>(snapshot || "");
-  const [sourceTitle, setTitle] = useState<string>("");
+  const [text, setText]           = useState<string>(snapshot || "");
+  const [sourceTitle, setTitle]   = useState<string>("");
   const [blockType, setBlockType] = useState<string>("paragraph");
-  const [missing, setMissing]   = useState(false);
-  const [verified, setVerified] = useState(!isFtsKey);
-  const [hovered, setHovered]   = useState(false);
-  const [loading, setLoading]   = useState(true);
-  const wrapRef                 = useRef<HTMLDivElement>(null);
+  const [missing, setMissing]     = useState(false);
+  const [verified, setVerified]   = useState(!isFtsKey);
+  const [hovered, setHovered]     = useState(false);
+  const [loading, setLoading]     = useState(true);
+  const wrapRef                   = useRef<HTMLDivElement>(null);
 
   const openTab        = useUIStore((s) => s.openTab);
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
@@ -132,14 +131,23 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
 
   useEffect(() => { fetchContent(); }, [fetchContent]);
 
+  // ── Listen for bulk blocks-updated event ─────────────────────────────────
+  // syncNoteBlocks now emits one "blocks-updated" event with all changed
+  // blocks instead of one "block-updated" per block — avoids N IPC calls.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
-    listen<{ blockId: string; plaintext: string }>("block-updated", (event) => {
-      if (event.payload.blockId === blockId) {
-        setText(event.payload.plaintext);
+
+    listen<{
+      noteId: string;
+      blocks: { blockId: string; plaintext: string }[];
+    }>("blocks-updated", (event) => {
+      const match = event.payload.blocks.find((b) => b.blockId === blockId);
+      if (match) {
+        setText(match.plaintext);
         setVerified(true);
       }
     }).then((fn) => { unlisten = fn; }).catch(() => {});
+
     return () => { unlisten?.(); };
   }, [blockId]);
 
@@ -209,7 +217,6 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
                 ].join(" ")}>
                   {text || snapshot || "(empty block)"}
                 </p>
-                {/* Source title — always visible, dimmed */}
                 {!missing && sourceTitle && (
                   <p className="mt-1 flex items-center gap-1">
                     <span className={[
@@ -237,7 +244,7 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
           </div>
         </div>
 
-        {/* Hover arrow — navigate affordance */}
+        {/* Hover arrow */}
         <div className={[
           "absolute right-3 top-1/2 -translate-y-1/2 transition-opacity duration-100",
           hovered && !missing ? "opacity-100" : "opacity-0",
@@ -247,7 +254,7 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
           </svg>
         </div>
 
-        {/* Delete button — in-card, slides in on hover */}
+        {/* Delete button */}
         <button
           onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); deleteNode(); }}
           title="Remove block reference"

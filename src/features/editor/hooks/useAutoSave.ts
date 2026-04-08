@@ -7,6 +7,10 @@
 //
 // isActiveTab is kept to prevent the display:none-hidden editor from
 // scheduling saves while it's not visible, but it's a secondary concern.
+//
+// The embedding pipeline is fully decoupled from the save path via
+// setTimeout(fn, 0) — content save completes and unblocks the editor
+// before any indexing work begins.
 
 import { useEffect, useRef, useCallback } from "react";
 import { Editor } from "@tiptap/react";
@@ -21,9 +25,9 @@ import { useAIStore }                            from "@/features/ai/store/useAI
 const HARD_CAP_MS = 30_000;
 
 interface UseAutoSaveOptions {
-  editor: Editor | null;
-  noteId: string | null;
-  isActiveTab: boolean;
+  editor:          Editor | null;
+  noteId:          string | null;
+  isActiveTab:     boolean;
   onSaveComplete?: (content: string, noteId: string) => void;
 }
 
@@ -51,6 +55,36 @@ export function useAutoSave({
     if (hardCapTimer.current)  { clearTimeout(hardCapTimer.current);  hardCapTimer.current  = null; }
   }, []);
 
+  // ── runEmbeddingPipeline ──────────────────────────────────────────────────
+  // Fully detached from the save path. Called via setTimeout so it never
+  // blocks the editor. Errors here must never surface to the user.
+
+ const runEmbeddingPipeline = useCallback((savedNoteId: string, content: string) => {
+  if (!useAIStore.getState().enabled) return;
+  // Delay long enough that the editor has fully settled and re-painted
+  // before any DB or network work begins. 2 s is imperceptible for indexing
+  // but keeps the post-save frame completely clean.
+  setTimeout(async () => {
+    try {
+      await syncNoteBlocks(savedNoteId, content);
+      const { getDb } = await import("@/features/notes/db/client");
+      const db        = await getDb();
+      const blocks    = await db.select<{ block_id: string }[]>(
+        `SELECT block_id FROM note_blocks WHERE note_id = $1`,
+        [savedNoteId]
+      );
+      await enqueueEmbeddingJobs(
+        blocks.map((b) => ({ blockId: b.block_id, noteId: savedNoteId }))
+      );
+      nudgeIndexer();
+    } catch (err) {
+      console.warn("[AutoSave] embedding enqueue failed:", err);
+    }
+  }, 2000); // was 0 — give the editor two full seconds to breathe
+}, []);
+
+  // ── save ──────────────────────────────────────────────────────────────────
+
   const save = useCallback(async () => {
     if (!editor || !noteId || !isDirty.current) return;
     if (!isActiveTabRef.current) return;
@@ -68,37 +102,16 @@ export function useAutoSave({
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
 
-      // ── Sync blocks and enqueue for embedding ──────────────────────────
-      // syncNoteBlocks diffs the block registry and upserts changed blocks.
-      // We then enqueue those block IDs so the indexer embeds only what changed.
-      const aiEnabled = useAIStore.getState().enabled
-      if (aiEnabled) {
-        try {
-          await syncNoteBlocks(noteId, content)
-
-          // Fetch the block IDs we just synced for this note
-          const { getDb } = await import("@/features/notes/db/client")
-          const db        = await getDb()
-          const blocks    = await db.select<{ block_id: string }[]>(
-            `SELECT block_id FROM note_blocks WHERE note_id = $1`,
-            [noteId]
-          )
-
-          await enqueueEmbeddingJobs(
-            blocks.map((b) => ({ blockId: b.block_id, noteId }))
-          )
-          nudgeIndexer()   // don't wait 30s — try to embed right now
-        } catch (err) {
-          // Embedding pipeline errors must never break the save flow
-          console.warn("[AutoSave] embedding enqueue failed:", err)
-        }
-      }
+      // Embedding is fire-and-forget — never awaited, never blocks the editor
+      runEmbeddingPipeline(noteId, content);
 
     } catch (err) {
       console.error("[AutoSave] failed:", err);
       setSaveStatus("error");
     }
-  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers]);
+  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline]);
+
+  // ── scheduleSave ──────────────────────────────────────────────────────────
 
   const scheduleSave = useCallback(() => {
     isDirty.current = true;
@@ -108,16 +121,20 @@ export function useAutoSave({
     if (!hardCapTimer.current) hardCapTimer.current = setTimeout(save, HARD_CAP_MS);
   }, [save]);
 
+  // ── Wire editor update event ──────────────────────────────────────────────
+
   useEffect(() => {
     if (!editor) return;
     editor.on("update", scheduleSave);
     return () => { editor.off("update", scheduleSave); };
   }, [editor, scheduleSave]);
 
-  // Flush on unmount — this is the critical path for navigation saves.
+  // ── Flush on unmount ──────────────────────────────────────────────────────
   // With key={noteId}, navigating away unmounts this editor immediately.
   // We must save synchronously-ish here or the content will be lost.
-  // updateNote is fire-and-forget on unmount (can't await in cleanup).
+  // Embedding is intentionally skipped on unmount flush — the next mount
+  // will pick up any un-indexed changes via the scheduled save.
+
   useEffect(() => {
     return () => {
       clearTimers();

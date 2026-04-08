@@ -80,7 +80,7 @@ interface EditorProps {
 }
 
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
-  const note          = useNoteStore((s) => s.notes.find((n) => n.id === noteId) ?? null);
+const note = useNoteStore(useCallback((s) => s.notes.find((n) => n.id === noteId) ?? null, [noteId]));
   const notes         = useNoteStore((s) => s.notes);
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
@@ -491,16 +491,19 @@ useEffect(() => {
   }, [paneId]);
 
 
+const getEditorLeft = useCallback(() => {
+  if (!editorTextColumnRef.current) return 0;
+  return editorTextColumnRef.current.getBoundingClientRect().left + 64;
+}, []); // editorTextColumnRef is a stable ref object
+
 const { isDraggingRef } = useDragReorder({
   editor: editor ?? null,
   scrollRef,
   editorWrapRef,
-  editorTextColumnRef,   // ← add this line
-  getEditorLeft: () => {
-    if (!editorTextColumnRef.current) return 0;
-    return editorTextColumnRef.current.getBoundingClientRect().left + 64;
-  },
+  editorTextColumnRef,
+  getEditorLeft,
 });
+
   // ── Early return — all hooks must be above this line ─────────────────────
   if (!note) return null;
 

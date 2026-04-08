@@ -10,6 +10,7 @@ import { getAISimilarNotes, type AISmiliarityResult } from "@/features/notes/sim
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAIStore } from "@/features/ai/store/useAIStore";
+import { Note } from "@/types";
 
 interface Props { noteId: string; paneId: 1 | 2; }
 
@@ -27,7 +28,6 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
 
   const dismissedRef = useRef<Set<string>>(new Set());
 
-  const notes            = useNoteStore((s) => s.notes);
   const setActiveNote    = useNoteStore((s) => s.setActiveNote);
   const closeSimilar     = useUIStore((s) => s.closeSimilar);
   const aiEnabled        = useAIStore((s) => s.enabled);
@@ -36,10 +36,10 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
   const isAIAvailable = aiEnabled && connectionStatus === "connected";
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setAIResults([]);
-    try {
-      const similar = await getSimilarNotes(noteId, notes);
+  setLoading(true);
+  setAIResults([]);
+  try {
+    const similar = await getSimilarNotes(noteId, useNoteStore.getState().notes);
       const filtered = similar.filter(
         (r) => !dismissedRef.current.has(r.id) && !linkedIdsRef.current.has(r.id)
       );
@@ -48,17 +48,18 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
       // ── AI fallback — only if connected and results are weak ─────────────
       if (isAIAvailable && filtered.length < AI_FALLBACK_THRESHOLD) {
         setAILoading(true);
-        const sourceNote = notes.find((n) => n.id === noteId);
-        if (sourceNote) {
-          const existingIds = new Set(filtered.map((r) => r.id));
-          const aiSuggestions = await getAISimilarNotes(sourceNote, notes, existingIds);
+        const currentNotes = useNoteStore.getState().notes;
+const sourceNote = currentNotes.find((n: Note) => n.id === noteId);
+if (sourceNote) {
+  const existingIds = new Set(filtered.map((r) => r.id));
+  const aiSuggestions = await getAISimilarNotes(sourceNote, currentNotes, existingIds);
           setAIResults(aiSuggestions.filter((r) => !dismissedRef.current.has(r.noteId)));
         }
         setAILoading(false);
       }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
-  }, [noteId, notes, isAIAvailable]);
+  }, [noteId, isAIAvailable]);
 
   useEffect(() => { load(); }, [load]);
 

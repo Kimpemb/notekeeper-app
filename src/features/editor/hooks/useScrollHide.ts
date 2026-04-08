@@ -82,7 +82,10 @@ export function useScrollHide({
       document.removeEventListener("wheel", onScroll);
       if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
     };
-  }, [scrollRef, gripRef, insertRef, highlightRef, hoveredBlockRef, showHandleTimerRef, menuOpenRef, closeMenu]);
+  // Refs are stable object identities and will never trigger a re-run.
+  // closeMenu is the only value here that could change between renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeMenu]);
 
   return { isScrollingRef };
 }

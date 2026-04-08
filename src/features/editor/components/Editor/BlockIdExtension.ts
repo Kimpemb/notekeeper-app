@@ -65,27 +65,30 @@ export const BlockIdExtension = Extension.create({
       new Plugin({
         key: BLOCK_ID_KEY,
 
-        appendTransaction(_transactions, _oldState, newState) {
-          const { doc, tr, schema } = newState;
-          let modified = false;
+        appendTransaction(transactions, _oldState, newState) {
+  // Bail immediately if no transaction changed the document —
+  // cursor moves, selections, and focus events all fire appendTransaction
+  // but never add new nodes that need IDs.
+  const docChanged = transactions.some((tr) => tr.docChanged);
+  if (!docChanged) return null;
 
-          doc.descendants((node, pos) => {
-            if (!TARGET_TYPES.has(node.type.name)) return;
+  const { doc, tr, schema } = newState;
+  let modified = false;
 
-            // Only assign if blockId is missing or empty
-            if (node.attrs.blockId) return;
+  doc.descendants((node, pos) => {
+    if (!TARGET_TYPES.has(node.type.name)) return;
+    if (node.attrs.blockId) return;
 
-            // Check schema supports the attribute
-            const nodeType = schema.nodes[node.type.name];
-            if (!nodeType?.spec.attrs?.blockId) return;
+    const nodeType = schema.nodes[node.type.name];
+    if (!nodeType?.spec.attrs?.blockId) return;
 
-            const id = crypto.randomUUID();
-            tr.setNodeMarkup(pos, undefined, { ...node.attrs, blockId: id });
-            modified = true;
-          });
+    const id = crypto.randomUUID();
+    tr.setNodeMarkup(pos, undefined, { ...node.attrs, blockId: id });
+    modified = true;
+  });
 
-          return modified ? tr : null;
-        },
+  return modified ? tr : null;
+},
       }),
     ];
   },

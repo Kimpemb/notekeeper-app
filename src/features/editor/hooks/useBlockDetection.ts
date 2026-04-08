@@ -221,39 +221,36 @@ export function useBlockDetection({
     const editorRect = editorDom.getBoundingClientRect();
     const { doc }    = ed.view.state;
 
-    const xProbes = [
-      editorRect.left + 60,
-      editorRect.left + editorRect.width * 0.3,
-      editorRect.left + editorRect.width * 0.5,
-    ];
-    const yProbes = [clientY, clientY + 4];
+   // Single X probe is sufficient for block hit-testing. The extra two probes
+  // (0.3×, 0.5× width) were defensive but each elementsFromPoint forces a
+  // style recalc. One probe at left+60 covers paragraphs, headings, lists.
+  // A second Y probe (+4px) is only attempted if the first misses entirely.
+  const sampleX = editorRect.left + 60;
 
-    // ── posAtDOM climbing loop ────────────────────────────────────────────
-    let targetEl: HTMLElement | null = null;
-    let pos = -1;
+  // ── posAtDOM climbing loop ────────────────────────────────────────────
+  let targetEl: HTMLElement | null = null;
+  let pos = -1;
 
-    outer: for (const sampleY of yProbes) {
-      for (const sampleX of xProbes) {
-        const elements = document.elementsFromPoint(sampleX, sampleY);
-        for (const el of elements) {
-          if (editorDom.contains(el) && el !== editorDom) {
-            let current: HTMLElement | null = el as HTMLElement;
-            while (current && current !== editorDom) {
-              try {
-                const testPos = ed.view.posAtDOM(current, 0);
-                const $test   = doc.resolve(testPos);
-                if ($test.depth > 0) {
-                  targetEl = current;
-                  pos      = testPos;
-                  break outer;
-                }
-              } catch { /* keep climbing */ }
-              current = current.parentElement;
+  outer: for (const sampleY of [clientY, clientY + 4]) {
+    const elements = document.elementsFromPoint(sampleX, sampleY);
+    for (const el of elements) {
+      if (editorDom.contains(el) && el !== editorDom) {
+        let current: HTMLElement | null = el as HTMLElement;
+        while (current && current !== editorDom) {
+          try {
+            const testPos = ed.view.posAtDOM(current, 0);
+            const $test   = doc.resolve(testPos);
+            if ($test.depth > 0) {
+              targetEl = current;
+              pos      = testPos;
+              break outer;
             }
-          }
+          } catch { /* keep climbing */ }
+          current = current.parentElement;
         }
       }
     }
+  }
 
     // ── Geometry fallback for atom NodeViews ──────────────────────────────
     // posAtDOM never resolves depth > 0 inside a React NodeView's interior.

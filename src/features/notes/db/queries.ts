@@ -958,49 +958,58 @@
    * so live BlockRefNodeViews in other tabs re-render.
    */
   export async function syncNoteBlocks(
-    noteId: string,
-    contentJson: string
-  ): Promise<void> {
-    const db = await getDb();
+  noteId: string,
+  contentJson: string
+): Promise<void> {
+  const db = await getDb();
 
-    let doc: { type: string; attrs?: Record<string, unknown>; content?: unknown[] };
-    try { doc = JSON.parse(contentJson); } catch { return; }
+  let doc: { type: string; attrs?: Record<string, unknown>; content?: unknown[] };
+  try { doc = JSON.parse(contentJson); } catch { return; }
 
-    const freshBlocks = [...walkIndexableBlocks(doc)];
-    const freshIds    = new Set(freshBlocks.map((b) => b.blockId));
-    const ts          = Date.now();
+  const freshBlocks = [...walkIndexableBlocks(doc)];
+  const freshIds    = new Set(freshBlocks.map((b) => b.blockId));
+  const ts          = Date.now();
 
-    // Fetch existing block IDs for this note
-    const existing = await db.select<{ block_id: string }[]>(
-      `SELECT block_id FROM note_blocks WHERE note_id = $1`, [noteId]
+  // Fetch existing block IDs for this note
+  const existing = await db.select<{ block_id: string }[]>(
+    `SELECT block_id FROM note_blocks WHERE note_id = $1`, [noteId]
+  );
+
+  // Hoist emit import once — not inside the loop
+  let emit: ((event: string, payload: unknown) => Promise<void>) | null = null;
+  try {
+    const mod = await import("@tauri-apps/api/event");
+    emit = mod.emit;
+  } catch { /**/ }
+
+  // Upsert fresh blocks — DB writes only, no IPC per block
+  for (const block of freshBlocks) {
+    await db.execute(
+      `INSERT INTO note_blocks (block_id, note_id, block_type, plaintext, updated_at)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT(block_id) DO UPDATE SET
+        block_type = excluded.block_type,
+        plaintext  = excluded.plaintext,
+        updated_at = excluded.updated_at`,
+      [block.blockId, noteId, block.blockType, block.plaintext, ts]
     );
+  }
 
-    // Upsert fresh blocks
-    for (const block of freshBlocks) {
-      await db.execute(
-        `INSERT INTO note_blocks (block_id, note_id, block_type, plaintext, updated_at)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT(block_id) DO UPDATE SET
-          block_type = excluded.block_type,
-          plaintext  = excluded.plaintext,
-          updated_at = excluded.updated_at`,
-        [block.blockId, noteId, block.blockType, block.plaintext, ts]
-      );
-
-      // Emit event so BlockRefNodeViews can update live
-      try {
-        const { emit } = await import("@tauri-apps/api/event");
-        await emit("block-updated", { blockId: block.blockId, plaintext: block.plaintext });
-      } catch { /**/ }
-    }
-
-    // Delete blocks that were removed from the note
-    for (const { block_id } of existing) {
-      if (!freshIds.has(block_id)) {
-        await db.execute(`DELETE FROM note_blocks WHERE block_id = $1`, [block_id]);
-      }
+  // Delete blocks that were removed from the note
+  for (const { block_id } of existing) {
+    if (!freshIds.has(block_id)) {
+      await db.execute(`DELETE FROM note_blocks WHERE block_id = $1`, [block_id]);
     }
   }
+
+  // One single IPC call for all changed blocks instead of N calls
+  if (emit && freshBlocks.length > 0) {
+    emit("blocks-updated", {
+      noteId,
+      blocks: freshBlocks.map((b) => ({ blockId: b.blockId, plaintext: b.plaintext })),
+    }).catch(() => {});
+  }
+}
 
   /**
    * Full-text block search for the (( picker.

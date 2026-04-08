@@ -74,10 +74,10 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
     );
   }, [getCandidates, query]);
 
-  const filteredRef = useRef(getFiltered());
-  useEffect(() => { filteredRef.current = getFiltered(); }, [getFiltered]);
+const items = getFiltered();
+const filteredRef = useRef(items);
+useEffect(() => { filteredRef.current = items; }, [items]);
 
-  const items = getFiltered();
 
   useEffect(() => { setSelectedIdx(0); }, [query]);
 
