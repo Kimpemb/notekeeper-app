@@ -215,7 +215,6 @@ export function useDragReorder({
             isDraggingRef.current = true;
             editorWrapRef.current?.classList.add("is-dragging-block");
             if (insertRef.current) insertRef.current.style.display = "none";
-            // Hide highlight during active drag — indicator takes over
             if (highlightRef.current) highlightRef.current.style.display = "none";
             dimDraggedBlock(ds.dragDom);
             attachScrollListener();
@@ -252,6 +251,15 @@ export function useDragReorder({
       // ── Suppress handle while scrolling ───────────────────────────────
       if (isScrollingRef.current) return;
 
+      // ── Suppress handle when any overlay covers the editor ────────────
+      // elementFromPoint returns whatever is on top at the cursor position.
+      // If it's not inside editorWrapRef, something (modal, palette, graph)
+      // is covering the editor — hide and bail regardless of what it is.
+      if (!editorWrapRef.current?.contains(document.elementFromPoint(e.clientX, e.clientY))) {
+        hideHandle();
+        return;
+      }
+
       // ── Freeze loop while menu is open ─────────────────────────────────
       if (menuOpenRef.current) return;
 
@@ -267,11 +275,7 @@ export function useDragReorder({
 
       const editorRect = editorEl.getBoundingClientRect();
 
-      // Gutter zone: from just beyond the + button left edge to editor right
-      // gripLeft   = getEditorLeft() - 36 (T1-2)
-      // insertLeft = gripLeft - 20
-      // + 8px breathing room
-      const gutterLeft = getEditorLeft() - 64; // updated to match new grip position
+      const gutterLeft = getEditorLeft() - 64;
 
       const inZone = (
         e.clientX >= gutterLeft        &&
