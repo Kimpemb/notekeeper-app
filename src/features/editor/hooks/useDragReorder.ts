@@ -96,6 +96,7 @@ export function useDragReorder({
   const {
     gripRef,
     insertRef,
+    highlightRef,
     showHandleTimerRef,
     showHandle,
     scheduleShowHandle,
@@ -125,6 +126,7 @@ export function useDragReorder({
     scrollRef,
     gripRef,
     insertRef,
+    highlightRef,  // T1-1: also hide highlight on scroll
     hoveredBlockRef,
     showHandleTimerRef,
     menuOpenRef,
@@ -175,6 +177,8 @@ export function useDragReorder({
     hideIndicator();
     hideGhost();
     undimDraggedBlock();
+    // Ensure highlight is hidden when a drag is cancelled mid-motion
+    if (highlightRef.current) highlightRef.current.style.display = "none";
     editorWrapRef.current?.classList.remove("is-dragging-block");
   }
 
@@ -211,6 +215,8 @@ export function useDragReorder({
             isDraggingRef.current = true;
             editorWrapRef.current?.classList.add("is-dragging-block");
             if (insertRef.current) insertRef.current.style.display = "none";
+            // Hide highlight during active drag — indicator takes over
+            if (highlightRef.current) highlightRef.current.style.display = "none";
             dimDraggedBlock(ds.dragDom);
             attachScrollListener();
 
@@ -262,10 +268,10 @@ export function useDragReorder({
       const editorRect = editorEl.getBoundingClientRect();
 
       // Gutter zone: from just beyond the + button left edge to editor right
-      // gripLeft   = getEditorLeft() - 28
+      // gripLeft   = getEditorLeft() - 36 (T1-2)
       // insertLeft = gripLeft - 20
       // + 8px breathing room
-      const gutterLeft = getEditorLeft() - 56;
+      const gutterLeft = getEditorLeft() - 64; // updated to match new grip position
 
       const inZone = (
         e.clientX >= gutterLeft        &&
@@ -329,8 +335,8 @@ export function useDragReorder({
             listBounds:     null,
           };
         } else {
-       if (editor) openMenu(hovered.dom, hovered.pos, editor);
-    }
+          if (editor) openMenu(hovered.dom, hovered.pos, editor);
+        }
       }
     }
 
@@ -346,6 +352,8 @@ export function useDragReorder({
       hideIndicator();
       hideGhost();
       undimDraggedBlock();
+      // Restore highlight visibility on mouse up (hideHandle clears it on move-away)
+      if (highlightRef.current) highlightRef.current.style.display = "none";
       detachScrollListener();
       stopScrollAnim();
       editorWrapRef.current?.classList.remove("is-dragging-block");
@@ -356,10 +364,10 @@ export function useDragReorder({
 
       // Click without drag → open menu
       if (!ds.thresholdMet) {
-  const hovered = hoveredBlockRef.current;
-  if (hovered && editor) openMenu(hovered.dom, hovered.pos, editor);
-  return;
-}
+        const hovered = hoveredBlockRef.current;
+        if (hovered && editor) openMenu(hovered.dom, hovered.pos, editor);
+        return;
+      }
 
       if (!ds.active) return;
 
@@ -431,6 +439,7 @@ export function useDragReorder({
     menuRef,
     gripRef,
     insertRef,
+    highlightRef,
     isScrollingRef,
     getEditorLeft,
   ]);

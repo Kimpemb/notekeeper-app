@@ -95,3 +95,9 @@
   opacity: 0.45;
   background: var(--color-background-secondary, #1c1c1e);
 }
+
+.dark .drag-handle-highlight {
+  background: rgba(255, 255, 255, 0.045) !important;
+  /* Extend background left by 6px without shifting text */
+  box-shadow: -6px 0 0 0 rgba(255, 255, 255, 0.045);
+}

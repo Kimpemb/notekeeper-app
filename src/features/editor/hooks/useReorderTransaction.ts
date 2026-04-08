@@ -10,6 +10,9 @@
 // Each branch:
 //   - Builds a tr from current state
 //   - Sets selection near the moved block
+//   - Marks the transaction so the history plugin treats it as its own undo step
+//     (T1-3: addToHistory:true + closeHistory:true prevents grouping with adjacent
+//      typing transactions, so Cmd+Z always undoes exactly one reorder at a time)
 //   - Dispatches via view.dispatch(tr)
 //   - Refocuses if cursor is still inside the editor
 //
@@ -18,6 +21,7 @@
 import { useCallback } from "react";
 import type { Editor } from "@tiptap/react";
 import { Selection } from "@tiptap/pm/state";
+import { closeHistory } from "@tiptap/pm/history";
 import type { Node as PmNode } from "@tiptap/pm/model";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -38,6 +42,21 @@ interface UseReorderTransactionOptions {
 
 interface UseReorderTransactionResult {
   dispatchReorder: (ds: DragSnapshot, mouseX: number, mouseY: number) => void;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// T1-3: apply all history-related meta in one place so no branch forgets.
+// closeHistory() tells the history plugin to close the current event group
+// before recording this transaction — guaranteeing Cmd+Z undoes only this
+// reorder, never merging it with preceding keystrokes.
+// addToHistory:true is the default but we set it explicitly for clarity.
+// reorderBlock:true is a custom meta for any app-level listeners.
+function sealReorderTransaction(tr: ReturnType<typeof closeHistory>) {
+  closeHistory(tr);
+  tr.setMeta("addToHistory", true);
+  tr.setMeta("reorderBlock", true);
+  return tr;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -141,7 +160,7 @@ export function useReorderTransaction({
         tr.setSelection(Selection.near($pos));
       } catch { /**/ }
 
-      tr.setMeta("reorderBlock", true);
+      sealReorderTransaction(tr); // T1-3
       view.dispatch(tr);
       refocusIfInEditor();
       return;
@@ -192,7 +211,7 @@ export function useReorderTransaction({
         tr.setSelection(Selection.near($pos));
       } catch { /**/ }
 
-      tr.setMeta("reorderBlock", true);
+      sealReorderTransaction(tr); // T1-3
       view.dispatch(tr);
       refocusIfInEditor();
       return;
@@ -236,7 +255,7 @@ export function useReorderTransaction({
       tr.setSelection(Selection.near($pos));
     } catch { /**/ }
 
-    tr.setMeta("reorderBlock", true);
+    sealReorderTransaction(tr); // T1-3
     view.dispatch(tr);
     refocusIfInEditor();
   }, [editorRef, editorWrapRef]);

@@ -1,7 +1,8 @@
 // src/features/editor/hooks/useScrollHide.ts
 //
-// Hides the drag handle and + button whenever the user scrolls — whether via
-// the scrollable container or the mouse wheel anywhere on the page.
+// Hides the drag handle, + button, and block highlight whenever the user
+// scrolls — whether via the scrollable container or the mouse wheel anywhere
+// on the page.
 //
 // Restoring visibility is intentionally NOT done here. Only onMouseMove in
 // useDragReorder restores the handle, ensuring it always reflects where the
@@ -13,6 +14,7 @@ interface UseScrollHideOptions {
   scrollRef:            React.RefObject<HTMLDivElement | null>;
   gripRef:              React.RefObject<HTMLDivElement | null>;
   insertRef:            React.RefObject<HTMLDivElement | null>;
+  highlightRef:         React.RefObject<HTMLDivElement | null>;   // T1-1
   hoveredBlockRef:      React.RefObject<{ dom: HTMLElement; pos: number; isListItem: boolean; listParentPos: number } | null>;
   showHandleTimerRef:   React.RefObject<ReturnType<typeof setTimeout> | null>;
   menuOpenRef:          React.RefObject<boolean>;
@@ -27,6 +29,7 @@ export function useScrollHide({
   scrollRef,
   gripRef,
   insertRef,
+  highlightRef,
   hoveredBlockRef,
   showHandleTimerRef,
   menuOpenRef,
@@ -50,9 +53,10 @@ export function useScrollHide({
       // Close menu if open
       if (menuOpenRef.current) closeMenu();
 
-      // Hide both elements
-      if (gripRef.current)   gripRef.current.style.display   = "none";
-      if (insertRef.current) insertRef.current.style.display = "none";
+      // Hide all three handle elements
+      if (gripRef.current)      gripRef.current.style.display      = "none";
+      if (insertRef.current)    insertRef.current.style.display    = "none";
+      if (highlightRef.current) highlightRef.current.style.display = "none"; // T1-1
 
       // Clear hovered block — stale after scroll
       hoveredBlockRef.current = null;
@@ -78,7 +82,7 @@ export function useScrollHide({
       document.removeEventListener("wheel", onScroll);
       if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
     };
-  }, [scrollRef, gripRef, insertRef, hoveredBlockRef, showHandleTimerRef, menuOpenRef, closeMenu]);
+  }, [scrollRef, gripRef, insertRef, highlightRef, hoveredBlockRef, showHandleTimerRef, menuOpenRef, closeMenu]);
 
   return { isScrollingRef };
 }

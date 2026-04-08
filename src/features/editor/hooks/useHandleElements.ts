@@ -3,6 +3,7 @@
 // Owns every piece of DOM that the drag handle system renders:
 //   - grip (⠿)         — the draggable dots
 //   - insert (+)        — the insert-block button
+//   - highlight         — light wash over the hovered block (T1-1)
 //   - indicator         — the drop position line
 //   - ghost             — the semi-transparent drag preview
 //
@@ -49,6 +50,7 @@ interface UseHandleElementsResult {
   insertRef:            React.RefObject<HTMLDivElement | null>;
   indicatorRef:         React.RefObject<HTMLDivElement | null>;
   ghostRef:             React.RefObject<HTMLDivElement | null>;
+  highlightRef:         React.RefObject<HTMLDivElement | null>;   // T1-1
   draggedDomRef:        React.RefObject<HTMLElement | null>;
   showHandleTimerRef:   React.RefObject<ReturnType<typeof setTimeout> | null>;
   showHandle:           (dom: HTMLElement) => void;
@@ -81,18 +83,21 @@ export function useHandleElements({
   const insertRef          = useRef<HTMLDivElement | null>(null);
   const indicatorRef       = useRef<HTMLDivElement | null>(null);
   const ghostRef           = useRef<HTMLDivElement | null>(null);
+  const highlightRef       = useRef<HTMLDivElement | null>(null);   // T1-1
   const draggedDomRef      = useRef<HTMLElement | null>(null);
   const showHandleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── showHandle ────────────────────────────────────────────────────────────
+  // T1-2: grip spacing increased from -28 to -36 (8 px extra breathing room)
 
   const showHandle = useCallback((dom: HTMLElement) => {
-    const grip   = gripRef.current;
-    const insert = insertRef.current;
+    const grip      = gripRef.current;
+    const insert    = insertRef.current;
+    const highlight = highlightRef.current;
     if (!grip || !insert) return;
 
     const rect       = dom.getBoundingClientRect();
-    const gripLeft   = getEditorLeft() - 28;  // flush with editor left margin
+    const gripLeft   = getEditorLeft() - 36;  // T1-2: was -28, now -36
     const insertLeft = gripLeft - 20;         // + sits left of grip
 
     grip.style.display  = "flex";
@@ -102,7 +107,21 @@ export function useHandleElements({
     insert.style.display = "flex";
     insert.style.left    = `${insertLeft}px`;
     insert.style.top     = `${rect.top + 4}px`;
-  }, [getEditorLeft]);
+
+    // T1-1: position highlight flush behind the block, edge-to-edge with editor
+    if (highlight) {
+      const editorEl = editorWrapRef.current;
+      if (editorEl) {
+        const editorRect = editorEl.getBoundingClientRect();
+        const inset      = 4; // small breathing gap so it doesn't bleed to viewport edge
+        highlight.style.display = "block";
+        highlight.style.top     = `${rect.top}px`;
+        highlight.style.left    = `${editorRect.left + inset}px`;
+        highlight.style.width   = `${editorRect.width - inset * 2}px`;
+        highlight.style.height  = `${rect.height}px`;
+      }
+    }
+  }, [getEditorLeft, editorWrapRef]);
 
   // ── scheduleShowHandle ────────────────────────────────────────────────────
 
@@ -125,14 +144,13 @@ export function useHandleElements({
 
   const hideHandle = useCallback(() => {
     cancelShowHandleTimer();
-    if (gripRef.current)   gripRef.current.style.display   = "none";
-    if (insertRef.current) insertRef.current.style.display = "none";
+    if (gripRef.current)      gripRef.current.style.display      = "none";
+    if (insertRef.current)    insertRef.current.style.display    = "none";
+    if (highlightRef.current) highlightRef.current.style.display = "none"; // T1-1
     hoveredBlockRef.current = null;
   }, [cancelShowHandleTimer, hoveredBlockRef]);
 
   // ── findInsertionPos ──────────────────────────────────────────────────────
-  // Returns the block position after which the dragged block should be
-  // inserted, or null for "insert before everything".
 
   const findInsertionPos = useCallback((
     clientY: number,
@@ -277,6 +295,22 @@ export function useHandleElements({
     document.body.appendChild(indicator);
     indicatorRef.current = indicator;
 
+    // ── T1-1: Block highlight ────────────────────────────────────────────
+    // Sits behind everything (z-index:50) — below the grip and insert button.
+    // pointer-events:none so it doesn't interfere with mouse hit-testing.
+    const highlight = document.createElement("div");
+    highlight.className     = "drag-handle-highlight";
+    highlight.style.cssText = [
+      "display:none", "position:fixed", "z-index:50",
+      "pointer-events:none",
+      "border-radius:4px",
+      // Light mode: very subtle warm grey wash
+      "background:rgba(0,0,0,0.035)",
+      "transition:top 10ms ease, height 10ms ease",
+    ].join(";");
+    document.body.appendChild(highlight);
+    highlightRef.current = highlight;
+
     // ── Grip (⠿) ─────────────────────────────────────────────────────────
     const grip = document.createElement("div");
     grip.className = "drag-handle-grip";
@@ -396,13 +430,15 @@ export function useHandleElements({
     return () => {
       ro?.disconnect();
       indicator.remove();
+      highlight.remove();
       grip.remove();
       insert.remove();
       ghost.remove();
-      indicatorRef.current = null;
-      gripRef.current      = null;
-      insertRef.current    = null;
-      ghostRef.current     = null;
+      indicatorRef.current  = null;
+      highlightRef.current  = null;
+      gripRef.current       = null;
+      insertRef.current     = null;
+      ghostRef.current      = null;
     };
   }, [
     editorRef,
@@ -417,6 +453,7 @@ export function useHandleElements({
     insertRef,
     indicatorRef,
     ghostRef,
+    highlightRef,
     draggedDomRef,
     showHandleTimerRef,
     showHandle,
