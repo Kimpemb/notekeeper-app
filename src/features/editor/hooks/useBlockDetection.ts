@@ -202,7 +202,7 @@ export function useBlockDetection({
         for (let pd = depth - 1; pd >= 0; pd--) {
           const parent = $pos.node(pd);
           if (LIST_TYPES.has(parent.type.name)) {
-            const listPos = pd === 0 ? 0 : $pos.before(pd);
+            const listPos = $pos.before(pd);
             return {
               dragDom:       itemDom,
               nodePos:       itemPos,

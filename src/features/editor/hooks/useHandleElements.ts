@@ -146,7 +146,7 @@ export function useHandleElements({
     );
     if (candidates.length === 0) return null;
     for (let i = 0; i < candidates.length; i++) {
-      const midY = candidates[i].rect.top + candidates[i].rect.height / 2;
+      const midY = candidates[i].rect.top;
       if (clientY < midY) return i === 0 ? null : candidates[i - 1].pos;
     }
     return candidates[candidates.length - 1].pos;
