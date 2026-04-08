@@ -251,11 +251,24 @@ export function useDragReorder({
       // ── Suppress handle while scrolling ───────────────────────────────
       if (isScrollingRef.current) return;
 
+      // ── Keep handle alive if cursor is on grip or insert button ────────
+      // Must come before the overlay check — grip/insert live outside
+      // editorWrapRef so the elementFromPoint check would kill them.
+      const grip   = gripRef.current;
+      const insert = insertRef.current;
+      const overGrip   = grip   && (e.target === grip   || grip.contains(e.target as Node));
+      const overInsert = insert && (e.target === insert || insert.contains(e.target as Node));
+      if (overGrip || overInsert) return;
+
       // ── Suppress handle when any overlay covers the editor ────────────
-      // elementFromPoint returns whatever is on top at the cursor position.
-      // If it's not inside editorWrapRef, something (modal, palette, graph)
-      // is covering the editor — hide and bail regardless of what it is.
-      if (!editorWrapRef.current?.contains(document.elementFromPoint(e.clientX, e.clientY))) {
+      // If elementFromPoint at the cursor position returns something outside
+      // editorWrapRef, an overlay (modal, palette, graph) is on top — hide.
+      const editorEl = editorWrapRef.current;
+      if (!editorEl || !grip) return;
+
+      const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
+      const inGutter = e.clientX < editorEl.getBoundingClientRect().left;
+      if (!inGutter && !editorEl.contains(elementUnderCursor)) {
         hideHandle();
         return;
       }
@@ -263,18 +276,7 @@ export function useDragReorder({
       // ── Freeze loop while menu is open ─────────────────────────────────
       if (menuOpenRef.current) return;
 
-      // ── Keep both elements alive if cursor is on either ────────────────
-      const grip   = gripRef.current;
-      const insert = insertRef.current;
-      const overGrip   = grip   && (e.target === grip   || grip.contains(e.target as Node));
-      const overInsert = insert && (e.target === insert || insert.contains(e.target as Node));
-      if (overGrip || overInsert) return;
-
-      const editorEl = editorWrapRef.current;
-      if (!editorEl || !grip) return;
-
       const editorRect = editorEl.getBoundingClientRect();
-
       const gutterLeft = getEditorLeft() - 64;
 
       const inZone = (
