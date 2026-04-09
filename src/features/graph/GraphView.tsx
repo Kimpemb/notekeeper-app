@@ -6,7 +6,8 @@ import { useGraphData } from "./useGraphData";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import type { GraphNode, GraphEdge } from "./graphTypes";
-import { GraphNotePreview } from "./GraphNotePreview";
+import { GraphNotePanel } from "./GraphNotePanel";
+import type { EdgeContext } from "./GraphNotePanel";
 import { GraphLegend } from "./GraphLegend";
 import { GraphControls } from "./GraphControls";
 import { useGraphSimulation } from "./useGraphSimulation";
@@ -14,11 +15,6 @@ import type { EdgeClickData } from "./useGraphSimulation";
 import { useGraphSearch } from "./useGraphSearch";
 import { useGraphEdit } from "./useGraphEdit";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
-import { GraphEdgePanel } from "./GraphEdgePanel";
-import type { EdgePanelData } from "./GraphEdgePanel";
-import { GraphNodeDetailPanel } from "./GraphNodeDetailPanel";
-import { getBacklinksForNote } from "@/features/notes/db/queries";
-import type { Note } from "@/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -86,8 +82,6 @@ function getNeighbourhood(focusId: string, edges: GraphEdge[], depth: number): S
   return result;
 }
 
-// Extract a short text snippet from a note's TipTap JSON that contains a
-// [[link]] to the given target. Used to populate the edge panel context.
 function extractLinkSnippet(content: string | null | undefined, targetTitle: string): string {
   if (!content) return "";
   try {
@@ -95,23 +89,18 @@ function extractLinkSnippet(content: string | null | undefined, targetTitle: str
     function walkForSnippet(nodes: any[]): string {
       for (const node of nodes) {
         if (node.type === "noteLink" && node.attrs?.label) {
-          // Found a noteLink — collect surrounding paragraph text
           return node.attrs.label;
         }
         if (node.content && Array.isArray(node.content)) {
-          // Check if this container holds the noteLink, and if so return the
-          // paragraph's full text
           const hasLink = node.content.some(
             (c: any) => c.type === "noteLink" && c.attrs?.label?.toLowerCase() === targetTitle.toLowerCase()
           );
           if (hasLink) {
-            // Extract the full paragraph text including the link label
             const text = node.content.map((c: any) => {
-              if (c.type === "text") return c.text ?? "";
+              if (c.type === "text")     return c.text ?? "";
               if (c.type === "noteLink") return c.attrs?.label ?? "";
               return "";
             }).join("").trim();
-            // Truncate to ~100 chars for display
             return text.length > 100 ? text.slice(0, 97) + "…" : text;
           }
           const nested = walkForSnippet(node.content);
@@ -121,15 +110,7 @@ function extractLinkSnippet(content: string | null | undefined, targetTitle: str
       return "";
     }
     return walkForSnippet(doc.content ?? []);
-  } catch {
-    return "";
-  }
-}
-
-// Word count from plaintext
-function countWords(plaintext: string | null | undefined): number {
-  if (!plaintext) return 0;
-  return plaintext.trim().split(/\s+/).filter(Boolean).length;
+  } catch { return ""; }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -180,15 +161,13 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   // ── Multi-select ──────────────────────────────────────────────────────────
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
 
-  // ── Node detail panel ─────────────────────────────────────────────────────
-  const [detailNode, setDetailNode]       = useState<GraphNode | null>(null);
-  const [detailBacklinks, setDetailBacklinks] = useState<Note[]>([]);
-  const [detailBacklinksLoading, setDetailBacklinksLoading] = useState(false);
+  // ── Unified panel state ───────────────────────────────────────────────────
+  // detailNode: set on node single-click → locks the panel in detail mode
+  // edgeContext: set on edge click → switches panel to edge mode
+  const [detailNode,  setDetailNode]  = useState<GraphNode | null>(null);
+  const [edgeContext, setEdgeContext] = useState<EdgeContext | null>(null);
 
-  // ── Edge panel ────────────────────────────────────────────────────────────
-  const [edgePanel, setEdgePanel]         = useState<EdgePanelData | null>(null);
-
-  // ── Delete confirmation state ─────────────────────────────────────────────
+  // ── Delete confirmation ───────────────────────────────────────────────────
   const [confirmDelete, setConfirmDelete] = useState<{ nodeId: string; title: string } | null>(null);
 
   // ── Pending node IDs ──────────────────────────────────────────────────────
@@ -264,70 +243,56 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     showToast,
   });
 
-  // ── Node click → open detail panel ───────────────────────────────────────
+  // ── Node single-click → lock panel in detail mode ────────────────────────
   const handleNodeClick = useCallback((node: GraphNode) => {
-    // If this node is already open in the detail panel, close it (toggle)
+    // Toggle: clicking same node again closes detail
     if (detailNode?.id === node.id) {
       setDetailNode(null);
       return;
     }
+    setEdgeContext(null);   // close edge mode if open
     setDetailNode(node);
-    setEdgePanel(null); // close edge panel if open
-    setDetailBacklinks([]);
-    setDetailBacklinksLoading(true);
-
-    getBacklinksForNote(node.id)
-      .then((bls) => {
-        setDetailBacklinks(bls);
-        setDetailBacklinksLoading(false);
-      })
-      .catch(() => setDetailBacklinksLoading(false));
   }, [detailNode]);
 
-  // ── Edge click → open edge panel ─────────────────────────────────────────
+  // ── Edge click → switch panel to edge mode ────────────────────────────────
   const handleEdgeClick = useCallback(async (data: EdgeClickData) => {
-    setDetailNode(null); // close node detail if open
+    setDetailNode(null);  // close detail mode if open
 
     const sourceNote = notes.find((n) => n.id === data.sourceId);
     const targetNote = notes.find((n) => n.id === data.targetId);
-
     if (!sourceNote || !targetNote) return;
 
     const snippet = extractLinkSnippet(sourceNote.content, targetNote.title);
 
-    setEdgePanel({
+    setEdgeContext({
       sourceId:    data.sourceId,
       targetId:    data.targetId,
       sourceTitle: sourceNote.title,
       targetTitle: targetNote.title,
       snippet,
-      screenX:     data.screenX,
-      screenY:     data.screenY,
     });
   }, [notes]);
 
-  // ── Delete link (from edge panel) ─────────────────────────────────────────
+  // ── Delete link (from panel) ───────────────────────────────────────────────
   const handleDeleteLink = useCallback((sourceId: string, targetId: string) => {
-    setEdgePanel(null);
+    setEdgeContext(null);
     deleteLink(sourceId, targetId, (sid, tid) => {
       deleteLinkInD3(sid, tid);
       patchData.removeEdge(sid, tid);
     });
-  }, [deleteLink, patchData]); // deleteLinkInD3 added below after sim hook
+  }, [deleteLink, patchData]); // deleteLinkInD3 wired below after sim hook
 
-  // ── patchData-wired adapters ───────────────────────────────────────────────
+  // ── patchData-wired adapters ──────────────────────────────────────────────
 
   const handleCreateNode = useCallback(async (
-    x: number,
-    y: number,
+    x: number, y: number,
     onCreated: (node: GraphNode) => void,
   ) => {
     await createNodeAt(x, y, onCreated);
   }, [createNodeAt]);
 
   const handleRenameNode = useCallback(async (
-    nodeId: string,
-    newTitle: string,
+    nodeId: string, newTitle: string,
     onRenamed: (nodeId: string, title: string) => void,
   ) => {
     const isNewNode = !data?.nodes.some((n) => n.id === nodeId);
@@ -343,16 +308,14 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         patchData.updateNodeTitle(id, title);
       }
 
-      // If the detail panel is showing this node, update its title too
+      // Keep detail panel title in sync
       setDetailNode((prev) => prev?.id === id ? { ...prev, title } : prev);
-
       onRenamed(id, title);
     });
   }, [renameNode, data, simNodesRef, patchData]);
 
   const handleCreateLink = useCallback(async (
-    sourceId: string,
-    targetId: string,
+    sourceId: string, targetId: string,
     onLinked: (edge: GraphEdge) => void,
   ) => {
     await createLink(sourceId, targetId, (newEdge) => {
@@ -379,7 +342,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         next.delete(id);
         return next;
       });
-      // Close detail panel if this node was open
       setDetailNode((prev) => prev?.id === id ? null : prev);
     });
   }, [deleteNode, patchData]);
@@ -392,23 +354,19 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const handleExport = useCallback(() => {
     if (!svgRef.current || !containerRef.current) return;
     showToast("Exporting graph…");
-
     const svgEl     = svgRef.current;
     const svgWidth  = containerRef.current.clientWidth;
     const svgHeight = containerRef.current.clientHeight;
-
     const clone = svgEl.cloneNode(true) as SVGSVGElement;
     const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     bg.setAttribute("width",  String(svgWidth));
     bg.setAttribute("height", String(svgHeight));
     bg.setAttribute("fill",   "#141414");
     clone.insertBefore(bg, clone.firstChild);
-
     const serialized = new XMLSerializer().serializeToString(clone);
     const blob       = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
     const url        = URL.createObjectURL(blob);
-
-    const img    = new Image();
+    const img        = new Image();
     img.onload = () => {
       const canvas  = document.createElement("canvas");
       canvas.width  = svgWidth;
@@ -430,16 +388,15 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       if (confirmDelete) return;
-      // Priority: close edge panel → close detail panel → clear selection → unfocus → close graph
-      if (edgePanel) { setEdgePanel(null); return; }
-      if (detailNode) { setDetailNode(null); return; }
-      if (selectedNodeIds.size > 0) { setSelectedNodeIds(new Set()); return; }
-      if (focusNodeId) { setFocusNodeId(null); return; }
+      if (edgeContext)             { setEdgeContext(null);  return; }
+      if (detailNode)              { setDetailNode(null);   return; }
+      if (selectedNodeIds.size > 0){ setSelectedNodeIds(new Set()); return; }
+      if (focusNodeId)             { setFocusNodeId(null);  return; }
       handleClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleClose, focusNodeId, confirmDelete, edgePanel, detailNode, selectedNodeIds]);
+  }, [handleClose, focusNodeId, confirmDelete, edgeContext, detailNode, selectedNodeIds]);
 
   const toggleFullscreen = useCallback(() => setFullscreen((f) => !f), []);
 
@@ -493,13 +450,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     searchQuery, focusNodeId,
     svgRef, zoomRef, containerRef, simNodesRef, simSettledRef,
   });
-
-  // ── Word count for detail panel ───────────────────────────────────────────
-  const detailWordCount = useMemo(() => {
-    if (!detailNode) return 0;
-    const note = notes.find((n) => n.id === detailNode.id);
-    return countWords(note?.plaintext);
-  }, [detailNode, notes]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const lastUpdatedLabel = lastUpdated
@@ -572,53 +522,45 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         {/* Canvas */}
         <div ref={containerRef} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
 
-          <GraphNotePreview
-            node={hoveredNode}
+          {/* ── Unified note + edge panel ── */}
+          <GraphNotePanel
+            hoveredNode={hoveredNode}
+            detailNode={detailNode}
+            edgeContext={edgeContext}
             tagColorMap={tagColorMap}
+            notes={notes}
             onPanelMouseEnter={() => {
               isHoveringPreviewRef.current = true;
               if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
             }}
             onPanelMouseLeave={() => {
               isHoveringPreviewRef.current = false;
-              setHoveredNode(null);
+              // Only clear hovered node if panel is not locked in detail/edge mode
+              if (!detailNode && !edgeContext) setHoveredNode(null);
             }}
             onOpen={(id, headingText) => {
               setActiveNote(id);
               if (headingText) setPendingScrollHeading(headingText);
-              showToast(`Opening "${hoveredNode?.title ?? ""}"…`);
+              const node = detailNode ?? hoveredNode;
+              showToast(`Opening "${node?.title ?? ""}"…`);
+              setTimeout(() => handleClose(), 300);
+            }}
+            onCloseDetail={() => setDetailNode(null)}
+            onCloseEdge={() => setEdgeContext(null)}
+            onDeleteEdge={handleDeleteLink}
+            onFocusNode={(id) => setFocusNodeId((prev) => prev === id ? null : id)}
+            onOpenBacklink={(id) => {
+              setActiveNote(id);
+              showToast("Opening note…");
               setTimeout(() => handleClose(), 300);
             }}
           />
 
-          {/* Node detail panel */}
-          {detailNode && (
-            <GraphNodeDetailPanel
-              node={detailNode}
-              backlinks={detailBacklinks}
-              tagColorMap={tagColorMap}
-              wordCount={detailWordCount}
-              isLoading={detailBacklinksLoading}
-              onOpen={(id) => {
-                setActiveNote(id);
-                showToast(`Opening "${detailNode.title}"…`);
-                setTimeout(() => handleClose(), 300);
-              }}
-              onClose={() => setDetailNode(null)}
-              onFocus={(id) => setFocusNodeId((prev) => prev === id ? null : id)}
-              onOpenBacklink={(id) => {
-                setActiveNote(id);
-                showToast("Opening note…");
-                setTimeout(() => handleClose(), 300);
-              }}
-            />
-          )}
-
           {!isLoading && visibleNodes.length > 0 && (
             <div style={{
-              position: "absolute", top: 12, right: 12,
+              position: "absolute", top: 12, left: 12,
               fontSize: 11, color: LABEL_COLOR, opacity: 0.3,
-              pointerEvents: "none", textAlign: "right", lineHeight: 1.6,
+              pointerEvents: "none", lineHeight: 1.6,
             }}>
               Click node to inspect · Double-click to open · Drag ring to link · Right-click to delete
               {selectedNodeIds.size > 0 && (
@@ -642,8 +584,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           {!isLoading && visibleNodes.length === 0 && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
               {data?.nodes.length === 0
-                ? 'No notes yet — double-click anywhere to create one'
-                : 'No notes match current filters.'}
+                ? "No notes yet — double-click anywhere to create one"
+                : "No notes match current filters."}
             </div>
           )}
 
@@ -690,22 +632,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           />
         </div>
       </div>
-
-      {/* Edge panel — rendered outside the graph panel so it can appear at
-          true screen coordinates without being clipped by overflow:hidden   */}
-      {edgePanel && (
-        <GraphEdgePanel
-          data={edgePanel}
-          onDelete={handleDeleteLink}
-          onOpenNote={(id) => {
-            setEdgePanel(null);
-            setActiveNote(id);
-            showToast("Opening note…");
-            setTimeout(() => handleClose(), 300);
-          }}
-          onDismiss={() => setEdgePanel(null)}
-        />
-      )}
 
       {/* Delete confirmation modal */}
       {confirmDelete && (

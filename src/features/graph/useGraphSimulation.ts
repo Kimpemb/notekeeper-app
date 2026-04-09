@@ -909,103 +909,106 @@ export function useGraphSimulation({
 
     // ── Node events ───────────────────────────────────────────────────────
     function attachNodeEvents(
-      sel: d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown>,
-    ) {
-      sel
-        .on("mouseenter", function (event, d) {
-          if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
-          ringSelRef.current?.filter((r) => r.id === d.id)
-            .attr("opacity", 1).attr("stroke", RING_STROKE);
+  sel: d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown>,
+) {
+  sel
+    .on("mouseenter", function (event, d) {
+      if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
+      ringSelRef.current?.filter((r) => r.id === d.id)
+        .attr("opacity", 1).attr("stroke", RING_STROKE);
 
-          const neighbourIds = new Set<string>();
-          simEdgesRef.current.forEach((e) => {
-            const sid = e.sourceId;
-            const tid = e.targetId;
-            if (sid === d.id) neighbourIds.add(tid);
-            if (tid === d.id) neighbourIds.add(sid);
-          });
+      const neighbourIds = new Set<string>();
+      simEdgesRef.current.forEach((e) => {
+        const sid = e.sourceId;
+        const tid = e.targetId;
+        if (sid === d.id) neighbourIds.add(tid);
+        if (tid === d.id) neighbourIds.add(sid);
+      });
 
-          nodeSelRef.current?.attr("fill-opacity", (n) =>
-            n.id === d.id || neighbourIds.has(n.id) ? 1 : 0.2);
-          linkSelRef.current
-            ?.attr("stroke", (e) => {
-              const sid = e.sourceId;
-              const tid = e.targetId;
-              return sid === d.id || tid === d.id ? LINK_STROKE_HL : LINK_STROKE;
-            })
-            .attr("stroke-width", (e) => {
-              const sid = e.sourceId;
-              const tid = e.targetId;
-              return sid === d.id || tid === d.id ? strokeWidthScale(e.weight ?? 1) + 0.5 : 0.5;
-            });
-          labelSelRef.current?.attr("opacity", (n) =>
-            n.id === d.id || neighbourIds.has(n.id) ? 1 : 0);
-
-          const rect = containerRef.current!.getBoundingClientRect();
-          setTooltip({
-            visible: true,
-            x: event.clientX - rect.left + 14,
-            y: event.clientY - rect.top  - 14,
-            title: d.title, linkCount: d.linkCount,
-            tags: d.tags, createdAt: d.created_at,
-          });
-          setHoveredNode(d);
+      nodeSelRef.current?.attr("fill-opacity", (n) =>
+        n.id === d.id || neighbourIds.has(n.id) ? 1 : 0.2);
+      linkSelRef.current
+        ?.attr("stroke", (e) => {
+          const sid = e.sourceId;
+          const tid = e.targetId;
+          return sid === d.id || tid === d.id ? LINK_STROKE_HL : LINK_STROKE;
         })
-        .on("mousemove", function (event) {
-          const rect = containerRef.current!.getBoundingClientRect();
-          setTooltip((prev: any) => ({
-            ...prev,
-            x: event.clientX - rect.left + 14,
-            y: event.clientY - rect.top  - 14,
-          }));
-        })
-        .on("mouseleave", function (_, d) {
-          if (!linkDragState.active) {
-            ringSelRef.current?.filter((r) => r.id === d.id).attr("opacity", 0);
-          }
-          hoverExitTimerRef.current = setTimeout(() => {
-            if (isHoveringPreviewRef.current) return;
-            nodeSelRef.current?.attr("fill-opacity", (n) => focusNodeId === n.id ? 1 : 0.85);
-            linkSelRef.current
-              ?.attr("stroke",         LINK_STROKE)
-              .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
-              .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1));
-            labelSelRef.current?.attr("opacity", (n) => focusNodeId === n.id ? 1 : 0);
-            setTooltip((prev: any) => ({ ...prev, visible: false }));
-            setHoveredNode(null);
-          }, 400);
-        })
-        .on("click", (event, d) => {
-          if (linkDragState.active) return;
-          event.stopPropagation();
-
-          if (event.ctrlKey || event.metaKey) {
-            // Ctrl/Cmd-click → open in new tab (unchanged)
-            openTab(d.id);
-            setActiveNote(d.id);
-            showToast(`Opened "${d.title}" in new tab`);
-          } else if (event.shiftKey) {
-            // Shift-click → focus/unfocus node in graph (unchanged)
-            setFocusNodeId((prev) => prev === d.id ? null : d.id);
-          } else {
-            // Single-click → open node detail panel (Tier 2 change)
-            // Clear any rubber-band selection when opening detail
-            onNodeClick(d);
-          }
-        })
-        .on("dblclick", (event, d) => {
-          // Double-click → open the note (was single-click before Tier 2)
-          event.stopPropagation();
-          if (linkDragState.active) return;
-          setActiveNote(d.id);
-          showToast(`Opening "${d.title}"…`);
-          setTimeout(() => handleClose(), 300);
-        })
-        .on("contextmenu", (event, d) => {
-          event.preventDefault();
-          onRequestDeleteNode(d.id, d.title);
+        .attr("stroke-width", (e) => {
+          const sid = e.sourceId;
+          const tid = e.targetId;
+          return sid === d.id || tid === d.id ? strokeWidthScale(e.weight ?? 1) + 0.5 : 0.5;
         });
-    }
+      labelSelRef.current?.attr("opacity", (n) =>
+        n.id === d.id || neighbourIds.has(n.id) ? 1 : 0);
+
+      const rect = containerRef.current!.getBoundingClientRect();
+      setTooltip({
+        visible: true,
+        x: event.clientX - rect.left + 14,
+        y: event.clientY - rect.top  - 14,
+        title: d.title, linkCount: d.linkCount,
+        tags: d.tags, createdAt: d.created_at,
+      });
+      setHoveredNode(d);
+    })
+    .on("mousemove", function (event) {
+      const rect = containerRef.current!.getBoundingClientRect();
+      setTooltip((prev: any) => ({
+        ...prev,
+        x: event.clientX - rect.left + 14,
+        y: event.clientY - rect.top  - 14,
+      }));
+    })
+    .on("mouseleave", function (_, d) {
+      if (!linkDragState.active) {
+        ringSelRef.current?.filter((r) => r.id === d.id).attr("opacity", 0);
+      }
+      hoverExitTimerRef.current = setTimeout(() => {
+        if (isHoveringPreviewRef.current) return;
+        nodeSelRef.current?.attr("fill-opacity", (n) => focusNodeId === n.id ? 1 : 0.85);
+        linkSelRef.current
+          ?.attr("stroke",         LINK_STROKE)
+          .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
+          .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1));
+        labelSelRef.current?.attr("opacity", (n) => focusNodeId === n.id ? 1 : 0);
+        setTooltip((prev: any) => ({ ...prev, visible: false }));
+        setHoveredNode(null);
+      }, 400);
+    })
+    .on("click", (event, d) => {
+      if (linkDragState.active) return;
+      event.stopPropagation();
+
+      // Triple-click → eject to real editor
+      if (event.detail === 3) {
+        setActiveNote(d.id);
+        showToast(`Opening "${d.title}"…`);
+        setTimeout(() => handleClose(), 300);
+        return;
+      }
+
+      if (event.ctrlKey || event.metaKey) {
+        openTab(d.id);
+        setActiveNote(d.id);
+        showToast(`Opened "${d.title}" in new tab`);
+      } else if (event.shiftKey) {
+        setFocusNodeId((prev) => prev === d.id ? null : d.id);
+      } else {
+        // Single-click → lock detail panel
+        onNodeClick(d);
+      }
+    })
+    .on("dblclick", (event, d) => {
+      // Double-click → inline rename (edit title in graph)
+      event.stopPropagation();
+      if (linkDragState.active) return;
+      showRenameInput(d, false);
+    })
+    .on("contextmenu", (event, d) => {
+      event.preventDefault();
+      onRequestDeleteNode(d.id, d.title);
+    });
+}
 
     attachNodeEvents(node);
 
