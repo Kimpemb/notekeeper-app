@@ -219,13 +219,13 @@ export function useGraphSimulation({
       ) as d3.Selection<SVGTextElement, GraphNode, SVGGElement, unknown>;
 
     linkSelRef.current = linkG
-      .selectAll<SVGLineElement, GraphEdge>("line")
-      .data(simEdgesRef.current)
-      .join(
-        (enter) => enter as unknown as d3.Selection<SVGLineElement, GraphEdge, SVGGElement, unknown>,
-        (update) => update,
-        (exit)   => exit.remove(),
-      ) as d3.Selection<SVGLineElement, GraphEdge, SVGGElement, unknown>;
+  .selectAll<SVGLineElement, GraphEdge>("line.visible")
+  .data(simEdgesRef.current)
+  .join(
+    (enter) => enter as unknown as d3.Selection<SVGLineElement, GraphEdge, SVGGElement, unknown>,
+    (update) => update,
+    (exit)   => exit.remove(),
+  ) as d3.Selection<SVGLineElement, GraphEdge, SVGGElement, unknown>;
 
     simRef.current?.nodes(simNodesRef.current);
     setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
@@ -248,13 +248,14 @@ export function useGraphSimulation({
     }
 
     // Step 2: rebind link selection — exit removes the deleted line
-    linkSelRef.current = linkG
-      .selectAll<SVGLineElement, GraphEdge>("line")
-      .data(simEdgesRef.current, (e) => {
-        const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string);
-        const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string);
-        return `${s}|${t}`;
-      })
+    // Step 2: rebind link selection — exit removes the deleted line
+linkSelRef.current = linkG
+  .selectAll<SVGLineElement, GraphEdge>("line.visible")
+  .data(simEdgesRef.current, (e) => {
+    const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string);
+    const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string);
+    return `${s}|${t}`;
+  })
       .join(
         (enter) => enter.append("line")
           .attr("stroke",         LINK_STROKE)
@@ -554,54 +555,66 @@ export function useGraphSimulation({
     });
 
     // ── Edges ─────────────────────────────────────────────────────────────
-    const linkG = g.append("g").attr("class", "edges");
-    linkGRef.current = linkG as any;
+const linkG = g.append("g").attr("class", "edges");
+linkGRef.current = linkG as any;
 
-    let link = linkG.selectAll<SVGLineElement, GraphEdge>("line")
-      .data(simEdges).join("line")
-      .attr("stroke",         LINK_STROKE)
-      .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
-      .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1))
-      // Wider invisible hit area so edges are easy to click
-      .style("cursor", "pointer");
+let link = linkG.selectAll<SVGLineElement, GraphEdge>("line.visible")
+  .data(simEdges).join(
+    (enter) => enter.append("line").attr("class", "visible"),
+    (update) => update,
+    (exit)   => exit.remove(),
+  )
+  .attr("stroke",         LINK_STROKE)
+  .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
+  .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1))
+  .attr("pointer-events", "none"); // hit target handles clicks
 
-    // Each line gets a transparent wider sibling for hit detection
-    linkG.selectAll<SVGLineElement, GraphEdge>("line")
-      .each(function () {
-        // Give the real line pointer-events so it's clickable
-      });
+let linkHit = linkG.selectAll<SVGLineElement, GraphEdge>("line.hit")
+  .data(simEdges).join(
+    (enter) => enter.append("line").attr("class", "hit"),
+    (update) => update,
+    (exit)   => exit.remove(),
+  )
+  .attr("stroke",       "transparent")
+  .attr("stroke-width", 12)
+  .attr("fill",         "none")
+  .style("cursor",      "pointer");
 
-    // Edge click — opens the edge panel
-    link.on("click", function (event, e) {
-      event.stopPropagation();
-      if (linkDragState.active) return;
+// Edge click — opens the edge panel via the wide hit target
+linkHit.on("click", function (event, e) {
+  event.stopPropagation();
+  if (linkDragState.active) return;
 
-      const transform = d3.zoomTransform(svgRef.current!);
-      const mid       = edgeMidpointScreen(e, transform);
-      // Offset by the container's bounding rect to get true screen coords
-      const rect      = containerRef.current!.getBoundingClientRect();
+  const transform = d3.zoomTransform(svgRef.current!);
+  const mid       = edgeMidpointScreen(e, transform);
+  const rect      = containerRef.current!.getBoundingClientRect();
 
-      // Highlight the clicked edge
-      link
-        .attr("stroke",       (d) => d === e ? LINK_STROKE_SEL : LINK_STROKE)
-        .attr("stroke-width", (d) => d === e ? strokeWidthScale(d.weight ?? 1) + 1 : strokeWidthScale(d.weight ?? 1));
+  // Highlight the clicked visible edge
+  link
+    .attr("stroke",       (d) => d === e ? LINK_STROKE_SEL : LINK_STROKE)
+    .attr("stroke-width", (d) => d === e ? strokeWidthScale(d.weight ?? 1) + 1 : strokeWidthScale(d.weight ?? 1));
 
-      onEdgeClick({
-        sourceId: e.sourceId,
-        targetId: e.targetId,
-        screenX:  mid.x + rect.left,
-        screenY:  mid.y + rect.top,
-      });
-    });
+  onEdgeClick({
+    sourceId: e.sourceId,
+    targetId: e.targetId,
+    screenX:  mid.x + rect.left,
+    screenY:  mid.y + rect.top,
+  });
+});
+
+linkSelRef.current = link as any;
 
     // Reset edge highlight when clicking elsewhere
     svg.on("click.edgereset", () => {
-      link
-        .attr("stroke",       LINK_STROKE)
-        .attr("stroke-width", (e) => strokeWidthScale(e.weight ?? 1));
-    });
+  link
+    .attr("stroke",       LINK_STROKE)
+    .attr("stroke-width", (e) => strokeWidthScale(e.weight ?? 1));
+});
 
     linkSelRef.current = link as any;
+
+    
+    
 
     // ── Suggestion edges ──────────────────────────────────────────────────
     const suggestionG = g.append("g").attr("class", "suggestion-edges");
@@ -1151,6 +1164,13 @@ export function useGraphSimulation({
           .attr("y1",  (e) => (e.source as GraphNode).y ?? 0)
           .attr("x2",  (e) => (e.target as GraphNode).x ?? 0)
           .attr("y2",  (e) => (e.target as GraphNode).y ?? 0);
+
+          linkHit
+    .attr("x1", (e) => (e.source as GraphNode).x ?? 0)
+    .attr("y1", (e) => (e.source as GraphNode).y ?? 0)
+    .attr("x2", (e) => (e.target as GraphNode).x ?? 0)
+    .attr("y2", (e) => (e.target as GraphNode).y ?? 0);
+    
         nodeSelRef.current?.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
         ringSelRef.current?.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
         labelSelRef.current?.attr("x", (d) => d.x ?? 0).attr("y", (d) => d.y ?? 0);
