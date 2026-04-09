@@ -1,12 +1,4 @@
 // src/features/graph/useGraphData.ts
-// Loads graph data once on mount. No auto-refresh — the graph manages
-// its own state after initial load via simNodesRef / simEdgesRef.
-//
-// patchData exposes two imperative updaters that GraphView calls after a
-// successful createNodeAt / createLink so that `data` (and therefore
-// visibleNodes / visibleEdges) stays consistent with the live simulation
-// state — without triggering a full DB reload or a D3 rebuild.
-
 import { useState, useEffect, useCallback } from "react";
 import { getAllNotes, getAllBacklinks } from "@/features/notes/db/queries";
 import type { GraphData, GraphNode, GraphEdge } from "./graphTypes";
@@ -22,6 +14,7 @@ interface UseGraphDataResult {
     addEdge: (edge: GraphEdge) => void;
     updateNodeTitle: (nodeId: string, title: string) => void;
     removeNode: (nodeId: string) => void;
+    removeEdge: (sourceId: string, targetId: string) => void;  // ← added
   };
 }
 
@@ -32,7 +25,6 @@ export function useGraphData(): UseGraphDataResult {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [tick, setTick]               = useState(0);
 
-  // Manual refresh only — no auto-refresh on store changes
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
@@ -76,9 +68,10 @@ export function useGraphData(): UseGraphDataResult {
           edgeWeights.set(key, (edgeWeights.get(key) ?? 0) + 1);
         }
 
+        // ← sourceId and targetId included so GraphEdge is fully satisfied
         const edges: GraphEdge[] = Array.from(edgeWeights.entries()).map(([key, weight]) => {
           const [source, target] = key.split("__");
-          return { source, target, weight };
+          return { source, target, sourceId: source, targetId: target, weight };
         });
 
         setData({ nodes, edges });
@@ -93,25 +86,6 @@ export function useGraphData(): UseGraphDataResult {
     load();
     return () => { cancelled = true; };
   }, [tick]);
-
-  // ── Imperative patch helpers ─────────────────────────────────────────────
-  //
-  // These let GraphView push newly created nodes/edges into `data` immediately
-  // after the graph edit hooks succeed — keeping the data layer in sync with
-  // simNodesRef/simEdgesRef without a full DB reload.
-  //
-  // addNode: called after createNodeAt commits a title (renameNode), because
-  //   that's the moment we know the final title and can safely add to data.
-  //   Guarded so calling it twice for the same id (edge case) is a no-op.
-  //
-  // addEdge: called after createLink succeeds. Increments linkCount on both
-  //   endpoint nodes so visibleNodes / neighbourhood calculations are correct.
-  //
-  // updateNodeTitle: called from renameNode for plain renames (not creations)
-  //   so data.nodes stays in sync with what the sidebar and focused mode see.
-  //
-  // removeNode: called after deleteNode so focused-mode neighbourhood and
-  //   full-graph data both drop the deleted node immediately.
 
   const addNode = useCallback((node: GraphNode) => {
     setData((prev) => {
@@ -132,7 +106,6 @@ export function useGraphData(): UseGraphDataResult {
         ? (edge.target as GraphNode).id
         : edge.target as string;
 
-      // Deduplicate — if edge already in data (shouldn't be, but guard anyway)
       const edgeKey = (s: string, t: string) =>
         s < t ? `${s}|${t}` : `${t}|${s}`;
       const existingKeys = new Set(
@@ -153,7 +126,14 @@ export function useGraphData(): UseGraphDataResult {
 
       return {
         nodes: updatedNodes,
-        edges: [...prev.edges, { source: sourceId, target: targetId, weight: edge.weight ?? 1 }],
+        // ← sourceId and targetId included here too
+        edges: [...prev.edges, {
+          source:   sourceId,
+          target:   targetId,
+          sourceId: sourceId,
+          targetId: targetId,
+          weight:   edge.weight ?? 1,
+        }],
       };
     });
   }, []);
@@ -182,12 +162,40 @@ export function useGraphData(): UseGraphDataResult {
     });
   }, []);
 
+  // ← moved inside the function body, now a proper useCallback
+  const removeEdge = useCallback((sourceId: string, targetId: string) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        edges: prev.edges.filter((e) => {
+          const sid = typeof e.source === "object"
+            ? (e.source as GraphNode).id
+            : e.source as string;
+          const tid = typeof e.target === "object"
+            ? (e.target as GraphNode).id
+            : e.target as string;
+          return !(
+            (sid === sourceId && tid === targetId) ||
+            (sid === targetId && tid === sourceId)
+          );
+        }),
+        nodes: prev.nodes.map((n) => {
+          if (n.id === sourceId || n.id === targetId) {
+            return { ...n, linkCount: Math.max(0, n.linkCount - 1) };
+          }
+          return n;
+        }),
+      };
+    });
+  }, []);
+
   return {
     data,
     isLoading,
     error,
     refresh,
     lastUpdated,
-    patchData: { addNode, addEdge, updateNodeTitle, removeNode },
+    patchData: { addNode, addEdge, updateNodeTitle, removeNode, removeEdge },
   };
 }

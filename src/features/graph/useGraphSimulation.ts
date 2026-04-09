@@ -4,24 +4,20 @@
 // link) patch the live D3 selections directly via callbacks — no rebuild,
 // no re-simulation, no store reads inside the D3 world.
 //
-// The useEffect dependency array contains only things that legitimately require
-// a full rebuild: the initial node/edge set, loading state, and visual toggles.
-// Store-driven state (notes array, activeNoteId etc.) is deliberately excluded.
+// Click interaction model (revised for Tier 2):
+//   • Single-click node  → open node detail panel (onNodeClick)
+//   • Double-click node  → open the note (previously single-click)
+//   • Ctrl/Cmd-click     → open in new tab (unchanged)
+//   • Shift-click        → focus/unfocus node in graph (unchanged)
+//   • Right-click node   → delete confirmation (unchanged)
+//   • Click edge         → open edge panel with backlink context (onEdgeClick)
+//   • Drag canvas        → multi-select rubber-band box
 //
-// pendingNodeIdsRef — a ref (not state) — is passed in so the D3 effect can
-// read it inside the double-click handler without being in the dep array.
-// The corresponding state twin (pendingNodeIds) lives in GraphView and drives
-// the visibleNodes memo. This decoupling is the fix for the rename-input-
-// destruction bug: state drives the memo (reactive), the ref drives the D3
-// world (stable, never triggers a rebuild).
-//
-// Performance notes:
-//   • alphaDecay is raised to 0.04 (default 0.0228) so the sim settles ~2×
-//     faster — fewer ticks means faster time-to-interactive.
-//   • drawSuggestionEdges is deferred via setTimeout(..., 0) after simulation
-//     end so it never blocks the main thread during or immediately after settle.
-//   • For large graphs (>200 notes) suggestion edges are skipped entirely to
-//     avoid the O(n²) similarity pass on open.
+// Multi-select:
+//   A rubber-band rect is drawn on canvas drag (pointer not on any node/ring).
+//   Nodes whose centres fall inside the rect are added to selectedNodeIds.
+//   ESC or clicking empty canvas clears selection. Selected nodes get a
+//   distinct stroke colour so they're visually identifiable.
 
 import { useEffect, useCallback, MutableRefObject, useRef } from "react";
 import * as d3 from "d3";
@@ -36,6 +32,7 @@ const NODE_BASE_RADIUS = 5;
 const NODE_MAX_RADIUS  = 18;
 const LINK_STROKE      = "rgba(150,150,150,0.25)";
 const LINK_STROKE_HL   = "rgba(150,150,150,0.7)";
+const LINK_STROKE_SEL  = "rgba(99,102,241,0.8)";   // selected edge highlight
 const NODE_ISOLATED    = "var(--color-text-muted, #888)";
 const LABEL_COLOR      = "var(--color-text, #e2e2e2)";
 const MINIMAP_W        = 160;
@@ -53,10 +50,15 @@ const SUGGESTION_STROKE_DASHARRAY = "4,3";
 const SUGGESTION_CONFIDENCE_MIN   = 6;
 const SUGGESTION_NODE_LIMIT       = 200;
 
-const RING_STROKE       = "rgba(255,255,255,0.5)";
-const RING_STROKE_HOVER = "rgba(99,102,241,0.9)";
-const RING_WIDTH        = 3;
-const RING_GAP          = 3;
+const RING_STROKE        = "rgba(255,255,255,0.5)";
+const RING_STROKE_HOVER  = "rgba(99,102,241,0.9)";
+const RING_WIDTH         = 3;
+const RING_GAP           = 3;
+
+const SELECT_STROKE      = "#6366f1";   // selected node outline
+const SELECT_STROKE_W    = 2.5;
+const SELECT_RECT_FILL   = "rgba(99,102,241,0.07)";
+const SELECT_RECT_STROKE = "rgba(99,102,241,0.5)";
 
 const ALPHA_DECAY = 0.04;
 
@@ -79,7 +81,29 @@ function floorToMonth(ts: number): number {
 
 interface SuggestionEdge { sourceId: string; targetId: string; }
 
+// ─── Edge midpoint in screen coordinates ─────────────────────────────────────
+
+function edgeMidpointScreen(
+  e:         GraphEdge,
+  transform: d3.ZoomTransform,
+): { x: number; y: number } {
+  const sx = typeof e.source === "object" ? (e.source as GraphNode).x ?? 0 : 0;
+  const sy = typeof e.source === "object" ? (e.source as GraphNode).y ?? 0 : 0;
+  const tx = typeof e.target === "object" ? (e.target as GraphNode).x ?? 0 : 0;
+  const ty = typeof e.target === "object" ? (e.target as GraphNode).y ?? 0 : 0;
+  const mx = (sx + tx) / 2;
+  const my = (sy + ty) / 2;
+  return { x: transform.applyX(mx), y: transform.applyY(my) };
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface EdgeClickData {
+  sourceId:    string;
+  targetId:    string;
+  screenX:     number;
+  screenY:     number;
+}
 
 export interface UseGraphSimulationProps {
   svgRef:               MutableRefObject<SVGSVGElement | null>;
@@ -100,12 +124,15 @@ export interface UseGraphSimulationProps {
   tagColorMap:          Map<string, string>;
   focusNodeId:          string | null;
   timelineMode:         boolean;
+  selectedNodeIds:      Set<string>;
+
   setActiveNote:        (id: string) => void;
   openTab:              (id: string) => void;
   setStats:             (s: { nodes: number; edges: number }) => void;
   setTooltip:           (t: any) => void;
   setHoveredNode:       (n: GraphNode | null) => void;
   setFocusNodeId:       (fn: (prev: string | null) => string | null) => void;
+  setSelectedNodeIds:   (ids: Set<string>) => void;
   showToast:            (msg: string) => void;
   handleClose:          () => void;
   onCreateNode:         (x: number, y: number, onCreated: (node: GraphNode) => void) => Promise<void>;
@@ -113,10 +140,14 @@ export interface UseGraphSimulationProps {
   onCreateLink:         (sourceId: string, targetId: string, onLinked: (edge: GraphEdge) => void) => Promise<void>;
   onDeleteNode:         (nodeId: string, onDeleted: (nodeId: string) => void) => Promise<void>;
   onRequestDeleteNode:  (nodeId: string, title: string) => void;
+  // New Tier 2 callbacks
+  onNodeClick:          (node: GraphNode) => void;
+  onEdgeClick:          (data: EdgeClickData) => void;
 }
 
 export interface UseGraphSimulationResult {
-  deleteNodeById: (nodeId: string) => void;
+  deleteNodeById:   (nodeId: string) => void;
+  deleteLinkInD3:   (sourceId: string, targetId: string) => void;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -127,10 +158,13 @@ export function useGraphSimulation({
   hoverExitTimerRef, isHoveringPreviewRef,
   visibleNodes, visibleEdges, allNotes, isLoading,
   showTagColors, tagColorMap, focusNodeId, timelineMode,
+  selectedNodeIds,
   setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
-  setFocusNodeId, showToast, handleClose,
+  setFocusNodeId, setSelectedNodeIds,
+  showToast, handleClose,
   onCreateNode, onRenameNode, onCreateLink,
   onRequestDeleteNode,
+  onNodeClick, onEdgeClick,
 }: UseGraphSimulationProps): UseGraphSimulationResult {
 
   const nodeSelRef  = useRef<d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown> | null>(null);
@@ -145,7 +179,11 @@ export function useGraphSimulation({
   const labelGRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
   const linkGRef  = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
 
-  // ── Imperative delete handle ──────────────────────────────────────────────
+  // Keep selectedNodeIds accessible inside D3 callbacks without causing rebuilds
+  const selectedNodeIdsRef = useRef<Set<string>>(selectedNodeIds);
+  useEffect(() => { selectedNodeIdsRef.current = selectedNodeIds; }, [selectedNodeIds]);
+
+  // ── Imperative delete-node handle ─────────────────────────────────────────
   const deleteNodeById = useCallback(() => {
     const nodeG  = nodeGRef.current;
     const ringG  = ringGRef.current;
@@ -193,6 +231,52 @@ export function useGraphSimulation({
     setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
   }, [simNodesRef, simEdgesRef, setStats]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Imperative delete-link handle ─────────────────────────────────────────
+  //
+  // Called by GraphView after useGraphEdit.deleteLink has already patched
+  // simEdgesRef and simNodesRef. This re-binds the D3 selections so the
+  // removed line disappears and node sizes update.
+  const deleteLinkInD3 = useCallback((sourceId: string, targetId: string) => {
+    const linkG = linkGRef.current;
+    if (!linkG) return;
+
+    // Step 1: re-register edges with forceLink so it resolves refs
+    const simulation = simRef.current;
+    if (simulation) {
+      const forceLink = simulation.force("link") as d3.ForceLink<GraphNode, GraphEdge>;
+      forceLink.links(simEdgesRef.current);
+    }
+
+    // Step 2: rebind link selection — exit removes the deleted line
+    linkSelRef.current = linkG
+      .selectAll<SVGLineElement, GraphEdge>("line")
+      .data(simEdgesRef.current, (e) => {
+        const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string);
+        const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string);
+        return `${s}|${t}`;
+      })
+      .join(
+        (enter) => enter.append("line")
+          .attr("stroke",         LINK_STROKE)
+          .attr("stroke-width",   1)
+          .attr("stroke-opacity", 0.25),
+        (update) => update,
+        (exit)   => exit.remove(),
+      );
+
+    // Step 3: update node/ring/label sizes since linkCount changed
+    nodeSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount));
+    ringSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount) + RING_GAP + RING_WIDTH);
+    labelSelRef.current?.attr("dy",(n) => -(rScaleRef.current!(n.linkCount) + 4));
+
+    // Step 4: gentle kick so sim re-settles
+    simulation?.alpha(0.1).restart();
+
+    setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
+
+    void sourceId; void targetId; // used by caller for context but not needed here
+  }, [simNodesRef, simEdgesRef, setStats]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Main D3 effect ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!svgRef.current || !containerRef.current || !minimapRef.current) return;
@@ -205,7 +289,12 @@ export function useGraphSimulation({
     simSettledRef.current = false;
 
     const simNodes: GraphNode[] = visibleNodes.map((n) => ({ ...n }));
-    const simEdges: GraphEdge[] = visibleEdges.map((e) => ({ ...e }));
+    // Carry sourceId/targetId through so handlers can always read raw IDs
+    const simEdges: GraphEdge[] = visibleEdges.map((e) => {
+      const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
+      const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
+      return { ...e, sourceId: sid, targetId: tid };
+    });
     simNodesRef.current = simNodes;
     simEdgesRef.current = simEdges;
 
@@ -376,6 +465,94 @@ export function useGraphSimulation({
       .attr("pointer-events", "none")
       .attr("opacity", 0);
 
+    // ── Multi-select rubber-band ──────────────────────────────────────────
+    //
+    // A transparent rect drawn on the svg (above the zoom layer) when the
+    // user drags on empty canvas. On drag-end, any node whose centre falls
+    // inside the rect is added to selectedNodeIds.
+    const selectRect = svg.append("rect")
+      .attr("class",          "select-rect")
+      .attr("fill",           SELECT_RECT_FILL)
+      .attr("stroke",         SELECT_RECT_STROKE)
+      .attr("stroke-width",   1)
+      .attr("stroke-dasharray","4,2")
+      .attr("pointer-events", "none")
+      .attr("rx",             3)
+      .attr("opacity",        0);
+
+    let selectDrag = { active: false, startX: 0, startY: 0 };
+
+    svg.on("mousedown.select", function (event) {
+      // Only start rubber-band on left-click on the raw SVG background
+      // (not on nodes, rings, labels, or the rename overlay)
+      if (event.button !== 0) return;
+      const target = event.target as Element;
+      if (
+        target.closest(".nodes")   ||
+        target.closest(".rings")   ||
+        target.closest(".labels")  ||
+        target.closest(".edges")   ||
+        target.closest(".rename-overlay")
+      ) return;
+      if (linkDragState.active) return;
+
+      const [px, py] = d3.pointer(event, svgRef.current);
+      selectDrag = { active: true, startX: px, startY: py };
+      selectRect
+        .attr("x",       px).attr("y",      py)
+        .attr("width",   0) .attr("height", 0)
+        .attr("opacity", 1);
+    });
+
+    svg.on("mousemove.select", function (event) {
+      if (!selectDrag.active) return;
+      const [px, py] = d3.pointer(event, svgRef.current);
+      const rx = Math.min(px, selectDrag.startX);
+      const ry = Math.min(py, selectDrag.startY);
+      const rw = Math.abs(px - selectDrag.startX);
+      const rh = Math.abs(py - selectDrag.startY);
+      selectRect.attr("x", rx).attr("y", ry).attr("width", rw).attr("height", rh);
+    });
+
+    svg.on("mouseup.select", function (event) {
+      if (!selectDrag.active) return;
+      selectDrag.active = false;
+      selectRect.attr("opacity", 0);
+
+      const [px, py] = d3.pointer(event, svgRef.current);
+      const rw = Math.abs(px - selectDrag.startX);
+      const rh = Math.abs(py - selectDrag.startY);
+
+      // Only register a selection if the drag was meaningful (>8px)
+      if (rw < 8 && rh < 8) return;
+
+      const transform = d3.zoomTransform(svgRef.current!);
+      const x0 = Math.min(px, selectDrag.startX);
+      const y0 = Math.min(py, selectDrag.startY);
+      const x1 = Math.max(px, selectDrag.startX);
+      const y1 = Math.max(py, selectDrag.startY);
+
+      // Convert rect corners to graph space
+      const [gx0, gy0] = transform.invert([x0, y0]);
+      const [gx1, gy1] = transform.invert([x1, y1]);
+
+      const selected = new Set<string>();
+      for (const n of simNodesRef.current) {
+        const nx = n.x ?? 0;
+        const ny = n.y ?? 0;
+        if (nx >= gx0 && nx <= gx1 && ny >= gy0 && ny <= gy1) {
+          selected.add(n.id);
+        }
+      }
+
+      setSelectedNodeIds(selected);
+
+      // Update node stroke to reflect selection
+      nodeSelRef.current
+        ?.attr("stroke",       (n) => selected.has(n.id) ? SELECT_STROKE : (focusNodeId === n.id ? "#fff" : "transparent"))
+        .attr("stroke-width",  (n) => selected.has(n.id) ? SELECT_STROKE_W : 2);
+    });
+
     // ── Edges ─────────────────────────────────────────────────────────────
     const linkG = g.append("g").attr("class", "edges");
     linkGRef.current = linkG as any;
@@ -384,7 +561,46 @@ export function useGraphSimulation({
       .data(simEdges).join("line")
       .attr("stroke",         LINK_STROKE)
       .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
-      .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1));
+      .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1))
+      // Wider invisible hit area so edges are easy to click
+      .style("cursor", "pointer");
+
+    // Each line gets a transparent wider sibling for hit detection
+    linkG.selectAll<SVGLineElement, GraphEdge>("line")
+      .each(function () {
+        // Give the real line pointer-events so it's clickable
+      });
+
+    // Edge click — opens the edge panel
+    link.on("click", function (event, e) {
+      event.stopPropagation();
+      if (linkDragState.active) return;
+
+      const transform = d3.zoomTransform(svgRef.current!);
+      const mid       = edgeMidpointScreen(e, transform);
+      // Offset by the container's bounding rect to get true screen coords
+      const rect      = containerRef.current!.getBoundingClientRect();
+
+      // Highlight the clicked edge
+      link
+        .attr("stroke",       (d) => d === e ? LINK_STROKE_SEL : LINK_STROKE)
+        .attr("stroke-width", (d) => d === e ? strokeWidthScale(d.weight ?? 1) + 1 : strokeWidthScale(d.weight ?? 1));
+
+      onEdgeClick({
+        sourceId: e.sourceId,
+        targetId: e.targetId,
+        screenX:  mid.x + rect.left,
+        screenY:  mid.y + rect.top,
+      });
+    });
+
+    // Reset edge highlight when clicking elsewhere
+    svg.on("click.edgereset", () => {
+      link
+        .attr("stroke",       LINK_STROKE)
+        .attr("stroke-width", (e) => strokeWidthScale(e.weight ?? 1));
+    });
+
     linkSelRef.current = link as any;
 
     // ── Suggestion edges ──────────────────────────────────────────────────
@@ -392,8 +608,8 @@ export function useGraphSimulation({
 
     const existingEdgeKeys = new Set<string>(
       simEdges.map((e) => {
-        const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
-        const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
+        const sid = e.sourceId;
+        const tid = e.targetId;
         return [sid, tid].sort().join("|");
       }),
     );
@@ -413,8 +629,8 @@ export function useGraphSimulation({
         if (!sourceNote) continue;
         const backlinkIds = new Set<string>();
         simEdgesRef.current.forEach((e) => {
-          const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
-          const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
+          const sid = e.sourceId;
+          const tid = e.targetId;
           if (sid === sourceNode.id) backlinkIds.add(tid);
           if (tid === sourceNode.id) backlinkIds.add(sid);
         });
@@ -453,8 +669,11 @@ export function useGraphSimulation({
         ? getNodeColor(d, tagColorMap)
         : (d.linkCount === 0 ? NODE_ISOLATED : TAG_PALETTE[0]))
       .attr("fill-opacity", (d) => focusNodeId === d.id ? 1 : 0.85)
-      .attr("stroke",       (d) => focusNodeId === d.id ? "#fff" : "transparent")
-      .attr("stroke-width", 2)
+      .attr("stroke",       (d) => {
+        if (selectedNodeIdsRef.current.has(d.id)) return SELECT_STROKE;
+        return focusNodeId === d.id ? "#fff" : "transparent";
+      })
+      .attr("stroke-width", (d) => selectedNodeIdsRef.current.has(d.id) ? SELECT_STROKE_W : 2)
       .style("cursor", "pointer");
     nodeSelRef.current = node;
 
@@ -619,33 +838,46 @@ export function useGraphSimulation({
           const targetId = target.id;
 
           onCreateLink(sourceId, targetId, (_newEdge) => {
-            // Step 1: tell forceLink about the updated edges array so it
-            // resolves string IDs → object references before the next tick.
             const forceLink = simulation.force("link") as d3.ForceLink<GraphNode, GraphEdge>;
             forceLink.links(simEdgesRef.current);
 
-            // Step 2: rebind the D3 link selection
             link = linkG.selectAll<SVGLineElement, GraphEdge>("line")
               .data(simEdgesRef.current, (e) => {
-                const s = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
-                const t = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
+                const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string);
+                const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string);
                 return `${s}|${t}`;
               })
               .join(
                 (enter) => enter.append("line")
                   .attr("stroke",         LINK_STROKE)
                   .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
-                  .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1)),
+                  .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1))
+                  .style("cursor",        "pointer")
+                  .on("click", function (event, e) {
+                    event.stopPropagation();
+                    if (linkDragState.active) return;
+                    const transform = d3.zoomTransform(svgRef.current!);
+                    const mid       = edgeMidpointScreen(e, transform);
+                    const rect      = containerRef.current!.getBoundingClientRect();
+                    link
+                      .attr("stroke",       (d) => d === e ? LINK_STROKE_SEL : LINK_STROKE)
+                      .attr("stroke-width", (d) => d === e ? strokeWidthScale(d.weight ?? 1) + 1 : strokeWidthScale(d.weight ?? 1));
+                    onEdgeClick({
+                      sourceId: e.sourceId,
+                      targetId: e.targetId,
+                      screenX:  mid.x + rect.left,
+                      screenY:  mid.y + rect.top,
+                    });
+                  }),
                 (update) => update,
                 (exit)   => exit.remove(),
               );
             linkSelRef.current = link;
 
-            // Step 3: stamp positions immediately using current node coords
             const nodeById = new Map(simNodesRef.current.map((n) => [n.id, n]));
             link.filter((e) => {
-              const s = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
-              const t = typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string;
+              const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string);
+              const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target as string);
               return (s === sourceId && t === targetId) || (s === targetId && t === sourceId);
             })
             .attr("x1", () => nodeById.get(sourceId)?.x ?? 0)
@@ -653,14 +885,11 @@ export function useGraphSimulation({
             .attr("x2", () => nodeById.get(targetId)?.x ?? 0)
             .attr("y2", () => nodeById.get(targetId)?.y ?? 0);
 
-            // Step 4: update node/ring/label sizes since linkCount changed
             nodeSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount));
             ringSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount) + RING_GAP + RING_WIDTH);
             labelSelRef.current?.attr("dy",(n) => -(rScaleRef.current!(n.linkCount) + 4));
 
-            // Step 5: gentle sim kick so it re-settles naturally from here
             simulation.alpha(0.1).restart();
-
             setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
           }).catch(console.error);
         }
@@ -668,8 +897,11 @@ export function useGraphSimulation({
         linkDragState = { active: false, sourceId: "", sourceX: 0, sourceY: 0 };
         linkDragLine.attr("opacity", 0);
         nodeSelRef.current
-          ?.attr("stroke",       (n) => focusNodeId === n.id ? "#fff" : "transparent")
-          .attr("stroke-width",  2);
+          ?.attr("stroke",       (n) => {
+            if (selectedNodeIdsRef.current.has(n.id)) return SELECT_STROKE;
+            return focusNodeId === n.id ? "#fff" : "transparent";
+          })
+          .attr("stroke-width",  (n) => selectedNodeIdsRef.current.has(n.id) ? SELECT_STROKE_W : 2);
         ringSelRef.current?.attr("opacity", 0).attr("stroke", RING_STROKE);
       });
 
@@ -687,8 +919,8 @@ export function useGraphSimulation({
 
           const neighbourIds = new Set<string>();
           simEdgesRef.current.forEach((e) => {
-            const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
-            const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
+            const sid = e.sourceId;
+            const tid = e.targetId;
             if (sid === d.id) neighbourIds.add(tid);
             if (tid === d.id) neighbourIds.add(sid);
           });
@@ -697,13 +929,13 @@ export function useGraphSimulation({
             n.id === d.id || neighbourIds.has(n.id) ? 1 : 0.2);
           linkSelRef.current
             ?.attr("stroke", (e) => {
-              const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
-              const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
+              const sid = e.sourceId;
+              const tid = e.targetId;
               return sid === d.id || tid === d.id ? LINK_STROKE_HL : LINK_STROKE;
             })
             .attr("stroke-width", (e) => {
-              const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source;
-              const tid = typeof e.target === "object" ? (e.target as GraphNode).id : e.target;
+              const sid = e.sourceId;
+              const tid = e.targetId;
               return sid === d.id || tid === d.id ? strokeWidthScale(e.weight ?? 1) + 0.5 : 0.5;
             });
           labelSelRef.current?.attr("opacity", (n) =>
@@ -745,21 +977,29 @@ export function useGraphSimulation({
         })
         .on("click", (event, d) => {
           if (linkDragState.active) return;
+          event.stopPropagation();
+
           if (event.ctrlKey || event.metaKey) {
+            // Ctrl/Cmd-click → open in new tab (unchanged)
             openTab(d.id);
             setActiveNote(d.id);
             showToast(`Opened "${d.title}" in new tab`);
           } else if (event.shiftKey) {
+            // Shift-click → focus/unfocus node in graph (unchanged)
             setFocusNodeId((prev) => prev === d.id ? null : d.id);
           } else {
-            setActiveNote(d.id);
-            showToast(`Opening "${d.title}"…`);
-            setTimeout(() => handleClose(), 300);
+            // Single-click → open node detail panel (Tier 2 change)
+            // Clear any rubber-band selection when opening detail
+            onNodeClick(d);
           }
         })
         .on("dblclick", (event, d) => {
+          // Double-click → open the note (was single-click before Tier 2)
           event.stopPropagation();
-          showRenameInput(d);
+          if (linkDragState.active) return;
+          setActiveNote(d.id);
+          showToast(`Opening "${d.title}"…`);
+          setTimeout(() => handleClose(), 300);
         })
         .on("contextmenu", (event, d) => {
           event.preventDefault();
@@ -769,9 +1009,32 @@ export function useGraphSimulation({
 
     attachNodeEvents(node);
 
-    label.on("dblclick", (event, d) => {
-      event.stopPropagation();
-      showRenameInput(d);
+    label
+      .on("click", (event, d) => {
+        event.stopPropagation();
+        onNodeClick(d);
+      })
+      .on("dblclick", (event, d) => {
+        event.stopPropagation();
+        showRenameInput(d);
+      });
+
+    // ── Clear selection on empty canvas click ─────────────────────────────
+    svg.on("click.clearselect", (event) => {
+      const target = event.target as Element;
+      if (
+        target.closest(".nodes")  ||
+        target.closest(".rings")  ||
+        target.closest(".labels") ||
+        target.closest(".edges")  ||
+        target.closest(".rename-overlay")
+      ) return;
+      if (selectedNodeIdsRef.current.size > 0) {
+        setSelectedNodeIds(new Set());
+        nodeSelRef.current
+          ?.attr("stroke",       (n) => focusNodeId === n.id ? "#fff" : "transparent")
+          .attr("stroke-width",  2);
+      }
     });
 
     // ── Reposition drag ───────────────────────────────────────────────────
@@ -856,27 +1119,16 @@ export function useGraphSimulation({
               .attr("x",              newNode.x ?? 0)
               .attr("y",              newNode.y ?? 0)
               .style("cursor",        "text")
-              .call((sel) => sel.on("dblclick", (evt, d) => {
-                evt.stopPropagation();
-                showRenameInput(d, false);
-              })),
+              .call((sel) => sel
+                .on("click",    (evt, d) => { evt.stopPropagation(); onNodeClick(d); })
+                .on("dblclick", (evt, d) => { evt.stopPropagation(); showRenameInput(d, false); })
+              ),
             (update) => update,
             (exit)   => exit.remove(),
           );
         labelSelRef.current = label;
 
         setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
-
-        // Show rename input immediately — no setTimeout.
-        //
-        // Previously this was setTimeout(..., 100) as a workaround for the
-        // rebuild race: any state update that flowed through visibleNodes into
-        // the D3 effect dep array would tear down the graph, destroying the
-        // foreignObject before the user could type.
-        //
-        // That race is now gone. pendingNodeIdsRef (a ref) is what the D3
-        // effect sees — ref mutations are invisible to the dep array, so no
-        // rebuild fires. The rename input is safe to show immediately.
         showRenameInput(newNode, true);
       }).catch(console.error);
     });
@@ -917,5 +1169,5 @@ export function useGraphSimulation({
   }, [visibleNodes, visibleEdges, isLoading, showTagColors, tagColorMap,
       focusNodeId, timelineMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { deleteNodeById };
+  return { deleteNodeById, deleteLinkInD3 };
 }

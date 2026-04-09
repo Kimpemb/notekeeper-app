@@ -1,4 +1,4 @@
-// src/features/graph/useGraphEdit.ts - BACK TO BASICS
+// src/features/graph/useGraphEdit.ts
 
 import { useCallback } from "react";
 import {
@@ -48,9 +48,7 @@ export function useGraphEdit({
       // The store is updated in renameNode once the user commits a title.
       simNodesRef.current = [...simNodesRef.current, newNode];
 
-      // Let D3 patch the DOM
       onCreated(newNode);
-
       showToast(`Created "${note.title}"`);
     } catch (err) {
       showToast("Failed to create note");
@@ -100,8 +98,6 @@ export function useGraphEdit({
       const updated = await getNoteById(nodeId);
       if (updated) {
         useNoteStore.setState((state) => {
-          // If it already exists in the store (plain rename, not fresh
-          // creation), update in place rather than duplicating.
           const exists = state.notes.some((n) => n.id === nodeId);
           return {
             notes: exists
@@ -129,14 +125,6 @@ export function useGraphEdit({
       ]);
       if (!sourceNote || !targetNote) return;
 
-      // FIX 2: Normalize source/target to plain string IDs before storing in
-      // simEdgesRef. After forceLink runs D3 mutates edge source/target into
-      // object references. The join key-function in the onLinked callback
-      // reads those objects and produces keys like "abc|xyz" from .id — but
-      // if we stored raw strings AND D3 hasn't resolved them yet the keys
-      // won't match, the enter selection stays empty, and no line is drawn.
-      // Storing the plain IDs upfront keeps the key function consistent
-      // regardless of whether D3 has resolved the references yet.
       const normalizedSource = typeof sourceId === "object"
         ? (sourceId as unknown as GraphNode).id
         : sourceId;
@@ -145,9 +133,11 @@ export function useGraphEdit({
         : targetId;
 
       const newEdge: GraphEdge = {
-        source: normalizedSource,
-        target: normalizedTarget,
-        weight: 1,
+        source:   normalizedSource,
+        target:   normalizedTarget,
+        sourceId: normalizedSource,
+        targetId: normalizedTarget,
+        weight:   1,
       };
 
       simEdgesRef.current = [...simEdgesRef.current, newEdge];
@@ -160,7 +150,7 @@ export function useGraphEdit({
 
       onLinked(newEdge);
 
-      // Update source note content
+      // Append a [[noteLink]] paragraph to the source note's TipTap document
       let doc: any;
       try { doc = JSON.parse(sourceNote.content ?? "{}"); } catch { doc = { content: [] }; }
 
@@ -173,7 +163,7 @@ export function useGraphEdit({
       ];
 
       await dbUpdateNote(sourceId, {
-        content: JSON.stringify(doc),
+        content:   JSON.stringify(doc),
         plaintext: (sourceNote.plaintext ?? "") + `\n${targetNote.title}`,
       });
 
@@ -192,5 +182,90 @@ export function useGraphEdit({
     }
   }, [simEdgesRef, simNodesRef, showToast]);
 
-  return { createNodeAt, deleteNode, renameNode, createLink };
+  // ── Delete a link between two notes ──────────────────────────────────────
+  //
+  // Removes the [[noteLink]] node referencing targetId from the source note's
+  // TipTap JSON content, re-syncs backlinks, patches simEdgesRef and
+  // simNodesRef, then calls onDeleted so the D3 caller can rebind selections.
+  const deleteLink = useCallback(async (
+    sourceId: string,
+    targetId: string,
+    onDeleted: (sourceId: string, targetId: string) => void,
+  ) => {
+    try {
+      const sourceNote = await getNoteById(sourceId);
+      if (!sourceNote) return;
+
+      // Walk the TipTap JSON and strip every noteLink pointing to targetId
+      let doc: any;
+      try { doc = JSON.parse(sourceNote.content ?? "{}"); } catch { doc = { content: [] }; }
+
+      function stripNoteLinks(nodes: any[]): any[] {
+        return nodes
+          .filter((node) => {
+            // Remove noteLink nodes that reference this target
+            if (node.type === "noteLink" && node.attrs?.id === targetId) return false;
+            return true;
+          })
+          .map((node) => {
+            if (node.content && Array.isArray(node.content)) {
+              return { ...node, content: stripNoteLinks(node.content) };
+            }
+            return node;
+          });
+      }
+
+      doc.content = stripNoteLinks(doc.content ?? []);
+
+      // Rebuild plaintext by walking the cleaned doc
+      function extractText(nodes: any[]): string {
+        return nodes.map((n) => {
+          if (n.type === "text")     return n.text ?? "";
+          if (n.type === "noteLink") return n.attrs?.label ?? "";
+          if (n.content && Array.isArray(n.content)) return extractText(n.content);
+          return "";
+        }).join(" ");
+      }
+      const newPlaintext = extractText(doc.content ?? []);
+
+      await dbUpdateNote(sourceId, {
+        content:   JSON.stringify(doc),
+        plaintext: newPlaintext,
+      });
+
+      // Patch sim state before calling onDeleted
+      simEdgesRef.current = simEdgesRef.current.filter(e => {
+        const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source);
+        const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target);
+        // Remove in both directions — the graph is visually undirected
+        return !((s === sourceId && t === targetId) || (s === targetId && t === sourceId));
+      });
+
+      simNodesRef.current = simNodesRef.current.map(n => {
+        if (n.id === sourceId || n.id === targetId) {
+          return { ...n, linkCount: Math.max(0, n.linkCount - 1) };
+        }
+        return n;
+      });
+
+      // Re-sync backlinks from the updated edges
+      const remainingTargets = simEdgesRef.current.flatMap(e => {
+        const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source);
+        const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target);
+        if (s === sourceId) return [t];
+        if (t === sourceId) return [s];
+        return [];
+      });
+      await syncBacklinks(sourceId, [...new Set(remainingTargets)]);
+
+      onDeleted(sourceId, targetId);
+
+      const targetNote = await getNoteById(targetId);
+      showToast(`Removed link → "${targetNote?.title ?? targetId}"`);
+    } catch (err) {
+      showToast("Failed to remove link");
+    }
+  }, [simEdgesRef, simNodesRef, showToast]);
+
+  return { createNodeAt, deleteNode, renameNode, createLink, deleteLink };
 }
