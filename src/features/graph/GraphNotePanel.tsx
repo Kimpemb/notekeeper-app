@@ -17,6 +17,7 @@ import type { GraphNode } from "./graphTypes";
 import type { Note } from "@/types";
 import { GraphNodeEditor } from "./GraphNodeEditor";
 
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Heading {
@@ -462,6 +463,7 @@ export function GraphNotePanel({
               <CloseBtn onClick={onExitEdit} />
             </div>
             <GraphNodeEditor
+              key={editNodeId}
               noteId={editNodeId}
               onClose={onExitEdit}
               onNavigateToNode={onNavigateToNode || (() => {})}
