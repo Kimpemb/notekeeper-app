@@ -4,13 +4,15 @@ import { createNote as dbCreateNote } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { MoveNoteModal } from "@/features/ui/components/MoveNoteModal";
+import type { Editor } from "@tiptap/react";
 
 interface Props {
   noteId: string;
   paneId: 1 | 2;
+  editor: Editor | null;
 }
 
-export function SubPagesSection({ noteId, paneId }: Props) {
+export function SubPagesSection({ noteId, paneId, editor }: Props) {
   const notes      = useNoteStore((s) => s.notes);
   const setActive  = useNoteStore((s) => s.setActiveNote);
   const deleteNote = useNoteStore((s) => s.deleteNote);
@@ -88,6 +90,23 @@ export function SubPagesSection({ noteId, paneId }: Props) {
     const note = await dbCreateNote({ parent_id: noteId, title });
     useNoteStore.setState((s) => ({ notes: [...s.notes, note] }));
     expandNode(noteId);
+
+    // Inject the subPage block into the editor body
+    if (editor && !editor.isDestroyed) {
+      const { doc } = editor.state;
+      const last = doc.lastChild;
+      const lastIsEmptyPara = last?.type.name === "paragraph" && last.content.size === 0;
+      const insertPos = lastIsEmptyPara
+        ? doc.content.size - last.nodeSize
+        : doc.content.size;
+      editor
+        .chain()
+        .insertContentAt(insertPos, {
+          type: "subPage",
+          attrs: { noteId: note.id, title, mode: "display" },
+        })
+        .run();
+    }
   }
 
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {

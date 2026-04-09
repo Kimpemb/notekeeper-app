@@ -301,50 +301,64 @@ export function useDragReorder({
     }
 
     // ── onMouseDown ───────────────────────────────────────────────────────
-    function onMouseDown(e: MouseEvent) {
-      if (menuOpenRef.current) {
-        const menu   = menuRef.current;
-        const grip   = gripRef.current;
-        const target = e.target as Node;
-        const clickedMenu   = menu && (menu.contains(target) || menu === target);
-        const clickedHandle = grip && (grip.contains(target) || grip === target);
-        if (!clickedMenu && !clickedHandle) { closeMenu(); return; }
-        if (clickedMenu) return;
-      }
-
-      // Insert button has its own click listener
-      if ((e.target as HTMLElement).closest("[data-insert-btn]")) return;
-
-      const gripEl = (e.target as HTMLElement).closest("[data-drag-handle]") as HTMLElement | null;
-      if (!gripEl) return;
-
-      if (e.button === 0 || e.button === 2) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const hovered = hoveredBlockRef.current;
-        if (!hovered) return;
-
-        if (e.button === 0) {
-          dragState.current = {
-            active:         false,
-            dragDom:        hovered.dom,
-            nodePos:        hovered.pos,
-            isListItem:     hovered.isListItem,
-            listParentPos:  hovered.listParentPos,
-            escapedList:    false,
-            startX:         e.clientX,
-            startY:         e.clientY,
-            thresholdMet:   false,
-            insertAfterPos: null,
-            cachedBlocks:   null,
-            listBounds:     null,
-          };
-        } else {
-          if (editor) openMenu(hovered.dom, hovered.pos, editor);
-        }
-      }
+    // ── onMouseDown ───────────────────────────────────────────────────────
+function onMouseDown(e: MouseEvent) {
+  // ── Hide handle when clicking outside the editor area ──────────────
+  if (!dragState.current) {
+    const editorEl = editorWrapRef.current;
+    const gripEl   = gripRef.current;
+    const insertEl = insertRef.current;
+    const target   = e.target as Node;
+    const onHandle = gripEl   && (gripEl.contains(target)   || gripEl   === target);
+    const onInsert = insertEl && (insertEl.contains(target) || insertEl === target);
+    if (!onHandle && !onInsert && editorEl && !editorEl.contains(target)) {
+      hideHandle();
     }
+  }
+
+  if (menuOpenRef.current) {
+    const menu   = menuRef.current;
+    const grip   = gripRef.current;
+    const target = e.target as Node;
+    const clickedMenu   = menu && (menu.contains(target) || menu === target);
+    const clickedHandle = grip && (grip.contains(target) || grip === target);
+    if (!clickedMenu && !clickedHandle) { closeMenu(); return; }
+    if (clickedMenu) return;
+  }
+
+  // Insert button has its own click listener
+  if ((e.target as HTMLElement).closest("[data-insert-btn]")) return;
+
+  const gripEl = (e.target as HTMLElement).closest("[data-drag-handle]") as HTMLElement | null;
+  if (!gripEl) return;
+
+  if (e.button === 0 || e.button === 2) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const hovered = hoveredBlockRef.current;
+    if (!hovered) return;
+
+    if (e.button === 0) {
+      dragState.current = {
+        active:         false,
+        dragDom:        hovered.dom,
+        nodePos:        hovered.pos,
+        isListItem:     hovered.isListItem,
+        listParentPos:  hovered.listParentPos,
+        escapedList:    false,
+        startX:         e.clientX,
+        startY:         e.clientY,
+        thresholdMet:   false,
+        insertAfterPos: null,
+        cachedBlocks:   null,
+        listBounds:     null,
+      };
+    } else {
+      if (editor) openMenu(hovered.dom, hovered.pos, editor);
+    }
+  }
+}
 
     // ── onContextMenu ─────────────────────────────────────────────────────
     function onContextMenu(e: MouseEvent) {

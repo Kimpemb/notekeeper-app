@@ -79,6 +79,45 @@ interface EditorProps {
   onScrollChange?: (scrollTop: number) => void;
 }
 
+// Inject missing subPage blocks into TipTap JSON content.
+// Returns the new content string, or null if nothing changed.
+function reconcileSubPageBlocks(
+  contentJson: string,
+  children: { id: string; title: string }[]
+): string | null {
+  if (children.length === 0) return null;
+  let doc: { type: string; content: unknown[] };
+  try { doc = JSON.parse(contentJson); } catch { return null; }
+
+  const existingIds = new Set<string>();
+  for (const node of doc.content ?? []) {
+    const n = node as { type: string; attrs?: { noteId?: string } };
+    if (n.type === "subPage" && n.attrs?.noteId) {
+      existingIds.add(n.attrs.noteId);
+    }
+  }
+
+  const missing = children.filter((c) => !existingIds.has(c.id));
+  if (missing.length === 0) return null;
+
+  const newBlocks = missing.map((c) => ({
+    type: "subPage",
+    attrs: { noteId: c.id, title: c.title, mode: "display" },
+  }));
+
+  // Insert before the last paragraph if it's empty, otherwise append
+  const last = doc.content[doc.content.length - 1] as { type: string; content?: unknown[] } | undefined;
+  const lastIsEmptyPara = last?.type === "paragraph" && (!last.content || last.content.length === 0);
+
+  if (lastIsEmptyPara) {
+    doc.content.splice(doc.content.length - 1, 0, ...newBlocks);
+  } else {
+    doc.content.push(...newBlocks);
+  }
+
+  return JSON.stringify(doc);
+}
+
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
 const note = useNoteStore(useCallback((s) => s.notes.find((n) => n.id === noteId) ?? null, [noteId]));
   const notes         = useNoteStore((s) => s.notes);
@@ -368,6 +407,32 @@ const titleFocusedRef       = useRef(false);
   }, 0);
   return () => clearTimeout(timer);
 }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Reconcile subPage blocks with actual children ─────────────────────
+  useEffect(() => {
+    if (!editor || !note) return;
+    const children = notes
+      .filter((n) => n.parent_id === noteId && !n.deleted_at)
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    if (children.length === 0) return;
+
+    const newContent = reconcileSubPageBlocks(note.content ?? "", children);
+    if (!newContent) return;
+
+    // Apply to editor and persist — but only if editor isn't focused
+    // (avoid stomping on active edits)
+    const apply = () => {
+      if (editor.isDestroyed || editor.isFocused) return;
+      editor.commands.setContent(JSON.parse(newContent));
+      lastSavedContent.current = newContent;
+      updateNote(noteId, { content: newContent });
+    };
+
+    // Small delay to let the editor settle on mount
+    const t = setTimeout(apply, 80);
+    return () => clearTimeout(t);
+  }, [noteId, notes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
@@ -825,7 +890,7 @@ const { isDraggingRef } = useDragReorder({
               <div className="h-[25vh]" />
             </div>
           </div>
-          <SubPagesSection noteId={note.id} paneId={paneId} />
+          <SubPagesSection noteId={note.id} paneId={paneId} editor={editor ?? null} />
         </div>
 
         <StatusBar editor={editor ?? null} paneId={paneId} />

@@ -1,11 +1,4 @@
 // src/features/editor/components/Editor/SubPageNodeView.tsx
-//
-// EDITING MODE  — bare input, pre-selected, Enter/blur commits, Escape cancels
-// DISPLAY MODE  — Notion-style block row
-//   • First click  → TipTap NodeSelection (block highlight)
-//   • Second click → navigate into the note (same tab)
-//   • Ctrl+click   → navigate into the note (new tab)
-
 import { useEffect, useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
@@ -34,6 +27,7 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
 
   const notes          = useNoteStore((s) => s.notes);
   const setActive      = useNoteStore((s) => s.setActiveNote);
+  const trashNote      = useNoteStore((s) => s.deleteNote);
   const expandNode     = useUIStore((s) => s.expandNode);
   const openTab        = useUIStore((s) => s.openTab);
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
@@ -46,7 +40,6 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     setTimeout(() => { el.focus(); el.select(); }, 30);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset selected state when clicking elsewhere in the editor
   useEffect(() => {
     function handleEditorClick(e: MouseEvent) {
       const wrapper = (e.target as HTMLElement).closest(".subpage-node-wrapper");
@@ -76,10 +69,34 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     setTimeout(() => editor.commands.focus(), 0);
   }
 
+  // Called when the block is deleted in display mode — trash the note
+  async function handleDeleteBlock() {
+    if (!noteId) { deleteNode(); return; }
+    await trashNote(noteId);
+    deleteNode();
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter")  { e.preventDefault(); commit(inputValue); }
     if (e.key === "Escape") { e.preventDefault(); cancel(); }
   }
+
+  // Intercept Backspace/Delete key on the selected node in display mode
+  useEffect(() => {
+    if (mode !== "display" || !noteId) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Backspace" || e.key === "Delete") {
+        // Only fire if this node is selected in ProseMirror
+        const { selection } = editor.state;
+        if ((selection as { node?: { type: { name: string } } }).node?.type.name === "subPage") {
+          e.preventDefault();
+          handleDeleteBlock();
+        }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [mode, noteId, editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function navigate(e: React.MouseEvent) {
     if (!noteId) return;
@@ -105,22 +122,17 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     e.stopPropagation();
     const isMac  = navigator.platform.toUpperCase().includes("MAC");
     const isCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-    // Ctrl+click always navigates immediately (new tab)
     if (isCtrl) {
       selectedRef.current = false;
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       navigate(e);
       return;
     }
-
     if (selectedRef.current) {
-      // Second click — navigate
       selectedRef.current = false;
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       navigate(e);
     } else {
-      // First click — select
       selectedRef.current = true;
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       resetTimerRef.current = setTimeout(() => {
@@ -136,7 +148,6 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   return (
     <NodeViewWrapper className="subpage-node-wrapper my-0.5">
       {mode === "editing" ? (
-        // ── EDITING ─────────────────────────────────────────────────────────
         <div className="flex items-center gap-2.5 px-1 py-1.5 rounded-md">
           <PageIcon className="text-zinc-400 dark:text-zinc-500" />
           <input
@@ -152,7 +163,6 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
           />
         </div>
       ) : (
-        // ── DISPLAY ─────────────────────────────────────────────────────────
         <div
           className="group flex items-center gap-2.5 px-1 py-1.5 rounded-md w-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100 cursor-default"
           onClick={handleClick}
