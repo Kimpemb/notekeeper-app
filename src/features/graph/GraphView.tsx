@@ -158,13 +158,92 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     initialFocusNoteId ?? savedState.focusNodeId
   );
 
+  // ── Navigation history ────────────────────────────────────────────────────
+  const [historyStack, setHistoryStack] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  // FIX: mirror historyIndex in a ref so callbacks don't suffer stale closures
+  const historyIndexRef = useRef(-1);
+  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
+
+  // Push a node to history when navigating
+  // FIX: reads from historyIndexRef instead of closing over historyIndex
+  const pushToHistory = useCallback((nodeId: string) => {
+    const currentIndex = historyIndexRef.current;
+    setHistoryStack((prev) => {
+      const newStack = prev.slice(0, currentIndex + 1);
+      if (newStack[newStack.length - 1] === nodeId) return newStack;
+      return [...newStack, nodeId];
+    });
+    const newIndex = currentIndex + 1;
+    setHistoryIndex(newIndex);
+    historyIndexRef.current = newIndex;
+  }, []); // no deps — reads from ref
+
+  // Navigate to a node (Shift+Click — exits edit mode, focuses in graph)
+  const handleNavigateToNode = useCallback((nodeId: string) => {
+    setFocusNodeId(nodeId);
+    const targetNode = data?.nodes.find((n) => n.id === nodeId);
+    if (targetNode) {
+      setDetailNode(targetNode);
+      setEditNodeId(null);
+      setEdgeContext(null);
+    }
+    pushToHistory(nodeId);
+  }, [data, pushToHistory]);
+
+  // Open a note in the graph editor (Click — stays in edit mode, switches content)
+  const handleOpenInEditor = useCallback((nodeId: string) => {
+    const targetNode = data?.nodes.find((n) => n.id === nodeId);
+    if (!targetNode) return;
+    setEditNodeId(nodeId);
+    setFullscreen(true);
+    setDetailNode(targetNode);
+    setEdgeContext(null);
+    pushToHistory(nodeId);
+  }, [data, pushToHistory]);
+
+  // FIX: back/forward stay in edit mode if already editing — use functional
+  // setState to avoid reading stale editNodeId in the closure
+  const handleGoBack = useCallback(() => {
+    if (historyIndex <= 0) return;
+    const newIndex = historyIndex - 1;
+    const prevNodeId = historyStack[newIndex];
+    if (!prevNodeId) return;
+
+    setFocusNodeId(prevNodeId);
+    const targetNode = data?.nodes.find((n) => n.id === prevNodeId);
+    if (targetNode) {
+      setDetailNode(targetNode);
+      // If currently in edit mode, stay in edit mode but switch the note
+      setEditNodeId((prev) => prev !== null ? prevNodeId : null);
+      setEdgeContext(null);
+    }
+    setHistoryIndex(newIndex);
+    historyIndexRef.current = newIndex;
+  }, [historyIndex, historyStack, data]);
+
+  const handleGoForward = useCallback(() => {
+    if (historyIndex >= historyStack.length - 1) return;
+    const newIndex = historyIndex + 1;
+    const nextNodeId = historyStack[newIndex];
+    if (!nextNodeId) return;
+
+    setFocusNodeId(nextNodeId);
+    const targetNode = data?.nodes.find((n) => n.id === nextNodeId);
+    if (targetNode) {
+      setDetailNode(targetNode);
+      // If currently in edit mode, stay in edit mode but switch the note
+      setEditNodeId((prev) => prev !== null ? nextNodeId : null);
+      setEdgeContext(null);
+    }
+    setHistoryIndex(newIndex);
+    historyIndexRef.current = newIndex;
+  }, [historyIndex, historyStack, data]);
+
   // ── Multi-select ──────────────────────────────────────────────────────────
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
 
   // ── Unified panel state ───────────────────────────────────────────────────
-  // detailNode: set on node single-click → locks the panel in detail mode
-  // edgeContext: set on edge click → switches panel to edge mode
-  // editNodeId: set on Edit button / E key → switches panel to edit mode + fullscreen
   const [detailNode,  setDetailNode]  = useState<GraphNode | null>(null);
   const [edgeContext, setEdgeContext] = useState<EdgeContext | null>(null);
   const [editNodeId,  setEditNodeId]  = useState<string | null>(null);
@@ -247,9 +326,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
   // ── Node single-click → lock panel in detail mode ────────────────────────
   const handleNodeClick = useCallback((node: GraphNode) => {
-    // If clicking the node already in edit mode, do nothing
     if (editNodeId === node.id) return;
-    // Clicking a different node always exits edit mode
     setEditNodeId(null);
     if (detailNode?.id === node.id) {
       setDetailNode(null);
@@ -257,7 +334,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     }
     setEdgeContext(null);
     setDetailNode(node);
-  }, [detailNode, editNodeId]);
+    pushToHistory(node.id);
+  }, [detailNode, editNodeId, pushToHistory]);
 
   // ── Edge click → switch panel to edge mode ────────────────────────────────
   const handleEdgeClick = useCallback(async (data: EdgeClickData) => {
@@ -286,19 +364,18 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
       deleteLinkInD3(sid, tid);
       patchData.removeEdge(sid, tid);
     });
-  }, [deleteLink, patchData]); // deleteLinkInD3 wired below after sim hook
+  }, [deleteLink, patchData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Enter edit mode — fullscreen + set editNodeId ─────────────────────────
   const handleEnterEdit = useCallback(() => {
     if (!detailNode) return;
     setEditNodeId(detailNode.id);
-    setFullscreen(true);   // auto-fullscreen so graph has max real estate
+    setFullscreen(true);
   }, [detailNode]);
 
   // ── Exit edit mode — restore previous fullscreen state ────────────────────
   const handleExitEdit = useCallback(() => {
     setEditNodeId(null);
-    // Return fullscreen to false — user can re-enable manually if desired
     setFullscreen(false);
   }, []);
 
@@ -480,6 +557,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const orphanCount  = data ? data.nodes.filter((n) => n.linkCount === 0).length : 0;
   const focusedNode  = focusNodeId ? data?.nodes.find((n) => n.id === focusNodeId) : null;
 
+  const canGoBack    = historyIndex > 0;
+  const canGoForward = historyIndex < historyStack.length - 1;
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <>
@@ -551,6 +631,12 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             editNodeId={editNodeId}
             tagColorMap={tagColorMap}
             notes={notes}
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            onGoBack={handleGoBack}
+            onGoForward={handleGoForward}
+            onNavigateToNode={handleNavigateToNode}
+            onOpenInEditor={handleOpenInEditor}
             onPanelMouseEnter={() => {
               isHoveringPreviewRef.current = true;
               if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);

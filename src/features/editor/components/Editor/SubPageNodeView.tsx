@@ -33,6 +33,10 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
   const replaceTab     = useUIStore((s) => s.replaceTab);
 
+  // ── Graph mode detection ──────────────────────────────────────────────────
+  const graphMode = (editor.storage as any)?.graphMode === true;
+  const graphNavigate = (editor.storage as any)?.graphNavigate as ((nodeId: string) => void) | undefined;
+
   useEffect(() => {
     if (mode !== "editing") return;
     const el = inputRef.current;
@@ -100,6 +104,14 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
 
   function navigate(e: React.MouseEvent) {
     if (!noteId) return;
+
+    // ── Graph mode: use custom navigate callback ───────────────────────────
+    if (graphMode && graphNavigate) {
+      graphNavigate(noteId);
+      return;
+    }
+
+    // ── Main editor mode: original behavior ────────────────────────────────
     const isMac  = navigator.platform.toUpperCase().includes("MAC");
     const isCtrl = isMac ? e.metaKey : e.ctrlKey;
     if (isCtrl) {
@@ -122,6 +134,14 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     e.stopPropagation();
     const isMac  = navigator.platform.toUpperCase().includes("MAC");
     const isCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+    // Graph mode: single click always navigates (no selection delay)
+    if (graphMode) {
+      navigate(e);
+      return;
+    }
+
+    // Main editor mode: original selection logic
     if (isCtrl) {
       selectedRef.current = false;
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
@@ -146,7 +166,10 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     : title;
 
   return (
-    <NodeViewWrapper className="subpage-node-wrapper my-0.5">
+    <NodeViewWrapper 
+      className="subpage-node-wrapper my-0.5"
+      data-note-id={mode === "display" && noteId ? noteId : undefined}
+    >
       {mode === "editing" ? (
         <div className="flex items-center gap-2.5 px-1 py-1.5 rounded-md">
           <PageIcon className="text-zinc-400 dark:text-zinc-500" />
@@ -164,9 +187,13 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
         </div>
       ) : (
         <div
-          className="group flex items-center gap-2.5 px-1 py-1.5 rounded-md w-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100 cursor-default"
+          className={`group flex items-center gap-2.5 px-1 py-1.5 rounded-md w-full transition-colors duration-100 ${
+            graphMode 
+              ? "cursor-pointer hover:bg-indigo-500/10 dark:hover:bg-indigo-500/20" 
+              : "cursor-default hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          }`}
           onClick={handleClick}
-          title="Click to select · Click again to open · Ctrl+click for new tab"
+          title={graphMode ? "Click to open in graph" : "Click to select · Click again to open · Ctrl+click for new tab"}
         >
           <PageIcon className="text-zinc-400 dark:text-zinc-500 shrink-0" />
           <span className="flex-1 text-base text-zinc-700 dark:text-zinc-300 select-none">

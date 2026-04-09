@@ -60,6 +60,13 @@ export interface GraphNotePanelProps {
   onOpenBacklink:    (noteId: string) => void;
   onPanelMouseEnter: () => void;
   onPanelMouseLeave: () => void;
+  // Navigation props (passed down from GraphView)
+  canGoBack?:        boolean;
+  canGoForward?:     boolean;
+  onGoBack?:         () => void;
+  onGoForward?:      () => void;
+  onNavigateToNode?: (nodeId: string) => void;
+  onOpenInEditor?:   (nodeId: string) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -193,6 +200,12 @@ export function GraphNotePanel({
   onOpenBacklink,
   onPanelMouseEnter,
   onPanelMouseLeave,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
+  onNavigateToNode,
+  onOpenInEditor,
 }: GraphNotePanelProps) {
 
   // ── Mode resolution ────────────────────────────────────────────────────────
@@ -209,7 +222,6 @@ export function GraphNotePanel({
     mode === "preview" ? hoveredNode?.id : null;
 
   // ── Panel width ────────────────────────────────────────────────────────────
-  // Computed once when edit mode is entered so it doesn't jitter on resize.
   const [editPanelWidth, setEditPanelWidth] = useState(PANEL_WIDTH_DEFAULT);
   useEffect(() => {
     if (mode === "edit") {
@@ -330,9 +342,7 @@ export function GraphNotePanel({
           top:           16,
           right:         16,
           width:         panelWidth,
-          // In edit mode, take up most of the vertical space
-          maxHeight:     mode === "edit" ? "calc(100% - 32px)" : "calc(100% - 32px)",
-          // In edit mode, fix height so the editor fills the panel
+          maxHeight:     "calc(100% - 32px)",
           height:        mode === "edit" ? "calc(100% - 32px)" : undefined,
           zIndex:        20,
           pointerEvents: show ? "auto" : "none",
@@ -340,7 +350,6 @@ export function GraphNotePanel({
           transform:     show
             ? "translateX(0) scale(1)"
             : "translateX(12px) scale(0.97)",
-          // Width animates smoothly when switching in/out of edit mode
           transition:    "opacity 200ms ease, transform 200ms ease, width 280ms cubic-bezier(0.32,0.72,0,1)",
           display:       "flex",
           flexDirection: "column",
@@ -352,10 +361,7 @@ export function GraphNotePanel({
           backdropFilter:"blur(12px)",
         }}
       >
-
-        {/* ══════════════════════════════════════════════════════════════════
-            EDGE MODE
-        ══════════════════════════════════════════════════════════════════ */}
+        {/* EDGE MODE */}
         {mode === "edge" && edgeContext && (
           <>
             <div style={{
@@ -374,7 +380,6 @@ export function GraphNotePanel({
               </span>
               <CloseBtn onClick={onCloseEdge} />
             </div>
-
             <div style={{ padding: "10px 14px 0", flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
                 <button onClick={() => onOpen(edgeContext.sourceId)} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}>
@@ -397,7 +402,6 @@ export function GraphNotePanel({
                 <p style={{ margin: "0 0 10px", fontSize: 11, color: LABEL, opacity: 0.3, fontStyle: "italic" }}>No context available.</p>
               )}
             </div>
-
             <div style={{ padding: "0 14px 12px", flexShrink: 0 }}>
               {!confirmingDelete ? (
                 <button
@@ -426,12 +430,12 @@ export function GraphNotePanel({
           </>
         )}
 
-        {/* ══════════════════════════════════════════════════════════════════
-            EDIT MODE — 40% width panel, fullscreen graph behind it
-        ══════════════════════════════════════════════════════════════════ */}
+        {/* EDIT MODE */}
+        {/* FIX: removed key={editNodeId} — GraphNodeEditor now handles note
+            switching internally via imperative editor.commands.setContent(),
+            so remounting on every navigation is no longer needed or wanted. */}
         {mode === "edit" && editNodeId && (
           <>
-            {/* Header */}
             <div style={{
               display: "flex", alignItems: "center",
               padding: "10px 12px 10px",
@@ -444,7 +448,6 @@ export function GraphNotePanel({
               <span style={{ fontSize: 11, fontWeight: 600, color: LABEL, opacity: 0.45, flex: 1, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 Editing
               </span>
-              {/* Open in full editor */}
               <button
                 onClick={() => onOpen(editNodeId)}
                 title="Open full editor"
@@ -458,22 +461,22 @@ export function GraphNotePanel({
               </button>
               <CloseBtn onClick={onExitEdit} />
             </div>
-
-            {/* Editor — fills remaining height */}
             <GraphNodeEditor
-              key={editNodeId}
               noteId={editNodeId}
               onClose={onExitEdit}
+              onNavigateToNode={onNavigateToNode || (() => {})}
+              onOpenInEditor={onOpenInEditor || (() => {})}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onGoBack={onGoBack}
+              onGoForward={onGoForward}
             />
           </>
         )}
 
-        {/* ══════════════════════════════════════════════════════════════════
-            PREVIEW + DETAIL MODE
-        ══════════════════════════════════════════════════════════════════ */}
+        {/* PREVIEW + DETAIL MODE */}
         {(mode === "preview" || mode === "detail") && (
           <>
-            {/* Title header */}
             <div style={{
               display: "flex", alignItems: "center",
               padding: "10px 10px 8px 12px",
@@ -491,10 +494,8 @@ export function GraphNotePanel({
                   <path d="M2 5h6M5 2l3 3-3 3" stroke={LABEL} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </button>
-
               {mode === "detail" && activeNode && (
                 <>
-                  {/* Edit button */}
                   <button
                     onClick={onEnterEdit}
                     title="Edit note in graph (E)"
@@ -504,7 +505,6 @@ export function GraphNotePanel({
                   >
                     Edit
                   </button>
-                  {/* Focus button */}
                   <button
                     onClick={() => onFocusNode(activeNode.id)}
                     title="Focus in graph"
@@ -519,11 +519,8 @@ export function GraphNotePanel({
                   </button>
                 </>
               )}
-
               {mode === "detail" && <CloseBtn onClick={onCloseDetail} />}
             </div>
-
-            {/* Meta row */}
             {preview && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 11, color: LABEL, opacity: 0.38, whiteSpace: "nowrap" }}>
@@ -535,8 +532,6 @@ export function GraphNotePanel({
                 })}
               </div>
             )}
-
-            {/* Detail stats row */}
             {mode === "detail" && preview && (
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
                 <span style={{ fontSize: 11, color: LABEL, opacity: 0.35 }}>
@@ -547,11 +542,8 @@ export function GraphNotePanel({
                 )}
               </div>
             )}
-
-            {/* Scrollable body */}
             <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
               {loading && <Shimmer />}
-
               {!loading && hasHeadings && (
                 <ul style={{ listStyle: "none", margin: 0, padding: "5px 0" }}>
                   {preview!.headings.map((h, i) => (
@@ -576,20 +568,16 @@ export function GraphNotePanel({
                   ))}
                 </ul>
               )}
-
               {!loading && !hasHeadings && hasSnippet && (
                 <p style={{ margin: 0, padding: "10px 12px", fontSize: 11, color: LABEL, opacity: 0.48, lineHeight: 1.65 }}>
                   {preview!.snippet}
                 </p>
               )}
-
               {!loading && !hasHeadings && !hasSnippet && preview && (
                 <p style={{ margin: 0, padding: "10px 12px", fontSize: 11, color: LABEL, opacity: 0.28, fontStyle: "italic" }}>
                   No content yet.
                 </p>
               )}
-
-              {/* Backlinks — detail mode only */}
               {mode === "detail" && (
                 <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", marginTop: 4 }}>
                   <div style={{ padding: "7px 12px 4px", fontSize: 10, fontWeight: 600, color: LABEL, opacity: 0.3, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -618,8 +606,6 @@ export function GraphNotePanel({
                 </div>
               )}
             </div>
-
-            {/* Footer hint */}
             {!loading && preview && (
               <div style={{ padding: "5px 12px", borderTop: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
                 <span style={{ fontSize: 10, color: LABEL, opacity: 0.26 }}>
