@@ -22,13 +22,22 @@ export function SubPagesSection({ noteId, paneId }: Props) {
   const [moveId, setMoveId]       = useState<string | null>(null);
   const [isAdding, setIsAdding]   = useState(false);
   const [newTitle, setNewTitle]   = useState("");
+  const [expanded, setExpanded]   = useState(false);
   const inputRef                  = useRef<HTMLInputElement>(null);
 
   const children = notes.filter((n) => n.parent_id === noteId && !n.deleted_at);
+  const PREVIEW_COUNT = 4;
+  const hasMore = children.length > PREVIEW_COUNT;
+  const visibleChildren = expanded ? children : children.slice(0, PREVIEW_COUNT);
 
   useEffect(() => {
     if (isAdding) inputRef.current?.focus();
   }, [isAdding]);
+
+  // Reset expanded state when switching notes
+  useEffect(() => {
+    setExpanded(false);
+  }, [noteId]);
 
   function openInSameTab(childId: string) {
     if (paneId === 2) {
@@ -76,8 +85,6 @@ export function SubPagesSection({ noteId, paneId }: Props) {
       `Untitled-${notes.filter((n) => /^Untitled-\d+$/.test(n.title)).length + 1}`;
     setNewTitle("");
 
-    // Create directly via DB — bypasses setActiveNote in the store so we
-    // stay on the current note. The card appears in the grid without navigation.
     const note = await dbCreateNote({ parent_id: noteId, title });
     useNoteStore.setState((s) => ({ notes: [...s.notes, note] }));
     expandNode(noteId);
@@ -111,7 +118,7 @@ export function SubPagesSection({ noteId, paneId }: Props) {
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {children.map((child) => {
+          {visibleChildren.map((child) => {
             const isUntitled   = /^Untitled-\d+$/.test(child.title);
             const snippet      = child.plaintext?.slice(0, 80) ?? "";
             const isConfirming = confirmId === child.id;
@@ -140,7 +147,6 @@ export function SubPagesSection({ noteId, paneId }: Props) {
                   )}
                 </button>
 
-                {/* Action buttons container - only visible on hover */}
                 {!isConfirming && !isMoving && (
                   <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-100">
                     <button
@@ -165,7 +171,6 @@ export function SubPagesSection({ noteId, paneId }: Props) {
                   </div>
                 )}
 
-                {/* Delete confirmation overlay */}
                 {isConfirming && (
                   <div className="absolute inset-0 rounded-lg bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-900 flex items-center justify-between px-3 gap-2">
                     <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
@@ -188,19 +193,17 @@ export function SubPagesSection({ noteId, paneId }: Props) {
                   </div>
                 )}
 
-                {/* Move modal for this sub-note */}
                 {isMoving && (
-  <MoveNoteModal
-    open={isMoving}
-    noteId={child.id}
-    onClose={() => setMoveId(null)}
-  />
-)}
+                  <MoveNoteModal
+                    open={isMoving}
+                    noteId={child.id}
+                    onClose={() => setMoveId(null)}
+                  />
+                )}
               </div>
             );
           })}
 
-          {/* Inline title input */}
           {isAdding && (
             <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-zinc-900 p-3 flex items-center gap-2">
               <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-zinc-400 dark:text-zinc-500 shrink-0">
@@ -231,6 +234,22 @@ export function SubPagesSection({ noteId, paneId }: Props) {
             </div>
           )}
         </div>
+
+        {/* Show all / Show less toggle */}
+        {hasMore && (
+          <button
+            onClick={() => setExpanded((e) => !e)}
+            className="mt-3 flex items-center gap-1.5 text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100"
+          >
+            <svg
+              width="10" height="10" viewBox="0 0 10 10" fill="none"
+              className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+            >
+              <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            {expanded ? "Show less" : `Show all ${children.length} sub-pages`}
+          </button>
+        )}
       </div>
     </div>
   );
