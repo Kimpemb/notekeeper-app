@@ -164,8 +164,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   // ── Unified panel state ───────────────────────────────────────────────────
   // detailNode: set on node single-click → locks the panel in detail mode
   // edgeContext: set on edge click → switches panel to edge mode
+  // editNodeId: set on Edit button / E key → switches panel to edit mode + fullscreen
   const [detailNode,  setDetailNode]  = useState<GraphNode | null>(null);
   const [edgeContext, setEdgeContext] = useState<EdgeContext | null>(null);
+  const [editNodeId,  setEditNodeId]  = useState<string | null>(null);
 
   // ── Delete confirmation ───────────────────────────────────────────────────
   const [confirmDelete, setConfirmDelete] = useState<{ nodeId: string; title: string } | null>(null);
@@ -245,18 +247,22 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
   // ── Node single-click → lock panel in detail mode ────────────────────────
   const handleNodeClick = useCallback((node: GraphNode) => {
-    // Toggle: clicking same node again closes detail
+    // If clicking the node already in edit mode, do nothing
+    if (editNodeId === node.id) return;
+    // Clicking a different node always exits edit mode
+    setEditNodeId(null);
     if (detailNode?.id === node.id) {
       setDetailNode(null);
       return;
     }
-    setEdgeContext(null);   // close edge mode if open
+    setEdgeContext(null);
     setDetailNode(node);
-  }, [detailNode]);
+  }, [detailNode, editNodeId]);
 
   // ── Edge click → switch panel to edge mode ────────────────────────────────
   const handleEdgeClick = useCallback(async (data: EdgeClickData) => {
-    setDetailNode(null);  // close detail mode if open
+    setDetailNode(null);
+    setEditNodeId(null);
 
     const sourceNote = notes.find((n) => n.id === data.sourceId);
     const targetNote = notes.find((n) => n.id === data.targetId);
@@ -281,6 +287,20 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
       patchData.removeEdge(sid, tid);
     });
   }, [deleteLink, patchData]); // deleteLinkInD3 wired below after sim hook
+
+  // ── Enter edit mode — fullscreen + set editNodeId ─────────────────────────
+  const handleEnterEdit = useCallback(() => {
+    if (!detailNode) return;
+    setEditNodeId(detailNode.id);
+    setFullscreen(true);   // auto-fullscreen so graph has max real estate
+  }, [detailNode]);
+
+  // ── Exit edit mode — restore previous fullscreen state ────────────────────
+  const handleExitEdit = useCallback(() => {
+    setEditNodeId(null);
+    // Return fullscreen to false — user can re-enable manually if desired
+    setFullscreen(false);
+  }, []);
 
   // ── patchData-wired adapters ──────────────────────────────────────────────
 
@@ -308,7 +328,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         patchData.updateNodeTitle(id, title);
       }
 
-      // Keep detail panel title in sync
       setDetailNode((prev) => prev?.id === id ? { ...prev, title } : prev);
       onRenamed(id, title);
     });
@@ -343,8 +362,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         return next;
       });
       setDetailNode((prev) => prev?.id === id ? null : prev);
+      if (editNodeId === id) { setEditNodeId(null); setFullscreen(false); }
     });
-  }, [deleteNode, patchData]);
+  }, [deleteNode, patchData, editNodeId]);
 
   // ── Delete confirmation ───────────────────────────────────────────────────
   const requestDeleteNode = useCallback((nodeId: string, title: string) => {
@@ -388,15 +408,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       if (confirmDelete) return;
-      if (edgeContext)             { setEdgeContext(null);  return; }
-      if (detailNode)              { setDetailNode(null);   return; }
-      if (selectedNodeIds.size > 0){ setSelectedNodeIds(new Set()); return; }
-      if (focusNodeId)             { setFocusNodeId(null);  return; }
+      if (edgeContext)              { setEdgeContext(null);  return; }
+      if (editNodeId)               { handleExitEdit();      return; }
+      if (detailNode)               { setDetailNode(null);   return; }
+      if (selectedNodeIds.size > 0) { setSelectedNodeIds(new Set()); return; }
+      if (focusNodeId)              { setFocusNodeId(null);  return; }
       handleClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleClose, focusNodeId, confirmDelete, edgeContext, detailNode, selectedNodeIds]);
+  }, [handleClose, focusNodeId, confirmDelete, edgeContext, editNodeId, detailNode, selectedNodeIds, handleExitEdit]);
 
   const toggleFullscreen = useCallback(() => setFullscreen((f) => !f), []);
 
@@ -527,6 +548,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             hoveredNode={hoveredNode}
             detailNode={detailNode}
             edgeContext={edgeContext}
+            editNodeId={editNodeId}
             tagColorMap={tagColorMap}
             notes={notes}
             onPanelMouseEnter={() => {
@@ -535,8 +557,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             }}
             onPanelMouseLeave={() => {
               isHoveringPreviewRef.current = false;
-              // Only clear hovered node if panel is not locked in detail/edge mode
-              if (!detailNode && !edgeContext) setHoveredNode(null);
+              if (!detailNode && !edgeContext && !editNodeId) setHoveredNode(null);
             }}
             onOpen={(id, headingText) => {
               setActiveNote(id);
@@ -547,6 +568,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             }}
             onCloseDetail={() => setDetailNode(null)}
             onCloseEdge={() => setEdgeContext(null)}
+            onEnterEdit={handleEnterEdit}
+            onExitEdit={handleExitEdit}
             onDeleteEdge={handleDeleteLink}
             onFocusNode={(id) => setFocusNodeId((prev) => prev === id ? null : id)}
             onOpenBacklink={(id) => {
@@ -562,7 +585,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
               fontSize: 11, color: LABEL_COLOR, opacity: 0.3,
               pointerEvents: "none", lineHeight: 1.6,
             }}>
-              Click node to inspect · Double-click to open · Drag ring to link · Right-click to delete
+              Click node to inspect · Press E to edit · Double-click to rename · Drag ring to link · Right-click to delete
               {selectedNodeIds.size > 0 && (
                 <div style={{ marginTop: 4, color: "#6366f1", opacity: 1 }}>
                   {selectedNodeIds.size} node{selectedNodeIds.size === 1 ? "" : "s"} selected
@@ -607,7 +630,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
                   </div>
                 )}
                 <span style={{ marginTop: 4, opacity: 0.6, fontSize: 10 }}>
-                  Click to inspect · Double-click to open · Shift+click to focus
+                  Click to inspect · Press E to edit · Shift+click to focus
                 </span>
               </div>
             </div>
