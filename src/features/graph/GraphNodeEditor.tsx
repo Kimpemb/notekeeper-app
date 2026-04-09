@@ -1,6 +1,7 @@
 // src/features/graph/GraphNodeEditor.tsx
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Extension } from "@tiptap/core";
@@ -11,6 +12,12 @@ import { NoteLink } from "@/features/editor/components/Editor/NoteLink";
 import { syncBacklinks } from "@/features/notes/db/queries";
 import { extractNoteLinkIds } from "@/features/editor/components/Editor/editorUtils";
 import { createGraphSubPageNode } from "@/features/graph/GraphSubPageNode";
+import { SlashMenu } from "@/features/editor/components/Editor/SlashMenu";
+import { BlockRefSuggest } from "@/features/editor/components/Editor/BlockRefSuggest";
+import {
+  pickImageFile, readImageFile, saveImage,
+  pickAttachmentFile, readImageFile as readFileBytes, saveAttachment,
+} from "@/lib/tauri/fs";
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -40,18 +47,41 @@ interface GraphNodeEditorProps {
 const LABEL            = "var(--color-text, #e2e2e2)";
 const INIT_SUPPRESS_MS = 400;
 
-// ─── Inner editor (never remounts — content is swapped imperatively) ──────────
+// ─── Image / attachment upload helpers ────────────────────────────────────────
+
+async function uploadImageFromDisk(): Promise<{ path: string; name: string } | null> {
+  const filePath = await pickImageFile();
+  if (!filePath) return null;
+  const bytes      = await readImageFile(filePath);
+  const fileName   = filePath.split(/[\\/]/).pop() ?? "image.png";
+  const ext        = fileName.split(".").pop()?.toLowerCase() ?? "png";
+  const base       = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
+  const uniqueName = `${base}_${Date.now()}.${ext}`;
+  const savedPath  = await saveImage(uniqueName, bytes);
+  return { path: savedPath, name: fileName };
+}
+
+// ─── Inner editor ─────────────────────────────────────────────────────────────
 
 interface EditorInnerProps {
   noteId:           string;
   initialContent:   any;
-  // When incomingNoteId differs from the current note, EditorInner swaps
-  // content imperatively. null incomingContent means the fetch is in flight.
   incomingNoteId:   string;
   incomingContent:  any;
   onClose:          () => void;
   onNavigateToNode: (nodeId: string) => void;
   onOpenInEditor:   (nodeId: string) => void;
+  // Slash menu — lifted to outer shell so the portal renders there
+  onSlashOpenChange: (open: boolean, pos?: { top: number; left: number; caretTop: number }, query?: string) => void;
+  onSlashQueryChange: (query: string) => void;
+  onSlashClose: () => void;
+  slashStartPosRef: React.MutableRefObject<number | null>;
+  // BlockRef suggest — also lifted to outer shell for portal rendering
+  onBlockRefOpenChange: (open: boolean, pos?: { top: number; left: number }, query?: string, triggerStart?: number) => void;
+  onBlockRefClose: () => void;
+  blockRefStartPosRef: React.MutableRefObject<number | null>;
+  // Pass editor instance up to outer shell
+  onEditorReady: (editor: any) => void;
 }
 
 function EditorInner({
@@ -62,39 +92,39 @@ function EditorInner({
   onClose,
   onNavigateToNode,
   onOpenInEditor,
+  onSlashOpenChange,
+  onSlashQueryChange,
+  onSlashClose,
+  slashStartPosRef,
+  onBlockRefOpenChange,
+  onBlockRefClose,
+  blockRefStartPosRef,
+  onEditorReady,
 }: EditorInnerProps) {
-  const setActiveNote    = useNoteStore((s) => s.setActiveNote);
+  const setActiveNote = useNoteStore((s) => s.setActiveNote);
+
   const lastSavedContent = useRef<string | null>(null);
   const initDoneRef      = useRef(false);
   const currentNoteIdRef = useRef<string>(initialNoteId);
   const [liveNoteId, setLiveNoteId] = useState(initialNoteId);
 
   // ── Stable callback ref ───────────────────────────────────────────────────
-  // Keeps onNavigateToNode / onOpenInEditor always current without forcing
-  // the extension to be recreated on every render cycle.
   const callbacksRef = useRef({ onNavigateToNode, onOpenInEditor });
   useEffect(() => {
     callbacksRef.current = { onNavigateToNode, onOpenInEditor };
   });
 
   // ── GraphSubPageNode — created exactly once ───────────────────────────────
-  // addNodeView() in an extension fires synchronously during `new Editor()`
-  // construction, before any content is parsed. This guarantees sub-page
-  // blocks are rendered correctly on the very first paint, with no async
-  // gap and no fallback render from SubPageNodeView.
-  //
-  // Contrast with editorProps.nodeViews: that path is applied *after*
-  // the editor and its initial content are already initialised, causing
-  // the first-paint / double-click race condition this replaces.
   const graphSubPageNode = useMemo(
     () =>
       createGraphSubPageNode(
         (id) => callbacksRef.current.onOpenInEditor(id),
         (id) => callbacksRef.current.onNavigateToNode(id),
       ),
-    [], // intentionally empty — callbacks accessed via ref, never stale
+    [],
   );
 
+  // ── useEditor ─────────────────────────────────────────────────────────────
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
@@ -104,7 +134,7 @@ function EditorInner({
       CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension,
       EmptyLinePlaceholderExtension, OrderedListBackspaceExtension, TaskListSortExtension,
       BlockIdExtension, BlockRefNode, DataviewNode,
-      graphSubPageNode, // ← replaces SubPageNode; no editorProps.nodeViews needed
+      graphSubPageNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => {}),
       Extension.create({ name: "noopFindReplace", addProseMirrorPlugins() { return []; } }),
@@ -114,32 +144,108 @@ function EditorInner({
     editorProps: {
       attributes: { class: "tiptap outline-none", spellcheck: "true" },
     },
+    onUpdate: ({ editor: e }) => {
+      const { state } = e;
+      const { from }  = state.selection;
+
+      // ── BlockRef trigger: detect "((" ─────────────────────────────────────
+      // Check this BEFORE the slash logic so both can coexist cleanly.
+      if (blockRefStartPosRef.current !== null) {
+        const bStart = blockRefStartPosRef.current;
+        if (from >= bStart) {
+          const textSince = state.doc.textBetween(bStart, from, "\n");
+          if (textSince.startsWith("((")) {
+            // Still inside a block ref trigger — update query
+            const q = textSince.slice(2); // everything after "(("
+            if (!q.includes(" ") && !q.includes("\n")) {
+              onBlockRefOpenChange(true, undefined, q, bStart);
+              return;
+            }
+          }
+          // Trigger string broken — close
+          onBlockRefClose();
+        }
+      } else {
+        // Check whether the last two characters just typed are "(("
+        if (from >= 2) {
+          const lastTwo = state.doc.textBetween(from - 2, from, "\n");
+          if (lastTwo === "((") {
+            blockRefStartPosRef.current = from - 2;
+            const coords = e.view.coordsAtPos(from);
+            onBlockRefOpenChange(
+              true,
+              { top: coords.bottom + 6, left: coords.left },
+              "",
+              from - 2,
+            );
+            return;
+          }
+        }
+      }
+
+      // ── Slash menu trigger & query tracking ───────────────────────────────
+      if (slashStartPosRef.current !== null) {
+        const slashStart = slashStartPosRef.current;
+        if (from >= slashStart) {
+          const textAfterSlash = state.doc.textBetween(slashStart, from, "\n");
+          if (textAfterSlash.startsWith("/")) {
+            const q = textAfterSlash.slice(1);
+            // FIX: push the live query up to the outer shell every keystroke.
+            // Previously slashQuery lived only in EditorInner local state and
+            // the outer shell's slashQuery was set once on open and never updated,
+            // so SlashMenu always received "" regardless of what was typed.
+            onSlashQueryChange(q);
+            if (textAfterSlash.includes(" ")) {
+              onSlashClose();
+            }
+            return;
+          } else {
+            onSlashClose();
+            return;
+          }
+        }
+      }
+
+      const textBefore1 = from >= 1 ? state.doc.textBetween(from - 1, from, "\n") : "";
+      if (textBefore1 === "/") {
+        slashStartPosRef.current = from - 1;
+        const coords = e.view.coordsAtPos(from);
+        // Open with empty query — query updates will arrive via onSlashQueryChange
+        onSlashOpenChange(true, { top: coords.bottom + 6, left: coords.left, caretTop: coords.top - 6 }, "");
+      }
+    },
   });
 
-  // Suppress autosave triggers for the first INIT_SUPPRESS_MS after mount
+  // Pass editor instance up to outer shell once ready
+  useEffect(() => {
+    if (editor) onEditorReady(editor);
+  }, [editor, onEditorReady]);
+
+  // Suppress autosave for the first INIT_SUPPRESS_MS after mount
   useEffect(() => {
     const id = setTimeout(() => { initDoneRef.current = true; }, INIT_SUPPRESS_MS);
     return () => clearTimeout(id);
   }, []);
 
-  // ── Imperative content swap when a new note is navigated to ──────────────
+  // ── Imperative content swap on navigation ─────────────────────────────────
   useEffect(() => {
     if (!editor) return;
     if (incomingNoteId === currentNoteIdRef.current) return;
-    if (incomingContent === null) return; // still loading — wait
+    if (incomingContent === null) return;
 
-    initDoneRef.current = false; // suppress autosave triggers during content swap
+    onSlashClose();
+    onBlockRefClose();
+
+    initDoneRef.current = false;
     editor.commands.setContent(incomingContent ?? "");
     currentNoteIdRef.current = incomingNoteId;
     setLiveNoteId(incomingNoteId);
 
     const id = setTimeout(() => { initDoneRef.current = true; }, INIT_SUPPRESS_MS);
     return () => clearTimeout(id);
-  }, [editor, incomingNoteId, incomingContent]);
+  }, [editor, incomingNoteId, incomingContent, onSlashClose, onBlockRefClose]);
 
-  // ── Guarded editor proxy ──────────────────────────────────────────────────
-  // Gates autosave "update" events until initDoneRef is true, preventing
-  // spurious saves during mount and imperative content swaps.
+  // ── Guarded editor proxy (gates autosave during init) ─────────────────────
   const guardedEditorRef = useRef<typeof editor | null>(null);
 
   if (editor && !guardedEditorRef.current) {
@@ -276,7 +382,7 @@ function EditorInner({
           ← Back to detail
         </button>
         <span style={{ fontSize: 10, color: LABEL, opacity: 0.2 }}>
-          Click to open in editor · Shift+Click to focus in graph
+          Type / for commands · (( to embed block · Click sub-page to open · Shift+Click to focus in graph
         </span>
       </div>
     </div>
@@ -284,9 +390,6 @@ function EditorInner({
 }
 
 // ─── Outer shell ──────────────────────────────────────────────────────────────
-// Fetches content and manages navigation state. EditorInner is never remounted
-// — notes are switched by passing new incomingNoteId/incomingContent props and
-// letting EditorInner swap content imperatively via editor.commands.setContent.
 
 export function GraphNodeEditor({
   noteId,
@@ -301,18 +404,162 @@ export function GraphNodeEditor({
   const notes   = useNoteStore((s) => s.notes);
   const getNote = useCallback((id: string) => notes.find((n) => n.id === id) ?? null, [notes]);
 
-  // ── Initial load (first mount) ────────────────────────────────────────────
+  // ── Initial load ──────────────────────────────────────────────────────────
   const [initialNoteId,  setInitialNoteId]  = useState<string | null>(null);
   const [initialContent, setInitialContent] = useState<any>(null);
   const [initialReady,   setInitialReady]   = useState(false);
 
   // ── Incoming note (subsequent navigations) ────────────────────────────────
-  // null incomingContent = fetch in flight; EditorInner waits for non-null
   const [incomingNoteId,  setIncomingNoteId]  = useState<string>(noteId);
   const [incomingContent, setIncomingContent] = useState<any>(null);
 
   // ── Title bar display ─────────────────────────────────────────────────────
   const [displayNoteId, setDisplayNoteId] = useState(noteId);
+
+  // ── Editor instance (passed up from EditorInner) ──────────────────────────
+  const [editor, setEditor] = useState<any>(null);
+
+  // ── Slash menu state ──────────────────────────────────────────────────────
+  const [slashOpen,  setSlashOpen]  = useState(false);
+  const [slashPos,   setSlashPos]   = useState<{ top: number; left: number; caretTop: number }>({ top: 0, left: 0, caretTop: 0 });
+  // FIX: slashQuery is the single source of truth. EditorInner calls
+  // onSlashQueryChange on every keystroke; SlashMenu receives this live value.
+  const [slashQuery, setSlashQuery] = useState("");
+  const slashStartPosRef = useRef<number | null>(null);
+
+  // ── BlockRef suggest state ─────────────────────────────────────────────────
+  const [blockRefOpen,  setBlockRefOpen]  = useState(false);
+  const [blockRefPos,   setBlockRefPos]   = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [blockRefQuery, setBlockRefQuery] = useState("");
+  const [blockRefTriggerStart, setBlockRefTriggerStart] = useState(0);
+  const blockRefStartPosRef = useRef<number | null>(null);
+
+  // ── Slash menu callbacks ───────────────────────────────────────────────────
+
+  const handleSlashOpenChange = useCallback((
+    open: boolean,
+    pos?: { top: number; left: number; caretTop: number },
+    query?: string,
+  ) => {
+    if (open && pos) {
+      setSlashPos(pos);
+      setSlashQuery(query ?? "");
+      setSlashOpen(true);
+    } else {
+      setSlashOpen(false);
+      setSlashQuery("");
+    }
+  }, []);
+
+  // Called every keystroke while slash menu is open — keeps query in sync
+  const handleSlashQueryChange = useCallback((query: string) => {
+    setSlashQuery(query);
+  }, []);
+
+  const handleSlashClose = useCallback(() => {
+    setSlashOpen(false);
+    setSlashQuery("");
+    slashStartPosRef.current = null;
+  }, []);
+
+  const handleSlashCommand = useCallback((action: () => void) => {
+    if (slashStartPosRef.current !== null && editor) {
+      editor.chain().focus()
+        .deleteRange({ from: slashStartPosRef.current, to: editor.state.selection.from })
+        .run();
+    }
+    action();
+    handleSlashClose();
+  }, [editor, handleSlashClose]);
+
+  // ── BlockRef callbacks ────────────────────────────────────────────────────
+
+  const handleBlockRefOpenChange = useCallback((
+    open: boolean,
+    pos?: { top: number; left: number },
+    query?: string,
+    triggerStart?: number,
+  ) => {
+    if (open) {
+      if (pos) setBlockRefPos(pos);
+      setBlockRefQuery(query ?? "");
+      if (triggerStart !== undefined) setBlockRefTriggerStart(triggerStart);
+      setBlockRefOpen(true);
+    } else {
+      setBlockRefOpen(false);
+      setBlockRefQuery("");
+    }
+  }, []);
+
+  const handleBlockRefClose = useCallback(() => {
+    setBlockRefOpen(false);
+    setBlockRefQuery("");
+    blockRefStartPosRef.current = null;
+  }, []);
+
+  // ── Upload / sub-page callbacks ───────────────────────────────────────────
+
+  const handleImageUpload = useCallback(async () => {
+    if (!editor) return;
+    const result = await uploadImageFromDisk();
+    if (!result) return;
+    editor.chain().focus().insertContent({
+      type: "image",
+      attrs: { src: result.path, alt: result.name, width: null, align: "left" },
+    }).run();
+  }, [editor]);
+
+  const handleAttachmentUpload = useCallback(async (kind: "pdf" | "audio") => {
+    if (!editor) return;
+    const filePath = await pickAttachmentFile();
+    if (!filePath) return;
+    const bytes      = await readFileBytes(filePath);
+    const fileName   = filePath.split(/[\\/]/).pop() ?? "file";
+    const ext        = fileName.split(".").pop()?.toLowerCase() ?? "";
+    const base       = fileName.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_").slice(0, 40);
+    const uniqueName = `${base}_${Date.now()}.${ext}`;
+    const savedPath  = await saveAttachment(uniqueName, bytes);
+    editor.chain().focus().insertContent({
+      type: "attachment",
+      attrs: { src: savedPath, filename: fileName, kind, size: bytes.length },
+    }).run();
+  }, [editor]);
+
+  const handleSubPageCreate = useCallback(() => {
+    if (!editor) return;
+
+    const pattern = /^Untitled-(\d+)$/;
+    const used    = new Set<number>();
+    for (const n of notes) {
+      const m = n.title.match(pattern);
+      if (m) used.add(parseInt(m[1], 10));
+    }
+    let n = 1;
+    while (used.has(n)) n++;
+    const defaultTitle = `Untitled-${n}`;
+
+    // Write parentNoteId into storage so GraphSubPageNodeView can read it
+    const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
+    if (s["subPage"]) {
+      s["subPage"].parentNoteId = displayNoteId;
+      s["subPage"].paneId       = 1;
+    }
+
+    const insertChain = editor.chain().focus();
+    if (slashStartPosRef.current !== null) {
+      insertChain.deleteRange({ from: slashStartPosRef.current, to: editor.state.selection.from });
+    }
+    insertChain
+      .insertContent([
+        { type: "subPage", attrs: { noteId: null, title: defaultTitle, mode: "editing" } },
+        { type: "paragraph" },
+      ])
+      .run();
+
+    handleSlashClose();
+  }, [editor, notes, displayNoteId, handleSlashClose]);
+
+  // ── Content fetching ──────────────────────────────────────────────────────
 
   const fetchContent = useCallback(async (id: string): Promise<any> => {
     try {
@@ -325,7 +572,7 @@ export function GraphNodeEditor({
     }
   }, [getNote]);
 
-  // Fetch the first note on mount
+  // Fetch first note on mount
   useEffect(() => {
     let cancelled = false;
     fetchContent(noteId).then((content) => {
@@ -339,15 +586,14 @@ export function GraphNodeEditor({
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When the noteId prop changes (back/forward navigation or sub-page click),
-  // fetch the new content and pass it to EditorInner — do NOT remount.
+  // When noteId prop changes, fetch new content without remounting the editor
   const prevNoteIdRef = useRef(noteId);
   useEffect(() => {
     if (noteId === prevNoteIdRef.current) return;
     prevNoteIdRef.current = noteId;
 
     setDisplayNoteId(noteId);
-    setIncomingContent(null); // signal: loading
+    setIncomingContent(null);
     setIncomingNoteId(noteId);
 
     let cancelled = false;
@@ -365,92 +611,129 @@ export function GraphNodeEditor({
     || (incomingContent === null && incomingNoteId !== initialNoteId);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
-      {/* Title bar */}
-      <div style={{
-        padding:      "10px 14px 6px",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
-        flexShrink:   0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          {canGoBack && (
-            <button
-              onClick={onGoBack}
-              title="Go back"
-              style={{
-                background: "transparent", border: "none", cursor: "pointer",
-                padding: 4, borderRadius: 4, opacity: 0.5, transition: "opacity 120ms",
-                display: "flex", alignItems: "center",
-              }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = "0.9")}
-              onMouseLeave={e => (e.currentTarget.style.opacity = "0.5")}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M9 2L4 7l5 5" stroke={LABEL} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          )}
-          {canGoForward && (
-            <button
-              onClick={onGoForward}
-              title="Go forward"
-              style={{
-                background: "transparent", border: "none", cursor: "pointer",
-                padding: 4, borderRadius: 4, opacity: 0.5, transition: "opacity 120ms",
-                display: "flex", alignItems: "center",
-              }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = "0.9")}
-              onMouseLeave={e => (e.currentTarget.style.opacity = "0.5")}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M5 2l5 5-5 5" stroke={LABEL} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          )}
-          <span style={{
-            fontSize:     15,
-            fontWeight:   700,
-            color:        LABEL,
-            opacity:      0.9,
-            lineHeight:   1.3,
-            flex:         1,
-            overflow:     "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace:   "nowrap",
-          }}>
-            {title}
+    <>
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        {/* Title bar */}
+        <div style={{
+          padding:      "10px 14px 6px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          flexShrink:   0,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            {canGoBack && (
+              <button
+                onClick={onGoBack}
+                title="Go back"
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer",
+                  padding: 4, borderRadius: 4, opacity: 0.5, transition: "opacity 120ms",
+                  display: "flex", alignItems: "center",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = "0.9")}
+                onMouseLeave={e => (e.currentTarget.style.opacity = "0.5")}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M9 2L4 7l5 5" stroke={LABEL} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
+            {canGoForward && (
+              <button
+                onClick={onGoForward}
+                title="Go forward"
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer",
+                  padding: 4, borderRadius: 4, opacity: 0.5, transition: "opacity 120ms",
+                  display: "flex", alignItems: "center",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = "0.9")}
+                onMouseLeave={e => (e.currentTarget.style.opacity = "0.5")}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M5 2l5 5-5 5" stroke={LABEL} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
+            <span style={{
+              fontSize:     15,
+              fontWeight:   700,
+              color:        LABEL,
+              opacity:      0.9,
+              lineHeight:   1.3,
+              flex:         1,
+              overflow:     "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace:   "nowrap",
+            }}>
+              {title}
+            </span>
+          </div>
+          <span style={{ fontSize: 10, color: LABEL, opacity: 0.28, display: "block" }}>
+            {isLoading ? "Loading…" : "Editing · changes save automatically"}
           </span>
         </div>
-        <span style={{ fontSize: 10, color: LABEL, opacity: 0.28, display: "block" }}>
-          {isLoading ? "Loading…" : "Editing · changes save automatically"}
-        </span>
+
+        {!initialReady ? (
+          <div style={{
+            flex:           1,
+            display:        "flex",
+            alignItems:     "center",
+            justifyContent: "center",
+            opacity:        0.25,
+            fontSize:       12,
+            color:          LABEL,
+          }}>
+            Loading content…
+          </div>
+        ) : (
+          <EditorInner
+            noteId={initialNoteId!}
+            initialContent={initialContent}
+            incomingNoteId={incomingNoteId}
+            incomingContent={incomingContent}
+            onClose={onClose}
+            onNavigateToNode={onNavigateToNode}
+            onOpenInEditor={onOpenInEditor}
+            onSlashOpenChange={handleSlashOpenChange}
+            onSlashQueryChange={handleSlashQueryChange}
+            onSlashClose={handleSlashClose}
+            slashStartPosRef={slashStartPosRef}
+            onBlockRefOpenChange={handleBlockRefOpenChange}
+            onBlockRefClose={handleBlockRefClose}
+            blockRefStartPosRef={blockRefStartPosRef}
+            onEditorReady={setEditor}
+          />
+        )}
       </div>
 
-      {!initialReady ? (
-        <div style={{
-          flex:           1,
-          display:        "flex",
-          alignItems:     "center",
-          justifyContent: "center",
-          opacity:        0.25,
-          fontSize:       12,
-          color:          LABEL,
-        }}>
-          Loading content…
-        </div>
-      ) : (
-        // No key prop — EditorInner never remounts. Notes are swapped
-        // imperatively via incomingNoteId / incomingContent props.
-        <EditorInner
-          noteId={initialNoteId!}
-          initialContent={initialContent}
-          incomingNoteId={incomingNoteId}
-          incomingContent={incomingContent}
-          onClose={onClose}
-          onNavigateToNode={onNavigateToNode}
-          onOpenInEditor={onOpenInEditor}
-        />
+      {/* Slash menu — portal to document.body avoids overflow:hidden clipping */}
+      {slashOpen && editor && createPortal(
+        <SlashMenu
+          position={slashPos}
+          editor={editor}
+          query={slashQuery}
+          noteId={displayNoteId}
+          paneId={1}
+          onCommand={handleSlashCommand}
+          onClose={handleSlashClose}
+          onImageUpload={handleImageUpload}
+          onAttachmentUpload={handleAttachmentUpload}
+          onSubPageCreate={handleSubPageCreate}
+        />,
+        document.body,
       )}
-    </div>
+
+      {/* BlockRef suggest — portal to document.body for same reason */}
+      {blockRefOpen && editor && createPortal(
+        <BlockRefSuggest
+          position={blockRefPos}
+          editor={editor}
+          query={blockRefQuery}
+          triggerStart={blockRefTriggerStart}
+          onClose={handleBlockRefClose}
+        />,
+        document.body,
+      )}
+    </>
   );
 }

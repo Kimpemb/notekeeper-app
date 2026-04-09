@@ -1,19 +1,23 @@
 // src/features/graph/GraphSubPageNode.ts
 import { Node, mergeAttributes } from "@tiptap/core";
-
-function escapeHtml(str: string): string {
-  return str.replace(/[&<>"']/g, (m) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]!)
-  );
-}
+import { ReactNodeViewRenderer } from "@tiptap/react";
+import { GraphSubPageNodeView } from "./GraphSubPageNodeView";
 
 /**
  * Drop-in replacement for SubPageNode inside the graph editor.
  * Uses the same schema (name, attrs) so existing note content is
  * parsed identically — only the nodeView is different.
  *
- * Registered via addNodeView() so it fires synchronously during
- * editor construction, before any content is parsed. No timing race.
+ * Key fix: switched from a plain DOM nodeView to ReactNodeViewRenderer.
+ * The plain DOM approach created the DOM element once on insert and never
+ * re-rendered when attrs changed (e.g. noteId going from null → real UUID
+ * after the user typed a title and pressed Enter). ReactNodeViewRenderer
+ * gives us a proper React component that re-renders on every attr change,
+ * so the click handler is always attached with the current noteId.
+ *
+ * The callbacks (onOpenInEditor, onNavigateToNode) are stored in editor
+ * storage so GraphSubPageNodeView can read them without needing them passed
+ * as props (which ReactNodeViewRenderer doesn't support directly).
  */
 export function createGraphSubPageNode(
   onOpenInEditor:   (noteId: string) => void,
@@ -23,6 +27,19 @@ export function createGraphSubPageNode(
     name:  "subPage",   // must match exactly — same ProseMirror node type
     group: "block",
     atom:  true,
+
+    // Store callbacks in editor storage so the NodeView component can reach them.
+    // This is the standard pattern for passing non-serialisable values into a
+    // ReactNodeViewRenderer without prop-drilling through TipTap internals.
+    addStorage() {
+      return {
+        onOpenInEditor,
+        onNavigateToNode,
+        // These two are also written by GraphNodeEditor before subPage inserts:
+        parentNoteId: "",
+        paneId: 1 as 1 | 2,
+      };
+    },
 
     addAttributes() {
       return {
@@ -40,47 +57,8 @@ export function createGraphSubPageNode(
       return ["div", mergeAttributes(HTMLAttributes, { "data-type": "sub-page" })];
     },
 
-    // addNodeView() runs synchronously during `new Editor()` — guaranteed
-    // first-paint correctness, no async gap, no fallback render.
     addNodeView() {
-      return ({ node }) => {
-        const dom = document.createElement("div");
-        dom.className = "graph-subpage-node";
-
-        const noteId: string | null = node.attrs.noteId ?? null;
-        const title: string         = node.attrs.title  ?? "Untitled";
-
-        dom.innerHTML = `
-          <div class="graph-subpage-inner" data-note-id="${noteId ?? ""}">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;opacity:0.5">
-              <path d="M4 2h6l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"
-                stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-              <path d="M10 2v3h3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-              <path d="M6 8h4M6 11h3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
-            </svg>
-            <span>${escapeHtml(title)}</span>
-          </div>
-        `;
-
-        if (noteId) {
-          const handler = (e: MouseEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.shiftKey) onNavigateToNode(noteId);
-            else            onOpenInEditor(noteId);
-          };
-          dom.addEventListener("click", handler);
-
-          return {
-            dom,
-            destroy() {
-              dom.removeEventListener("click", handler);
-            },
-          };
-        }
-
-        return { dom };
-      };
+      return ReactNodeViewRenderer(GraphSubPageNodeView);
     },
   });
 }
