@@ -64,8 +64,13 @@ const ALPHA_DECAY = 0.04;
 
 // ─── Zoom label constants ─────────────────────────────────────────────────────
 
-const ZOOM_LABEL_THRESHOLD = 1.2; // above this: always show; below: hover only
+const ZOOM_LABEL_THRESHOLD = 0.6; // labels visible at default zoom
+const DEFAULT_ZOOM = 0.6;        // default zoom level on open
 const LABEL_MAX_CHARS = 22;
+
+// Label offset base values (at zoom = 1.0)
+const LABEL_OFFSET_DEFAULT = 14;
+const LABEL_OFFSET_HOVER = 30;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -181,7 +186,7 @@ export function useGraphSimulation({
   const linkSelRef  = useRef<d3.Selection<SVGLineElement,   GraphEdge, SVGGElement, unknown> | null>(null);
   const simRef      = useRef<d3.Simulation<GraphNode, GraphEdge> | null>(null);
   const rScaleRef   = useRef<d3.ScalePower<number, number> | null>(null);
-  const currentZoomRef = useRef<number>(0.85);
+  const currentZoomRef = useRef<number>(DEFAULT_ZOOM);
 
   const nodeGRef  = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
   const ringGRef  = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
@@ -276,7 +281,7 @@ linkSelRef.current = linkG
     // Step 3: update node/ring/label sizes since linkCount changed
     nodeSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount));
     ringSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount) + RING_GAP + RING_WIDTH);
-    labelSelRef.current?.attr("dy",(n) => rScaleRef.current!(n.linkCount) + 14);
+    labelSelRef.current?.attr("dy",(n) => rScaleRef.current!(n.linkCount) + LABEL_OFFSET_DEFAULT);
 
     // Step 4: gentle kick so sim re-settles
     simulation?.alpha(0.1).restart();
@@ -469,7 +474,7 @@ linkSelRef.current = linkG
     svg.on("dblclick.zoom", null);
     svgRef.current?.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
     svg.on("touchstart", (e) => e.preventDefault(), { passive: false });
-    svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85));
+    svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(DEFAULT_ZOOM));
 
     if (timelineMode) {
       simNodes.forEach((n) => {
@@ -736,7 +741,7 @@ linkSelRef.current = link as any;
       .attr("font-size",      11)
       .attr("fill",           LABEL_COLOR)
       .attr("text-anchor",    "middle")
-      .attr("dy",             (d) => rScale(d.linkCount) + 14)
+      .attr("dy",             (d) => rScale(d.linkCount) + LABEL_OFFSET_DEFAULT)
       .attr("pointer-events", "all")
       .attr("opacity",        (d) => focusNodeId === d.id ? 1 : 0)
       .style("cursor", "text");
@@ -921,7 +926,7 @@ linkSelRef.current = link as any;
 
             nodeSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount));
             ringSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount) + RING_GAP + RING_WIDTH);
-            labelSelRef.current?.attr("dy",(n) => rScaleRef.current!(n.linkCount) + 14);
+            labelSelRef.current?.attr("dy",(n) => rScaleRef.current!(n.linkCount) + LABEL_OFFSET_DEFAULT);
 
             simulation.alpha(0.1).restart();
             setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
@@ -947,8 +952,7 @@ linkSelRef.current = link as any;
 ) {
   sel
     .on("mouseenter", function (event, d) {
-  void event; // D3 callback signature requires event parameter
-  if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
+      void event; // D3 callback signature requires event parameter
       if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
       ringSelRef.current?.filter((r) => r.id === d.id)
         .attr("opacity", 1).attr("stroke", RING_STROKE);
@@ -1009,31 +1013,38 @@ linkSelRef.current = link as any;
           });
       }
       
+      // Scale the hover offset based on current zoom level
+      const zoomScale = currentZoomRef.current;
+      const hoverOffset = LABEL_OFFSET_HOVER / zoomScale;
+      
       // Force the hovered node's label to be visible and move it down
-      // Use a more direct approach - select by id attribute or data
       labelSelRef.current
         ?.filter(function(n) { return n.id === d.id; })
         .transition()
         .duration(400)
         .attr("opacity", 1)
-        .attr("dy", rScaleRef.current!(d.linkCount) + 30);
+        .attr("dy", rScaleRef.current!(d.linkCount) + hoverOffset);
 
       setHoveredNode(d);
     })
     .on("mouseleave", function (event, d) {
-  void event; // D3 callback signature requires event parameter
-  if (!linkDragState.active) {
+      void event; // D3 callback signature requires event parameter
+      if (!linkDragState.active) {
         ringSelRef.current?.filter((r) => r.id === d.id).attr("opacity", 0);
       }
       
       const isZoomedIn = currentZoomRef.current >= ZOOM_LABEL_THRESHOLD;
+      
+      // Scale the default offset based on current zoom level
+      const zoomScale = currentZoomRef.current;
+      const defaultOffset = LABEL_OFFSET_DEFAULT / zoomScale;
       
       // ONLY the hovered node's label moves back up
       labelSelRef.current
         ?.filter((n) => n.id === d.id)
         .transition()
         .duration(400)
-        .attr("dy", rScaleRef.current!(d.linkCount) + 14);
+        .attr("dy", rScaleRef.current!(d.linkCount) + defaultOffset);
       
       hoverExitTimerRef.current = setTimeout(() => {
         if (isHoveringPreviewRef.current) return;
@@ -1055,12 +1066,12 @@ linkSelRef.current = link as any;
           labelSelRef.current?.transition()
             .duration(300)
             .attr("opacity", 1)
-            .attr("dy", (n) => rScaleRef.current!(n.linkCount) + 14);
+            .attr("dy", (n) => rScaleRef.current!(n.linkCount) + LABEL_OFFSET_DEFAULT);
         } else {
           labelSelRef.current?.transition()
             .duration(300)
             .attr("opacity", (n) => focusNodeId === n.id ? 1 : 0)
-            .attr("dy", (n) => rScaleRef.current!(n.linkCount) + 14);
+            .attr("dy", (n) => rScaleRef.current!(n.linkCount) + LABEL_OFFSET_DEFAULT);
         }
         
         setHoveredNode(null);
@@ -1207,7 +1218,7 @@ linkSelRef.current = link as any;
               .attr("font-size",      11)
               .attr("fill",           LABEL_COLOR)
               .attr("text-anchor",    "middle")
-              .attr("dy",             (d) => rScale(d.linkCount) + 14)
+              .attr("dy",             (d) => rScale(d.linkCount) + LABEL_OFFSET_DEFAULT)
               .attr("pointer-events", "all")
               .attr("opacity",        1)
               .attr("x",              newNode.x ?? 0)
