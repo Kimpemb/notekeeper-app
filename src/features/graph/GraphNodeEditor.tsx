@@ -10,8 +10,8 @@
 //
 // Autosave is always active — no pane gating needed here.
 // Title is editable via a contenteditable h1, same as the main editor.
-// SlashMenu and BlockRefSuggest are portalled to document.body to escape
-// the graph panel's overflow:hidden + backdropFilter.
+// SlashMenu, BlockRefSuggest, and NoteLinkSuggest are portalled to document.body
+// to escape the graph panel's overflow:hidden + backdropFilter.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -25,6 +25,7 @@ import { syncBacklinks } from "@/features/notes/db/queries";
 import { NoteLink } from "@/features/editor/components/Editor/NoteLink";
 import { SlashMenu } from "@/features/editor/components/Editor/SlashMenu";
 import { BlockRefSuggest } from "@/features/editor/components/Editor/BlockRefSuggest";
+import { NoteLinkSuggest } from "@/features/editor/components/Editor/NoteLinkSuggest";
 import { createGraphSubPageNode } from "./GraphSubPageNode";
 import { extractNoteLinkIds } from "@/features/editor/components/Editor/editorUtils";
 import {
@@ -109,6 +110,12 @@ export function GraphNodeEditor({
   const [blockRefQuery, setBlockRefQuery] = useState("");
   const blockRefTriggerStart = useRef<number | null>(null);
 
+  // ── NoteLink suggest ([[ trigger) ─────────────────────────────────────────
+  const [noteLinkOpen,  setNoteLinkOpen]  = useState(false);
+  const [noteLinkPos,   setNoteLinkPos]   = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [noteLinkQuery, setNoteLinkQuery] = useState("");
+  const noteLinkTriggerStart = useRef<number | null>(null);
+
   // ── Editor ────────────────────────────────────────────────────────────────
   const initialContent = note?.content ? JSON.parse(note.content) : "";
 
@@ -141,6 +148,27 @@ export function GraphNodeEditor({
     onUpdate: ({ editor: e }) => {
       const { state } = e;
       const { from }  = state.selection;
+
+      // ── NoteLink "[[ trigger ─────────────────────────────────────────────
+      if (noteLinkTriggerStart.current !== null) {
+        const triggerStart = noteLinkTriggerStart.current;
+        if (from >= triggerStart + 2) {
+          const textAfter = state.doc.textBetween(triggerStart + 2, from, "\n");
+          if (!textAfter.includes("]") && !textAfter.includes("\n")) {
+            setNoteLinkQuery(textAfter);
+            return;
+          }
+        }
+        closeNoteLink();
+      }
+      const textBefore2NL = from >= 2 ? state.doc.textBetween(from - 2, from, "\n") : "";
+      if (textBefore2NL === "[[") {
+        noteLinkTriggerStart.current = from - 2;
+        setNoteLinkQuery("");
+        const coords = e.view.coordsAtPos(from);
+        setNoteLinkPos({ top: coords.bottom, left: coords.left });
+        setNoteLinkOpen(true);
+      }
 
       // ── BlockRef "((" trigger ─────────────────────────────────────────────
       if (blockRefTriggerStart.current !== null) {
@@ -190,24 +218,21 @@ export function GraphNodeEditor({
   });
 
   // ── Wire subPage storage ──────────────────────────────────────────────────
-  // SubPageNode reads parentNoteId to create children under the right note.
-  // onNavigate / onOpenInEditor hook into graph navigation on click.
-  // Replace the existing "Wire subPage storage" useEffect
-useEffect(() => {
-  if (!editor) return;
-  const s = editor.storage as unknown as Record<string, {
-    parentNoteId:    string;
-    paneId:          1 | 2;
-    onNavigate?:     (id: string) => void;
-    onOpenInEditor?: (id: string) => void;
-  }>;
-  if (s["subPage"]) {
-    s["subPage"].parentNoteId   = noteId;
-    s["subPage"].paneId         = 1;
-    s["subPage"].onNavigate     = onNavigateToNode;
-    s["subPage"].onOpenInEditor = onOpenInEditor;
-  }
-}, [editor, noteId, onNavigateToNode, onOpenInEditor]);
+  useEffect(() => {
+    if (!editor) return;
+    const s = editor.storage as unknown as Record<string, {
+      parentNoteId:    string;
+      paneId:          1 | 2;
+      onNavigate?:     (id: string) => void;
+      onOpenInEditor?: (id: string) => void;
+    }>;
+    if (s["subPage"]) {
+      s["subPage"].parentNoteId   = noteId;
+      s["subPage"].paneId         = 1;
+      s["subPage"].onNavigate     = onNavigateToNode;
+      s["subPage"].onOpenInEditor = onOpenInEditor;
+    }
+  }, [editor, noteId, onNavigateToNode, onOpenInEditor]);
 
   // ── Autosave ──────────────────────────────────────────────────────────────
   const onSaveComplete = useCallback((_content: string, savedNoteId: string) => {
@@ -239,6 +264,12 @@ useEffect(() => {
     setBlockRefOpen(false);
     setBlockRefQuery("");
     blockRefTriggerStart.current = null;
+  }
+
+  function closeNoteLink() {
+    setNoteLinkOpen(false);
+    setNoteLinkQuery("");
+    noteLinkTriggerStart.current = null;
   }
 
   // ── Slash command handler ─────────────────────────────────────────────────
@@ -493,7 +524,7 @@ useEffect(() => {
             ← Back to detail
           </button>
           <span style={{ fontSize: 10, color: LABEL, opacity: 0.2 }}>
-            / for commands · (( to embed · click sub-page to open · Shift+click to graph
+            / for commands · (( to embed · [[ to link · click sub-page to open · Shift+click to graph
           </span>
         </div>
       </div>
@@ -523,6 +554,18 @@ useEffect(() => {
           query={blockRefQuery}
           triggerStart={blockRefTriggerStart.current}
           onClose={closeBlockRef}
+        />,
+        document.body,
+      )}
+
+      {/* NoteLink suggest — portalled outside overflow:hidden panel */}
+      {noteLinkOpen && editor && noteLinkTriggerStart.current !== null && createPortal(
+        <NoteLinkSuggest
+          position={noteLinkPos}
+          editor={editor}
+          query={noteLinkQuery}
+          bracketStart={noteLinkTriggerStart.current}
+          onClose={closeNoteLink}
         />,
         document.body,
       )}
