@@ -33,15 +33,7 @@ const TAG_PALETTE = [
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface TooltipState {
-  visible: boolean;
-  x: number;
-  y: number;
-  title: string;
-  linkCount: number;
-  tags: string[];
-  createdAt: number;
-}
+
 
 interface Toast {
   id: number;
@@ -148,7 +140,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const [hoveredNode, setHoveredNode]     = useState<GraphNode | null>(null);
   const [searchQuery, setSearch]          = useState(savedState.searchQuery);
   const [stats, setStats]                 = useState({ nodes: 0, edges: 0 });
-  const [tooltip, setTooltip]             = useState<TooltipState>({ visible: false, x: 0, y: 0, title: "", linkCount: 0, tags: [], createdAt: 0 });
   const [toasts, setToasts]               = useState<Toast[]>([]);
   const [showOrphans, setShowOrphans]     = useState(savedState.showOrphans);
   const [showTagColors, setShowTagColors] = useState(savedState.showTagColors);
@@ -515,13 +506,38 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   }, []);
 
   const handleFit = useCallback(() => {
-    if (!svgRef.current || !containerRef.current || !zoomRef.current) return;
-    const width  = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight;
-    d3.select(svgRef.current).transition().duration(400)
-      .call(zoomRef.current.transform,
-        d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85));
-  }, []);
+  if (!svgRef.current || !containerRef.current || !zoomRef.current) return;
+  const nodes = simNodesRef.current;
+  if (nodes.length === 0) return;
+
+  const width  = containerRef.current.clientWidth;
+  const height = containerRef.current.clientHeight;
+
+  const xs = nodes.map((n) => n.x ?? 0);
+  const ys = nodes.map((n) => n.y ?? 0);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  const bboxW = maxX - minX || 1;
+  const bboxH = maxY - minY || 1;
+  const PADDING = 80;
+
+  const scale = Math.min(
+    (width  - PADDING * 2) / bboxW,
+    (height - PADDING * 2) / bboxH,
+    1.5, // cap zoom-in so single nodes don't blow up
+  );
+
+  const tx = width  / 2 - scale * (minX + bboxW / 2);
+  const ty = height / 2 - scale * (minY + bboxH / 2);
+
+  d3.select(svgRef.current)
+    .transition()
+    .duration(400)
+    .call(zoomRef.current.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+}, []);
 
   // ── D3 simulation ─────────────────────────────────────────────────────────
   const { deleteNodeById, deleteLinkInD3 } = useGraphSimulation({
@@ -531,7 +547,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     visibleNodes, visibleEdges, allNotes: notes, isLoading,
     showTagColors, tagColorMap, focusNodeId, timelineMode,
     selectedNodeIds,
-    setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
+    setActiveNote, openTab, setStats, setHoveredNode,
     setFocusNodeId, setSelectedNodeIds,
     showToast, handleClose,
     onCreateNode:        handleCreateNode,
@@ -700,27 +716,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
           <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }} />
 
-          {tooltip.visible && (
-            <div style={{ position: "absolute", left: tooltip.x, top: tooltip.y, background: "rgba(24,24,24,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", pointerEvents: "none", zIndex: 10, minWidth: 140 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: LABEL_COLOR, marginBottom: 4 }}>{tooltip.title}</div>
-              <div style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.5, display: "flex", flexDirection: "column", gap: 2 }}>
-                <span>{tooltip.linkCount} {tooltip.linkCount === 1 ? "link" : "links"}</span>
-                {tooltip.createdAt > 0 && (
-                  <span>{new Date(tooltip.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
-                )}
-                {tooltip.tags.length > 0 && (
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
-                    {tooltip.tags.map((t) => (
-                      <span key={t} style={{ background: tagColorMap.get(t) ? `${tagColorMap.get(t)}33` : "rgba(255,255,255,0.08)", border: `1px solid ${tagColorMap.get(t) ?? "rgba(255,255,255,0.15)"}`, borderRadius: 3, padding: "1px 5px", fontSize: 10, color: tagColorMap.get(t) ?? LABEL_COLOR }}>{t}</span>
-                    ))}
-                  </div>
-                )}
-                <span style={{ marginTop: 4, opacity: 0.6, fontSize: 10 }}>
-                  Click to inspect · Press E to edit · Shift+click to focus
-                </span>
-              </div>
-            </div>
-          )}
 
           {!isLoading && visibleNodes.length > 0 && (
             <svg ref={minimapRef} width={MINIMAP_W} height={MINIMAP_H} style={{ position: "absolute", bottom: 16, right: 16, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", cursor: "crosshair" }} />

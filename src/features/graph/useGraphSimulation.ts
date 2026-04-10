@@ -62,7 +62,16 @@ const SELECT_RECT_STROKE = "rgba(99,102,241,0.5)";
 
 const ALPHA_DECAY = 0.04;
 
+// ─── Zoom label constants ─────────────────────────────────────────────────────
+
+const ZOOM_LABEL_THRESHOLD = 1.2; // above this: always show; below: hover only
+const LABEL_MAX_CHARS = 22;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function truncateLabel(title: string): string {
+  return title.length > LABEL_MAX_CHARS ? title.slice(0, LABEL_MAX_CHARS - 1) + "…" : title;
+}
 
 function getNodeColor(node: GraphNode, tagColorMap: Map<string, string>): string {
   if (node.linkCount === 0) return NODE_ISOLATED;
@@ -129,7 +138,6 @@ export interface UseGraphSimulationProps {
   setActiveNote:        (id: string) => void;
   openTab:              (id: string) => void;
   setStats:             (s: { nodes: number; edges: number }) => void;
-  setTooltip:           (t: any) => void;
   setHoveredNode:       (n: GraphNode | null) => void;
   setFocusNodeId:       (fn: (prev: string | null) => string | null) => void;
   setSelectedNodeIds:   (ids: Set<string>) => void;
@@ -159,7 +167,7 @@ export function useGraphSimulation({
   visibleNodes, visibleEdges, allNotes, isLoading,
   showTagColors, tagColorMap, focusNodeId, timelineMode,
   selectedNodeIds,
-  setActiveNote, openTab, setStats, setTooltip, setHoveredNode,
+  setActiveNote, openTab, setStats, setHoveredNode,
   setFocusNodeId, setSelectedNodeIds,
   showToast, handleClose,
   onCreateNode, onRenameNode, onCreateLink,
@@ -173,6 +181,7 @@ export function useGraphSimulation({
   const linkSelRef  = useRef<d3.Selection<SVGLineElement,   GraphEdge, SVGGElement, unknown> | null>(null);
   const simRef      = useRef<d3.Simulation<GraphNode, GraphEdge> | null>(null);
   const rScaleRef   = useRef<d3.ScalePower<number, number> | null>(null);
+  const currentZoomRef = useRef<number>(0.85);
 
   const nodeGRef  = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
   const ringGRef  = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
@@ -248,7 +257,6 @@ export function useGraphSimulation({
     }
 
     // Step 2: rebind link selection — exit removes the deleted line
-    // Step 2: rebind link selection — exit removes the deleted line
 linkSelRef.current = linkG
   .selectAll<SVGLineElement, GraphEdge>("line.visible")
   .data(simEdgesRef.current, (e) => {
@@ -268,7 +276,7 @@ linkSelRef.current = linkG
     // Step 3: update node/ring/label sizes since linkCount changed
     nodeSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount));
     ringSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount) + RING_GAP + RING_WIDTH);
-    labelSelRef.current?.attr("dy",(n) => -(rScaleRef.current!(n.linkCount) + 4));
+    labelSelRef.current?.attr("dy",(n) => rScaleRef.current!(n.linkCount) + 14);
 
     // Step 4: gentle kick so sim re-settles
     simulation?.alpha(0.1).restart();
@@ -440,6 +448,20 @@ linkSelRef.current = linkG
       .on("zoom", (event) => {
         g.attr("transform", event.transform);
         updateMinimapViewport(event.transform, width, height);
+
+        const k = event.transform.k;
+        const wasAbove = currentZoomRef.current >= ZOOM_LABEL_THRESHOLD;
+        const isAbove  = k >= ZOOM_LABEL_THRESHOLD;
+        currentZoomRef.current = k;
+
+        if (wasAbove !== isAbove) {
+          // Threshold crossed — update all label visibility
+          if (isAbove) {
+            labelSelRef.current?.attr("opacity", 1);
+          } else {
+            labelSelRef.current?.attr("opacity", (n) => focusNodeId === n.id ? 1 : 0);
+          }
+        }
       });
 
     zoomRef.current = zoom;
@@ -710,11 +732,11 @@ linkSelRef.current = link as any;
 
     let label = labelG.selectAll<SVGTextElement, GraphNode>("text")
       .data(simNodes, (d) => d.id).join("text")
-      .text((d) => d.title)
+      .text((d) => truncateLabel(d.title))
       .attr("font-size",      11)
       .attr("fill",           LABEL_COLOR)
       .attr("text-anchor",    "middle")
-      .attr("dy",             (d) => -(rScale(d.linkCount) + 4))
+      .attr("dy",             (d) => rScale(d.linkCount) + 14)
       .attr("pointer-events", "all")
       .attr("opacity",        (d) => focusNodeId === d.id ? 1 : 0)
       .style("cursor", "text");
@@ -772,7 +794,7 @@ linkSelRef.current = link as any;
         onRenameNode(d.id, finalTitle, (nodeId, title) => {
           labelSelRef.current
             ?.filter((n) => n.id === nodeId)
-            .text(title)
+            .text(truncateLabel(title))
             .each(function(n) { n.title = title; });
           d.fx = null; d.fy = null;
         }).catch(console.error);
@@ -797,7 +819,6 @@ linkSelRef.current = link as any;
     const ringDrag = d3.drag<SVGCircleElement, GraphNode>()
       .on("start", (_event, d) => {
         linkDragState = { active: true, sourceId: d.id, sourceX: d.x ?? 0, sourceY: d.y ?? 0 };
-        setTooltip((prev: any) => ({ ...prev, visible: false }));
         const transform = d3.zoomTransform(svgRef.current!);
         const sx = transform.applyX(d.x ?? 0);
         const sy = transform.applyY(d.y ?? 0);
@@ -900,7 +921,7 @@ linkSelRef.current = link as any;
 
             nodeSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount));
             ringSelRef.current?.attr("r",  (n) => rScaleRef.current!(n.linkCount) + RING_GAP + RING_WIDTH);
-            labelSelRef.current?.attr("dy",(n) => -(rScaleRef.current!(n.linkCount) + 4));
+            labelSelRef.current?.attr("dy",(n) => rScaleRef.current!(n.linkCount) + 14);
 
             simulation.alpha(0.1).restart();
             setStats({ nodes: simNodesRef.current.length, edges: simEdgesRef.current.length });
@@ -926,6 +947,8 @@ linkSelRef.current = link as any;
 ) {
   sel
     .on("mouseenter", function (event, d) {
+  void event; // D3 callback signature requires event parameter
+  if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
       if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
       ringSelRef.current?.filter((r) => r.id === d.id)
         .attr("opacity", 1).attr("stroke", RING_STROKE);
@@ -938,10 +961,20 @@ linkSelRef.current = link as any;
         if (tid === d.id) neighbourIds.add(sid);
       });
 
-      nodeSelRef.current?.attr("fill-opacity", (n) =>
-        n.id === d.id || neighbourIds.has(n.id) ? 1 : 0.2);
-      linkSelRef.current
-        ?.attr("stroke", (e) => {
+      const isZoomedIn = currentZoomRef.current >= ZOOM_LABEL_THRESHOLD;
+      
+      // Dim non-hovered nodes (but not neighbours)
+      nodeSelRef.current?.transition()
+        .duration(300)
+        .attr("fill-opacity", (n) => {
+          if (n.id === d.id || neighbourIds.has(n.id)) return 1;
+          return 0.3;
+        });
+      
+      // Highlight connected links, dim others
+      linkSelRef.current?.transition()
+        .duration(300)
+        .attr("stroke", (e) => {
           const sid = e.sourceId;
           const tid = e.targetId;
           return sid === d.id || tid === d.id ? LINK_STROKE_HL : LINK_STROKE;
@@ -950,41 +983,86 @@ linkSelRef.current = link as any;
           const sid = e.sourceId;
           const tid = e.targetId;
           return sid === d.id || tid === d.id ? strokeWidthScale(e.weight ?? 1) + 0.5 : 0.5;
+        })
+        .attr("stroke-opacity", (e) => {
+          const sid = e.sourceId;
+          const tid = e.targetId;
+          return sid === d.id || tid === d.id ? 0.8 : 0.15;
         });
-      labelSelRef.current?.attr("opacity", (n) =>
-        n.id === d.id || neighbourIds.has(n.id) ? 1 : 0);
+      
+      // Handle label visibility
+      if (isZoomedIn) {
+        // Zoomed in: dim other labels, show hovered + neighbours at full opacity
+        labelSelRef.current?.transition()
+          .duration(300)
+          .attr("opacity", (n) => {
+            if (n.id === d.id || neighbourIds.has(n.id)) return 1;
+            return 0.3;
+          });
+      } else {
+        // Zoomed out: only show hovered + neighbours
+        labelSelRef.current?.transition()
+          .duration(300)
+          .attr("opacity", (n) => {
+            if (n.id === d.id || neighbourIds.has(n.id)) return 1;
+            return 0;
+          });
+      }
+      
+      // Force the hovered node's label to be visible and move it down
+      // Use a more direct approach - select by id attribute or data
+      labelSelRef.current
+        ?.filter(function(n) { return n.id === d.id; })
+        .transition()
+        .duration(400)
+        .attr("opacity", 1)
+        .attr("dy", rScaleRef.current!(d.linkCount) + 30);
 
-      const rect = containerRef.current!.getBoundingClientRect();
-      setTooltip({
-        visible: true,
-        x: event.clientX - rect.left + 14,
-        y: event.clientY - rect.top  - 14,
-        title: d.title, linkCount: d.linkCount,
-        tags: d.tags, createdAt: d.created_at,
-      });
       setHoveredNode(d);
     })
-    .on("mousemove", function (event) {
-      const rect = containerRef.current!.getBoundingClientRect();
-      setTooltip((prev: any) => ({
-        ...prev,
-        x: event.clientX - rect.left + 14,
-        y: event.clientY - rect.top  - 14,
-      }));
-    })
-    .on("mouseleave", function (_, d) {
-      if (!linkDragState.active) {
+    .on("mouseleave", function (event, d) {
+  void event; // D3 callback signature requires event parameter
+  if (!linkDragState.active) {
         ringSelRef.current?.filter((r) => r.id === d.id).attr("opacity", 0);
       }
+      
+      const isZoomedIn = currentZoomRef.current >= ZOOM_LABEL_THRESHOLD;
+      
+      // ONLY the hovered node's label moves back up
+      labelSelRef.current
+        ?.filter((n) => n.id === d.id)
+        .transition()
+        .duration(400)
+        .attr("dy", rScaleRef.current!(d.linkCount) + 14);
+      
       hoverExitTimerRef.current = setTimeout(() => {
         if (isHoveringPreviewRef.current) return;
-        nodeSelRef.current?.attr("fill-opacity", (n) => focusNodeId === n.id ? 1 : 0.85);
-        linkSelRef.current
-          ?.attr("stroke",         LINK_STROKE)
-          .attr("stroke-width",   (e) => strokeWidthScale(e.weight ?? 1))
+        
+        // Restore all nodes
+        nodeSelRef.current?.transition()
+          .duration(300)
+          .attr("fill-opacity", (n) => focusNodeId === n.id ? 1 : 0.85);
+        
+        // Restore all links
+        linkSelRef.current?.transition()
+          .duration(300)
+          .attr("stroke", LINK_STROKE)
+          .attr("stroke-width", (e) => strokeWidthScale(e.weight ?? 1))
           .attr("stroke-opacity", (e) => strokeOpacityScale(e.weight ?? 1));
-        labelSelRef.current?.attr("opacity", (n) => focusNodeId === n.id ? 1 : 0);
-        setTooltip((prev: any) => ({ ...prev, visible: false }));
+        
+        // Restore labels based on zoom level
+        if (isZoomedIn) {
+          labelSelRef.current?.transition()
+            .duration(300)
+            .attr("opacity", 1)
+            .attr("dy", (n) => rScaleRef.current!(n.linkCount) + 14);
+        } else {
+          labelSelRef.current?.transition()
+            .duration(300)
+            .attr("opacity", (n) => focusNodeId === n.id ? 1 : 0)
+            .attr("dy", (n) => rScaleRef.current!(n.linkCount) + 14);
+        }
+        
         setHoveredNode(null);
       }, 400);
     })
@@ -1125,11 +1203,11 @@ linkSelRef.current = link as any;
           .data(simNodesRef.current, (d) => d.id)
           .join(
             (enter) => enter.append("text")
-              .text((d) => d.title)
+              .text((d) => truncateLabel(d.title))
               .attr("font-size",      11)
               .attr("fill",           LABEL_COLOR)
               .attr("text-anchor",    "middle")
-              .attr("dy",             (d) => -(rScale(d.linkCount) + 4))
+              .attr("dy",             (d) => rScale(d.linkCount) + 14)
               .attr("pointer-events", "all")
               .attr("opacity",        1)
               .attr("x",              newNode.x ?? 0)
