@@ -25,7 +25,7 @@ import { syncBacklinks } from "@/features/notes/db/queries";
 import { NoteLink } from "@/features/editor/components/Editor/NoteLink";
 import { SlashMenu } from "@/features/editor/components/Editor/SlashMenu";
 import { BlockRefSuggest } from "@/features/editor/components/Editor/BlockRefSuggest";
-import { SubPageNode } from "@/features/editor/components/Editor/SubPageNode";
+import { createGraphSubPageNode } from "./GraphSubPageNode";
 import { extractNoteLinkIds } from "@/features/editor/components/Editor/editorUtils";
 import {
   pickImageFile, readImageFile, saveImage,
@@ -123,7 +123,7 @@ export function GraphNodeEditor({
       CodeBlockSelectAllExtension, CodeBlockBackspaceExtension,
       ListSelectAllExtension, SlashPlaceholderExtension,
       EmptyLinePlaceholderExtension, OrderedListBackspaceExtension,
-      TaskListSortExtension, SubPageNode,
+      TaskListSortExtension, createGraphSubPageNode(onOpenInEditor, onNavigateToNode),
       BlockIdExtension, BlockRefNode, DataviewNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => {}),
@@ -192,21 +192,22 @@ export function GraphNodeEditor({
   // ── Wire subPage storage ──────────────────────────────────────────────────
   // SubPageNode reads parentNoteId to create children under the right note.
   // onNavigate / onOpenInEditor hook into graph navigation on click.
-  useEffect(() => {
-    if (!editor) return;
-    const s = editor.storage as unknown as Record<string, {
-      parentNoteId:    string;
-      paneId:          1 | 2;
-      onNavigate?:     (id: string) => void;
-      onOpenInEditor?: (id: string) => void;
-    }>;
-    if (s["subPage"]) {
-      s["subPage"].parentNoteId   = noteId;
-      s["subPage"].paneId         = 1;
-      s["subPage"].onNavigate     = onNavigateToNode;
-      s["subPage"].onOpenInEditor = onOpenInEditor;
-    }
-  }, [editor, noteId, onNavigateToNode, onOpenInEditor]);
+  // Replace the existing "Wire subPage storage" useEffect
+useEffect(() => {
+  if (!editor) return;
+  const s = editor.storage as unknown as Record<string, {
+    parentNoteId:    string;
+    paneId:          1 | 2;
+    onNavigate?:     (id: string) => void;
+    onOpenInEditor?: (id: string) => void;
+  }>;
+  if (s["subPage"]) {
+    s["subPage"].parentNoteId   = noteId;
+    s["subPage"].paneId         = 1;
+    s["subPage"].onNavigate     = onNavigateToNode;
+    s["subPage"].onOpenInEditor = onOpenInEditor;
+  }
+}, [editor, noteId, onNavigateToNode, onOpenInEditor]);
 
   // ── Autosave ──────────────────────────────────────────────────────────────
   const onSaveComplete = useCallback((_content: string, savedNoteId: string) => {

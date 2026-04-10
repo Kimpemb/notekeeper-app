@@ -70,15 +70,15 @@ export function GraphSubPageNodeView({
   }
 
   function handleClick(e: React.MouseEvent) {
-    if (!noteId) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.shiftKey) {
-      storage?.onNavigateToNode(noteId);
-    } else {
-      storage?.onOpenInEditor(noteId);
-    }
+  if (!noteId) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.shiftKey) {
+    storage?.onNavigateToNode(noteId);
+  } else {
+    storage?.onOpenInEditor(noteId);
   }
+}
 
   const liveTitle = noteId
     ? (notes.find((n) => n.id === noteId)?.title ?? title)
@@ -109,7 +109,7 @@ export function GraphSubPageNodeView({
         <div
           onClick={handleClick}
           className="flex items-center gap-2.5 px-1 py-1.5 rounded-md cursor-pointer hover:bg-indigo-500/10 transition-colors duration-100"
-          title={noteId ? "Click to open in editor · Shift+Click to focus in graph" : ""}
+          title={noteId ? "Click to open in graph editor · Shift+click to open in main editor" : ""}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-zinc-400 shrink-0">
             <path d="M4 2h6l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
