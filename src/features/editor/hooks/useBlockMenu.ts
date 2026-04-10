@@ -54,6 +54,31 @@ const MENU_ITEMS: MenuItem[] = [
       const { state } = editor.view;
       const node = state.doc.nodeAt(nodePos);
       if (!node) return;
+
+      // SubPage nodes must go through the trash flow with a confirm dialog.
+      // Fire a custom event that SubPageNodeView listens for — it owns
+      // trashNote and ConfirmModal, keeping this hook free of React state.
+      if (node.type.name === "subPage") {
+        const noteId = node.attrs.noteId as string | null;
+        window.dispatchEvent(
+          new CustomEvent("idemora:request-delete-subpage", {
+            detail: {
+              noteId,
+              nodePos,
+              // Callback so SubPageNodeView can dispatch the PM delete
+              // only after the user confirms — editor ref stays here.
+              deleteNode: () => {
+                const { state: s } = editor.view;
+                const n = s.doc.nodeAt(nodePos);
+                if (!n) return;
+                editor.view.dispatch(s.tr.delete(nodePos, nodePos + n.nodeSize));
+              },
+            },
+          })
+        );
+        return;
+      }
+
       editor.view.dispatch(state.tr.delete(nodePos, nodePos + node.nodeSize));
     },
   },

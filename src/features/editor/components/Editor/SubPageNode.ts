@@ -1,24 +1,19 @@
-// src/features/editor/components/Editor/SubPageNode.ts
-//
-// A block-level TipTap node that represents an inline sub-page link.
-// Lifecycle:
-//   1. Inserted by the slash command in "editing" mode with a placeholder title.
-//   2. User types a title (or keeps the default) and hits Enter/blur → note created in DB.
-//   3. Node switches to "display" mode: page icon + title, clicking navigates into the note.
-
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { SubPageNodeView } from "./SubPageNodeView";
 
 export interface SubPageNodeAttrs {
-  /** DB note id — null while the note hasn't been created yet (editing mode) */
   noteId: string | null;
   title: string;
-  /** "editing" = title input active; "display" = clickable row */
   mode: "editing" | "display";
 }
 
-export const SubPageNode = Node.create<object, { parentNoteId: string; paneId: 1 | 2 }>({
+export const SubPageNode = Node.create<object, {
+  parentNoteId: string;
+  paneId: 1 | 2;
+  setCreating: (v: boolean) => void;
+}>({
   name: "subPage",
   group: "block",
   atom: true,
@@ -27,6 +22,7 @@ export const SubPageNode = Node.create<object, { parentNoteId: string; paneId: 1
     return {
       parentNoteId: "",
       paneId: 1 as 1 | 2,
+      setCreating: (_v: boolean) => {},
     };
   },
 
@@ -48,5 +44,25 @@ export const SubPageNode = Node.create<object, { parentNoteId: string; paneId: 1
 
   addNodeView() {
     return ReactNodeViewRenderer(SubPageNodeView);
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("subPageDeleteGuard"),
+        props: {
+          handleKeyDown(_view, event) {
+            if (event.key !== "Backspace" && event.key !== "Delete") return false;
+            const { selection } = _view.state;
+            const selectedNode = (selection as { node?: { type: { name: string } } }).node;
+            if (selectedNode?.type.name === "subPage") {
+              // Swallow — subpages can only be deleted via the context menu
+              return true;
+            }
+            return false;
+          },
+        },
+      }),
+    ];
   },
 });

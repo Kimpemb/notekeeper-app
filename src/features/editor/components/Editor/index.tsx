@@ -89,13 +89,21 @@ function reconcileSubPageBlocks(
   let doc: { type: string; content: unknown[] };
   try { doc = JSON.parse(contentJson); } catch { return null; }
 
+  // Collect all subPage blocks already in the content
   const existingIds = new Set<string>();
+  let hasPendingBlock = false;
   for (const node of doc.content ?? []) {
-    const n = node as { type: string; attrs?: { noteId?: string } };
-    if (n.type === "subPage" && n.attrs?.noteId) {
-      existingIds.add(n.attrs.noteId);
+    const n = node as { type: string; attrs?: { noteId?: string | null; mode?: string } };
+    if (n.type === "subPage") {
+      if (n.attrs?.noteId) existingIds.add(n.attrs.noteId);
+      if (n.attrs?.mode === "editing" || n.attrs?.noteId == null) hasPendingBlock = true;
     }
   }
+
+  // Only auto-inject if there is an editing-mode (pending) block in the content.
+  // This prevents graph-created notes (which have parent_id set but were never
+  // embedded via slash command) from being spuriously injected into the editor.
+  if (!hasPendingBlock) return null;
 
   const missing = children.filter((c) => !existingIds.has(c.id));
   if (missing.length === 0) return null;
@@ -105,7 +113,6 @@ function reconcileSubPageBlocks(
     attrs: { noteId: c.id, title: c.title, mode: "display" },
   }));
 
-  // Insert before the last paragraph if it's empty, otherwise append
   const last = doc.content[doc.content.length - 1] as { type: string; content?: unknown[] } | undefined;
   const lastIsEmptyPara = last?.type === "paragraph" && (!last.content || last.content.length === 0);
 
@@ -159,6 +166,7 @@ const editorTextColumnRef   = useRef<HTMLDivElement>(null);
 const scrollRef             = useRef<HTMLDivElement>(null);
 const lastSavedContent      = useRef<string | null>(note?.content ?? null);
 const titleFocusedRef       = useRef(false);
+const subPageCreatingRef    = useRef(false); 
 
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
@@ -410,29 +418,29 @@ const titleFocusedRef       = useRef(false);
 
   // ── Reconcile subPage blocks with actual children ─────────────────────
   useEffect(() => {
-    if (!editor || !note) return;
-    const children = notes
-      .filter((n) => n.parent_id === noteId && !n.deleted_at)
-      .sort((a, b) => a.sort_order - b.sort_order);
+  if (!editor || !note) return;
+  if (subPageCreatingRef.current) return;    // creation in flight — skip
 
-    if (children.length === 0) return;
+  const children = notes
+    .filter((n) => n.parent_id === noteId && !n.deleted_at)
+    .sort((a, b) => a.sort_order - b.sort_order);
 
-    const newContent = reconcileSubPageBlocks(note.content ?? "", children);
-    if (!newContent) return;
+  if (children.length === 0) return;
 
-    // Apply to editor and persist — but only if editor isn't focused
-    // (avoid stomping on active edits)
-    const apply = () => {
-      if (editor.isDestroyed || editor.isFocused) return;
-      editor.commands.setContent(JSON.parse(newContent));
-      lastSavedContent.current = newContent;
-      updateNote(noteId, { content: newContent });
-    };
+  const newContent = reconcileSubPageBlocks(note.content ?? "", children);
+  if (!newContent) return;
 
-    // Small delay to let the editor settle on mount
-    const t = setTimeout(apply, 80);
-    return () => clearTimeout(t);
-  }, [noteId, notes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const apply = () => {
+    if (editor.isDestroyed || editor.isFocused) return;
+    if (subPageCreatingRef.current) return;  // double-check after the timeout
+    editor.commands.setContent(JSON.parse(newContent));
+    lastSavedContent.current = newContent;
+    updateNote(noteId, { content: newContent });
+  };
+
+  const t = setTimeout(apply, 80);
+  return () => clearTimeout(t);
+}, [noteId, notes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
@@ -536,13 +544,18 @@ useEffect(() => {
 }, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote]);
 
 useEffect(() => {
-    if (!editor) return;
-    const s = editor.storage as unknown as Record<string, { parentNoteId: string; paneId: 1 | 2 }>;
-    if (s["subPage"]) {
-      s["subPage"].paneId = paneId;
-      s["subPage"].parentNoteId = noteId;
-    }
-  }, [editor, paneId, noteId]);
+  if (!editor) return;
+  const s = editor.storage as unknown as Record<string, {
+    parentNoteId: string;
+    paneId: 1 | 2;
+    setCreating: (v: boolean) => void;
+  }>;
+  if (s["subPage"]) {
+    s["subPage"].paneId       = paneId;
+    s["subPage"].parentNoteId = noteId;
+    s["subPage"].setCreating  = (v) => { subPageCreatingRef.current = v; };
+  }
+}, [editor, paneId, noteId]);
 
   // ── Chat panel — open via slash menu custom event ─────────────────────────
   // MUST be above the if (!note) return null early return to obey Rules of Hooks

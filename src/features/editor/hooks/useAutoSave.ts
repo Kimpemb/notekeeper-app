@@ -121,12 +121,30 @@ export function useAutoSave({
     if (!hardCapTimer.current) hardCapTimer.current = setTimeout(save, HARD_CAP_MS);
   }, [save]);
 
+  // ── Force-save listener ───────────────────────────────────────────────────
+  // SubPageNodeView dispatches "idemora:force-save" after updateAttributes so
+  // the new noteId/title attrs are flushed to DB before the graph editor
+  // (a separate TipTap instance) can load the note and read stale attrs.
+
+  useEffect(() => {
+    function handleForceSave() {
+      if (!editor || !noteId || editor.isDestroyed) return;
+      if (!isActiveTabRef.current) return;
+      isDirty.current = true;   // ensure save() doesn't bail on the dirty check
+      save();
+    }
+    window.addEventListener("idemora:force-save", handleForceSave);
+    return () => window.removeEventListener("idemora:force-save", handleForceSave);
+  }, [editor, noteId, save]);
+
   // ── Wire editor update event ──────────────────────────────────────────────
 
   useEffect(() => {
     if (!editor) return;
     editor.on("update", scheduleSave);
-    return () => { editor.off("update", scheduleSave); };
+    return () => {
+      editor.off("update", scheduleSave);
+    };
   }, [editor, scheduleSave]);
 
   // ── Flush on unmount ──────────────────────────────────────────────────────

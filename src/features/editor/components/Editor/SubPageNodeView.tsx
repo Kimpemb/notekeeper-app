@@ -1,10 +1,25 @@
-// src/features/editor/components/Editor/SubPageNodeView.tsx
 import { useEffect, useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { createNote as dbCreateNote } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
+
+// Shape of what we read from editor.storage["subPage"]
+interface SubPageStorage {
+  parentNoteId: string;
+  paneId: 1 | 2;
+  setCreating: (v: boolean) => void;
+}
+
+// Shape of the custom event fired by useBlockMenu when Delete is clicked
+// on a subPage node.
+interface DeleteSubpageDetail {
+  noteId:     string | null;
+  nodePos:    number;
+  deleteNode: () => void;
+}
 
 export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: NodeViewProps) {
   const { noteId, title, mode } = node.attrs as {
@@ -13,17 +28,18 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     mode: "editing" | "display";
   };
 
-  const [inputValue, setInputValue] = useState(title);
-  const inputRef       = useRef<HTMLInputElement>(null);
-  const committedRef   = useRef(false);
-  const selectedRef    = useRef(false);
-  const resetTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const storage = (editor.storage as unknown as Record<string, unknown>)["subPage"] as
+    SubPageStorage | undefined;
 
-  const subPageStorage = (editor.storage as unknown as Record<string, unknown>)["subPage"] as
-    | { parentNoteId: string; paneId: 1 | 2 }
-    | undefined;
-  const parentNoteId: string = subPageStorage?.parentNoteId ?? "";
-  const paneId: 1 | 2        = subPageStorage?.paneId ?? 1;
+  const [inputValue, setInputValue] = useState(title);
+  const inputRef      = useRef<HTMLInputElement>(null);
+  const committedRef  = useRef(false);
+  const selectedRef   = useRef(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Confirm dialog state (block menu delete) ──────────────────────────────
+  const [confirmOpen,       setConfirmOpen]       = useState(false);
+  const pendingDeleteRef = useRef<(() => void) | null>(null);
 
   const notes          = useNoteStore((s) => s.notes);
   const setActive      = useNoteStore((s) => s.setActiveNote);
@@ -33,8 +49,7 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
   const replaceTab     = useUIStore((s) => s.replaceTab);
 
-  // ── Graph mode detection ──────────────────────────────────────────────────
-  const graphMode = (editor.storage as any)?.graphMode === true;
+  const graphMode     = (editor.storage as any)?.graphMode === true;
   const graphNavigate = (editor.storage as any)?.graphNavigate as ((nodeId: string) => void) | undefined;
 
   useEffect(() => {
@@ -56,62 +71,97 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     return () => document.removeEventListener("mousedown", handleEditorClick);
   }, []);
 
+  // ── Listen for block menu delete requests targeting this node ─────────────
+  // useBlockMenu fires "idemora:request-delete-subpage" with { noteId, deleteNode }.
+  // We match on noteId (or nodePos as fallback for unsaved nodes) and show the
+  // confirm dialog. On confirm we trash the DB record then call their deleteNode
+  // callback (which dispatches the PM transaction) so the editor stays in sync.
+  useEffect(() => {
+    function handleDeleteRequest(e: Event) {
+      const detail = (e as CustomEvent<DeleteSubpageDetail>).detail;
+
+      // Match this node: by noteId when saved, or by the absence of a noteId
+      // when the block is still in "editing" mode (noteId === null).
+      const isMatch = detail.noteId !== null
+        ? detail.noteId === noteId
+        : noteId === null;
+
+      if (!isMatch) return;
+
+      // Store the PM delete callback for after confirmation
+      pendingDeleteRef.current = detail.deleteNode;
+      setConfirmOpen(true);
+    }
+
+    window.addEventListener("idemora:request-delete-subpage", handleDeleteRequest);
+    return () => window.removeEventListener("idemora:request-delete-subpage", handleDeleteRequest);
+  }, [noteId]);
+
+  // ── Confirm dialog handlers ───────────────────────────────────────────────
+
+  async function handleConfirmDelete() {
+    setConfirmOpen(false);
+    const pmDelete = pendingDeleteRef.current;
+    pendingDeleteRef.current = null;
+
+    storage?.setCreating(true); // block reconciler while trash op is in flight
+
+    if (noteId) {
+      await trashNote(noteId);
+    }
+
+    // Remove the node from the editor via the callback from useBlockMenu
+    pmDelete?.();
+
+    setTimeout(() => storage?.setCreating(false), 300);
+  }
+
+  function handleCancelDelete() {
+    setConfirmOpen(false);
+    pendingDeleteRef.current = null;
+  }
+
+  // ── commit: called on Enter or blur in editing mode ──────────────────────
   async function commit(rawTitle: string) {
     if (committedRef.current) return;
     committedRef.current = true;
-    const finalTitle = rawTitle.trim() || title;
+    storage?.setCreating(true);                          // block reconciler
+    const parentNoteId = storage?.parentNoteId ?? "";
+    const finalTitle   = rawTitle.trim() || title;
     const note = await dbCreateNote({ parent_id: parentNoteId, title: finalTitle });
     useNoteStore.setState((s) => ({ notes: [...s.notes, note] }));
     expandNode(parentNoteId);
     updateAttributes({ noteId: note.id, title: finalTitle, mode: "display" });
+    // Force autosave to flush immediately so the graph editor reads correct attrs
+    window.dispatchEvent(new CustomEvent("idemora:force-save"));
+    // Release guard after autosave has had time to complete
+    setTimeout(() => storage?.setCreating(false), 500);
   }
 
   function cancel() {
     if (committedRef.current) return;
     committedRef.current = true;
+    storage?.setCreating(false);
     deleteNode();
     setTimeout(() => editor.commands.focus(), 0);
   }
 
-  // Called when the block is deleted in display mode — trash the note
-  async function handleDeleteBlock() {
-    if (!noteId) { deleteNode(); return; }
-    await trashNote(noteId);
-    deleteNode();
-  }
-
+ 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter")  { e.preventDefault(); commit(inputValue); }
     if (e.key === "Escape") { e.preventDefault(); cancel(); }
   }
 
-  // Intercept Backspace/Delete key on the selected node in display mode
-  useEffect(() => {
-    if (mode !== "display" || !noteId) return;
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Backspace" || e.key === "Delete") {
-        // Only fire if this node is selected in ProseMirror
-        const { selection } = editor.state;
-        if ((selection as { node?: { type: { name: string } } }).node?.type.name === "subPage") {
-          e.preventDefault();
-          handleDeleteBlock();
-        }
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [mode, noteId, editor]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  
   function navigate(e: React.MouseEvent) {
     if (!noteId) return;
 
-    // ── Graph mode: use custom navigate callback ───────────────────────────
     if (graphMode && graphNavigate) {
       graphNavigate(noteId);
       return;
     }
 
-    // ── Main editor mode: original behavior ────────────────────────────────
+    const paneId = storage?.paneId ?? 1;
     const isMac  = navigator.platform.toUpperCase().includes("MAC");
     const isCtrl = isMac ? e.metaKey : e.ctrlKey;
     if (isCtrl) {
@@ -135,13 +185,11 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     const isMac  = navigator.platform.toUpperCase().includes("MAC");
     const isCtrl = isMac ? e.metaKey : e.ctrlKey;
 
-    // Graph mode: single click always navigates (no selection delay)
     if (graphMode) {
       navigate(e);
       return;
     }
 
-    // Main editor mode: original selection logic
     if (isCtrl) {
       selectedRef.current = false;
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
@@ -166,7 +214,7 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     : title;
 
   return (
-    <NodeViewWrapper 
+    <NodeViewWrapper
       className="subpage-node-wrapper my-0.5"
       data-note-id={mode === "display" && noteId ? noteId : undefined}
     >
@@ -188,8 +236,8 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
       ) : (
         <div
           className={`group flex items-center gap-2.5 px-1 py-1.5 rounded-md w-full transition-colors duration-100 ${
-            graphMode 
-              ? "cursor-pointer hover:bg-indigo-500/10 dark:hover:bg-indigo-500/20" 
+            graphMode
+              ? "cursor-pointer hover:bg-indigo-500/10 dark:hover:bg-indigo-500/20"
               : "cursor-default hover:bg-zinc-100 dark:hover:bg-zinc-800"
           }`}
           onClick={handleClick}
@@ -201,6 +249,19 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
           </span>
         </div>
       )}
+
+      {/* Confirm dialog — rendered inside the NodeView so it has access to
+          trashNote and the correct noteId closure. Portal would also work but
+          this keeps the logic co-located with the data it needs. */}
+      <ConfirmModal
+        open={confirmOpen}
+        title="Delete page"
+        message={`"${liveTitle}" will be moved to the trash. This cannot be undone from the editor.`}
+        confirmLabel="Move to trash"
+        danger
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </NodeViewWrapper>
   );
 }
