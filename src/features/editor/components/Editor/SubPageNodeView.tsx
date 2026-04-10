@@ -34,8 +34,6 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   const [inputValue, setInputValue] = useState(title);
   const inputRef      = useRef<HTMLInputElement>(null);
   const committedRef  = useRef(false);
-  const selectedRef   = useRef(false);
-  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Confirm dialog state (block menu delete) ──────────────────────────────
   const [confirmOpen,       setConfirmOpen]       = useState(false);
@@ -59,17 +57,7 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     setTimeout(() => { el.focus(); el.select(); }, 30);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    function handleEditorClick(e: MouseEvent) {
-      const wrapper = (e.target as HTMLElement).closest(".subpage-node-wrapper");
-      if (!wrapper) {
-        selectedRef.current = false;
-        if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-      }
-    }
-    document.addEventListener("mousedown", handleEditorClick);
-    return () => document.removeEventListener("mousedown", handleEditorClick);
-  }, []);
+  
 
   // ── Listen for block menu delete requests targeting this node ─────────────
   // useBlockMenu fires "idemora:request-delete-subpage" with { noteId, deleteNode }.
@@ -181,33 +169,9 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   }
 
   function handleClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    const isMac  = navigator.platform.toUpperCase().includes("MAC");
-    const isCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-    if (graphMode) {
-      navigate(e);
-      return;
-    }
-
-    if (isCtrl) {
-      selectedRef.current = false;
-      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-      navigate(e);
-      return;
-    }
-    if (selectedRef.current) {
-      selectedRef.current = false;
-      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-      navigate(e);
-    } else {
-      selectedRef.current = true;
-      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-      resetTimerRef.current = setTimeout(() => {
-        selectedRef.current = false;
-      }, 1500);
-    }
-  }
+  e.stopPropagation();
+  navigate(e);
+}
 
   const liveTitle = noteId
     ? (notes.find((n) => n.id === noteId)?.title ?? title)
@@ -241,7 +205,7 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
               : "cursor-default hover:bg-zinc-100 dark:hover:bg-zinc-800"
           }`}
           onClick={handleClick}
-          title={graphMode ? "Click to open in graph" : "Click to select · Click again to open · Ctrl+click for new tab"}
+          title={graphMode ? "Click to open in graph" : "Click to open · Ctrl+click for new tab"}
         >
           <PageIcon className="text-zinc-400 dark:text-zinc-500 shrink-0" />
           <span className="flex-1 text-base text-zinc-700 dark:text-zinc-300 select-none">
