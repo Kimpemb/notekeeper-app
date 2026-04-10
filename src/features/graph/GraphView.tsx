@@ -33,8 +33,6 @@ const TAG_PALETTE = [
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-
-
 interface Toast {
   id: number;
   message: string;
@@ -184,14 +182,15 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
   // Open a note in the graph editor (Click — stays in edit mode, switches content)
   const handleOpenInEditor = useCallback((nodeId: string) => {
-  const targetNode = data?.nodes.find((n) => n.id === nodeId);
-  if (!targetNode) return;
-  setEditNodeId(nodeId);
-  setFullscreen(true);
-  setDetailNode(targetNode);
-  setEdgeContext(null);
-  pushToHistory(nodeId);
-}, [data, pushToHistory]);
+    const targetNode = data?.nodes.find((n) => n.id === nodeId);
+    if (!targetNode) return;
+    setEditNodeId(nodeId);
+    setFullscreen(true);
+    setDetailNode(targetNode);
+    setEdgeContext(null);
+    setFocusNodeId(nodeId);   // ← FIX: canvas follows navigation
+    pushToHistory(nodeId);
+  }, [data, pushToHistory]);
 
   // FIX: back/forward stay in edit mode if already editing — use functional
   // setState to avoid reading stale editNodeId in the closure
