@@ -150,12 +150,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   // ── Navigation history ────────────────────────────────────────────────────
   const [historyStack, setHistoryStack] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  // FIX: mirror historyIndex in a ref so callbacks don't suffer stale closures
   const historyIndexRef = useRef(-1);
   useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
 
-  // Push a node to history when navigating
-  // FIX: reads from historyIndexRef instead of closing over historyIndex
   const pushToHistory = useCallback((nodeId: string) => {
     const currentIndex = historyIndexRef.current;
     setHistoryStack((prev) => {
@@ -166,9 +163,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     const newIndex = currentIndex + 1;
     setHistoryIndex(newIndex);
     historyIndexRef.current = newIndex;
-  }, []); // no deps — reads from ref
+  }, []);
 
-  // Navigate to a node (Shift+Click — exits edit mode, focuses in graph)
   const handleNavigateToNode = useCallback((nodeId: string) => {
     setFocusNodeId(nodeId);
     const targetNode = data?.nodes.find((n) => n.id === nodeId);
@@ -180,7 +176,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     pushToHistory(nodeId);
   }, [data, pushToHistory]);
 
-  // Open a note in the graph editor (Click — stays in edit mode, switches content)
   const handleOpenInEditor = useCallback((nodeId: string) => {
     const targetNode = data?.nodes.find((n) => n.id === nodeId);
     if (!targetNode) return;
@@ -188,23 +183,19 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     setFullscreen(true);
     setDetailNode(targetNode);
     setEdgeContext(null);
-    setFocusNodeId(nodeId);   // ← FIX: canvas follows navigation
+    setFocusNodeId(nodeId);
     pushToHistory(nodeId);
   }, [data, pushToHistory]);
 
-  // FIX: back/forward stay in edit mode if already editing — use functional
-  // setState to avoid reading stale editNodeId in the closure
   const handleGoBack = useCallback(() => {
     if (historyIndex <= 0) return;
-    const newIndex = historyIndex - 1;
+    const newIndex   = historyIndex - 1;
     const prevNodeId = historyStack[newIndex];
     if (!prevNodeId) return;
-
     setFocusNodeId(prevNodeId);
     const targetNode = data?.nodes.find((n) => n.id === prevNodeId);
     if (targetNode) {
       setDetailNode(targetNode);
-      // If currently in edit mode, stay in edit mode but switch the note
       setEditNodeId((prev) => prev !== null ? prevNodeId : null);
       setEdgeContext(null);
     }
@@ -214,15 +205,13 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
   const handleGoForward = useCallback(() => {
     if (historyIndex >= historyStack.length - 1) return;
-    const newIndex = historyIndex + 1;
+    const newIndex   = historyIndex + 1;
     const nextNodeId = historyStack[newIndex];
     if (!nextNodeId) return;
-
     setFocusNodeId(nextNodeId);
     const targetNode = data?.nodes.find((n) => n.id === nextNodeId);
     if (targetNode) {
       setDetailNode(targetNode);
-      // If currently in edit mode, stay in edit mode but switch the note
       setEditNodeId((prev) => prev !== null ? nextNodeId : null);
       setEdgeContext(null);
     }
@@ -261,7 +250,23 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
   const allTags = useMemo(() => Array.from(tagColorMap.keys()), [tagColorMap]);
 
+  // ── Search — hoisted above visibleNodes so matchedIds is available ────────
+  const { matchIndex, matchCount, matchedIds, currentMatchId } = useGraphSearch({
+    searchQuery, focusNodeId,
+    svgRef, zoomRef, containerRef, simNodesRef, simSettledRef,
+  });
+
+  // ── Auto-surface current match in detail panel as user cycles ─────────────
+  useEffect(() => {
+    if (!currentMatchId || !data) return;
+    const matchNode = data.nodes.find((n) => n.id === currentMatchId);
+    if (matchNode) setDetailNode(matchNode);
+  }, [currentMatchId, data]);
+
   // ── Visible nodes/edges ───────────────────────────────────────────────────
+  // Guard: only apply matchedIds filter when query is active AND results have
+  // resolved (matchedIds.size > 0). An empty Set on a non-empty query means
+  // the async FTS5 result hasn't come back yet — don't filter in that case.
   const { visibleNodes, visibleEdges } = useMemo(() => {
     if (!data) return { visibleNodes: [], visibleEdges: [] };
 
@@ -277,6 +282,18 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
       nodes = nodes.filter((n) => neighbourhood.has(n.id) || pendingNodeIds.has(n.id));
     }
 
+    // FTS5 filter — only when query is active AND results have resolved.
+    // matchedIds.size === 0 on an active query means async hasn't returned yet
+    // — skip filtering entirely to avoid wiping the canvas during the gap.
+    if (searchQuery.trim() && matchedIds.size > 0) {
+      const neighbourhood = new Set<string>();
+      for (const id of matchedIds) {
+        const expanded = getNeighbourhood(id, edges, 1);
+        for (const nid of expanded) neighbourhood.add(nid);
+      }
+      nodes = nodes.filter((n) => neighbourhood.has(n.id) || pendingNodeIds.has(n.id));
+    }
+
     const nodeIds = new Set(nodes.map((n) => n.id));
     edges = edges.filter((e) => {
       const sid = typeof e.source === "object" ? (e.source as GraphNode).id : e.source as string;
@@ -285,7 +302,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     });
 
     return { visibleNodes: nodes, visibleEdges: edges };
-  }, [data, showOrphans, focusNodeId, depth, pendingNodeIds]);
+  }, [data, showOrphans, focusNodeId, depth, pendingNodeIds, searchQuery, matchedIds]);
 
   // ── Slide-in on mount ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -293,8 +310,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // ── Animated close ────────────────────────────────────────────────────────
+  // ── Animated close — clears search so it doesn't persist next open ────────
   const handleClose = useCallback(() => {
+    setSearch("");
     setMounted(false);
     setTimeout(() => closeGraph(), TRANSITION_MS);
   }, [closeGraph]);
@@ -307,7 +325,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2500);
   }, []);
 
-  // ── Graph edit hook ────────────────────────────────────────────────────────
+  // ── Graph edit hook ───────────────────────────────────────────────────────
   const { createNodeAt, deleteNode, renameNode, createLink, deleteLink } = useGraphEdit({
     simNodesRef,
     simEdgesRef,
@@ -331,13 +349,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const handleEdgeClick = useCallback(async (data: EdgeClickData) => {
     setDetailNode(null);
     setEditNodeId(null);
-
     const sourceNote = notes.find((n) => n.id === data.sourceId);
     const targetNote = notes.find((n) => n.id === data.targetId);
     if (!sourceNote || !targetNote) return;
-
     const snippet = extractLinkSnippet(sourceNote.content, targetNote.title);
-
     setEdgeContext({
       sourceId:    data.sourceId,
       targetId:    data.targetId,
@@ -347,7 +362,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     });
   }, [notes]);
 
-  // ── Delete link (from panel) ───────────────────────────────────────────────
+  // ── Delete link (from panel) ──────────────────────────────────────────────
   const handleDeleteLink = useCallback((sourceId: string, targetId: string) => {
     setEdgeContext(null);
     deleteLink(sourceId, targetId, (sid, tid) => {
@@ -356,14 +371,14 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     });
   }, [deleteLink, patchData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Enter edit mode — fullscreen + set editNodeId ─────────────────────────
+  // ── Enter edit mode ───────────────────────────────────────────────────────
   const handleEnterEdit = useCallback(() => {
     if (!detailNode) return;
     setEditNodeId(detailNode.id);
     setFullscreen(true);
   }, [detailNode]);
 
-  // ── Exit edit mode — restore previous fullscreen state ────────────────────
+  // ── Exit edit mode ────────────────────────────────────────────────────────
   const handleExitEdit = useCallback(() => {
     setEditNodeId(null);
     setFullscreen(false);
@@ -383,7 +398,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     onRenamed: (nodeId: string, title: string) => void,
   ) => {
     const isNewNode = !data?.nodes.some((n) => n.id === nodeId);
-
     await renameNode(nodeId, newTitle, (id, title) => {
       if (isNewNode) {
         const simNode = simNodesRef.current.find((n) => n.id === id);
@@ -394,7 +408,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
       } else {
         patchData.updateNodeTitle(id, title);
       }
-
       setDetailNode((prev) => prev?.id === id ? { ...prev, title } : prev);
       onRenamed(id, title);
     });
@@ -505,38 +518,31 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   }, []);
 
   const handleFit = useCallback(() => {
-  if (!svgRef.current || !containerRef.current || !zoomRef.current) return;
-  const nodes = simNodesRef.current;
-  if (nodes.length === 0) return;
-
-  const width  = containerRef.current.clientWidth;
-  const height = containerRef.current.clientHeight;
-
-  const xs = nodes.map((n) => n.x ?? 0);
-  const ys = nodes.map((n) => n.y ?? 0);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-
-  const bboxW = maxX - minX || 1;
-  const bboxH = maxY - minY || 1;
-  const PADDING = 80;
-
-  const scale = Math.min(
-    (width  - PADDING * 2) / bboxW,
-    (height - PADDING * 2) / bboxH,
-    1.5, // cap zoom-in so single nodes don't blow up
-  );
-
-  const tx = width  / 2 - scale * (minX + bboxW / 2);
-  const ty = height / 2 - scale * (minY + bboxH / 2);
-
-  d3.select(svgRef.current)
-    .transition()
-    .duration(400)
-    .call(zoomRef.current.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
-}, []);
+    if (!svgRef.current || !containerRef.current || !zoomRef.current) return;
+    const nodes = simNodesRef.current;
+    if (nodes.length === 0) return;
+    const width  = containerRef.current.clientWidth;
+    const height = containerRef.current.clientHeight;
+    const xs = nodes.map((n) => n.x ?? 0);
+    const ys = nodes.map((n) => n.y ?? 0);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const bboxW = maxX - minX || 1;
+    const bboxH = maxY - minY || 1;
+    const PADDING = 80;
+    const scale = Math.min(
+      (width  - PADDING * 2) / bboxW,
+      (height - PADDING * 2) / bboxH,
+      1.5,
+    );
+    const tx = width  / 2 - scale * (minX + bboxW / 2);
+    const ty = height / 2 - scale * (minY + bboxH / 2);
+    d3.select(svgRef.current)
+      .transition().duration(400)
+      .call(zoomRef.current.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  }, []);
 
   // ── D3 simulation ─────────────────────────────────────────────────────────
   const { deleteNodeById, deleteLinkInD3 } = useGraphSimulation({
@@ -558,12 +564,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     onEdgeClick:         handleEdgeClick,
   });
 
-  // ── Search ────────────────────────────────────────────────────────────────
-  const { matchIndex, matchCount } = useGraphSearch({
-    searchQuery, focusNodeId,
-    svgRef, zoomRef, containerRef, simNodesRef, simSettledRef,
-  });
-
   // ── Derived ───────────────────────────────────────────────────────────────
   const lastUpdatedLabel = lastUpdated
     ? new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -571,7 +571,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const currentWidth = isFullscreen ? window.innerWidth : panelWidth;
   const orphanCount  = data ? data.nodes.filter((n) => n.linkCount === 0).length : 0;
   const focusedNode  = focusNodeId ? data?.nodes.find((n) => n.id === focusNodeId) : null;
-
   const canGoBack    = historyIndex > 0;
   const canGoForward = historyIndex < historyStack.length - 1;
 
@@ -715,7 +714,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
           <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }} />
 
-
           {!isLoading && visibleNodes.length > 0 && (
             <svg ref={minimapRef} width={MINIMAP_W} height={MINIMAP_H} style={{ position: "absolute", bottom: 16, right: 16, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", cursor: "crosshair" }} />
           )}
@@ -763,6 +761,13 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         @keyframes graphPulse {
           0%   { stroke-width: 1; stroke-opacity: 0.8; }
           100% { stroke-width: 0.5; stroke-opacity: 0; }
+        }
+        @keyframes searchPulse {
+          0%, 100% { stroke-opacity: 0.5; stroke-width: 3; }
+          50%       { stroke-opacity: 1;   stroke-width: 4; }
+        }
+        .search-current {
+          animation: searchPulse 1.2s ease-in-out infinite;
         }
       `}</style>
     </>

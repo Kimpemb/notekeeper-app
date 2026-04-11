@@ -229,12 +229,14 @@ export function GraphControls({
               background: BG,
               border: `1px solid ${searchQuery.trim() ? ACCENT + "66" : BORDER}`,
               borderRadius: 6,
-              padding: "4px 10px",
+              // Reserve right padding when counter is visible so text never overlaps it.
+              // 48px covers "20/20" comfortably; collapses to 10px when no query.
+              padding: searchQuery.trim() ? "4px 48px 4px 10px" : "4px 10px",
               fontSize: 12,
               color: LABEL_COLOR,
               outline: "none",
-              width: 140,
-              transition: "border-color 150ms",
+              width: 200,
+              transition: "border-color 150ms, padding 100ms",
             }}
           />
           {searchQuery.trim() && (
@@ -243,9 +245,10 @@ export function GraphControls({
               right: 8,
               fontSize: 10,
               color: matchCount > 0 ? LABEL_COLOR : "#f87171",
-              opacity: matchCount > 0 ? 0.45 : 0.8,
+              opacity: matchCount > 0 ? 0.5 : 0.8,
               whiteSpace: "nowrap",
               pointerEvents: "none",
+              letterSpacing: "0.01em",
             }}>
               {matchCount > 0 ? `${matchIndex + 1}/${matchCount}` : "–"}
             </span>
