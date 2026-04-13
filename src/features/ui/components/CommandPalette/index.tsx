@@ -419,15 +419,6 @@ export function CommandPalette() {
     closePalette();
   },
 },
-{
-  kind: "action", id: "toggle-ai-chat", label: "Toggle AI Chat", hint: "Ctrl+Shift+A",
-  action: () => {
-    const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
-    const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
-    chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
-    closePalette();
-  },
-},
     {
       kind: "action", id: "toggle-theme", label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "",
       action: () => { toggleTheme(); closePalette(); },
@@ -567,7 +558,7 @@ function openNote(noteId: string) {
   const isSearching = !!query.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 sm:px-6 lg:px-0">
+    <div data-overlay-sentinel className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 sm:px-6 lg:px-0">
       <div
         ref={panelRef}
         className="relative w-full max-w-5xl h-[85vh] rounded-t-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 border-b-0 shadow-2xl flex flex-col"
