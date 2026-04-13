@@ -11,7 +11,7 @@ import {
 type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 type RefreshStatus = "idle" | "reloading" | "reloaded";
-export type SidebarState = "closed" | "peek" | "open";
+export type SidebarPanel = "notes" | "search" | "tags" | "trash" | null;
 export type SplitDirection = "horizontal" | "vertical";
 
 export interface Tab {
@@ -75,13 +75,12 @@ interface UIStore {
   openSettings: () => void;
   closeSettings: () => void;
 
-  // ─── Sidebar ──────────────────────────────────────────────────────────────
-  sidebarState: SidebarState;
-  sidebarOpen: boolean;
+  // ─── Sidebar (left rail) ──────────────────────────────────────────────────
+  activeSidebarPanel: SidebarPanel;
   sidebarWidth: number;
   expandedNodes: Set<string>;
-  setSidebarState: (state: SidebarState) => void;
-  toggleSidebar: () => void;
+  setActiveSidebarPanel: (panel: SidebarPanel) => void;
+  toggleSidebarPanel: (panel: NonNullable<SidebarPanel>) => void;
   toggleNode: (id: string) => void;
   expandNode: (id: string) => void;
   collapseNode: (id: string) => void;
@@ -216,7 +215,7 @@ interface UIStore {
   activeTabId: string | null;
   replaceTab: (noteId: string) => void;
   openTab: (noteId: string) => Tab;
-  openEmptyTab: () => Tab;  
+  openEmptyTab: () => Tab;
   closeTab: (tabId: string) => void;
   closeTabsForNotes: (noteIds: Set<string>) => void;
   setActiveTab: (tabId: string) => void;
@@ -322,14 +321,18 @@ export const useUIStore = create<UIStore>((set, get) => {
     },
     closeSettings: () => set({ settingsOpen: false }),
 
-    // ─── Sidebar ──────────────────────────────────────────────────────────────
-    sidebarState: "open", sidebarOpen: true, sidebarWidth: 288, expandedNodes: new Set(),
-    setSidebarState: (state) => set({ sidebarState: state, sidebarOpen: state === "open" }),
-    toggleSidebar: () => {
-      const { sidebarState } = get();
-      const next: SidebarState = sidebarState === "open" ? "closed" : "open";
-      set({ sidebarState: next, sidebarOpen: next === "open" });
+    // ─── Sidebar (left rail) ──────────────────────────────────────────────────
+    activeSidebarPanel: "notes",
+    sidebarWidth: 288,
+    expandedNodes: new Set(),
+
+    setActiveSidebarPanel: (panel) => set({ activeSidebarPanel: panel }),
+
+    toggleSidebarPanel: (panel) => {
+      const { activeSidebarPanel } = get();
+      set({ activeSidebarPanel: activeSidebarPanel === panel ? null : panel });
     },
+
     toggleNode: (id) => set((s) => { const next = new Set(s.expandedNodes); next.has(id) ? next.delete(id) : next.add(id); return { expandedNodes: next }; }),
     expandNode: (id) => set((s) => { const next = new Set(s.expandedNodes); next.add(id); return { expandedNodes: next }; }),
     collapseNode: (id) => set((s) => { const next = new Set(s.expandedNodes); next.delete(id); return { expandedNodes: next }; }),
@@ -346,11 +349,12 @@ export const useUIStore = create<UIStore>((set, get) => {
       window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
     },
     closePalette: () => set({ paletteOpen: false }),
-togglePalette: () => {
+    togglePalette: () => {
       const next = !get().paletteOpen;
       set({ paletteOpen: next });
       if (next) window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
     },
+
     // ─── Save status ──────────────────────────────────────────────────────────
     saveStatus: "idle",
     setSaveStatus: (status) => set({ saveStatus: status }),
@@ -428,7 +432,7 @@ togglePalette: () => {
     closeGraph: () => set({ graphOpen: false, graphFocusNoteId: null }),
     toggleGraph: () => set((s) => ({ graphOpen: !s.graphOpen })),
     graphFocusNoteId: null,
-openGraphForNote: (noteId) => {
+    openGraphForNote: (noteId) => {
       set({ graphOpen: true, graphFocusNoteId: noteId });
       window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
     },
@@ -466,21 +470,18 @@ openGraphForNote: (noteId) => {
 
     replaceTab: (noteId) => {
       const { tabs, activeTabId } = get();
-      // No tabs yet — create first tab
       if (tabs.length === 0 || activeTabId === null) {
         const tab: Tab = { id: makeTabId(), noteId };
         set({ tabs: [tab], activeTabId: tab.id });
         saveSession({ ...get(), tabs: [tab], activeTabId: tab.id });
         return;
       }
-      // Note already open in another tab — just activate it
       const existing = tabs.find((t) => t.noteId === noteId);
       if (existing) {
         set({ activeTabId: existing.id });
         saveSession({ ...get(), activeTabId: existing.id });
         return;
       }
-      // Active tab is an empty tab — fill it in-place
       const activeTab = tabs.find((t) => t.id === activeTabId);
       if (activeTab && activeTab.noteId === null) {
         const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
@@ -488,7 +489,6 @@ openGraphForNote: (noteId) => {
         saveSession({ ...get(), tabs: next });
         return;
       }
-      // Normal case — replace active tab content
       const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
       set({ tabs: next });
       saveSession({ ...get(), tabs: next });
@@ -512,7 +512,6 @@ openGraphForNote: (noteId) => {
       return tab;
     },
 
-
     closeTab: (tabId) => {
       const { tabs, activeTabId, closedTabs } = get();
       const idx = tabs.findIndex((t) => t.id === tabId);
@@ -524,7 +523,6 @@ openGraphForNote: (noteId) => {
         const neighbour = next[idx] ?? next[idx - 1] ?? null;
         nextActiveTabId = neighbour?.id ?? null;
       }
-      // Only push to closed history if it had a note
       const nextClosed = closing.noteId
         ? [...closedTabs, { noteId: closing.noteId, pane: 1 as const }].slice(-20)
         : closedTabs;
@@ -594,10 +592,7 @@ openGraphForNote: (noteId) => {
       }
     },
 
-    closePane1: () => {
-      get().swapPanes();
-      get().closePane2();
-    },
+    closePane1: () => { get().swapPanes(); get().closePane2(); },
 
     closePane2: () => {
       set({
@@ -671,10 +666,8 @@ openGraphForNote: (noteId) => {
       saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
     },
 
-
     replacePane2Tab: (noteId) => {
       const { pane2Tabs, pane2ActiveTabId } = get();
-      // No tabs yet — create first tab
       if (pane2Tabs.length === 0 || pane2ActiveTabId === null) {
         const tab: Tab = { id: makeTabId(), noteId };
         set({ pane2Tabs: [tab], pane2ActiveTabId: tab.id });
@@ -682,7 +675,6 @@ openGraphForNote: (noteId) => {
         get().pane2PushNav(noteId);
         return;
       }
-      // Note already open in another tab — just activate it
       const existing = pane2Tabs.find((t) => t.noteId === noteId);
       if (existing) {
         set({ pane2ActiveTabId: existing.id });
@@ -690,7 +682,6 @@ openGraphForNote: (noteId) => {
         get().pane2PushNav(noteId);
         return;
       }
-      // Active tab is an empty tab — fill it in-place
       const activePane2Tab = pane2Tabs.find((t) => t.id === pane2ActiveTabId);
       if (activePane2Tab && activePane2Tab.noteId === null) {
         const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? { ...t, noteId } : t);
@@ -699,7 +690,6 @@ openGraphForNote: (noteId) => {
         get().pane2PushNav(noteId);
         return;
       }
-      // Normal case — replace active tab content
       const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? { ...t, noteId } : t);
       set({ pane2Tabs: next });
       saveSession({ ...get(), pane2Tabs: next });
@@ -730,12 +720,9 @@ openGraphForNote: (noteId) => {
 
     // ─── Cluster session tracking ─────────────────────────────────────────────
     clusterSession: createSession(),
-    recordClusterVisit: (noteId) =>
-      set((s) => ({ clusterSession: recordVisit(s.clusterSession, noteId) })),
-    tickClusterSession: () =>
-      set((s) => ({ clusterSession: tickSession(s.clusterSession) })),
-    resetClusterSession: () =>
-      set({ clusterSession: createSession() }),
+    recordClusterVisit: (noteId) => set((s) => ({ clusterSession: recordVisit(s.clusterSession, noteId) })),
+    tickClusterSession: () => set((s) => ({ clusterSession: tickSession(s.clusterSession) })),
+    resetClusterSession: () => set({ clusterSession: createSession() }),
 
     // ─── Pane 2 nav history ───────────────────────────────────────────────────
     pane2NavHistory: [],

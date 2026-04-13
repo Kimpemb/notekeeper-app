@@ -105,17 +105,15 @@ export function SearchResults({ query }: Props) {
 
   // ── Handle click ─────────────────────────────
   function handleResultClick(result: SearchResult, index: number) {
-  const { replaceTab, sidebarState } = useUIStore.getState();
-  
+  const { replaceTab } = useUIStore.getState();
+
   setSelectedIndex(index);
   setActiveNote(result.id);
   replaceTab(result.id);
-  
+
   setTimeout(() => {
     setPendingScrollQuery(query.trim());
   }, 350);
-
-  if (sidebarState === "peek") useUIStore.getState().setSidebarState("closed");
 }
 
   // ── Loading / No results ─────────────────────────────

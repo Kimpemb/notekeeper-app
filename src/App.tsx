@@ -26,23 +26,17 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
 import { invoke } from "@tauri-apps/api/core";
-import { cancelSidebarCollapse } from "@/lib/sidebarTimer";
 import { OnboardingModal, useSampleNotes } from "./features/onboarding";
 import { UpdateToast } from "@/features/ui/components/UpdateToast";
 import { useAIStore } from "./features/ai/store/useAIStore";
 import { runScheduledBackupIfDue } from "@/features/backup/lib/scheduler";
 import { NewTabScreen } from "@/features/ui/components/NewTabScreen";
 
-
-
-
 // Block F5 / Ctrl+R — causes full state loss in Tauri
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") e.preventDefault();
 });
-
-
 
 interface BreadcrumbSegment { id: string; title: string; }
 
@@ -81,59 +75,54 @@ export default function App() {
   const pane1CanGoForward = useNoteStore((s) => s.canGoForward());
 
   // UI store hooks
-  const sidebarState = useUIStore((s) => s.sidebarState);
-  const setSidebarState = useUIStore((s) => s.setSidebarState);
-  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-  const togglePalette = useUIStore((s) => s.togglePalette);
-  const openShortcuts = useUIStore((s) => s.openShortcuts);
-  const openSettings = useUIStore((s) => s.openSettings);
-  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
-  const pane1FileTreeOpen = useUIStore((s) => s.pane1FileTreeOpen);
-  const pane2FileTreeOpen = useUIStore((s) => s.pane2FileTreeOpen);
-  const toggleFileTree = useUIStore((s) => s.toggleFileTree);
-  const toggleBacklinks = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline = useUIStore((s) => s.toggleOutline);
-  const templatePickerOpen = useUIStore((s) => s.templatePickerOpen);
-  const closeTemplatePicker = useUIStore((s) => s.closeTemplatePicker);
-  const toggleTips = useUIStore((s) => s.toggleTips);
-  const graphOpen = useUIStore((s) => s.graphOpen);
-  const openGraph = useUIStore((s) => s.openGraph);
-  const graphFocusNoteId = useUIStore((s) => s.graphFocusNoteId);
-  const activePaneId = useUIStore((s) => s.activePaneId);
-  const pane2CanGoBack = useUIStore((s) => s.pane2CanGoBack());
-  const pane2CanGoForward = useUIStore((s) => s.pane2CanGoForward());
-  const pane2GoBack = useUIStore((s) => s.pane2GoBack);
-  const pane2GoForward = useUIStore((s) => s.pane2GoForward);
-  const tabs = useUIStore((s) => s.tabs);
-  const activeTabId = useUIStore((s) => s.activeTabId);
-  const openTab = useUIStore((s) => s.openTab);
-  const replaceTab = useUIStore((s) => s.replaceTab);
-  const closeActiveTab = useUIStore((s) => s.closeActiveTab);
-  const cycleTab = useUIStore((s) => s.cycleTab);
-  const pane2Tabs = useUIStore((s) => s.pane2Tabs);
-  const pane2ActiveTabId = useUIStore((s) => s.pane2ActiveTabId);
-  const splitOpen = useUIStore((s) => s.splitOpen);
-  const splitDirection = useUIStore((s) => s.splitDirection);
-  const setActivePaneId = useUIStore((s) => s.setActivePaneId);
+  const toggleSidebarPanel    = useUIStore((s) => s.toggleSidebarPanel);
+  const togglePalette         = useUIStore((s) => s.togglePalette);
+  const openShortcuts         = useUIStore((s) => s.openShortcuts);
+  const openSettings          = useUIStore((s) => s.openSettings);
+  const openTabInPane2        = useUIStore((s) => s.openTabInPane2);
+  const pane1FileTreeOpen     = useUIStore((s) => s.pane1FileTreeOpen);
+  const pane2FileTreeOpen     = useUIStore((s) => s.pane2FileTreeOpen);
+  const toggleFileTree        = useUIStore((s) => s.toggleFileTree);
+  const toggleBacklinks       = useUIStore((s) => s.toggleBacklinks);
+  const toggleOutline         = useUIStore((s) => s.toggleOutline);
+  const templatePickerOpen    = useUIStore((s) => s.templatePickerOpen);
+  const closeTemplatePicker   = useUIStore((s) => s.closeTemplatePicker);
+  const toggleTips            = useUIStore((s) => s.toggleTips);
+  const graphOpen             = useUIStore((s) => s.graphOpen);
+  const openGraph             = useUIStore((s) => s.openGraph);
+  const graphFocusNoteId      = useUIStore((s) => s.graphFocusNoteId);
+  const activePaneId          = useUIStore((s) => s.activePaneId);
+  const pane2CanGoBack        = useUIStore((s) => s.pane2CanGoBack());
+  const pane2CanGoForward     = useUIStore((s) => s.pane2CanGoForward());
+  const pane2GoBack           = useUIStore((s) => s.pane2GoBack);
+  const pane2GoForward        = useUIStore((s) => s.pane2GoForward);
+  const tabs                  = useUIStore((s) => s.tabs);
+  const activeTabId           = useUIStore((s) => s.activeTabId);
+  const openTab               = useUIStore((s) => s.openTab);
+  const replaceTab            = useUIStore((s) => s.replaceTab);
+  const closeActiveTab        = useUIStore((s) => s.closeActiveTab);
+  const cycleTab              = useUIStore((s) => s.cycleTab);
+  const pane2Tabs             = useUIStore((s) => s.pane2Tabs);
+  const pane2ActiveTabId      = useUIStore((s) => s.pane2ActiveTabId);
+  const splitOpen             = useUIStore((s) => s.splitOpen);
+  const splitDirection        = useUIStore((s) => s.splitDirection);
+  const setActivePaneId       = useUIStore((s) => s.setActivePaneId);
 
   // App settings
-  const settings = useAppSettings((s) => s.settings);
-  const updateSetting = useAppSettings((s) => s.updateSetting);
-  const settingsLoaded = useAppSettings((s) => s.loaded);
-  
+  const settings        = useAppSettings((s) => s.settings);
+  const updateSetting   = useAppSettings((s) => s.updateSetting);
+  const settingsLoaded  = useAppSettings((s) => s.loaded);
 
   // Refs
-  const graphViewRef = useRef<GraphViewHandle>(null);
-  const slideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const openInNewTabRef = useRef(false);
-  const newNoteParentRef = useRef<string | null>(null);
-  const scrollPositions = useRef<Map<string, number>>(new Map());
+  const graphViewRef      = useRef<GraphViewHandle>(null);
+  const slideTimeout      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openInNewTabRef   = useRef(false);
+  const newNoteParentRef  = useRef<string | null>(null);
+  const scrollPositions   = useRef<Map<string, number>>(new Map());
 
-  const canGoBack = activePaneId === 2 ? pane2CanGoBack : pane1CanGoBack;
+  const canGoBack    = activePaneId === 2 ? pane2CanGoBack : pane1CanGoBack;
   const canGoForward = activePaneId === 2 ? pane2CanGoForward : pane1CanGoForward;
-  const isClosed = sidebarState === "closed" || sidebarState === "peek";
 
-  // Track window maximize state
   // Disable browser zoom outside graph
   useEffect(() => {
     function preventZoom(e: KeyboardEvent) {
@@ -157,24 +146,23 @@ export default function App() {
     appWindow.isMaximized().then(setIsWindowMaximized);
   }, [appWindow]);
 
-
   // Bootstrap DB, settings, and notes
-useEffect(() => {
-  initDb()
-    .then(async () => {
-      setDbReady(true);
-      return Promise.all([
-        useUIStore.getState().loadSettings(),
-        useAppSettings.getState().load(),
-        useAIStore.getState().loadAISettings(),
-      ]);
-    })
-    .then(() => loadNotes())
-    .then(() => runScheduledBackupIfDue())
-    .catch((err) => setDbError(String(err)));
-}, [loadNotes]);
+  useEffect(() => {
+    initDb()
+      .then(async () => {
+        setDbReady(true);
+        return Promise.all([
+          useUIStore.getState().loadSettings(),
+          useAppSettings.getState().load(),
+          useAIStore.getState().loadAISettings(),
+        ]);
+      })
+      .then(() => loadNotes())
+      .then(() => runScheduledBackupIfDue())
+      .catch((err) => setDbError(String(err)));
+  }, [loadNotes]);
 
-  // Sample notes insertion - runs after notes are loaded
+  // Sample notes insertion
   useSampleNotes();
 
   // Onboarding modal trigger
@@ -186,32 +174,25 @@ useEffect(() => {
 
   const handleOnboardingComplete = useCallback(() => {
     setShowOnboarding(false);
-    updateSetting('hasCompletedOnboarding', true);
+    updateSetting("hasCompletedOnboarding", true);
   }, [updateSetting]);
 
-// ✅ NEW: Check for updates once DB is ready
-const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
 
-useEffect(() => {
-  if (!dbReady) return;
-
-  async function checkForUpdates() {
-    try {
-      const version = await invoke<string | null>("check_for_updates");
-      if (version) setUpdateVersion(version);
-    } catch (err) {
-      console.error("Updater error:", err);
+  useEffect(() => {
+    if (!dbReady) return;
+    async function checkForUpdates() {
+      try {
+        const version = await invoke<string | null>("check_for_updates");
+        if (version) setUpdateVersion(version);
+      } catch (err) {
+        console.error("Updater error:", err);
+      }
     }
-  }
+    checkForUpdates();
+  }, [dbReady]);
 
-  checkForUpdates();
-}, [dbReady]);
-
-
-
-  // Rest of your component remains the same...
-  // App.tsx
-useEffect(() => {
+  useEffect(() => {
     if (!activeNoteId) return;
     const currentTabNoteId = useUIStore.getState().activeTabNoteId();
     if (currentTabNoteId === null) return;
@@ -264,7 +245,11 @@ useEffect(() => {
       newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
     }
-    if (ctrl && e.key === "\\") { e.preventDefault(); toggleSidebar(); }
+    // Ctrl+\ toggles the notes panel (collapses if any panel open, opens notes if closed)
+    if (ctrl && e.key === "\\") {
+      e.preventDefault();
+      toggleSidebarPanel("notes");
+    }
     if (ctrl && e.key === ";") { e.preventDefault(); toggleBacklinks(activePaneId); }
     if (ctrl && e.key === "'") { e.preventDefault(); toggleOutline(activePaneId); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
@@ -278,11 +263,11 @@ useEffect(() => {
       if (activePaneId === 2) { triggerNav(pane2GoForward); } else { triggerNav(goForward); }
     }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "a") {
-  e.preventDefault();
-  const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
-  const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
-  chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
-}
+      e.preventDefault();
+      const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
+      const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
+      chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+    }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
       e.preventDefault();
       useUIStore.getState().setRefreshStatus("reloading");
@@ -300,7 +285,7 @@ useEffect(() => {
       e.preventDefault();
       openSettings();
     }
-  }, [dbReady, togglePalette, toggleSidebar, toggleFileTree, toggleBacklinks, toggleOutline,
+  }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, toggleBacklinks, toggleOutline,
       openShortcuts, openSettings, goBack, goForward, pane2GoBack, pane2GoForward,
       closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, toggleTips]);
 
@@ -341,22 +326,22 @@ useEffect(() => {
         catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
       exportNoteMarkdown: async () => {
-  if (!activeNote) return;
-  setExporting(true);
-  try {
-    const md = prosemirrorToMarkdown(
-      activeNote.title,
-      activeNote.content ?? "",
-      activeNote.tags,        // ← add this
-      activeNote.frontmatter  // ← add this
-    );
-    await exportNotesToFile(md, `${noteSlug(activeNote.title)}.md`);
-  } catch (err) {
-    console.error("Export failed:", err);
-  } finally {
-    setExporting(false);
-  }
-},
+        if (!activeNote) return;
+        setExporting(true);
+        try {
+          const md = prosemirrorToMarkdown(
+            activeNote.title,
+            activeNote.content ?? "",
+            activeNote.tags,
+            activeNote.frontmatter
+          );
+          await exportNotesToFile(md, `${noteSlug(activeNote.title)}.md`);
+        } catch (err) {
+          console.error("Export failed:", err);
+        } finally {
+          setExporting(false);
+        }
+      },
       exportNotePdf: async () => {
         if (!activeNote) return;
         try { await exportToPdf(activeNote.title, activeNote.content ?? ""); }
@@ -368,23 +353,13 @@ useEffect(() => {
   const breadcrumb = buildBreadcrumb(activeNoteId, notes);
   const isUntitled = activeNote ? /^Untitled-\d+$/.test(activeNote.title) : false;
 
-  function handleHamburgerClick() {
-    if (sidebarState === "open") {
-      setSidebarState("closed");
-    } else {
-      setSidebarState("open");
-    }
-  }
-
   function renderPane(paneId: 1 | 2) {
     const paneTabs = paneId === 1 ? tabs : pane2Tabs;
     const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
 
-    console.log(`[renderPane ${paneId}] tabs:`, paneTabs, 'activeTabId:', paneActiveTabId);
-
-
     return (
-      <div className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0"
+      <div
+        className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0"
         onMouseDown={() => { if (activePaneId !== paneId) setActivePaneId(paneId); }}
       >
         <TabBar paneId={paneId} />
@@ -393,23 +368,23 @@ useEffect(() => {
             const isActive = tab.id === paneActiveTabId;
             return (
               <div key={tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
-  {tab.noteId === null ? (
-    <NewTabScreen paneId={paneId} />
-  ) : (
-    (() => {
-      const noteId = tab.noteId;
-      return (
-        <Editor
-          key={noteId}
-          noteId={noteId}
-          paneId={paneId}
-          initialScrollTop={scrollPositions.current.get(noteId) ?? 0}
-          onScrollChange={(top) => scrollPositions.current.set(noteId, top)}
-        />
-      );
-    })()
-  )}
-</div>
+                {tab.noteId === null ? (
+                  <NewTabScreen paneId={paneId} />
+                ) : (
+                  (() => {
+                    const noteId = tab.noteId;
+                    return (
+                      <Editor
+                        key={noteId}
+                        noteId={noteId}
+                        paneId={paneId}
+                        initialScrollTop={scrollPositions.current.get(noteId) ?? 0}
+                        onScrollChange={(top) => scrollPositions.current.set(noteId, top)}
+                      />
+                    );
+                  })()
+                )}
+              </div>
             );
           })}
           {(paneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) && <FileTreePanel paneId={paneId} />}
@@ -445,25 +420,12 @@ useEffect(() => {
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
-          <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-500 ease-in-out">
+          <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-200 ease-in-out">
             <header
               data-tauri-drag-region
               className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
-              onMouseEnter={() => { if (useUIStore.getState().sidebarState === "peek") cancelSidebarCollapse(); }}
             >
               <div className="flex items-center gap-0 min-w-0 flex-1">
-                <div className="overflow-hidden shrink-0" style={{ opacity: isClosed ? 1 : 0, width: isClosed ? "28px" : "0px", transition: sidebarState === "closed" ? "opacity 250ms ease 100ms, width 250ms ease 100ms" : "none" }}>
-                  <button
-                    onClick={handleHamburgerClick}
-                    title="Open sidebar (Ctrl+\)"
-                    className="w-7 h-7 flex flex-col items-center justify-center gap-[4.5px] rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-                  >
-                    <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
-                    <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
-                    <span className="w-3.5 h-[1.5px] bg-current rounded-full" />
-                  </button>
-                </div>
-
                 <button
                   onClick={() => triggerNav(activePaneId === 2 ? pane2GoBack : goBack)}
                   disabled={!canGoBack}
@@ -547,17 +509,6 @@ useEffect(() => {
                   </svg>
                 </button>
 
-                <button
-                  onClick={openSettings}
-                  title="Settings (Ctrl+,)"
-                  className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <circle cx="7" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-                    <path d="M7 1.5v1M7 11.5v1M1.5 7h1M11.5 7h1M3.1 3.1l.7.7M10.2 10.2l.7.7M10.9 3.1l-.7.7M3.8 10.2l-.7.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                  </svg>
-                </button>
-
                 <ThemeToggle />
 
                 <div className="flex items-center gap-1 ml-2 border-l border-zinc-200 dark:border-zinc-700 pl-2">
@@ -625,18 +576,18 @@ useEffect(() => {
 
         {graphOpen && <GraphView ref={graphViewRef} initialFocusNoteId={graphFocusNoteId} />}
 
-{exporting && (
-  <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
-    Exporting…
-  </div>
-)}
+        {exporting && (
+          <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
+            Exporting…
+          </div>
+        )}
 
-{updateVersion && (
-  <UpdateToast
-    version={updateVersion}
-    onDismiss={() => setUpdateVersion(null)}
-  />
-)}
+        {updateVersion && (
+          <UpdateToast
+            version={updateVersion}
+            onDismiss={() => setUpdateVersion(null)}
+          />
+        )}
       </div>
     </>
   );

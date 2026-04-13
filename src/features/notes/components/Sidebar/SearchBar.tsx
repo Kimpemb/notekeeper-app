@@ -14,17 +14,14 @@ export function SearchBar() {
   const setQuery              = useUIStore((s) => s.setSearchQuery);
   const clearSearch           = useUIStore((s) => s.clearSearch);
   const setFocusSidebarSearch = useUIStore((s) => s.setFocusSidebarSearch);
-  const setSidebarState       = useUIStore((s) => s.setSidebarState);
-  const sidebarState          = useUIStore((s) => s.sidebarState);
+  const setActiveSidebarPanel = useUIStore((s) => s.setActiveSidebarPanel);
+  const activeSidebarPanel    = useUIStore((s) => s.activeSidebarPanel);
   const inputRef              = useRef<HTMLInputElement>(null);
 
-  // Register focus callback in the store so the global Cmd+F handler can call it
   const focusSearch = useCallback(() => {
-    // Open sidebar if it's closed or peeking
-    if (sidebarState !== "open") setSidebarState("open");
-    // Small delay to let sidebar animation start before focusing
+    if (activeSidebarPanel !== "search") setActiveSidebarPanel("search");
     setTimeout(() => inputRef.current?.focus(), 50);
-  }, [sidebarState, setSidebarState]);
+  }, [activeSidebarPanel, setActiveSidebarPanel]);
 
   useEffect(() => {
     setFocusSidebarSearch(focusSearch);
@@ -55,7 +52,7 @@ export function SearchBar() {
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Search…"
-className="w-full h-8 pl-8 pr-7 rounded-md text-sm bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 focus:bg-zinc-100 dark:focus:bg-zinc-800 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 outline-none border-none transition-colors duration-100"
+        className="w-full h-8 pl-8 pr-7 rounded-md text-sm bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 focus:bg-zinc-100 dark:focus:bg-zinc-800 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 outline-none border-none transition-colors duration-100"
       />
       {searchQuery && (
         <button

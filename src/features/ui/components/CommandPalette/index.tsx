@@ -284,9 +284,9 @@ export function CommandPalette() {
   const toggleBacklinks    = useUIStore((s) => s.toggleBacklinks);
   const toggleOutline      = useUIStore((s) => s.toggleOutline);
   const toggleFileTree     = useUIStore((s) => s.toggleFileTree);
-  const toggleSidebar      = useUIStore((s) => s.toggleSidebar);
   const toggleTips         = useUIStore((s) => s.toggleTips);
   const toggleSimilar = useUIStore((s) => s.toggleSimilar);
+  const toggleSidebarPanel = useUIStore((s) => s.toggleSidebarPanel);
   const openShortcuts      = useUIStore((s) => s.openShortcuts);
   const openImport         = useUIStore((s) => s.openImport);
   const openTemplatePicker = useUIStore((s) => s.openTemplatePicker);
@@ -371,9 +371,9 @@ export function CommandPalette() {
       action: async () => { closePalette(); await createOrOpenDailyNote(); },
     },
     {
-      kind: "action", id: "toggle-sidebar", label: "Toggle Sidebar", hint: "Ctrl+\\",
-      action: () => { toggleSidebar(); closePalette(); },
-    },
+  kind: "action", id: "toggle-sidebar", label: "Toggle Sidebar", hint: "Ctrl+\\",
+  action: () => { toggleSidebarPanel("notes"); closePalette(); },
+},
     {
       kind: "action", id: "toggle-graph", label: graphOpen ? "Close Graph View" : "Open Graph View", hint: "Ctrl+Shift+G",
       action: () => { graphOpen ? closeGraph() : openGraph(); closePalette(); },
@@ -467,7 +467,7 @@ export function CommandPalette() {
     },
   ], [
   theme, closePalette, openTemplatePicker, toggleTheme, toggleBacklinks, toggleOutline,
-  toggleSimilar, toggleFileTree, toggleSidebar, toggleTips, openShortcuts, openImport,
+  toggleSimilar, toggleFileTree, toggleSidebarPanel, toggleTips, openShortcuts, openImport,
   exportHandlers, activeNoteId, graphOpen, openGraph, closeGraph, loadNotes, createOrOpenDailyNote,
 ]);
 
