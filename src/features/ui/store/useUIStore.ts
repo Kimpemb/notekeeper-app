@@ -316,7 +316,10 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     // ─── Settings modal ───────────────────────────────────────────────────────
     settingsOpen: false,
-    openSettings: () => set({ settingsOpen: true }),
+    openSettings: () => {
+      set({ settingsOpen: true });
+      window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
+    },
     closeSettings: () => set({ settingsOpen: false }),
 
     // ─── Sidebar ──────────────────────────────────────────────────────────────
@@ -338,10 +341,16 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     // ─── Command palette ──────────────────────────────────────────────────────
     paletteOpen: false,
-    openPalette: () => set({ paletteOpen: true }),
+    openPalette: () => {
+      set({ paletteOpen: true });
+      window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
+    },
     closePalette: () => set({ paletteOpen: false }),
-    togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
-
+togglePalette: () => {
+      const next = !get().paletteOpen;
+      set({ paletteOpen: next });
+      if (next) window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
+    },
     // ─── Save status ──────────────────────────────────────────────────────────
     saveStatus: "idle",
     setSaveStatus: (status) => set({ saveStatus: status }),
@@ -412,11 +421,17 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     // ─── Graph ────────────────────────────────────────────────────────────────
     graphOpen: false,
-    openGraph: () => set({ graphOpen: true }),
+    openGraph: () => {
+      set({ graphOpen: true });
+      window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
+    },
     closeGraph: () => set({ graphOpen: false, graphFocusNoteId: null }),
     toggleGraph: () => set((s) => ({ graphOpen: !s.graphOpen })),
     graphFocusNoteId: null,
-    openGraphForNote: (noteId) => set({ graphOpen: true, graphFocusNoteId: noteId }),
+openGraphForNote: (noteId) => {
+      set({ graphOpen: true, graphFocusNoteId: noteId });
+      window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
+    },
     clearGraphFocusNoteId: () => set({ graphFocusNoteId: null }),
     graphViewState: { ...DEFAULT_GRAPH_STATE },
     saveGraphViewState: (state) => set((s) => ({ graphViewState: { ...s.graphViewState, ...state } })),

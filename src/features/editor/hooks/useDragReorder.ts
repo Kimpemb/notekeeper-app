@@ -114,8 +114,9 @@ export function useDragReorder({
     editorRef,
     editorTextColumnRef,
     editorWrapRef,
+    scrollRef,
     hoveredBlockRef,
-    isScrollingRef: { current: false } as React.RefObject<boolean>, // replaced below
+    isScrollingRef: { current: false } as React.RefObject<boolean>,
     menuOpenRef,
     getEditorLeft,
   });
@@ -268,6 +269,17 @@ export function useDragReorder({
 
       const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
       const inGutter = e.clientX < editorEl.getBoundingClientRect().left;
+
+      // If any overlay sentinel is present in the DOM, the graph/palette/modal
+      // is open — suppress the handle entirely regardless of cursor position.
+      const overlayOpen = !!document.querySelector(
+        "[data-overlay-sentinel]"
+      );
+      if (overlayOpen) {
+        hideHandle();
+        return;
+      }
+
       if (!inGutter && !editorEl.contains(elementUnderCursor)) {
         hideHandle();
         return;
@@ -360,6 +372,7 @@ function onMouseDown(e: MouseEvent) {
   }
 }
 
+
     // ── onContextMenu ─────────────────────────────────────────────────────
     function onContextMenu(e: MouseEvent) {
       if ((e.target as HTMLElement).closest("[data-drag-handle]")) e.preventDefault();
@@ -413,6 +426,13 @@ function onMouseDown(e: MouseEvent) {
       }
     }
 
+    function onOverlayOpened() {
+      cancelDrag();
+      hideHandle();
+    }
+
+    window.addEventListener("idemora:overlay-opened", onOverlayOpened);
+
     document.addEventListener("mousemove",       onMouseMove);
     document.addEventListener("mousedown",       onMouseDown, true);
     document.addEventListener("mouseup",         onMouseUp);
@@ -427,6 +447,7 @@ function onMouseDown(e: MouseEvent) {
       document.removeEventListener("keydown",         onKeyDown);
       document.removeEventListener("contextmenu",     onContextMenu, true);
       document.removeEventListener("selectionchange", onSelectionChange);
+      window.removeEventListener("idemora:overlay-opened", onOverlayOpened);
       cancelDrag();
       hideHandle();
       closeMenu();

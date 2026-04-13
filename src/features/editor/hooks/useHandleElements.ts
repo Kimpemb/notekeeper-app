@@ -39,6 +39,7 @@ interface UseHandleElementsOptions {
   editorRef:           React.RefObject<Editor | null>;
   editorTextColumnRef: React.RefObject<HTMLDivElement | null>;
   editorWrapRef:       React.RefObject<HTMLDivElement | null>;
+  scrollRef:           React.RefObject<HTMLDivElement | null>;
   hoveredBlockRef:     React.RefObject<HoveredBlock | null>;
   isScrollingRef:      React.RefObject<boolean>;
   menuOpenRef:         React.RefObject<boolean>;
@@ -73,6 +74,7 @@ export function useHandleElements({
   editorRef,
   editorTextColumnRef,
   editorWrapRef,
+  scrollRef,
   hoveredBlockRef,
   isScrollingRef,
   menuOpenRef,
@@ -97,8 +99,8 @@ export function useHandleElements({
     if (!grip || !insert) return;
 
     const rect       = dom.getBoundingClientRect();
-    const gripLeft   = getEditorLeft() - 36;  // T1-2: was -28, now -36
-    const insertLeft = gripLeft - 20;         // + sits left of grip
+    const gripLeft   = getEditorLeft() - 36;
+    const insertLeft = gripLeft - 20;
 
     grip.style.display  = "flex";
     grip.style.left     = `${gripLeft}px`;
@@ -108,20 +110,28 @@ export function useHandleElements({
     insert.style.left    = `${insertLeft}px`;
     insert.style.top     = `${rect.top + 4}px`;
 
-    // T1-1: position highlight flush behind the block, edge-to-edge with editor
     if (highlight) {
       const editorEl = editorWrapRef.current;
-      if (editorEl) {
-        const editorRect = editorEl.getBoundingClientRect();
-        const inset      = 4; // small breathing gap so it doesn't bleed to viewport edge
+      const scrollEl = scrollRef.current;
+      if (editorEl && scrollEl) {
+        const editorRect    = editorEl.getBoundingClientRect();
+        const scrollRect    = scrollEl.getBoundingClientRect();
+        const inset         = 4;
+        const clippedTop    = Math.max(rect.top, scrollRect.top);
+        const clippedBottom = Math.min(rect.bottom, scrollRect.bottom);
+        const clippedHeight = clippedBottom - clippedTop;
+        if (clippedHeight <= 0) {
+          highlight.style.display = "none";
+          return;
+        }
         highlight.style.display = "block";
-        highlight.style.top     = `${rect.top}px`;
+        highlight.style.top     = `${clippedTop}px`;
         highlight.style.left    = `${editorRect.left + inset}px`;
         highlight.style.width   = `${editorRect.width - inset * 2}px`;
-        highlight.style.height  = `${rect.height}px`;
+        highlight.style.height  = `${clippedHeight}px`;
       }
     }
-  }, [getEditorLeft, editorWrapRef]);
+  }, [getEditorLeft, editorWrapRef, scrollRef]);
 
   // ── scheduleShowHandle ────────────────────────────────────────────────────
 

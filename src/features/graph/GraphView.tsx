@@ -579,13 +579,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   return (
     <>
       {/* Backdrop */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 49,
-        background: "rgba(0,0,0,0.4)",
-        opacity: mounted ? 1 : 0,
-        transition: `opacity ${TRANSITION_MS}ms ease`,
-        pointerEvents: "none",
-      }} />
+      <div
+        data-overlay-sentinel
+        style={{
+          position: "fixed", inset: 0, zIndex: 49,
+          background: "rgba(0,0,0,0.4)",
+          opacity: mounted ? 1 : 0,
+          transition: `opacity ${TRANSITION_MS}ms ease`,
+          pointerEvents: "none",
+        }}
+      />
 
       {/* Panel */}
       <div ref={panelRef} style={{
