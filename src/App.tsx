@@ -15,7 +15,6 @@ import { SettingsModal } from "@/features/ui/components/SettingsModal";
 import { TabBar } from "@/features/ui/components/TabBar";
 import { SplitDivider } from "@/features/ui/components/SplitDivider";
 import { TipsPanel } from "@/features/ui/components/TipsPanel";
-import { ThemeToggle } from "@/features/ui/components/ThemeToggle";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
 import { GraphView, type GraphViewHandle } from "@/features/graph/GraphView";
 import { exportNotesToFile } from "@/lib/tauri/fs";
@@ -32,7 +31,6 @@ import { useAIStore } from "./features/ai/store/useAIStore";
 import { runScheduledBackupIfDue } from "@/features/backup/lib/scheduler";
 import { NewTabScreen } from "@/features/ui/components/NewTabScreen";
 
-// Block F5 / Ctrl+R — causes full state loss in Tauri
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") e.preventDefault();
@@ -63,67 +61,74 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
-  // Store hooks
-  const loadNotes = useNoteStore((s) => s.loadNotes);
-  const activeNoteId = useNoteStore((s) => s.activeNoteId);
-  const notes = useNoteStore((s) => s.notes);
+  // Note store
+  const loadNotes             = useNoteStore((s) => s.loadNotes);
+  const activeNoteId          = useNoteStore((s) => s.activeNoteId);
+  const notes                 = useNoteStore((s) => s.notes);
   const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
-  const setActive = useNoteStore((s) => s.setActiveNote);
-  const goBack = useNoteStore((s) => s.goBack);
-  const goForward = useNoteStore((s) => s.goForward);
-  const pane1CanGoBack = useNoteStore((s) => s.canGoBack());
-  const pane1CanGoForward = useNoteStore((s) => s.canGoForward());
+  const setActive             = useNoteStore((s) => s.setActiveNote);
+  const goBack                = useNoteStore((s) => s.goBack);
+  const goForward             = useNoteStore((s) => s.goForward);
+  const pane1CanGoBack        = useNoteStore((s) => s.canGoBack());
+  const pane1CanGoForward     = useNoteStore((s) => s.canGoForward());
 
-  // UI store hooks
-  const toggleSidebarPanel    = useUIStore((s) => s.toggleSidebarPanel);
-  const togglePalette         = useUIStore((s) => s.togglePalette);
-  const openShortcuts         = useUIStore((s) => s.openShortcuts);
-  const openSettings          = useUIStore((s) => s.openSettings);
-  const openTabInPane2        = useUIStore((s) => s.openTabInPane2);
-  const pane1FileTreeOpen     = useUIStore((s) => s.pane1FileTreeOpen);
-  const pane2FileTreeOpen     = useUIStore((s) => s.pane2FileTreeOpen);
-  const toggleFileTree        = useUIStore((s) => s.toggleFileTree);
-  const toggleBacklinks       = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline         = useUIStore((s) => s.toggleOutline);
-  const templatePickerOpen    = useUIStore((s) => s.templatePickerOpen);
-  const closeTemplatePicker   = useUIStore((s) => s.closeTemplatePicker);
-  const toggleTips            = useUIStore((s) => s.toggleTips);
-  const graphOpen             = useUIStore((s) => s.graphOpen);
-  const openGraph             = useUIStore((s) => s.openGraph);
-  const graphFocusNoteId      = useUIStore((s) => s.graphFocusNoteId);
-  const activePaneId          = useUIStore((s) => s.activePaneId);
-  const pane2CanGoBack        = useUIStore((s) => s.pane2CanGoBack());
-  const pane2CanGoForward     = useUIStore((s) => s.pane2CanGoForward());
-  const pane2GoBack           = useUIStore((s) => s.pane2GoBack);
-  const pane2GoForward        = useUIStore((s) => s.pane2GoForward);
-  const tabs                  = useUIStore((s) => s.tabs);
-  const activeTabId           = useUIStore((s) => s.activeTabId);
-  const openTab               = useUIStore((s) => s.openTab);
-  const replaceTab            = useUIStore((s) => s.replaceTab);
-  const closeActiveTab        = useUIStore((s) => s.closeActiveTab);
-  const cycleTab              = useUIStore((s) => s.cycleTab);
-  const pane2Tabs             = useUIStore((s) => s.pane2Tabs);
-  const pane2ActiveTabId      = useUIStore((s) => s.pane2ActiveTabId);
-  const splitOpen             = useUIStore((s) => s.splitOpen);
-  const splitDirection        = useUIStore((s) => s.splitDirection);
-  const setActivePaneId       = useUIStore((s) => s.setActivePaneId);
+  // UI store
+  const toggleSidebarPanel  = useUIStore((s) => s.toggleSidebarPanel);
+  const togglePalette       = useUIStore((s) => s.togglePalette);
+  const openShortcuts       = useUIStore((s) => s.openShortcuts);
+  const openSettings        = useUIStore((s) => s.openSettings);
+  const openTabInPane2      = useUIStore((s) => s.openTabInPane2);
+  const pane1FileTreeOpen   = useUIStore((s) => s.pane1FileTreeOpen);
+  const pane2FileTreeOpen   = useUIStore((s) => s.pane2FileTreeOpen);
+  const toggleFileTree      = useUIStore((s) => s.toggleFileTree);
+  const toggleBacklinks     = useUIStore((s) => s.toggleBacklinks);
+  const toggleOutline       = useUIStore((s) => s.toggleOutline);
+  const templatePickerOpen  = useUIStore((s) => s.templatePickerOpen);
+  const closeTemplatePicker = useUIStore((s) => s.closeTemplatePicker);
+  const graphOpen           = useUIStore((s) => s.graphOpen);
+  const openGraph           = useUIStore((s) => s.openGraph);
+  const graphFocusNoteId    = useUIStore((s) => s.graphFocusNoteId);
+  const activePaneId        = useUIStore((s) => s.activePaneId);
+  const pane2CanGoBack      = useUIStore((s) => s.pane2CanGoBack());
+  const pane2CanGoForward   = useUIStore((s) => s.pane2CanGoForward());
+  const pane2GoBack         = useUIStore((s) => s.pane2GoBack);
+  const pane2GoForward      = useUIStore((s) => s.pane2GoForward);
+  const tabs                = useUIStore((s) => s.tabs);
+  const activeTabId         = useUIStore((s) => s.activeTabId);
+  const openTab             = useUIStore((s) => s.openTab);
+  const replaceTab          = useUIStore((s) => s.replaceTab);
+  const closeActiveTab      = useUIStore((s) => s.closeActiveTab);
+  const cycleTab            = useUIStore((s) => s.cycleTab);
+  const pane2Tabs           = useUIStore((s) => s.pane2Tabs);
+  const pane2ActiveTabId    = useUIStore((s) => s.pane2ActiveTabId);
+  const splitOpen           = useUIStore((s) => s.splitOpen);
+  const splitDirection      = useUIStore((s) => s.splitDirection);
+  const setActivePaneId     = useUIStore((s) => s.setActivePaneId);
+  const pane1BacklinksOpen  = useUIStore((s) => s.pane1BacklinksOpen);
+  const pane2BacklinksOpen  = useUIStore((s) => s.pane2BacklinksOpen);
+  const pane1OutlineOpen    = useUIStore((s) => s.pane1OutlineOpen);
+  const pane2OutlineOpen    = useUIStore((s) => s.pane2OutlineOpen);
+  const chatOpen1           = useUIStore((s) => s.chatOpen1);
+  const chatOpen2           = useUIStore((s) => s.chatOpen2);
 
   // App settings
-  const settings        = useAppSettings((s) => s.settings);
-  const updateSetting   = useAppSettings((s) => s.updateSetting);
-  const settingsLoaded  = useAppSettings((s) => s.loaded);
+  const settings       = useAppSettings((s) => s.settings);
+  const updateSetting  = useAppSettings((s) => s.updateSetting);
+  const settingsLoaded = useAppSettings((s) => s.loaded);
 
   // Refs
-  const graphViewRef      = useRef<GraphViewHandle>(null);
-  const slideTimeout      = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const openInNewTabRef   = useRef(false);
-  const newNoteParentRef  = useRef<string | null>(null);
-  const scrollPositions   = useRef<Map<string, number>>(new Map());
+  const graphViewRef     = useRef<GraphViewHandle>(null);
+  const slideTimeout     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openInNewTabRef  = useRef(false);
+  const newNoteParentRef = useRef<string | null>(null);
+  const scrollPositions  = useRef<Map<string, number>>(new Map());
 
-  const canGoBack    = activePaneId === 2 ? pane2CanGoBack : pane1CanGoBack;
+  const canGoBack    = activePaneId === 2 ? pane2CanGoBack    : pane1CanGoBack;
   const canGoForward = activePaneId === 2 ? pane2CanGoForward : pane1CanGoForward;
+  const backlinkActive = activePaneId === 1 ? pane1BacklinksOpen : pane2BacklinksOpen;
+  const outlineActive  = activePaneId === 1 ? pane1OutlineOpen   : pane2OutlineOpen;
+  const chatActive     = activePaneId === 1 ? chatOpen1          : chatOpen2;
 
-  // Disable browser zoom outside graph
   useEffect(() => {
     function preventZoom(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "-" || e.key === "=" || e.key === "0")) {
@@ -141,12 +146,10 @@ export default function App() {
     };
   }, []);
 
-  // Track window maximize state
   useEffect(() => {
     appWindow.isMaximized().then(setIsWindowMaximized);
   }, [appWindow]);
 
-  // Bootstrap DB, settings, and notes
   useEffect(() => {
     initDb()
       .then(async () => {
@@ -162,14 +165,10 @@ export default function App() {
       .catch((err) => setDbError(String(err)));
   }, [loadNotes]);
 
-  // Sample notes insertion
   useSampleNotes();
 
-  // Onboarding modal trigger
   useEffect(() => {
-    if (settingsLoaded && !settings.hasCompletedOnboarding) {
-      setShowOnboarding(true);
-    }
+    if (settingsLoaded && !settings.hasCompletedOnboarding) setShowOnboarding(true);
   }, [settingsLoaded, settings.hasCompletedOnboarding]);
 
   const handleOnboardingComplete = useCallback(() => {
@@ -229,8 +228,8 @@ export default function App() {
     if (!dbReady) return;
     const ctrl = e.ctrlKey || e.metaKey;
 
-    if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
-    if (ctrl && e.key === "k") { e.preventDefault(); togglePalette(); }
+    if (ctrl && e.key === "Tab")   { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
+    if (ctrl && e.key === "k")     { e.preventDefault(); togglePalette(); }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       openInNewTabRef.current = true;
@@ -238,22 +237,18 @@ export default function App() {
       useUIStore.getState().openTemplatePicker();
       return;
     }
-    if (ctrl && e.key === "t") { e.preventDefault(); toggleFileTree(activePaneId); }
+    if (ctrl && e.key === "t")     { e.preventDefault(); toggleFileTree(activePaneId); }
     if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       openInNewTabRef.current = false;
       newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
     }
-    // Ctrl+\ toggles the notes panel (collapses if any panel open, opens notes if closed)
-    if (ctrl && e.key === "\\") {
-      e.preventDefault();
-      toggleSidebarPanel("notes");
-    }
-    if (ctrl && e.key === ";") { e.preventDefault(); toggleBacklinks(activePaneId); }
-    if (ctrl && e.key === "'") { e.preventDefault(); toggleOutline(activePaneId); }
+    if (ctrl && e.key === "\\")    { e.preventDefault(); toggleSidebarPanel("notes"); }
+    if (ctrl && e.key === ";")     { e.preventDefault(); toggleBacklinks(activePaneId); }
+    if (ctrl && e.key === "'")     { e.preventDefault(); toggleOutline(activePaneId); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
-    if (ctrl && e.key === "w") { e.preventDefault(); closeActiveTab(); }
+    if (ctrl && e.key === "w")     { e.preventDefault(); closeActiveTab(); }
     if (ctrl && e.key === "[") {
       e.preventDefault();
       if (activePaneId === 2) { triggerNav(pane2GoBack); } else { triggerNav(goBack); }
@@ -273,21 +268,14 @@ export default function App() {
       useUIStore.getState().setRefreshStatus("reloading");
       loadNotes().then(() => { useUIStore.getState().setRefreshStatus("reloaded"); });
     }
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === "i") {
-      e.preventDefault();
-      toggleTips();
-    }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
       e.preventDefault();
       if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
     }
-    if (ctrl && e.key === ",") {
-      e.preventDefault();
-      openSettings();
-    }
+    if (ctrl && e.key === ",") { e.preventDefault(); openSettings(); }
   }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, toggleBacklinks, toggleOutline,
       openShortcuts, openSettings, goBack, goForward, pane2GoBack, pane2GoForward,
-      closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, toggleTips]);
+      closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -298,13 +286,11 @@ export default function App() {
     closeTemplatePicker();
     const parentId = newNoteParentRef.current ?? undefined;
     const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
-
     if (openInNewTabRef.current) {
       if (activePaneId === 2) { openTabInPane2(note.id); } else { openTab(note.id); }
     } else {
       if (activePaneId === 2) { openTabInPane2(note.id); } else { setActive(note.id); replaceTab(note.id); }
     }
-
     openInNewTabRef.current = false;
     newNoteParentRef.current = null;
   }
@@ -329,18 +315,9 @@ export default function App() {
         if (!activeNote) return;
         setExporting(true);
         try {
-          const md = prosemirrorToMarkdown(
-            activeNote.title,
-            activeNote.content ?? "",
-            activeNote.tags,
-            activeNote.frontmatter
-          );
+          const md = prosemirrorToMarkdown(activeNote.title, activeNote.content ?? "", activeNote.tags, activeNote.frontmatter);
           await exportNotesToFile(md, `${noteSlug(activeNote.title)}.md`);
-        } catch (err) {
-          console.error("Export failed:", err);
-        } finally {
-          setExporting(false);
-        }
+        } catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
       exportNotePdf: async () => {
         if (!activeNote) return;
@@ -356,7 +333,6 @@ export default function App() {
   function renderPane(paneId: 1 | 2) {
     const paneTabs = paneId === 1 ? tabs : pane2Tabs;
     const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
-
     return (
       <div
         className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0"
@@ -421,10 +397,12 @@ export default function App() {
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
           <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-200 ease-in-out">
+
             <header
               data-tauri-drag-region
               className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
             >
+              {/* Left: nav + breadcrumb */}
               <div className="flex items-center gap-0 min-w-0 flex-1">
                 <button
                   onClick={() => triggerNav(activePaneId === 2 ? pane2GoBack : goBack)}
@@ -463,53 +441,55 @@ export default function App() {
                 )}
               </div>
 
+              {/* Right: note-scoped actions + window controls */}
               <div className="flex items-center gap-1 shrink-0">
                 <button
-                  onClick={() => toggleFileTree(activePaneId)}
-                  className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${(activePaneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+                  onClick={() => toggleBacklinks(activePaneId)}
+                  title="Toggle backlinks (Ctrl+;)"
+                  className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
+                    backlinkActive
+                      ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
+                      : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                  }`}
                 >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M1 3.5a1 1 0 011-1h3l1 1.5h6a1 1 0 011 1V11a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-                    <path d="M4 8.5h3M4 6.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                    <path d="M9 4H5a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                    <path d="M7 2h4v4M11 2L7.5 5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
 
                 <button
-                  onClick={() => graphOpen ? graphViewRef.current?.animatedClose() : openGraph()}
-                  title="Graph view (Ctrl+Shift+G)"
-                  className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${graphOpen ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"}`}
+                  onClick={() => toggleOutline(activePaneId)}
+                  title="Toggle outline (Ctrl+')"
+                  className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
+                    outlineActive
+                      ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
+                      : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                  }`}
                 >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
-                    <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
-                    <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
-                    <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
-                    <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
-                    <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                    <path d="M2 3.5h10M2 7h7M2 10.5h8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                   </svg>
                 </button>
 
-                <button onClick={toggleTips} title="Tips & shortcuts"
-                  className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
+                <button
+                  onClick={() => {
+                    const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
+                    const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
+                    chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+                  }}
+                  title="Toggle AI chat (Ctrl+Shift+A)"
+                  className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
+                    chatActive
+                      ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
+                      : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                  }`}
                 >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2"/>
-                    <path d="M7 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                    <circle cx="7" cy="4.5" r="0.7" fill="currentColor"/>
+                    <path d="M2 2h10a1 1 0 011 1v6a1 1 0 01-1 1H8l-3 2v-2H2a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                    <path d="M4.5 6.5h5M4.5 4.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
                   </svg>
                 </button>
-
-                <button onClick={openShortcuts} title="Keyboard shortcuts (Ctrl+Shift+?)"
-                  className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2"/>
-                    <path d="M5 5.5a2 2 0 113 1.7V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                    <circle cx="7" cy="10" r="0.7" fill="currentColor"/>
-                  </svg>
-                </button>
-
-                <ThemeToggle />
 
                 <div className="flex items-center gap-1 ml-2 border-l border-zinc-200 dark:border-zinc-700 pl-2">
                   <button
@@ -532,12 +512,12 @@ export default function App() {
                   >
                     {isWindowMaximized ? (
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <path d="M3 1H9C10.1046 1 11 1.89543 11 3V9C11 10.1046 10.1046 11 9 11H3C1.89543 11 1 10.1046 1 9V3C1 1.89543 1.89543 1 3 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" />
-                        <path d="M4 4L8 8M8 4L4 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                        <path d="M3 1H9C10.1046 1 11 1.89543 11 3V9C11 10.1046 10.1046 11 9 11H3C1.89543 11 1 10.1046 1 9V3C1 1.89543 1.89543 1 3 1Z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+                        <path d="M4 4L8 8M8 4L4 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
                       </svg>
                     ) : (
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                        <rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="1.2" fill="none"/>
                       </svg>
                     )}
                   </button>
@@ -547,7 +527,7 @@ export default function App() {
                     className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:bg-red-500 hover:text-white transition-colors duration-150"
                   >
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                      <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                     </svg>
                   </button>
                 </div>
@@ -583,10 +563,7 @@ export default function App() {
         )}
 
         {updateVersion && (
-          <UpdateToast
-            version={updateVersion}
-            onDismiss={() => setUpdateVersion(null)}
-          />
+          <UpdateToast version={updateVersion} onDismiss={() => setUpdateVersion(null)} />
         )}
       </div>
     </>

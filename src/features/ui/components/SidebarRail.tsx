@@ -30,10 +30,13 @@ function RailButton({ label, active, onClick, children }: RailButtonProps) {
 }
 
 export function SidebarRail() {
-  const activeSidebarPanel  = useUIStore((s) => s.activeSidebarPanel);
-  const toggleSidebarPanel  = useUIStore((s) => s.toggleSidebarPanel);
-  const openSettings        = useUIStore((s) => s.openSettings);
-  const openTemplatePicker  = useUIStore((s) => s.openTemplatePicker);
+  const activeSidebarPanel    = useUIStore((s) => s.activeSidebarPanel);
+  const toggleSidebarPanel    = useUIStore((s) => s.toggleSidebarPanel);
+  const openSettings          = useUIStore((s) => s.openSettings);
+  const openTemplatePicker    = useUIStore((s) => s.openTemplatePicker);
+  const graphOpen             = useUIStore((s) => s.graphOpen);
+  const openGraph             = useUIStore((s) => s.openGraph);
+  const closeGraph            = useUIStore((s) => s.closeGraph);
   const createOrOpenDailyNote = useNoteStore((s) => s.createOrOpenDailyNote);
 
   function toggle(panel: NonNullable<SidebarPanel>) {
@@ -43,12 +46,7 @@ export function SidebarRail() {
   return (
     <div className="flex flex-col items-center w-12 h-full shrink-0 py-2 gap-0.5 bg-zinc-50 dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 z-10">
 
-      {/* ── Navigation icons (top) ──────────────────────────────────────── */}
-      <RailButton
-        label="Notes (Ctrl+\)"
-        active={activeSidebarPanel === "notes"}
-        onClick={() => toggle("notes")}
-      >
+      <RailButton label="Notes (Ctrl+\)" active={activeSidebarPanel === "notes"} onClick={() => toggle("notes")}>
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
           <rect x="2" y="2" width="11" height="2.5" rx="1" fill="currentColor" opacity="0.9"/>
           <rect x="2" y="6.25" width="11" height="2.5" rx="1" fill="currentColor" opacity="0.9"/>
@@ -56,33 +54,21 @@ export function SidebarRail() {
         </svg>
       </RailButton>
 
-      <RailButton
-        label="Search (Ctrl+F)"
-        active={activeSidebarPanel === "search"}
-        onClick={() => toggle("search")}
-      >
+      <RailButton label="Search (Ctrl+F)" active={activeSidebarPanel === "search"} onClick={() => toggle("search")}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.4"/>
           <path d="M9.5 9.5L13 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
         </svg>
       </RailButton>
 
-      <RailButton
-        label="Tags"
-        active={activeSidebarPanel === "tags"}
-        onClick={() => toggle("tags")}
-      >
+      <RailButton label="Tags" active={activeSidebarPanel === "tags"} onClick={() => toggle("tags")}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M1.5 1.5h4.5l6 6-4.5 4.5-6-6V1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
           <circle cx="4.5" cy="4.5" r="1" fill="currentColor"/>
         </svg>
       </RailButton>
 
-      <RailButton
-        label="Trash"
-        active={activeSidebarPanel === "trash"}
-        onClick={() => toggle("trash")}
-      >
+      <RailButton label="Trash" active={activeSidebarPanel === "trash"} onClick={() => toggle("trash")}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M2 3.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           <path d="M5 3.5V2.5h4v1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -90,14 +76,24 @@ export function SidebarRail() {
         </svg>
       </RailButton>
 
-      {/* ── Spacer ──────────────────────────────────────────────────────── */}
+      <RailButton
+        label="Graph (Ctrl+Shift+G)"
+        active={graphOpen}
+        onClick={() => graphOpen ? closeGraph() : openGraph()}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+          <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+          <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+          <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+          <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+          <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
+      </RailButton>
+
       <div className="flex-1" />
 
-      {/* ── Action icons (bottom) ───────────────────────────────────────── */}
-      <RailButton
-        label="Today's note"
-        onClick={() => createOrOpenDailyNote().catch(console.error)}
-      >
+      <RailButton label="Today's note" onClick={() => createOrOpenDailyNote().catch(console.error)}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <rect x="1.5" y="2.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
           <path d="M4.5 1.5v2M9.5 1.5v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -108,10 +104,7 @@ export function SidebarRail() {
         </svg>
       </RailButton>
 
-      <RailButton
-        label="New note (Ctrl+N)"
-        onClick={openTemplatePicker}
-      >
+      <RailButton label="New note (Ctrl+N)" onClick={openTemplatePicker}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M9.5 2L12.5 5M2 13l1-3.5L10 2l3 3-7 7.5L2 13z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
@@ -119,10 +112,7 @@ export function SidebarRail() {
 
       <div className="w-5 h-px bg-zinc-200 dark:bg-zinc-800 my-0.5" />
 
-      <RailButton
-        label="Settings (Ctrl+,)"
-        onClick={openSettings}
-      >
+      <RailButton label="Settings (Ctrl+,)" onClick={openSettings}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <circle cx="7" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
           <path d="M7 1.5v1M7 11.5v1M1.5 7h1M11.5 7h1M3.1 3.1l.7.7M10.2 10.2l.7.7M10.9 3.1l-.7.7M3.8 10.2l-.7.7"
