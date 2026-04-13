@@ -62,15 +62,15 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Note store
-  const loadNotes             = useNoteStore((s) => s.loadNotes);
-  const activeNoteId          = useNoteStore((s) => s.activeNoteId);
-  const notes                 = useNoteStore((s) => s.notes);
+  const loadNotes              = useNoteStore((s) => s.loadNotes);
+  const activeNoteId           = useNoteStore((s) => s.activeNoteId);
+  const notes                  = useNoteStore((s) => s.notes);
   const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
-  const setActive             = useNoteStore((s) => s.setActiveNote);
-  const goBack                = useNoteStore((s) => s.goBack);
-  const goForward             = useNoteStore((s) => s.goForward);
-  const pane1CanGoBack        = useNoteStore((s) => s.canGoBack());
-  const pane1CanGoForward     = useNoteStore((s) => s.canGoForward());
+  const setActive              = useNoteStore((s) => s.setActiveNote);
+  const goBack                 = useNoteStore((s) => s.goBack);
+  const goForward              = useNoteStore((s) => s.goForward);
+  const pane1CanGoBack         = useNoteStore((s) => s.canGoBack());
+  const pane1CanGoForward      = useNoteStore((s) => s.canGoForward());
 
   // UI store
   const toggleSidebarPanel  = useUIStore((s) => s.toggleSidebarPanel);
@@ -123,8 +123,8 @@ export default function App() {
   const newNoteParentRef = useRef<string | null>(null);
   const scrollPositions  = useRef<Map<string, number>>(new Map());
 
-  const canGoBack    = activePaneId === 2 ? pane2CanGoBack    : pane1CanGoBack;
-  const canGoForward = activePaneId === 2 ? pane2CanGoForward : pane1CanGoForward;
+  const canGoBack      = activePaneId === 2 ? pane2CanGoBack    : pane1CanGoBack;
+  const canGoForward   = activePaneId === 2 ? pane2CanGoForward : pane1CanGoForward;
   const backlinkActive = activePaneId === 1 ? pane1BacklinksOpen : pane2BacklinksOpen;
   const outlineActive  = activePaneId === 1 ? pane1OutlineOpen   : pane2OutlineOpen;
   const chatActive     = activePaneId === 1 ? chatOpen1          : chatOpen2;
@@ -228,8 +228,8 @@ export default function App() {
     if (!dbReady) return;
     const ctrl = e.ctrlKey || e.metaKey;
 
-    if (ctrl && e.key === "Tab")   { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
-    if (ctrl && e.key === "k")     { e.preventDefault(); togglePalette(); }
+    if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
+    if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       openInNewTabRef.current = true;
@@ -237,18 +237,18 @@ export default function App() {
       useUIStore.getState().openTemplatePicker();
       return;
     }
-    if (ctrl && e.key === "t")     { e.preventDefault(); toggleFileTree(activePaneId); }
+    if (ctrl && e.key === "t") { e.preventDefault(); toggleFileTree(activePaneId); }
     if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       openInNewTabRef.current = false;
       newNoteParentRef.current = useNoteStore.getState().activeNoteId;
       useUIStore.getState().openTemplatePicker();
     }
-    if (ctrl && e.key === "\\")    { e.preventDefault(); toggleSidebarPanel("notes"); }
-    if (ctrl && e.key === ";")     { e.preventDefault(); toggleBacklinks(activePaneId); }
-    if (ctrl && e.key === "'")     { e.preventDefault(); toggleOutline(activePaneId); }
+    if (ctrl && e.key === "\\") { e.preventDefault(); toggleSidebarPanel("notes"); }
+    if (ctrl && e.key === ";")  { e.preventDefault(); toggleBacklinks(activePaneId); }
+    if (ctrl && e.key === "'")  { e.preventDefault(); toggleOutline(activePaneId); }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
-    if (ctrl && e.key === "w")     { e.preventDefault(); closeActiveTab(); }
+    if (ctrl && e.key === "w")  { e.preventDefault(); closeActiveTab(); }
     if (ctrl && e.key === "[") {
       e.preventDefault();
       if (activePaneId === 2) { triggerNav(pane2GoBack); } else { triggerNav(goBack); }
@@ -327,8 +327,11 @@ export default function App() {
     });
   }, [notes, activeNote]);
 
+  // Shortened breadcrumb — parent + current only
   const breadcrumb = buildBreadcrumb(activeNoteId, notes);
   const isUntitled = activeNote ? /^Untitled-\d+$/.test(activeNote.title) : false;
+  const breadcrumbCurrent = breadcrumb[breadcrumb.length - 1] ?? null;
+  const breadcrumbParent  = breadcrumb[breadcrumb.length - 2] ?? null;
 
   function renderPane(paneId: 1 | 2) {
     const paneTabs = paneId === 1 ? tabs : pane2Tabs;
@@ -338,7 +341,6 @@ export default function App() {
         className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0"
         onMouseDown={() => { if (activePaneId !== paneId) setActivePaneId(paneId); }}
       >
-        <TabBar paneId={paneId} />
         <div className="flex-1 flex overflow-hidden relative">
           {paneTabs.length === 0 ? <EmptyState /> : paneTabs.map((tab) => {
             const isActive = tab.id === paneActiveTabId;
@@ -396,14 +398,15 @@ export default function App() {
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
-          <div className="flex flex-col flex-1 overflow-hidden transition-[width,flex] duration-200 ease-in-out">
+          <div className="flex flex-col flex-1 overflow-hidden">
 
+            {/* ── Header ── */}
             <header
               data-tauri-drag-region
-              className="flex items-center px-3 h-12 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none gap-2"
+              className="flex items-center h-11 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none"
             >
               {/* Left: nav + breadcrumb */}
-              <div className="flex items-center gap-0 min-w-0 flex-1">
+              <div className="flex items-center gap-0 px-2 shrink-0">
                 <button
                   onClick={() => triggerNav(activePaneId === 2 ? pane2GoBack : goBack)}
                   disabled={!canGoBack}
@@ -421,28 +424,31 @@ export default function App() {
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
 
-                {breadcrumb.length > 0 && (
-                  <div className="flex items-center gap-1 min-w-0 overflow-hidden">
-                    {breadcrumb.map((segment, i) => {
-                      const isLast = i === breadcrumb.length - 1;
-                      const displayTitle = isLast && isUntitled ? "Untitled" : segment.title;
-                      return (
-                        <div key={segment.id} className="flex items-center gap-1 min-w-0">
-                          {i > 0 && <span className="shrink-0 text-zinc-300 dark:text-zinc-600 text-xs">/</span>}
-                          {isLast ? (
-                            <span className={`truncate text-sm ${isUntitled ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-600 dark:text-zinc-400"}`}>{displayTitle}</span>
-                          ) : (
-                            <button onClick={() => setActive(segment.id)} title={`Open "${segment.title}"`} className="truncate text-sm text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100">{displayTitle}</button>
-                          )}
-                        </div>
-                      );
-                    })}
+                {breadcrumbCurrent && (
+                  <div className="flex items-center gap-1 ml-1">
+                    {breadcrumbParent && (
+                      <>
+                        <button
+                          onClick={() => setActive(breadcrumbParent.id)}
+                          className="text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100 max-w-24 truncate"
+                        >
+                          {breadcrumbParent.title}
+                        </button>
+                        <span className="text-zinc-300 dark:text-zinc-700 text-xs">/</span>
+                      </>
+                    )}
+                    <span className={`text-xs max-w-32 truncate ${isUntitled ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-500 dark:text-zinc-400"}`}>
+                      {isUntitled ? "Untitled" : breadcrumbCurrent.title}
+                    </span>
                   </div>
                 )}
               </div>
 
+              {/* Center: tabs — flex-1 */}
+              <TabBar />
+
               {/* Right: note-scoped actions + window controls */}
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center gap-1 px-2 shrink-0">
                 <button
                   onClick={() => toggleBacklinks(activePaneId)}
                   title="Toggle backlinks (Ctrl+;)"
@@ -491,14 +497,14 @@ export default function App() {
                   </svg>
                 </button>
 
-                <div className="flex items-center gap-1 ml-2 border-l border-zinc-200 dark:border-zinc-700 pl-2">
+                <div className="flex items-center gap-1 ml-1 border-l border-zinc-200 dark:border-zinc-700 pl-2">
                   <button
                     onClick={async () => { const window = getCurrentWindow(); await window.minimize(); }}
                     title="Minimize"
                     className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
                   >
                     <svg width="12" height="12" viewBox="0 0 10 2" fill="none">
-                      <rect width="10" height="1.5" fill="currentColor" />
+                      <rect width="10" height="1.5" fill="currentColor"/>
                     </svg>
                   </button>
                   <button

@@ -322,7 +322,7 @@ export const useUIStore = create<UIStore>((set, get) => {
     closeSettings: () => set({ settingsOpen: false }),
 
     // ─── Sidebar (left rail) ──────────────────────────────────────────────────
-    activeSidebarPanel: "notes",
+    activeSidebarPanel: null,
     sidebarWidth: 288,
     expandedNodes: new Set(),
 

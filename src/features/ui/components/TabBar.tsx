@@ -3,10 +3,6 @@ import { useState, useRef, useEffect } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
-interface TabBarProps {
-  paneId: 1 | 2;
-}
-
 interface ContextMenu {
   x: number;
   y: number;
@@ -15,39 +11,35 @@ interface ContextMenu {
   flip: boolean;
 }
 
-export function TabBar({ paneId }: TabBarProps) {
+export function TabBar() {
   const notes = useNoteStore((s) => s.notes);
 
-  // Pane 1 state
   const tabs1        = useUIStore((s) => s.tabs);
   const activeTabId1 = useUIStore((s) => s.activeTabId);
   const setActive1   = useUIStore((s) => s.setActiveTab);
   const closeTab1    = useUIStore((s) => s.closeTab);
 
-  // Pane 2 state
   const tabs2        = useUIStore((s) => s.pane2Tabs);
   const activeTabId2 = useUIStore((s) => s.pane2ActiveTabId);
   const setActive2   = useUIStore((s) => s.setPane2ActiveTab);
   const closeTab2    = useUIStore((s) => s.closePane2Tab);
 
-  const openEmptyTab = useUIStore((s) => s.openEmptyTab);
-  console.log('[TabBar] openEmptyTab type:', typeof openEmptyTab, openEmptyTab);
-  console.log('[TabBar] store direct:', typeof useUIStore.getState().openEmptyTab);
+  const openEmptyTab        = useUIStore((s) => s.openEmptyTab);
   const openEmptyTabInPane2 = useUIStore((s) => s.openEmptyTabInPane2);
   const openInSplit         = useUIStore((s) => s.openInSplit);
   const openTabInPane2      = useUIStore((s) => s.openTabInPane2);
+  const activePaneId        = useUIStore((s) => s.activePaneId);
   const setActivePaneId     = useUIStore((s) => s.setActivePaneId);
   const setActiveNote       = useNoteStore((s) => s.setActiveNote);
 
-  const tabs        = paneId === 1 ? tabs1 : tabs2;
-  const activeTabId = paneId === 1 ? activeTabId1 : activeTabId2;
-  const setActive   = paneId === 1 ? setActive1 : setActive2;
-  const closeTab    = paneId === 1 ? closeTab1 : closeTab2;
+  const tabs        = activePaneId === 1 ? tabs1 : tabs2;
+  const activeTabId = activePaneId === 1 ? activeTabId1 : activeTabId2;
+  const setActive   = activePaneId === 1 ? setActive1 : setActive2;
+  const closeTab    = activePaneId === 1 ? closeTab1 : closeTab2;
 
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close context menu on outside click
   useEffect(() => {
     if (!contextMenu) return;
     function handle(e: MouseEvent) {
@@ -59,16 +51,9 @@ export function TabBar({ paneId }: TabBarProps) {
     return () => document.removeEventListener("mousedown", handle);
   }, [contextMenu]);
 
-  // Always render for pane 1 so the + button is reachable on first launch.
-  // Hide for pane 2 only when it has no tabs.
-  if (tabs.length === 0 && paneId === 2) return null;
-
   function handleTabClick(tabId: string, noteId: string | null) {
-    setActivePaneId(paneId);
     setActive(tabId);
-    if (paneId === 1 && noteId) {
-      setActiveNote(noteId, true);
-    }
+    if (activePaneId === 1 && noteId) setActiveNote(noteId, true);
   }
 
   function handleClose(e: React.MouseEvent, tabId: string) {
@@ -77,63 +62,43 @@ export function TabBar({ paneId }: TabBarProps) {
   }
 
   function handleAuxClick(e: React.MouseEvent, tabId: string) {
-    if (e.button === 1) {
-      e.preventDefault();
-      closeTab(tabId);
-    }
+    if (e.button === 1) { e.preventDefault(); closeTab(tabId); }
   }
 
   function handleContextMenu(e: React.MouseEvent, tabId: string, noteId: string | null) {
     if (!noteId) return;
     e.preventDefault();
     setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      tabId,
-      noteId,
+      x: e.clientX, y: e.clientY, tabId, noteId,
       flip: window.innerHeight - e.clientY < 120,
     });
   }
 
   function handleOpenInSplit() {
     if (!contextMenu) return;
-    if (paneId === 1) {
-      openInSplit(contextMenu.noteId);
-    } else {
-      const { openTab } = useUIStore.getState();
-      openTab(contextMenu.noteId);
-      setActivePaneId(1);
-    }
+    if (activePaneId === 1) { openInSplit(contextMenu.noteId); }
+    else { useUIStore.getState().openTab(contextMenu.noteId); setActivePaneId(1); }
     setContextMenu(null);
   }
 
   function handleOpenInNewTab() {
     if (!contextMenu) return;
-    if (paneId === 1) {
-      const { openTab } = useUIStore.getState();
-      openTab(contextMenu.noteId);
-    } else {
-      openTabInPane2(contextMenu.noteId);
-    }
+    if (activePaneId === 1) { useUIStore.getState().openTab(contextMenu.noteId); }
+    else { openTabInPane2(contextMenu.noteId); }
     setContextMenu(null);
   }
 
   function handleNewTab() {
-  console.log('[handleNewTab] paneId:', paneId, 'calling', paneId === 1 ? 'openEmptyTab' : 'openEmptyTabInPane2');
-  setActivePaneId(paneId);
-  if (paneId === 1) {
-    openEmptyTab();
-  } else {
-    openEmptyTabInPane2();
+    if (activePaneId === 1) { openEmptyTab(); }
+    else { openEmptyTabInPane2(); }
   }
-}
 
-  const splitLabel = paneId === 1 ? "Open in split pane" : "Open in main pane";
+  const splitLabel = activePaneId === 1 ? "Open in split pane" : "Open in main pane";
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center flex-1 min-w-0 overflow-hidden h-full border-x border-zinc-200 dark:border-zinc-800">
       <div
-        className="flex items-center h-7 shrink-0 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 overflow-x-auto select-none"
+        className="flex items-center h-full overflow-x-auto min-w-0 flex-1"
         style={{ scrollbarWidth: "none" }}
       >
         {tabs.map((tab) => {
@@ -152,18 +117,18 @@ export function TabBar({ paneId }: TabBarProps) {
               onContextMenu={(e) => handleContextMenu(e, tab.id, tab.noteId)}
               title={note?.title ?? (tab.noteId === null ? "New tab" : undefined)}
               className={`
-                group relative flex items-center gap-2 h-full px-4 shrink-0 cursor-pointer
+                group relative flex items-center gap-1.5 h-full px-3 shrink-0 cursor-pointer
                 text-xs font-medium transition-colors duration-100
-                min-w-35 max-w-60
+                min-w-0 max-w-36
                 border-r border-zinc-200 dark:border-zinc-800
                 ${isActive
-                  ? "bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200"
+                  ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
                   : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 }
               `}
             >
               {isActive && (
-                <span className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 dark:bg-blue-400 rounded-b-sm" />
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 dark:bg-blue-400" />
               )}
               <span className={`flex-1 truncate ${tab.noteId === null ? "italic text-zinc-400 dark:text-zinc-500" : ""}`}>
                 {title}
@@ -188,21 +153,17 @@ export function TabBar({ paneId }: TabBarProps) {
           );
         })}
 
-        {/* New tab button */}
         <button
           onClick={handleNewTab}
           title="New tab"
-          className="shrink-0 w-7 h-full flex items-center justify-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-75 border-r border-zinc-200 dark:border-zinc-800"
+          className="shrink-0 w-7 h-full flex items-center justify-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-75"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </button>
-
-        <div className="flex-1 min-w-4" />
       </div>
 
-      {/* Right-click context menu — only appears for tabs with a note */}
       {contextMenu && (
         <div
           ref={menuRef}
@@ -214,7 +175,7 @@ export function TabBar({ paneId }: TabBarProps) {
               : { top: contextMenu.y }),
             zIndex: 50,
           }}
-          className="min-w-50 py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+          className="min-w-48 py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
         >
           <button
             onClick={handleOpenInNewTab}
