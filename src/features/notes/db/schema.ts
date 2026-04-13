@@ -115,10 +115,6 @@ export const ALL_MIGRATIONS: string[] = [
   `ALTER TABLE notes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
 
   // Week 3 — Semantic Similarity
-  // Stores per-pair feedback so the scoring engine can boost accepted pairs
-  // (×1.5) and permanently exclude ignored ones (×0.0).
-  // PRIMARY KEY (source_id, target_id) enforces one decision per pair;
-  // a later "accepted" can overwrite a prior "ignored" via INSERT OR REPLACE.
   `CREATE TABLE IF NOT EXISTS suggestion_feedback (
     source_id   TEXT    NOT NULL,
     target_id   TEXT    NOT NULL,
@@ -130,7 +126,6 @@ export const ALL_MIGRATIONS: string[] = [
   // ── Frontmatter column for structured metadata (Week 4) ──────────────────
   `ALTER TABLE notes ADD COLUMN frontmatter TEXT`,
 
-  // Updated on every autoSave of the owning note.
   `CREATE TABLE IF NOT EXISTS note_blocks (
     block_id    TEXT NOT NULL,
     note_id     TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -139,10 +134,9 @@ export const ALL_MIGRATIONS: string[] = [
     updated_at  INTEGER NOT NULL,
     PRIMARY KEY (block_id)
   )`,
- 
+
   `CREATE INDEX IF NOT EXISTS idx_blocks_note_id ON note_blocks(note_id)`,
- 
-  // FTS on block plaintext so the (( picker can do fast prefix search
+
   `CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
     block_id UNINDEXED,
     note_id  UNINDEXED,
@@ -150,14 +144,14 @@ export const ALL_MIGRATIONS: string[] = [
     content='note_blocks',
     content_rowid='rowid'
   )`,
- 
+
   `CREATE TRIGGER IF NOT EXISTS blocks_fts_insert
     AFTER INSERT ON note_blocks
     BEGIN
       INSERT INTO blocks_fts(rowid, block_id, note_id, plaintext)
       VALUES (new.rowid, new.block_id, new.note_id, new.plaintext);
     END`,
- 
+
   `CREATE TRIGGER IF NOT EXISTS blocks_fts_update
     AFTER UPDATE ON note_blocks
     BEGIN
@@ -166,7 +160,7 @@ export const ALL_MIGRATIONS: string[] = [
       INSERT INTO blocks_fts(rowid, block_id, note_id, plaintext)
       VALUES (new.rowid, new.block_id, new.note_id, new.plaintext);
     END`,
- 
+
   `CREATE TRIGGER IF NOT EXISTS blocks_fts_delete
     AFTER DELETE ON note_blocks
     BEGIN
@@ -174,7 +168,7 @@ export const ALL_MIGRATIONS: string[] = [
       VALUES ('delete', old.rowid, old.block_id, old.note_id, old.plaintext);
     END`,
 
-    `CREATE TABLE IF NOT EXISTS ai_summaries (
+  `CREATE TABLE IF NOT EXISTS ai_summaries (
     note_id     TEXT    PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
     summary     TEXT    NOT NULL,
     note_hash   INTEGER NOT NULL,
@@ -196,45 +190,33 @@ export const ALL_MIGRATIONS: string[] = [
     content     TEXT    NOT NULL,
     created_at  INTEGER NOT NULL
   )`,
- 
+
   `CREATE INDEX IF NOT EXISTS idx_ai_history_note_id ON ai_history(note_id, created_at DESC)`,
 
-  // ── Phase 0: Embeddings storage ──────────────────────────────────────────────
-// Stores one embedding vector per block per model.
-// vector: raw Float32Array bytes (BLOB). model_id tracks which embedding
-// model produced it — if the user switches providers, mismatched rows
-// are detected and re-queued automatically.
-`CREATE TABLE IF NOT EXISTS embeddings (
-  block_id    TEXT    NOT NULL,
-  note_id     TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  model_id    TEXT    NOT NULL,
-  vector      BLOB    NOT NULL,
-  updated_at  INTEGER NOT NULL,
-  PRIMARY KEY (block_id, model_id)
-)`,
+  `CREATE TABLE IF NOT EXISTS embeddings (
+    block_id    TEXT    NOT NULL,
+    note_id     TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    model_id    TEXT    NOT NULL,
+    vector      BLOB    NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (block_id, model_id)
+  )`,
 
-`CREATE INDEX IF NOT EXISTS idx_embeddings_note_id ON embeddings(note_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_embeddings_note_id ON embeddings(note_id)`,
 
-// ── Phase 0: Embedding job queue ─────────────────────────────────────────────
-// SQLite-backed queue — survives app restarts. The indexer worker picks
-// up pending jobs, embeds the block, writes to embeddings, marks done.
-// status: 'pending' | 'processing' | 'done' | 'failed'
-// attempts: incremented on each try, capped at 3 before marking failed.
-// next_attempt_at: unix ms — worker skips jobs where this is in the future
-// (exponential backoff on 429s without a separate retry mechanism).
-`CREATE TABLE IF NOT EXISTS embedding_jobs (
-  block_id        TEXT    PRIMARY KEY,
-  note_id         TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  status          TEXT    NOT NULL DEFAULT 'pending'
-                          CHECK(status IN ('pending','processing','done','failed')),
-  attempts        INTEGER NOT NULL DEFAULT 0,
-  last_error      TEXT,
-  next_attempt_at INTEGER NOT NULL DEFAULT 0,
-  updated_at      INTEGER NOT NULL
-)`,
+  `CREATE TABLE IF NOT EXISTS embedding_jobs (
+    block_id        TEXT    PRIMARY KEY,
+    note_id         TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    status          TEXT    NOT NULL DEFAULT 'pending'
+                            CHECK(status IN ('pending','processing','done','failed')),
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    last_error      TEXT,
+    next_attempt_at INTEGER NOT NULL DEFAULT 0,
+    updated_at      INTEGER NOT NULL
+  )`,
 
-`CREATE INDEX IF NOT EXISTS idx_embedding_jobs_status
-  ON embedding_jobs(status, next_attempt_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_embedding_jobs_status
+    ON embedding_jobs(status, next_attempt_at)`,
 
   `CREATE TABLE IF NOT EXISTS ai_conversation_summary (
     note_id     TEXT    PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,

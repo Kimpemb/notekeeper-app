@@ -5,6 +5,13 @@
 // React 18 forbids this. Fix: key the editor on noteId so each navigation remounts
 // a fresh instance with content passed at construction time — setContent is never
 // called after mount.
+//
+// EXCEPTION — idemora:content-updated:
+// When the graph writes a noteLink directly to the DB (drag-to-link), it dispatches
+// this event with the new content. The editor must reload its TipTap state so that
+// subsequent autosaves include the injected link rather than overwriting it with
+// stale in-memory content. suppressSave is set for the reload window so the
+// debounce doesn't fire during the transition.
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -33,8 +40,6 @@ import { BlockRefSuggest } from "./BlockRefSuggest";
 import { AIActionBar } from "@/features/ai/components/AIActionBar";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
-
-
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -89,7 +94,6 @@ function reconcileSubPageBlocks(
   let doc: { type: string; content: unknown[] };
   try { doc = JSON.parse(contentJson); } catch { return null; }
 
-  // Collect all subPage blocks already in the content
   const existingIds = new Set<string>();
   let hasPendingBlock = false;
   for (const node of doc.content ?? []) {
@@ -100,9 +104,6 @@ function reconcileSubPageBlocks(
     }
   }
 
-  // Only auto-inject if there is an editing-mode (pending) block in the content.
-  // This prevents graph-created notes (which have parent_id set but were never
-  // embedded via slash command) from being spuriously injected into the editor.
   if (!hasPendingBlock) return null;
 
   const missing = children.filter((c) => !existingIds.has(c.id));
@@ -126,7 +127,7 @@ function reconcileSubPageBlocks(
 }
 
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
-const note = useNoteStore(useCallback((s) => s.notes.find((n) => n.id === noteId) ?? null, [noteId]));
+  const note = useNoteStore(useCallback((s) => s.notes.find((n) => n.id === noteId) ?? null, [noteId]));
   const notes         = useNoteStore((s) => s.notes);
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
@@ -157,16 +158,18 @@ const note = useNoteStore(useCallback((s) => s.notes.find((n) => n.id === noteId
   const pendingScrollQuery      = useUIStore((s) => s.pendingScrollQuery);
   const setPendingScrollQuery   = useUIStore((s) => s.setPendingScrollQuery);
 
-  // ── Settings ──────────────────────────────────────────────────────────────
   const spellCheck = useAppSettings((s) => s.settings.spellCheck);
 
- const titleRef              = useRef<HTMLHeadingElement>(null);
-const editorWrapRef         = useRef<HTMLDivElement>(null);
-const editorTextColumnRef   = useRef<HTMLDivElement>(null);
-const scrollRef             = useRef<HTMLDivElement>(null);
-const lastSavedContent      = useRef<string | null>(note?.content ?? null);
-const titleFocusedRef       = useRef(false);
-const subPageCreatingRef    = useRef(false); 
+  const titleRef              = useRef<HTMLHeadingElement>(null);
+  const editorWrapRef         = useRef<HTMLDivElement>(null);
+  const editorTextColumnRef   = useRef<HTMLDivElement>(null);
+  const scrollRef             = useRef<HTMLDivElement>(null);
+  const lastSavedContent      = useRef<string | null>(note?.content ?? null);
+  const titleFocusedRef       = useRef(false);
+  const subPageCreatingRef    = useRef(false);
+  // Suppresses autosave during the window when idemora:content-updated reloads
+  // the editor's TipTap state from a graph-written DB change.
+  const suppressSave          = useRef(false);
 
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
@@ -197,7 +200,6 @@ const subPageCreatingRef    = useRef(false);
 
   const initialContent = note?.content ? JSON.parse(note.content) : "";
 
-
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
@@ -221,11 +223,10 @@ const subPageCreatingRef    = useRef(false);
       },
     },
     onSelectionUpdate: ({ editor: e }) => {
-      if (isDraggingRef.current) return;   // ← restore this line
+      if (isDraggingRef.current) return;
       if (slashFromBubble.current) return;
       const { from, to, $from } = e.state.selection;
 
-      // ── Detect cursor in taskList ────────────────────────────────────────
       let foundTaskList = false;
       for (let depth = $from.depth; depth > 0; depth--) {
         const node = $from.node(depth);
@@ -244,7 +245,6 @@ const subPageCreatingRef    = useRef(false);
       }
       if (!foundTaskList) setTaskListToolbarPos(null);
 
-      // ── Bubble menu ──────────────────────────────────────────────────────
       if (from === to) { setHasSelection(false); setBubblePos(null); bubblePosRef.current = null; return; }
       const selectedNodeType = $from.nodeAfter?.type.name ?? "";
       const insideTable = (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "table") return true; } return false; })();
@@ -280,7 +280,6 @@ const subPageCreatingRef    = useRef(false);
         closeLinkSuggestInternal();
       }
 
-      // ── "((" block-ref trigger ─────────────────────────────────────────
       const textBefore2ForBlock = from >= 2 ? state.doc.textBetween(from - 2, from, "\n") : "";
       if (blockRefTriggerStart.current !== null) {
         const triggerStart = blockRefTriggerStart.current;
@@ -323,7 +322,11 @@ const subPageCreatingRef    = useRef(false);
   function closeLinkSuggest() { closeLinkSuggestInternal(); editor?.commands.focus(); }
   function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.commands.focus(); }
 
-  // ── Update spellcheck on the live editor when the setting changes ─────────
+useEffect(() => {
+  if (!editor || !note?.content) return;
+  syncBacklinks(noteId, extractNoteLinkIds(editor)).catch(console.error);
+}, [noteId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!editor) return;
     editor.setOptions({
@@ -344,16 +347,12 @@ const subPageCreatingRef    = useRef(false);
     scrollRef.current.scrollTop = initialScrollTop;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Focus title on new/untitled notes so the user can type the title immediately.
-  // Runs once on mount — editor has autofocus:false so it won't compete.
   useEffect(() => {
     if (!titleRef.current) return;
     const isUntitledNote = /^Untitled-\d+$/.test(note?.title ?? "");
     if (isUntitledNote) {
-      // Small timeout lets the DOM settle before claiming focus
       const t = setTimeout(() => {
         titleRef.current?.focus();
-        // Place cursor at end of any existing title text
         const range = document.createRange();
         const sel = window.getSelection();
         if (titleRef.current && sel) {
@@ -376,71 +375,99 @@ const subPageCreatingRef    = useRef(false);
   }, [onScrollChange]);
 
   useEffect(() => {
-  if (!editor || !note) return;
-  const incoming = note.content ?? null;
-  if (incoming === lastSavedContent.current) return;
+    if (!editor || !note) return;
+    const incoming = note.content ?? null;
+    if (incoming === lastSavedContent.current) return;
 
-  // Never overwrite the editor while the user is actively editing.
-  // The editor is source of truth while focused or dirty — only
-  // accept incoming content if the editor does not have focus.
-  if (editor.isFocused) {
-    lastSavedContent.current = incoming;
-    return;
-  }
-
-  try {
-    const incomingNorm = JSON.stringify(JSON.parse(incoming ?? "null"));
-    const savedNorm    = JSON.stringify(JSON.parse(lastSavedContent.current ?? "null"));
-    if (incomingNorm === savedNorm) {
+    if (editor.isFocused) {
       lastSavedContent.current = incoming;
       return;
     }
-  } catch { /* malformed JSON — fall through */ }
 
-  lastSavedContent.current = incoming;
-  const timer = setTimeout(() => {
-    if (editor.isDestroyed || editor.isFocused) return;
-    const { from, to } = editor.state.selection;
-    editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
     try {
-      const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
-      if ($from.parent.isTextblock) {
-        editor.commands.setTextSelection({ from, to });
+      const incomingNorm = JSON.stringify(JSON.parse(incoming ?? "null"));
+      const savedNorm    = JSON.stringify(JSON.parse(lastSavedContent.current ?? "null"));
+      if (incomingNorm === savedNorm) {
+        lastSavedContent.current = incoming;
+        return;
       }
-    } catch { /**/ }
-    if (titleRef.current && !titleFocusedRef.current) {
-      const isUntitled = /^Untitled-\d+$/.test(note.title);
-      titleRef.current.textContent = isUntitled ? "" : note.title;
-    }
-  }, 0);
-  return () => clearTimeout(timer);
-}, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+    } catch { /* malformed JSON — fall through */ }
 
-  // ── Reconcile subPage blocks with actual children ─────────────────────
+    lastSavedContent.current = incoming;
+    const timer = setTimeout(() => {
+      if (editor.isDestroyed || editor.isFocused) return;
+      const { from, to } = editor.state.selection;
+      editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
+      try {
+        const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
+        if ($from.parent.isTextblock) {
+          editor.commands.setTextSelection({ from, to });
+        }
+      } catch { /**/ }
+      if (titleRef.current && !titleFocusedRef.current) {
+        const isUntitled = /^Untitled-\d+$/.test(note.title);
+        titleRef.current.textContent = isUntitled ? "" : note.title;
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── idemora:content-updated ───────────────────────────────────────────────
+  // Fired by useGraphEdit after it writes a noteLink directly to the DB.
+  // We reload TipTap's in-memory state from the new content so that subsequent
+  // autosaves include the injected link rather than overwriting it.
+  // suppressSave is set for the reload window to prevent the debounce from
+  // firing with stale content during the transition.
   useEffect(() => {
-  if (!editor || !note) return;
-  if (subPageCreatingRef.current) return;    // creation in flight — skip
+    function handleContentUpdated(e: Event) {
+      const { noteId: updatedId, content: freshContent } =
+        (e as CustomEvent<{ noteId: string; content: string }>).detail;
 
-  const children = notes
-    .filter((n) => n.parent_id === noteId && !n.deleted_at)
-    .sort((a, b) => a.sort_order - b.sort_order);
+      if (updatedId !== noteId || !editor) return;
 
-  if (children.length === 0) return;
+      let parsed: unknown;
+      try { parsed = JSON.parse(freshContent); } catch { return; }
 
-  const newContent = reconcileSubPageBlocks(note.content ?? "", children);
-  if (!newContent) return;
+      suppressSave.current = true;
+      lastSavedContent.current = freshContent;
 
-  const apply = () => {
-    if (editor.isDestroyed || editor.isFocused) return;
-    if (subPageCreatingRef.current) return;  // double-check after the timeout
-    editor.commands.setContent(JSON.parse(newContent));
-    lastSavedContent.current = newContent;
-    updateNote(noteId, { content: newContent });
-  };
+      // emitUpdate: false — prevents onUpdate firing and re-triggering
+      // slash menu / link suggest logic from the injected noteLink node.
+editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false });
 
-  const t = setTimeout(apply, 80);
-  return () => clearTimeout(t);
-}, [noteId, notes]); // eslint-disable-line react-hooks/exhaustive-deps
+      requestAnimationFrame(() => {
+        suppressSave.current = false;
+      });
+    }
+
+    window.addEventListener("idemora:content-updated", handleContentUpdated);
+    return () => window.removeEventListener("idemora:content-updated", handleContentUpdated);
+  }, [noteId, editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!editor || !note) return;
+    if (subPageCreatingRef.current) return;
+
+    const children = notes
+      .filter((n) => n.parent_id === noteId && !n.deleted_at)
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    if (children.length === 0) return;
+
+    const newContent = reconcileSubPageBlocks(note.content ?? "", children);
+    if (!newContent) return;
+
+    const apply = () => {
+      if (editor.isDestroyed || editor.isFocused) return;
+      if (subPageCreatingRef.current) return;
+      editor.commands.setContent(JSON.parse(newContent));
+      lastSavedContent.current = newContent;
+      updateNote(noteId, { content: newContent });
+    };
+
+    const t = setTimeout(apply, 80);
+    return () => clearTimeout(t);
+  }, [noteId, notes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
@@ -482,7 +509,7 @@ const subPageCreatingRef    = useRef(false);
     syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
   }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete });
+  useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete, suppressSave });
 
   useEffect(() => {
     if (!slashOpen) return;
@@ -503,62 +530,59 @@ const subPageCreatingRef    = useRef(false);
     return () => window.removeEventListener("keydown", handle);
   }, [isActiveTab]);
 
-  // ── Panel & AI shortcuts ──────────────────────────────────────────────────
-useEffect(() => {
-  function handle(e: KeyboardEvent) {
-    if (!isActiveTab || activePaneId !== paneId) return;
-    const ctrl = e.ctrlKey || e.metaKey;
-    if (!ctrl) return;
+  useEffect(() => {
+    function handle(e: KeyboardEvent) {
+      if (!isActiveTab || activePaneId !== paneId) return;
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
 
-    if (e.key === "g" && !e.shiftKey) {
-      e.preventDefault();
-      openGraphForNote(noteId);
-      return;
+      if (e.key === "g" && !e.shiftKey) {
+        e.preventDefault();
+        openGraphForNote(noteId);
+        return;
+      }
+      if (e.key === "S" && e.shiftKey) {
+        e.preventDefault();
+        toggleSimilar(paneId);
+        return;
+      }
+      if (e.key === "U" && e.shiftKey) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "summarize" } }));
+        return;
+      }
+      if (e.key === "E" && e.shiftKey) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "explain" } }));
+        return;
+      }
     }
-    if (e.key === "S" && e.shiftKey) {
-      e.preventDefault();
-      toggleSimilar(paneId);
-      return;
-    }
-    if (e.key === "U" && e.shiftKey) {
-      e.preventDefault();
-      window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "summarize" } }));
-      return;
-    }
-    if (e.key === "E" && e.shiftKey) {
-      e.preventDefault();
-      window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "explain" } }));
-      return;
-    }
-  }
-  window.addEventListener("keydown", handle);
-  return () => window.removeEventListener("keydown", handle);
-}, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote, toggleSimilar]);
+    window.addEventListener("keydown", handle);
+    return () => window.removeEventListener("keydown", handle);
+  }, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote, toggleSimilar]);
 
-useEffect(() => {
-  function handle() {
-    if (isActiveTab && activePaneId === paneId) openGraphForNote(noteId);
-  }
-  window.addEventListener("idemora:open-local-graph", handle);
-  return () => window.removeEventListener("idemora:open-local-graph", handle);
-}, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote]);
+  useEffect(() => {
+    function handle() {
+      if (isActiveTab && activePaneId === paneId) openGraphForNote(noteId);
+    }
+    window.addEventListener("idemora:open-local-graph", handle);
+    return () => window.removeEventListener("idemora:open-local-graph", handle);
+  }, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote]);
 
-useEffect(() => {
-  if (!editor) return;
-  const s = editor.storage as unknown as Record<string, {
-    parentNoteId: string;
-    paneId: 1 | 2;
-    setCreating: (v: boolean) => void;
-  }>;
-  if (s["subPage"]) {
-    s["subPage"].paneId       = paneId;
-    s["subPage"].parentNoteId = noteId;
-    s["subPage"].setCreating  = (v) => { subPageCreatingRef.current = v; };
-  }
-}, [editor, paneId, noteId]);
+  useEffect(() => {
+    if (!editor) return;
+    const s = editor.storage as unknown as Record<string, {
+      parentNoteId: string;
+      paneId: 1 | 2;
+      setCreating: (v: boolean) => void;
+    }>;
+    if (s["subPage"]) {
+      s["subPage"].paneId       = paneId;
+      s["subPage"].parentNoteId = noteId;
+      s["subPage"].setCreating  = (v) => { subPageCreatingRef.current = v; };
+    }
+  }, [editor, paneId, noteId]);
 
-  // ── Chat panel — open via slash menu custom event ─────────────────────────
-  // MUST be above the if (!note) return null early return to obey Rules of Hooks
   useEffect(() => {
     function handleOpenChat(e: Event) {
       const { paneId: targetPane } = (e as CustomEvent).detail;
@@ -568,19 +592,18 @@ useEffect(() => {
     return () => window.removeEventListener("idemora:open-chat", handleOpenChat);
   }, [paneId]);
 
+  const getEditorLeft = useCallback(() => {
+    if (!editorTextColumnRef.current) return 0;
+    return editorTextColumnRef.current.getBoundingClientRect().left + 64;
+  }, []);
 
-const getEditorLeft = useCallback(() => {
-  if (!editorTextColumnRef.current) return 0;
-  return editorTextColumnRef.current.getBoundingClientRect().left + 64;
-}, []); // editorTextColumnRef is a stable ref object
-
-const { isDraggingRef } = useDragReorder({
-  editor: editor ?? null,
-  scrollRef,
-  editorWrapRef,
-  editorTextColumnRef,
-  getEditorLeft,
-});
+  const { isDraggingRef } = useDragReorder({
+    editor: editor ?? null,
+    scrollRef,
+    editorWrapRef,
+    editorTextColumnRef,
+    getEditorLeft,
+  });
 
   // ── Early return — all hooks must be above this line ─────────────────────
   if (!note) return null;
@@ -752,83 +775,81 @@ const { isDraggingRef } = useDragReorder({
   const isUntitled = /^Untitled-\d+$/.test(note.title);
 
   return (
-  <div className="flex h-full w-full overflow-hidden">
-    <div className="flex flex-col flex-1 h-full overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden">
+      <div className="flex flex-col flex-1 h-full overflow-hidden">
 
         {findReplaceOpen && editor && (
-        <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
-      )}
+          <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
+        )}
 
         {showEditorButtons && (
           <div className="flex items-center gap-1.5 justify-end px-3 py-1.5 shrink-0 flex-wrap border-b border-zinc-100 dark:border-zinc-800">
-    {/* Panels group */}
-    <div className="flex items-center gap-1.5">
-      <div
-        className={`flex items-center gap-1.5 overflow-hidden transition-all duration-200 ease-in-out ${
-          panelsOpen ? "max-w-xs opacity-100" : "max-w-0 opacity-0"
-        }`}
-      >
-        {!myOutlineOpen && (
-          <button onClick={() => toggleOutline(paneId)}
-            className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-            Outline
-          </button>
-        )}
-        {!myBacklinksOpen && (
-          <button onClick={() => toggleBacklinks(paneId)}
-            className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            Backlinks
-          </button>
-        )}
-        {!mySimilarOpen && (
-          <button onClick={() => toggleSimilar(paneId)}
-            className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
-            <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
-            Similar
-          </button>
-        )}
-      </div>
+            <div className="flex items-center gap-1.5">
+              <div
+                className={`flex items-center gap-1.5 overflow-hidden transition-all duration-200 ease-in-out ${
+                  panelsOpen ? "max-w-xs opacity-100" : "max-w-0 opacity-0"
+                }`}
+              >
+                {!myOutlineOpen && (
+                  <button onClick={() => toggleOutline(paneId)}
+                    className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                    Outline
+                  </button>
+                )}
+                {!myBacklinksOpen && (
+                  <button onClick={() => toggleBacklinks(paneId)}
+                    className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    Backlinks
+                  </button>
+                )}
+                {!mySimilarOpen && (
+                  <button onClick={() => toggleSimilar(paneId)}
+                    className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
+                    <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
+                    Similar
+                  </button>
+                )}
+              </div>
 
-      {(!myOutlineOpen || !myBacklinksOpen || !mySimilarOpen) && (
-        <button
-          onClick={() => setPanelsOpen((o) => !o)}
-          className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 ${
-            panelsOpen
-              ? "text-zinc-700 dark:text-zinc-200 border-zinc-300 dark:border-zinc-600"
-              : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
-          }`}
-        >
-          <svg
-            width="9" height="9" viewBox="0 0 9 9" fill="none"
-            className={`transition-transform duration-200 ${panelsOpen ? "" : "rotate-180"}`}
-          >
-            <path d="M6.5 4.5L3 2M6.5 4.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-      )}
-    </div>
+              {(!myOutlineOpen || !myBacklinksOpen || !mySimilarOpen) && (
+                <button
+                  onClick={() => setPanelsOpen((o) => !o)}
+                  className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 ${
+                    panelsOpen
+                      ? "text-zinc-700 dark:text-zinc-200 border-zinc-300 dark:border-zinc-600"
+                      : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
+                  }`}
+                >
+                  <svg
+                    width="9" height="9" viewBox="0 0 9 9" fill="none"
+                    className={`transition-transform duration-200 ${panelsOpen ? "" : "rotate-180"}`}
+                  >
+                    <path d="M6.5 4.5L3 2M6.5 4.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              )}
+            </div>
 
-    {/* Local Graph — always visible */}
-    <button
-      onClick={() => openGraphForNote(noteId)}
-      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-    >
-      <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
-        <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
-        <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
-        <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
-        <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
-        <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
-        <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-      </svg>
-      Local Graph
-    </button>
+            <button
+              onClick={() => openGraphForNote(noteId)}
+              className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+            >
+              <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+                <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+                <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+                <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+                <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              </svg>
+              Local Graph
+            </button>
 
-    <AIActionBar note={note} />
-  </div>
-)}
+            <AIActionBar note={note} />
+          </div>
+        )}
 
         {editor && taskListToolbarPos && isActiveTab && (
           <div
@@ -880,7 +901,7 @@ const { isDraggingRef } = useDragReorder({
         )}
 
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
-         <div ref={editorTextColumnRef} className="w-full mx-auto pl-16 pr-8 py-6 min-h-full max-w-4xl xl:max-w-240 2xl:max-w-5xl cursor-text" onClick={handleEditorAreaClick}>
+          <div ref={editorTextColumnRef} className="w-full mx-auto pl-16 pr-8 py-6 min-h-full max-w-4xl xl:max-w-240 2xl:max-w-5xl cursor-text" onClick={handleEditorAreaClick}>
             <FrontmatterEditor
               frontmatter={note.frontmatter ?? null}
               onChange={(frontmatter) => updateNote(note.id, { frontmatter })}
@@ -907,14 +928,14 @@ const { isDraggingRef } = useDragReorder({
         </div>
 
         <StatusBar editor={editor ?? null} paneId={paneId} />
-      {myVersionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} paneId={paneId} />}
+        {myVersionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} paneId={paneId} />}
       </div>
 
       {myOutlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
-    {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
-    {mySimilarOpen   && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
-    {myChatOpen      && isActiveTab && <ChatPanel noteId={note.id} paneId={paneId} />}
-    {editor && <TableToolbar editor={editor} />}
+      {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
+      {mySimilarOpen   && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
+      {myChatOpen      && isActiveTab && <ChatPanel noteId={note.id} paneId={paneId} />}
+      {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (
         <SlashMenu

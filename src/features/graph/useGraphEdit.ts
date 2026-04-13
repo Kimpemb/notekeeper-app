@@ -41,11 +41,16 @@ export function useGraphEdit({
         x, y, fx: x, fy: y,
       };
 
-      // Update the simulation ref only — deliberately do NOT push into the
-      // note store yet. Doing so would cause visibleNodes to recompute, which
-      // triggers the useGraphSimulation effect to tear down and rebuild the
-      // entire D3 graph, destroying the rename input before the user can type.
-      // The store is updated in renameNode once the user commits a title.
+      // Push into the note store immediately so GraphNodeEditor (and the main
+      // editor) can find the note by ID as soon as the user clicks to open it.
+      // Previously this was deferred to renameNode to avoid triggering a D3
+      // rebuild before the rename input appeared — that concern is now moot
+      // because visibleNodes recomputation is gated on simNodesRef, not the
+      // store, for the rename-input window.
+      useNoteStore.setState((state) => ({
+        notes: [...state.notes, note],
+      }));
+
       simNodesRef.current = [...simNodesRef.current, newNode];
 
       onCreated(newNode);
@@ -90,11 +95,6 @@ export function useGraphEdit({
       onRenamed(nodeId, trimmed);
       await dbUpdateNote(nodeId, { title: trimmed });
 
-      // Push into the note store here — after the user has committed a title
-      // and the DB is updated. This is the correct moment for the sidebar to
-      // reflect the new note. Doing it in createNodeAt instead would trigger
-      // visibleNodes to recompute, causing the D3 effect to tear down and
-      // rebuild the graph before the rename input ever appears.
       const updated = await getNoteById(nodeId);
       if (updated) {
         useNoteStore.setState((state) => {
@@ -158,14 +158,34 @@ export function useGraphEdit({
         ...(doc.content ?? []),
         {
           type: "paragraph",
-          content: [{ type: "noteLink", attrs: { id: targetId, label: targetNote.title } }],
+          content: [{ type: "noteLink", attrs: { id: normalizedTarget, label: targetNote.title } }],
         },
       ];
 
+      const newContent = JSON.stringify(doc);
+
       await dbUpdateNote(sourceId, {
-        content:   JSON.stringify(doc),
+        content:   newContent,
         plaintext: (sourceNote.plaintext ?? "") + `\n${targetNote.title}`,
       });
+
+      // Notify the main editor and GraphNodeEditor that this note's content
+      // was written externally. Both listen for this event and reload their
+      // TipTap in-memory state, preventing the autosave debounce from firing
+      // with stale content and overwriting the injected noteLink.
+      // The content is passed in the event detail to avoid a second DB fetch.
+      window.dispatchEvent(new CustomEvent("idemora:content-updated", {
+        detail: { noteId: sourceId, content: newContent },
+      }));
+
+      // Patch the note store so BacklinksPanel and other consumers see the
+      // updated content immediately without waiting for a store poll.
+      const refreshed = await getNoteById(sourceId);
+      if (refreshed) {
+        useNoteStore.setState((state) => ({
+          notes: state.notes.map((n) => (n.id === sourceId ? refreshed : n)),
+        }));
+      }
 
       const targets = simEdgesRef.current.flatMap(e => {
         const s = typeof e.source === "object" ? e.source.id : e.source;
@@ -182,11 +202,6 @@ export function useGraphEdit({
     }
   }, [simEdgesRef, simNodesRef, showToast]);
 
-  // ── Delete a link between two notes ──────────────────────────────────────
-  //
-  // Removes the [[noteLink]] node referencing targetId from the source note's
-  // TipTap JSON content, re-syncs backlinks, patches simEdgesRef and
-  // simNodesRef, then calls onDeleted so the D3 caller can rebind selections.
   const deleteLink = useCallback(async (
     sourceId: string,
     targetId: string,
@@ -196,14 +211,12 @@ export function useGraphEdit({
       const sourceNote = await getNoteById(sourceId);
       if (!sourceNote) return;
 
-      // Walk the TipTap JSON and strip every noteLink pointing to targetId
       let doc: any;
       try { doc = JSON.parse(sourceNote.content ?? "{}"); } catch { doc = { content: [] }; }
 
       function stripNoteLinks(nodes: any[]): any[] {
         return nodes
           .filter((node) => {
-            // Remove noteLink nodes that reference this target
             if (node.type === "noteLink" && node.attrs?.id === targetId) return false;
             return true;
           })
@@ -217,7 +230,6 @@ export function useGraphEdit({
 
       doc.content = stripNoteLinks(doc.content ?? []);
 
-      // Rebuild plaintext by walking the cleaned doc
       function extractText(nodes: any[]): string {
         return nodes.map((n) => {
           if (n.type === "text")     return n.text ?? "";
@@ -227,17 +239,28 @@ export function useGraphEdit({
         }).join(" ");
       }
       const newPlaintext = extractText(doc.content ?? []);
+      const newContent   = JSON.stringify(doc);
 
       await dbUpdateNote(sourceId, {
-        content:   JSON.stringify(doc),
+        content:   newContent,
         plaintext: newPlaintext,
       });
 
-      // Patch sim state before calling onDeleted
+      // Same pattern as createLink — notify editors so they reload cleanly.
+      window.dispatchEvent(new CustomEvent("idemora:content-updated", {
+        detail: { noteId: sourceId, content: newContent },
+      }));
+
+      const refreshed = await getNoteById(sourceId);
+      if (refreshed) {
+        useNoteStore.setState((state) => ({
+          notes: state.notes.map((n) => (n.id === sourceId ? refreshed : n)),
+        }));
+      }
+
       simEdgesRef.current = simEdgesRef.current.filter(e => {
         const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source);
         const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target);
-        // Remove in both directions — the graph is visually undirected
         return !((s === sourceId && t === targetId) || (s === targetId && t === sourceId));
       });
 
@@ -248,7 +271,6 @@ export function useGraphEdit({
         return n;
       });
 
-      // Re-sync backlinks from the updated edges
       const remainingTargets = simEdgesRef.current.flatMap(e => {
         const s = e.sourceId ?? (typeof e.source === "object" ? (e.source as GraphNode).id : e.source);
         const t = e.targetId ?? (typeof e.target === "object" ? (e.target as GraphNode).id : e.target);

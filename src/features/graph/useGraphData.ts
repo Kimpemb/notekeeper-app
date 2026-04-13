@@ -87,6 +87,13 @@ export function useGraphData(): UseGraphDataResult {
     return () => { cancelled = true; };
   }, [tick]);
 
+
+  useEffect(() => {
+  function onBacklinksUpdated() { refresh(); }
+  window.addEventListener("idemora:backlinks-updated", onBacklinksUpdated);
+  return () => window.removeEventListener("idemora:backlinks-updated", onBacklinksUpdated);
+}, [refresh]);
+
   const addNode = useCallback((node: GraphNode) => {
     setData((prev) => {
       if (!prev) return prev;

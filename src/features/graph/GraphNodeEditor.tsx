@@ -98,6 +98,10 @@ export function GraphNodeEditor({
   const titleRef        = useRef<HTMLHeadingElement>(null);
   const titleFocusedRef = useRef(false);
 
+  // Suppresses autosave during the window when idemora:content-updated reloads
+  // the editor's TipTap state from a graph-written DB change.
+  const suppressSave = useRef(false);
+
   // ── Slash menu ────────────────────────────────────────────────────────────
   const [slashOpen,  setSlashOpen]  = useState(false);
   const [slashPos,   setSlashPos]   = useState<{ top: number; left: number; caretTop: number }>({ top: 0, left: 0, caretTop: 0 });
@@ -234,13 +238,42 @@ export function GraphNodeEditor({
     }
   }, [editor, noteId, onNavigateToNode, onOpenInEditor]);
 
+  // ── idemora:content-updated ───────────────────────────────────────────────
+  // Fired by useGraphEdit after writing a noteLink directly to the DB.
+  // Reloads TipTap in-memory state so subsequent autosaves include the
+  // injected link. suppressSave is set for the reload window.
+  useEffect(() => {
+    function handleContentUpdated(e: Event) {
+      const { noteId: updatedId, content: freshContent } =
+        (e as CustomEvent<{ noteId: string; content: string }>).detail;
+
+      if (updatedId !== noteId || !editor) return;
+
+      let parsed: unknown;
+      try { parsed = JSON.parse(freshContent); } catch { return; }
+
+      suppressSave.current = true;
+
+      // emitUpdate: false prevents onUpdate from firing and re-triggering
+      // the slash menu / link suggest logic from the injected noteLink node.
+editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false });
+
+      requestAnimationFrame(() => {
+        suppressSave.current = false;
+      });
+    }
+
+    window.addEventListener("idemora:content-updated", handleContentUpdated);
+    return () => window.removeEventListener("idemora:content-updated", handleContentUpdated);
+  }, [noteId, editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Autosave ──────────────────────────────────────────────────────────────
   const onSaveComplete = useCallback((_content: string, savedNoteId: string) => {
     if (!editor) return;
     syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
   }, [editor]);
 
-  useAutoSave({ editor: editor ?? null, noteId, isActiveTab: true, onSaveComplete });
+  useAutoSave({ editor: editor ?? null, noteId, isActiveTab: true, onSaveComplete, suppressSave });
 
   // ── Escape closes slash menu ──────────────────────────────────────────────
   useEffect(() => {

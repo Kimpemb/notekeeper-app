@@ -29,6 +29,11 @@ interface UseAutoSaveOptions {
   noteId:          string | null;
   isActiveTab:     boolean;
   onSaveComplete?: (content: string, noteId: string) => void;
+  // When the graph writes content directly to the DB (link injection),
+  // it dispatches idemora:content-updated and the editor reloads its
+  // in-memory state. suppressSave is set to true for that reload window
+  // so the debounce doesn't fire with stale content and overwrite the write.
+  suppressSave?:   React.MutableRefObject<boolean>;
 }
 
 export function useAutoSave({
@@ -36,6 +41,7 @@ export function useAutoSave({
   noteId,
   isActiveTab,
   onSaveComplete,
+  suppressSave,
 }: UseAutoSaveOptions): void {
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setSaveStatus = useUIStore((s) => s.setSaveStatus);
@@ -59,35 +65,39 @@ export function useAutoSave({
   // Fully detached from the save path. Called via setTimeout so it never
   // blocks the editor. Errors here must never surface to the user.
 
- const runEmbeddingPipeline = useCallback((savedNoteId: string, content: string) => {
-  if (!useAIStore.getState().enabled) return;
-  // Delay long enough that the editor has fully settled and re-painted
-  // before any DB or network work begins. 2 s is imperceptible for indexing
-  // but keeps the post-save frame completely clean.
-  setTimeout(async () => {
-    try {
-      await syncNoteBlocks(savedNoteId, content);
-      const { getDb } = await import("@/features/notes/db/client");
-      const db        = await getDb();
-      const blocks    = await db.select<{ block_id: string }[]>(
-        `SELECT block_id FROM note_blocks WHERE note_id = $1`,
-        [savedNoteId]
-      );
-      await enqueueEmbeddingJobs(
-        blocks.map((b) => ({ blockId: b.block_id, noteId: savedNoteId }))
-      );
-      nudgeIndexer();
-    } catch (err) {
-      console.warn("[AutoSave] embedding enqueue failed:", err);
-    }
-  }, 2000); // was 0 — give the editor two full seconds to breathe
-}, []);
+  const runEmbeddingPipeline = useCallback((savedNoteId: string, content: string) => {
+    if (!useAIStore.getState().enabled) return;
+    // Delay long enough that the editor has fully settled and re-painted
+    // before any DB or network work begins. 2 s is imperceptible for indexing
+    // but keeps the post-save frame completely clean.
+    setTimeout(async () => {
+      try {
+        await syncNoteBlocks(savedNoteId, content);
+        const { getDb } = await import("@/features/notes/db/client");
+        const db        = await getDb();
+        const blocks    = await db.select<{ block_id: string }[]>(
+          `SELECT block_id FROM note_blocks WHERE note_id = $1`,
+          [savedNoteId]
+        );
+        await enqueueEmbeddingJobs(
+          blocks.map((b) => ({ blockId: b.block_id, noteId: savedNoteId }))
+        );
+        nudgeIndexer();
+      } catch (err) {
+        console.warn("[AutoSave] embedding enqueue failed:", err);
+      }
+    }, 2000);
+  }, []);
 
   // ── save ──────────────────────────────────────────────────────────────────
 
   const save = useCallback(async () => {
     if (!editor || !noteId || !isDirty.current) return;
     if (!isActiveTabRef.current) return;
+    // Skip if the editor is in the middle of reloading externally-written
+    // content (e.g. graph link injection). The content is already correct in
+    // the DB; saving now would be a no-op at best and a regression at worst.
+    if (suppressSave?.current) return;
     clearTimers();
     isDirty.current = false;
     setSaveStatus("saving");
@@ -109,7 +119,7 @@ export function useAutoSave({
       console.error("[AutoSave] failed:", err);
       setSaveStatus("error");
     }
-  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline]);
+  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, suppressSave]);
 
   // ── scheduleSave ──────────────────────────────────────────────────────────
 
@@ -130,7 +140,7 @@ export function useAutoSave({
     function handleForceSave() {
       if (!editor || !noteId || editor.isDestroyed) return;
       if (!isActiveTabRef.current) return;
-      isDirty.current = true;   // ensure save() doesn't bail on the dirty check
+      isDirty.current = true;
       save();
     }
     window.addEventListener("idemora:force-save", handleForceSave);
@@ -157,10 +167,11 @@ export function useAutoSave({
     return () => {
       clearTimers();
       if (isDirty.current && editor && noteId && !editor.isDestroyed) {
+        if (suppressSave?.current) return;
         const content   = JSON.stringify(editor.getJSON());
         const plaintext = editor.getText();
         updateNote(noteId, { content, plaintext }).catch(console.error);
       }
     };
-  }, [editor, noteId, updateNote, clearTimers]);
+  }, [editor, noteId, updateNote, clearTimers, suppressSave]);
 }
