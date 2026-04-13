@@ -723,7 +723,7 @@ export async function saveManualVersion(noteId: string): Promise<void> {
 
 // ─── Backlinks ────────────────────────────────────────────────────────────────
 
-export async function syncBacklinks(sourceId: string, targetIds: string[]): Promise<void> {
+export async function syncBacklinks(sourceId: string, targetIds: string[], source?: string): Promise<void> {
   const db = await getDb();
   await db.execute(`DELETE FROM backlinks WHERE source_id = $1`, [sourceId]);
   for (const targetId of targetIds) {
@@ -737,7 +737,9 @@ export async function syncBacklinks(sourceId: string, targetIds: string[]): Prom
       [sourceId, targetId]
     );
   }
-  window.dispatchEvent(new CustomEvent("idemora:backlinks-updated"));
+window.dispatchEvent(new CustomEvent("idemora:backlinks-updated", {
+    detail: { source },
+  }));
 }
 
 export async function getBacklinksForNote(targetId: string): Promise<Note[]> {

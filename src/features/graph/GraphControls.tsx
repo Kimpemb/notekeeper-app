@@ -223,6 +223,7 @@ export function GraphControls({
           <input
             type="text"
             placeholder="Filter nodes…"
+            data-graph-search=""
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             style={{

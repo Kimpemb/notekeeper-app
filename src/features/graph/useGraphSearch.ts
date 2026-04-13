@@ -235,6 +235,18 @@ const [matchSnippets,  setMatchSnippets]  = useState<Map<string, string>>(new Ma
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Enter") return;
       if (!searchQuery.trim()) return;
+
+      // Only cycle matches when Enter comes from the graph search bar.
+      // Let it pass through freely when typed in the node editor, title,
+      // rename input, or any other editable element.
+      const target = e.target as HTMLElement;
+      const isSearchBar = target.closest("[data-graph-search]") !== null;
+      if (!isSearchBar && (
+        target.isContentEditable ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA"
+      )) return;
+
       if (!svgRef.current || !zoomRef.current || !containerRef.current) return;
       if (!simSettledRef.current) return;
 
@@ -245,20 +257,19 @@ const [matchSnippets,  setMatchSnippets]  = useState<Map<string, string>>(new Ma
       matchIndexRef.current = nextIndex;
       setMatchIndex(nextIndex);
 
-      const target = matches[nextIndex];
-      setCurrentMatchId(target.id);
-      currentMatchRef.current = target.id;
+      const matchTarget = matches[nextIndex];
+      setCurrentMatchId(matchTarget.id);
+      currentMatchRef.current = matchTarget.id;
 
-      // Re-apply visuals with new current match
       applySearchVisuals(
         d3.select(svgRef.current),
         matchedIdsRef.current,
         neighbourIdsRef.current,
-        target.id,
+        matchTarget.id,
       );
 
-      const nx     = target.x ?? 0;
-      const ny     = target.y ?? 0;
+      const nx     = matchTarget.x ?? 0;
+      const ny     = matchTarget.y ?? 0;
       const width  = containerRef.current.clientWidth;
       const height = containerRef.current.clientHeight;
       const k      = d3.zoomTransform(svgRef.current).k;

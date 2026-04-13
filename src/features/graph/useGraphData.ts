@@ -89,10 +89,17 @@ export function useGraphData(): UseGraphDataResult {
 
 
   useEffect(() => {
-  function onBacklinksUpdated() { refresh(); }
-  window.addEventListener("idemora:backlinks-updated", onBacklinksUpdated);
-  return () => window.removeEventListener("idemora:backlinks-updated", onBacklinksUpdated);
-}, [refresh]);
+    function onBacklinksUpdated(e: Event) {
+      // Don't rebuild the graph mid-edit — the graph node editor dispatches
+      // backlink syncs on every autosave. Suppress rebuilds that originate
+      // from inside the graph panel; a manual refresh fires when edit mode exits.
+      const detail = (e as CustomEvent<{ source?: string }>).detail;
+      if (detail?.source === "graph-editor") return;
+      refresh();
+    }
+    window.addEventListener("idemora:backlinks-updated", onBacklinksUpdated);
+    return () => window.removeEventListener("idemora:backlinks-updated", onBacklinksUpdated);
+  }, [refresh]);
 
   const addNode = useCallback((node: GraphNode) => {
     setData((prev) => {

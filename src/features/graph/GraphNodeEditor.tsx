@@ -270,7 +270,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
   // ── Autosave ──────────────────────────────────────────────────────────────
   const onSaveComplete = useCallback((_content: string, savedNoteId: string) => {
     if (!editor) return;
-    syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
+    syncBacklinks(savedNoteId, extractNoteLinkIds(editor), "graph-editor").catch(console.error);
   }, [editor]);
 
   useAutoSave({ editor: editor ?? null, noteId, isActiveTab: true, onSaveComplete, suppressSave });

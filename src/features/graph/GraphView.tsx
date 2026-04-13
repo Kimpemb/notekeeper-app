@@ -382,7 +382,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const handleExitEdit = useCallback(() => {
     setEditNodeId(null);
     setFullscreen(false);
-  }, []);
+    refresh();
+  }, [refresh]);
 
   // ── patchData-wired adapters ──────────────────────────────────────────────
 
