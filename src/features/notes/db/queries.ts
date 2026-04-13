@@ -518,10 +518,10 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
   // they appear legitimately in content (e.g. "#project", "re: fix", "C++").
   // Each whitespace-separated token gets a * suffix for prefix matching.
   const ftsQuery = bare
-    .replace(/['"^()]/g, " ")
-    .replace(/\*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  .replace(/['"^():]/g, " ")   // ← add : to the stripped set
+  .replace(/\*/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
 
   const ftsMatch = ftsQuery.length > 0
     ? ftsQuery.split(" ").filter(Boolean).map(t => `${t}*`).join(" ")
@@ -543,7 +543,7 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
         `SELECT
           n.id,
           n.title,
-          snippet(notes_fts, 2, '**', '**', '…', 12) AS snippet,
+          snippet(notes_fts, -1, '**', '**', '…', 12) AS snippet,
           n.updated_at,
           n.parent_id,
           instr(n.plaintext, $2) AS offset
@@ -646,8 +646,50 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     }
   }
 
+  // ── 4. Title + plaintext LIKE fallback ────────────────────────────────────
+  // Runs when FTS5 returned nothing (e.g. query was pure special chars like
+  // "[link]" or "c++" that survive LIKE but choke FTS5). Also catches any
+  // title/body hit that FTS5 missed due to tokenisation edge-cases.
+  if (results.length < limit) {
+    const likeRows = await db.select<{
+      id: string; title: string; updated_at: number; parent_id: string | null; plaintext: string | null;
+    }[]>(
+      `SELECT id, title, updated_at, parent_id, plaintext
+       FROM notes
+       WHERE (title LIKE $1 OR plaintext LIKE $1)
+         AND deleted_at IS NULL
+       LIMIT $2`,
+      [likePattern, limit - results.length]
+    );
+    for (const row of likeRows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      // Build a short snippet: find the match position in plaintext
+      let snippet = "";
+      if (row.plaintext) {
+        const lower = row.plaintext.toLowerCase();
+        const idx = lower.indexOf(bare.toLowerCase());
+        if (idx !== -1) {
+          const start = Math.max(0, idx - 40);
+          const end   = Math.min(row.plaintext.length, idx + bare.length + 40);
+          snippet = (start > 0 ? "…" : "") + row.plaintext.slice(start, end).trim() + (end < row.plaintext.length ? "…" : "");
+        }
+      }
+      results.push({
+        id: row.id,
+        title: row.title,
+        snippet,
+        offset: 0,
+        updated_at: row.updated_at,
+        parent_id: row.parent_id,
+      });
+    }
+  }
+
   return results.slice(0, limit);
 }
+
+
 
 // ─── Version History ──────────────────────────────────────────────────────────
 

@@ -31,6 +31,8 @@ import { OnboardingModal, useSampleNotes } from "./features/onboarding";
 import { UpdateToast } from "@/features/ui/components/UpdateToast";
 import { useAIStore } from "./features/ai/store/useAIStore";
 import { runScheduledBackupIfDue } from "@/features/backup/lib/scheduler";
+import { NewTabScreen } from "@/features/ui/components/NewTabScreen";
+
 
 
 
@@ -208,9 +210,11 @@ useEffect(() => {
 
 
   // Rest of your component remains the same...
-  useEffect(() => {
+  // App.tsx
+useEffect(() => {
     if (!activeNoteId) return;
     const currentTabNoteId = useUIStore.getState().activeTabNoteId();
+    if (currentTabNoteId === null) return;
     if (currentTabNoteId !== activeNoteId) replaceTab(activeNoteId);
   }, [activeNoteId]);
 
@@ -376,6 +380,9 @@ useEffect(() => {
     const paneTabs = paneId === 1 ? tabs : pane2Tabs;
     const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
 
+    console.log(`[renderPane ${paneId}] tabs:`, paneTabs, 'activeTabId:', paneActiveTabId);
+
+
     return (
       <div className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0"
         onMouseDown={() => { if (activePaneId !== paneId) setActivePaneId(paneId); }}
@@ -386,14 +393,23 @@ useEffect(() => {
             const isActive = tab.id === paneActiveTabId;
             return (
               <div key={tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
-                <Editor
-                  key={tab.noteId}
-                  noteId={tab.noteId}
-                  paneId={paneId}
-                  initialScrollTop={scrollPositions.current.get(tab.noteId) ?? 0}
-                  onScrollChange={(top) => scrollPositions.current.set(tab.noteId, top)}
-                />
-              </div>
+  {tab.noteId === null ? (
+    <NewTabScreen paneId={paneId} />
+  ) : (
+    (() => {
+      const noteId = tab.noteId;
+      return (
+        <Editor
+          key={noteId}
+          noteId={noteId}
+          paneId={paneId}
+          initialScrollTop={scrollPositions.current.get(noteId) ?? 0}
+          onScrollChange={(top) => scrollPositions.current.set(noteId, top)}
+        />
+      );
+    })()
+  )}
+</div>
             );
           })}
           {(paneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) && <FileTreePanel paneId={paneId} />}

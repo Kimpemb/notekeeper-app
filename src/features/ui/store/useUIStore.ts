@@ -16,7 +16,7 @@ export type SplitDirection = "horizontal" | "vertical";
 
 export interface Tab {
   id: string;
-  noteId: string;
+  noteId: string | null; // null = empty "new tab" screen
 }
 
 export interface GraphViewState {
@@ -216,6 +216,7 @@ interface UIStore {
   activeTabId: string | null;
   replaceTab: (noteId: string) => void;
   openTab: (noteId: string) => Tab;
+  openEmptyTab: () => Tab;  
   closeTab: (tabId: string) => void;
   closeTabsForNotes: (noteIds: Set<string>) => void;
   setActiveTab: (tabId: string) => void;
@@ -230,11 +231,13 @@ interface UIStore {
   splitDirection: SplitDirection;
   openInSplit: (noteId: string) => void;
   closePane1: () => void;
-  closePane2: () => void;  toggleSplitDirection: () => void;
+  closePane2: () => void;
+  toggleSplitDirection: () => void;
   swapPanes: () => void;
   setPane2ActiveTab: (tabId: string) => void;
   closePane2Tab: (tabId: string) => void;
   openTabInPane2: (noteId: string) => void;
+  openEmptyTabInPane2: () => void;
   replacePane2Tab: (noteId: string) => void;
   activePaneId: 1 | 2;
   setActivePaneId: (pane: 1 | 2) => void;
@@ -445,20 +448,37 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
     tabs: [], activeTabId: null,
+
     replaceTab: (noteId) => {
       const { tabs, activeTabId } = get();
+      // No tabs yet — create first tab
       if (tabs.length === 0 || activeTabId === null) {
         const tab: Tab = { id: makeTabId(), noteId };
         set({ tabs: [tab], activeTabId: tab.id });
         saveSession({ ...get(), tabs: [tab], activeTabId: tab.id });
         return;
       }
+      // Note already open in another tab — just activate it
       const existing = tabs.find((t) => t.noteId === noteId);
-      if (existing) { set({ activeTabId: existing.id }); saveSession({ ...get(), activeTabId: existing.id }); return; }
+      if (existing) {
+        set({ activeTabId: existing.id });
+        saveSession({ ...get(), activeTabId: existing.id });
+        return;
+      }
+      // Active tab is an empty tab — fill it in-place
+      const activeTab = tabs.find((t) => t.id === activeTabId);
+      if (activeTab && activeTab.noteId === null) {
+        const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
+        set({ tabs: next });
+        saveSession({ ...get(), tabs: next });
+        return;
+      }
+      // Normal case — replace active tab content
       const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
       set({ tabs: next });
       saveSession({ ...get(), tabs: next });
     },
+
     openTab: (noteId) => {
       const { tabs } = get();
       const tab: Tab = { id: makeTabId(), noteId };
@@ -467,6 +487,17 @@ export const useUIStore = create<UIStore>((set, get) => {
       saveSession({ ...get(), tabs: next, activeTabId: tab.id });
       return tab;
     },
+
+    openEmptyTab: () => {
+      const { tabs } = get();
+      const tab: Tab = { id: makeTabId(), noteId: null };
+      const next = [...tabs, tab];
+      set({ tabs: next, activeTabId: tab.id });
+      saveSession({ ...get(), tabs: next, activeTabId: tab.id });
+      return tab;
+    },
+
+
     closeTab: (tabId) => {
       const { tabs, activeTabId, closedTabs } = get();
       const idx = tabs.findIndex((t) => t.id === tabId);
@@ -474,28 +505,39 @@ export const useUIStore = create<UIStore>((set, get) => {
       const closing = tabs[idx];
       const next = tabs.filter((t) => t.id !== tabId);
       let nextActiveTabId: string | null = activeTabId;
-      if (activeTabId === tabId) { const neighbour = next[idx] ?? next[idx - 1] ?? null; nextActiveTabId = neighbour?.id ?? null; }
-      set({ tabs: next, activeTabId: nextActiveTabId, closedTabs: [...closedTabs, { noteId: closing.noteId, pane: 1 as const }].slice(-20) });
+      if (activeTabId === tabId) {
+        const neighbour = next[idx] ?? next[idx - 1] ?? null;
+        nextActiveTabId = neighbour?.id ?? null;
+      }
+      // Only push to closed history if it had a note
+      const nextClosed = closing.noteId
+        ? [...closedTabs, { noteId: closing.noteId, pane: 1 as const }].slice(-20)
+        : closedTabs;
+      set({ tabs: next, activeTabId: nextActiveTabId, closedTabs: nextClosed });
       saveSession({ ...get(), tabs: next, activeTabId: nextActiveTabId });
     },
+
     closeTabsForNotes: (noteIds) => {
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
-      const next1 = tabs.filter((t) => !noteIds.has(t.noteId));
+      const next1 = tabs.filter((t) => !t.noteId || !noteIds.has(t.noteId));
       let nextActive1 = activeTabId;
       if (activeTabId && !next1.some((t) => t.id === activeTabId)) nextActive1 = next1[next1.length - 1]?.id ?? null;
-      const next2 = pane2Tabs.filter((t) => !noteIds.has(t.noteId));
+      const next2 = pane2Tabs.filter((t) => !t.noteId || !noteIds.has(t.noteId));
       let nextActive2 = pane2ActiveTabId;
       if (pane2ActiveTabId && !next2.some((t) => t.id === pane2ActiveTabId)) nextActive2 = next2[next2.length - 1]?.id ?? null;
       const splitOpen = next2.length > 0 ? get().splitOpen : false;
       set({ tabs: next1, activeTabId: nextActive1, pane2Tabs: next2, pane2ActiveTabId: nextActive2, splitOpen });
       saveSession({ ...get(), tabs: next1, activeTabId: nextActive1, pane2Tabs: next2, pane2ActiveTabId: nextActive2, splitOpen });
     },
+
     setActiveTab: (tabId) => { set({ activeTabId: tabId }); saveSession({ ...get(), activeTabId: tabId }); },
+
     closeActiveTab: () => {
       const { activePaneId, activeTabId, pane2ActiveTabId } = get();
       if (activePaneId === 2 && pane2ActiveTabId) { get().closePane2Tab(pane2ActiveTabId); }
       else if (activeTabId) { get().closeTab(activeTabId); }
     },
+
     cycleTab: (dir) => {
       const { activePaneId, tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
       if (activePaneId === 2) {
@@ -514,10 +556,15 @@ export const useUIStore = create<UIStore>((set, get) => {
         saveSession({ ...get(), activeTabId: nextId });
       }
     },
-    activeTabNoteId: () => { const { tabs, activeTabId } = get(); return tabs.find((t) => t.id === activeTabId)?.noteId ?? null; },
+
+    activeTabNoteId: () => {
+      const { tabs, activeTabId } = get();
+      return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
+    },
 
     // ─── Pane 2 tabs ─────────────────────────────────────────────────────────
     pane2Tabs: [], pane2ActiveTabId: null, splitOpen: false, splitDirection: "horizontal",
+
     openInSplit: (noteId) => {
       const { splitOpen, pane2Tabs } = get();
       if (!splitOpen) {
@@ -531,11 +578,12 @@ export const useUIStore = create<UIStore>((set, get) => {
         saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
       }
     },
+
     closePane1: () => {
-      // Promote pane 2 to pane 1 by swapping, then closing what is now pane 2
       get().swapPanes();
       get().closePane2();
     },
+
     closePane2: () => {
       set({
         splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1,
@@ -545,11 +593,13 @@ export const useUIStore = create<UIStore>((set, get) => {
       });
       saveSession({ ...get(), splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null });
     },
+
     toggleSplitDirection: () => {
       const next = get().splitDirection === "horizontal" ? "vertical" : "horizontal";
       set({ splitDirection: next });
       saveSession({ ...get(), splitDirection: next });
     },
+
     swapPanes: () => {
       const {
         tabs, activeTabId, pane2Tabs, pane2ActiveTabId,
@@ -570,7 +620,9 @@ export const useUIStore = create<UIStore>((set, get) => {
       });
       saveSession({ ...get(), tabs: pane2Tabs, activeTabId: pane2ActiveTabId, pane2Tabs: tabs, pane2ActiveTabId: activeTabId });
     },
+
     setPane2ActiveTab: (tabId) => { set({ pane2ActiveTabId: tabId }); saveSession({ ...get(), pane2ActiveTabId: tabId }); },
+
     closePane2Tab: (tabId) => {
       const { pane2Tabs, pane2ActiveTabId, closedTabs } = get();
       const idx = pane2Tabs.findIndex((t) => t.id === tabId);
@@ -580,9 +632,13 @@ export const useUIStore = create<UIStore>((set, get) => {
       if (next.length === 0) { get().closePane2(); return; }
       let nextActiveTabId = pane2ActiveTabId;
       if (pane2ActiveTabId === tabId) nextActiveTabId = (next[idx] ?? next[idx - 1])?.id ?? null;
-      set({ pane2Tabs: next, pane2ActiveTabId: nextActiveTabId, closedTabs: [...closedTabs, { noteId: closing.noteId, pane: 2 as const }].slice(-20) });
+      const nextClosed = closing.noteId
+        ? [...closedTabs, { noteId: closing.noteId, pane: 2 as const }].slice(-20)
+        : closedTabs;
+      set({ pane2Tabs: next, pane2ActiveTabId: nextActiveTabId, closedTabs: nextClosed });
       saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: nextActiveTabId });
     },
+
     openTabInPane2: (noteId) => {
       const { pane2Tabs } = get();
       const tab: Tab = { id: makeTabId(), noteId };
@@ -591,31 +647,53 @@ export const useUIStore = create<UIStore>((set, get) => {
       saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
       get().pane2PushNav(noteId);
     },
+
+    openEmptyTabInPane2: () => {
+      const { pane2Tabs } = get();
+      const tab: Tab = { id: makeTabId(), noteId: null };
+      const next = [...pane2Tabs, tab];
+      set({ pane2Tabs: next, pane2ActiveTabId: tab.id });
+      saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
+    },
+
+
     replacePane2Tab: (noteId) => {
-  const { pane2Tabs, pane2ActiveTabId } = get();
-  if (pane2Tabs.length === 0 || pane2ActiveTabId === null) {
-    const tab: Tab = { id: makeTabId(), noteId };
-    set({ pane2Tabs: [tab], pane2ActiveTabId: tab.id });
-    saveSession({ ...get(), pane2Tabs: [tab], pane2ActiveTabId: tab.id });
-    get().pane2PushNav(noteId);
-    return;
-  }
-  const existing = pane2Tabs.find((t) => t.noteId === noteId);
-  if (existing) {
-    set({ pane2ActiveTabId: existing.id });
-    saveSession({ ...get(), pane2ActiveTabId: existing.id });
-    get().pane2PushNav(noteId);
-    return;
-  }
-  const next = pane2Tabs.map((t) =>
-    t.id === pane2ActiveTabId ? { ...t, noteId } : t
-  );
-  set({ pane2Tabs: next });
-  saveSession({ ...get(), pane2Tabs: next });
-  get().pane2PushNav(noteId);
-},
+      const { pane2Tabs, pane2ActiveTabId } = get();
+      // No tabs yet — create first tab
+      if (pane2Tabs.length === 0 || pane2ActiveTabId === null) {
+        const tab: Tab = { id: makeTabId(), noteId };
+        set({ pane2Tabs: [tab], pane2ActiveTabId: tab.id });
+        saveSession({ ...get(), pane2Tabs: [tab], pane2ActiveTabId: tab.id });
+        get().pane2PushNav(noteId);
+        return;
+      }
+      // Note already open in another tab — just activate it
+      const existing = pane2Tabs.find((t) => t.noteId === noteId);
+      if (existing) {
+        set({ pane2ActiveTabId: existing.id });
+        saveSession({ ...get(), pane2ActiveTabId: existing.id });
+        get().pane2PushNav(noteId);
+        return;
+      }
+      // Active tab is an empty tab — fill it in-place
+      const activePane2Tab = pane2Tabs.find((t) => t.id === pane2ActiveTabId);
+      if (activePane2Tab && activePane2Tab.noteId === null) {
+        const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? { ...t, noteId } : t);
+        set({ pane2Tabs: next });
+        saveSession({ ...get(), pane2Tabs: next });
+        get().pane2PushNav(noteId);
+        return;
+      }
+      // Normal case — replace active tab content
+      const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? { ...t, noteId } : t);
+      set({ pane2Tabs: next });
+      saveSession({ ...get(), pane2Tabs: next });
+      get().pane2PushNav(noteId);
+    },
+
     activePaneId: 1,
     setActivePaneId: (pane) => set({ activePaneId: pane }),
+
     paneActiveNoteId: (pane) => {
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
       if (pane === 2) return pane2Tabs.find((t) => t.id === pane2ActiveTabId)?.noteId ?? null;

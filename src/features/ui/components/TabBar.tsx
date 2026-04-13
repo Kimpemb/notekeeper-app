@@ -30,10 +30,14 @@ export function TabBar({ paneId }: TabBarProps) {
   const setActive2   = useUIStore((s) => s.setPane2ActiveTab);
   const closeTab2    = useUIStore((s) => s.closePane2Tab);
 
-  const openInSplit      = useUIStore((s) => s.openInSplit);
-  const openTabInPane2   = useUIStore((s) => s.openTabInPane2);
-  const setActivePaneId  = useUIStore((s) => s.setActivePaneId);
-  const setActiveNote    = useNoteStore((s) => s.setActiveNote);
+  const openEmptyTab = useUIStore((s) => s.openEmptyTab);
+  console.log('[TabBar] openEmptyTab type:', typeof openEmptyTab, openEmptyTab);
+  console.log('[TabBar] store direct:', typeof useUIStore.getState().openEmptyTab);
+  const openEmptyTabInPane2 = useUIStore((s) => s.openEmptyTabInPane2);
+  const openInSplit         = useUIStore((s) => s.openInSplit);
+  const openTabInPane2      = useUIStore((s) => s.openTabInPane2);
+  const setActivePaneId     = useUIStore((s) => s.setActivePaneId);
+  const setActiveNote       = useNoteStore((s) => s.setActiveNote);
 
   const tabs        = paneId === 1 ? tabs1 : tabs2;
   const activeTabId = paneId === 1 ? activeTabId1 : activeTabId2;
@@ -55,13 +59,14 @@ export function TabBar({ paneId }: TabBarProps) {
     return () => document.removeEventListener("mousedown", handle);
   }, [contextMenu]);
 
-  if (tabs.length === 0) return null;
+  // Always render for pane 1 so the + button is reachable on first launch.
+  // Hide for pane 2 only when it has no tabs.
+  if (tabs.length === 0 && paneId === 2) return null;
 
-  function handleTabClick(tabId: string, noteId: string) {
+  function handleTabClick(tabId: string, noteId: string | null) {
     setActivePaneId(paneId);
     setActive(tabId);
-    // Only sync global activeNoteId for pane 1 — pane 2 manages its own tab state
-    if (paneId === 1) {
+    if (paneId === 1 && noteId) {
       setActiveNote(noteId, true);
     }
   }
@@ -78,7 +83,8 @@ export function TabBar({ paneId }: TabBarProps) {
     }
   }
 
-  function handleContextMenu(e: React.MouseEvent, tabId: string, noteId: string) {
+  function handleContextMenu(e: React.MouseEvent, tabId: string, noteId: string | null) {
+    if (!noteId) return;
     e.preventDefault();
     setContextMenu({
       x: e.clientX,
@@ -94,7 +100,6 @@ export function TabBar({ paneId }: TabBarProps) {
     if (paneId === 1) {
       openInSplit(contextMenu.noteId);
     } else {
-      // From pane 2, open into pane 1 as a new tab
       const { openTab } = useUIStore.getState();
       openTab(contextMenu.noteId);
       setActivePaneId(1);
@@ -113,10 +118,17 @@ export function TabBar({ paneId }: TabBarProps) {
     setContextMenu(null);
   }
 
-  const splitOpen = useUIStore.getState().splitOpen;
-  const splitLabel = paneId === 1
-    ? (splitOpen ? "Open in split pane" : "Open in split pane")
-    : "Open in main pane";
+  function handleNewTab() {
+  console.log('[handleNewTab] paneId:', paneId, 'calling', paneId === 1 ? 'openEmptyTab' : 'openEmptyTabInPane2');
+  setActivePaneId(paneId);
+  if (paneId === 1) {
+    openEmptyTab();
+  } else {
+    openEmptyTabInPane2();
+  }
+}
+
+  const splitLabel = paneId === 1 ? "Open in split pane" : "Open in main pane";
 
   return (
     <div className="relative">
@@ -125,9 +137,11 @@ export function TabBar({ paneId }: TabBarProps) {
         style={{ scrollbarWidth: "none" }}
       >
         {tabs.map((tab) => {
-          const note       = notes.find((n) => n.id === tab.noteId);
+          const note       = tab.noteId ? notes.find((n) => n.id === tab.noteId) : null;
           const isUntitled = note ? /^Untitled-\d+$/.test(note.title) : false;
-          const title      = note ? (isUntitled ? "Untitled" : note.title) : "…";
+          const title      = tab.noteId === null
+            ? "New tab"
+            : note ? (isUntitled ? "Untitled" : note.title) : "…";
           const isActive   = tab.id === activeTabId;
 
           return (
@@ -136,11 +150,11 @@ export function TabBar({ paneId }: TabBarProps) {
               onClick={() => handleTabClick(tab.id, tab.noteId)}
               onAuxClick={(e) => handleAuxClick(e, tab.id)}
               onContextMenu={(e) => handleContextMenu(e, tab.id, tab.noteId)}
-              title={note?.title}
+              title={note?.title ?? (tab.noteId === null ? "New tab" : undefined)}
               className={`
                 group relative flex items-center gap-2 h-full px-4 shrink-0 cursor-pointer
                 text-xs font-medium transition-colors duration-100
-                min-w-[140px] max-w-[240px]
+                min-w-35 max-w-60
                 border-r border-zinc-200 dark:border-zinc-800
                 ${isActive
                   ? "bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200"
@@ -149,9 +163,11 @@ export function TabBar({ paneId }: TabBarProps) {
               `}
             >
               {isActive && (
-                <span className="absolute top-0 left-0 right-0 h-[2px] bg-blue-500 dark:bg-blue-400 rounded-b-sm" />
+                <span className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 dark:bg-blue-400 rounded-b-sm" />
               )}
-              <span className="flex-1 truncate">{title}</span>
+              <span className={`flex-1 truncate ${tab.noteId === null ? "italic text-zinc-400 dark:text-zinc-500" : ""}`}>
+                {title}
+              </span>
               <button
                 onClick={(e) => handleClose(e, tab.id)}
                 title="Close tab"
@@ -171,10 +187,22 @@ export function TabBar({ paneId }: TabBarProps) {
             </div>
           );
         })}
+
+        {/* New tab button */}
+        <button
+          onClick={handleNewTab}
+          title="New tab"
+          className="shrink-0 w-7 h-full flex items-center justify-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-75 border-r border-zinc-200 dark:border-zinc-800"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
+
         <div className="flex-1 min-w-4" />
       </div>
 
-      {/* Right-click context menu */}
+      {/* Right-click context menu — only appears for tabs with a note */}
       {contextMenu && (
         <div
           ref={menuRef}
@@ -186,7 +214,7 @@ export function TabBar({ paneId }: TabBarProps) {
               : { top: contextMenu.y }),
             zIndex: 50,
           }}
-          className="min-w-[200px] py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+          className="min-w-50 py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
         >
           <button
             onClick={handleOpenInNewTab}
