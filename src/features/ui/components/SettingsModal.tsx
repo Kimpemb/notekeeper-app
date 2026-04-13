@@ -264,6 +264,7 @@ export function SettingsModal() {
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
+      data-overlay-sentinel
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
     >
       <div className="relative flex w-[720px] max-w-[95vw] h-[520px] max-h-[90vh] rounded-xl shadow-2xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
