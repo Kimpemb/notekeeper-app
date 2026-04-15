@@ -17,6 +17,7 @@ interface Props {
   anchorRect: DOMRect;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
+  onClose: () => void;  // ← ADD THIS
 }
 
 function extractHeadings(content: string): Heading[] {
@@ -57,6 +58,7 @@ export function NoteLinkPreview({
   anchorRect,
   onMouseEnter,
   onMouseLeave,
+  onClose,  // ← ADD THIS
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -96,11 +98,13 @@ export function NoteLinkPreview({
 
   function handleTitleClick() {
     setActiveNote(noteId);
+    onClose();  // ← CLOSE PREVIEW IMMEDIATELY
   }
 
   function handleHeadingClick(headingText: string) {
     setPendingScrollHeading(headingText);
     setActiveNote(noteId);
+    onClose();  // ← CLOSE PREVIEW IMMEDIATELY
   }
 
   return createPortal(

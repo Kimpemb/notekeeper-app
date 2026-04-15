@@ -43,12 +43,21 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
   useEffect(() => { setSelected(0); setExpanded(false); }, [query]);
   useEffect(() => { itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [selected]);
 
-  // Only add keyboard listener when there are items to select OR create option is visible
+  // Only add keyboard listener when the component is ACTUALLY visible (has items or create option)
+  // AND the component is mounted (which it always is, so check if menuRef is in DOM)
   useEffect(() => {
-    // Don't add listener if there's nothing to select and no create option
-    if (visible.length === 0 && !showCreate) return;
+    // Check if there's actually anything to show
+    const hasContent = visible.length > 0 || showCreate;
+    if (!hasContent) return;
 
     function handleKey(e: KeyboardEvent) {
+      // Only handle if the menu is actually visible in the DOM
+      if (!menuRef.current || !menuRef.current.isConnected) return;
+      
+      // Check if the menu is likely visible (has non-zero dimensions)
+      const rect = menuRef.current.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      
       if (e.key === "ArrowDown") {
         e.preventDefault(); e.stopPropagation();
         setSelected((s) => Math.min(s + 1, totalItems - 1));
@@ -70,7 +79,7 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
     
     document.addEventListener("keydown", handleKey, true);
     return () => document.removeEventListener("keydown", handleKey, true);
-  }, [visible, selected, totalItems, showCreate, createIndex, visible.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, selected, totalItems, showCreate, createIndex, onClose]);
 
   useEffect(() => {
     function handleMouseDown(e: MouseEvent) {
@@ -101,6 +110,11 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
 
   const flip = position.top + 300 > window.innerHeight;
 
+  // Early return if there's nothing to show - don't render at all
+  if (visible.length === 0 && !showCreate) {
+    return null;
+  }
+
   return (
     <div
       ref={menuRef}
@@ -127,11 +141,6 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
 
       {/* List */}
       <ul className="py-1 max-h-64 overflow-y-auto">
-        {visible.length === 0 && !showCreate && (
-          <li className="px-4 py-4 text-sm text-idemora-text-muted text-center">
-            {notes.length <= 1 ? "No other notes yet" : "No notes match"}
-          </li>
-        )}
         {visible.map((note, i) => (
           <li
             key={note.id}
@@ -141,7 +150,7 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
             className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors duration-100 ${
               i === selected
                 ? "bg-blue-500/10"
-                : "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
+                : "hover:bg-black/6 dark:hover:bg-white/7"
             }`}
           >
             <span className="w-7 h-7 flex items-center justify-center rounded-md shrink-0 bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted">
@@ -171,7 +180,7 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
             className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors duration-100 border-t border-idemora-border ${
               selected === createIndex
                 ? "bg-blue-500/10"
-                : "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
+                : "hover:bg-black/6 dark:hover:bg-white/7"
             }`}
           >
             <span className="w-7 h-7 flex items-center justify-center rounded-md shrink-0 bg-blue-500/10 text-blue-400 border border-blue-500/20">
@@ -201,7 +210,7 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
       {hasMore && (
         <button
           onMouseDown={(e) => { e.preventDefault(); setExpanded(true); }}
-          className="w-full px-3 py-2 text-xs text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] border-t border-idemora-border transition-colors duration-100 text-left"
+          className="w-full px-3 py-2 text-xs text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7 border-t border-idemora-border transition-colors duration-100 text-left"
         >
           ··· {remaining} more {remaining === 1 ? "note" : "notes"}
         </button>

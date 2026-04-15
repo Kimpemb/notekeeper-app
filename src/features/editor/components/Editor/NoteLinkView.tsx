@@ -61,6 +61,13 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
     leaveTimer.current = setTimeout(() => setPreview(null), 150);
   }, []);
 
+  // NEW: Close preview immediately when clicking inside it
+  const handlePreviewClose = useCallback(() => {
+    setPreview(null);
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
+    if (leaveTimer.current) { clearTimeout(leaveTimer.current); leaveTimer.current = null; }
+  }, []);
+
   function handleClick(e: React.MouseEvent) {
     e.preventDefault(); e.stopPropagation();
     if (exists) {
@@ -132,6 +139,7 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
           anchorRect={preview}
           onMouseEnter={handleEnter}
           onMouseLeave={handleLeave}
+          onClose={handlePreviewClose}
         />
       )}
 
