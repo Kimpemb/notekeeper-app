@@ -97,6 +97,7 @@ export default function App() {
   const chatOpen1           = useUIStore((s) => s.chatOpen1);
   const chatOpen2           = useUIStore((s) => s.chatOpen2);
   const activeEditor = useUIStore((s) => s.activeEditor);
+  const openEmptyTab = useUIStore((s) => s.openEmptyTab);
 
   
   // Right panel state from store (single source of truth)
@@ -239,7 +240,7 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       useUIStore.getState().openTemplatePicker();
       return;
     }
-    if (ctrl && e.key === "t") { e.preventDefault(); toggleFileTree(activePaneId); }
+  if (ctrl && e.key === "t") { e.preventDefault(); openEmptyTab(); }
     if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       openInNewTabRef.current = false;
@@ -248,13 +249,15 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
     }
     if (ctrl && e.key === "\\") { e.preventDefault(); toggleSidebarPanel("notes"); }
     if (ctrl && e.key === ";")  { 
-      e.preventDefault(); 
-      backlinkActive ? closeBacklinks(activePaneId) : openBacklinks(activePaneId);
-    }
+  e.preventDefault(); 
+  if (!rightPanelOpen) setRightPanelOpen(true);  // ADD THIS LINE
+  backlinkActive ? closeBacklinks(activePaneId) : openBacklinks(activePaneId);
+}
     if (ctrl && e.key === "'")  { 
-      e.preventDefault(); 
-      outlineActive ? closeOutline(activePaneId) : openOutline(activePaneId);
-    }
+  e.preventDefault(); 
+  if (!rightPanelOpen) setRightPanelOpen(true);  // ADD THIS LINE
+  outlineActive ? closeOutline(activePaneId) : openOutline(activePaneId);
+}
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
     if (ctrl && e.key === "w")  { e.preventDefault(); closeActiveTab(); }
     if (ctrl && e.key === "[") {
@@ -270,11 +273,12 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       if (activePaneId === 2) { triggerNav(pane2GoForward); } else if (canGoForward()) { triggerNav(goForward); }
     }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "a") {
-      e.preventDefault();
-      const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
-      const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
-      chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
-    }
+  e.preventDefault();
+  if (!rightPanelOpen) setRightPanelOpen(true);  // ADD THIS LINE
+  const { openChat, closeChat } = useUIStore.getState();
+  const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
+  chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+}
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
       e.preventDefault();
       useUIStore.getState().setRefreshStatus("reloading");
@@ -286,7 +290,7 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
     }
     if (ctrl && e.key === ",") { e.preventDefault(); openSettings(); }
   }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, openBacklinks, closeBacklinks, openOutline, closeOutline,
-      openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, backlinkActive, outlineActive]);
+    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, backlinkActive, outlineActive, setRightPanelOpen]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
