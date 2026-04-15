@@ -59,7 +59,7 @@ export async function saveAppSettings(settings: AppSettings): Promise<void> {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-3 mt-6 first:mt-0">
+    <p className="text-[11px] font-semibold uppercase tracking-widest text-idemora-text-muted mb-3 mt-6 first:mt-0">
       {children}
     </p>
   );
@@ -75,11 +75,11 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+    <div className="flex items-start justify-between gap-4 py-2.5 border-b  border-idemora-border last">
       <div className="flex flex-col gap-0.5 min-w-0">
-        <span className="text-sm text-zinc-800 dark:text-zinc-200 leading-snug">{label}</span>
+        <span className="text-sm text-idemora-text-normal leading-snug">{label}</span>
         {description && (
-          <span className="text-xs text-zinc-400 dark:text-zinc-500 leading-snug">{description}</span>
+          <span className="text-xs text-idemora-text-muted leading-snug">{description}</span>
         )}
       </div>
       <div className="shrink-0">{children}</div>
@@ -100,11 +100,11 @@ function Toggle({
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-        checked ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-700"
+        checked ? "bg-blue-500" : "bg-idemora-bg-primary "
       }`}
     >
       <span
-        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-idemora-bg-primary shadow-sm transition-transform duration-200 ${
           checked ? "translate-x-4" : "translate-x-0"
         }`}
       />
@@ -125,7 +125,7 @@ function Select<T extends string>({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as T)}
-      className="text-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+      className="text-sm bg-idemora-bg-primary  text-idemora-text-normal border-idemora-border  rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>
@@ -210,7 +210,7 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
 
 function KeyChip({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 leading-none">
+    <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-idemora-bg-primary  text-idemora-text-normal text-idemora-text-muted border-idemora-border  leading-none">
       {children}
     </kbd>
   );
@@ -267,10 +267,10 @@ export function SettingsModal() {
       data-overlay-sentinel
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
     >
-      <div className="relative flex w-[720px] max-w-[95vw] h-[520px] max-h-[90vh] rounded-xl shadow-2xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+      <div className="relative flex w-[720px] max-w-[95vw] h-[520px] max-h-[90vh] rounded-xl shadow-2xl overflow-hidden bg-idemora-bg-primary border-idemora-border">
 
-        <aside className="w-44 shrink-0 bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col py-4 gap-0.5 px-2">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 px-2 mb-2">
+        <aside className="w-44 shrink-0 bg-idemora-bg-primary  border-r border-idemora-border flex flex-col py-4 gap-0.5 px-2">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-idemora-text-muted px-2 mb-2">
             Settings
           </p>
           {SECTIONS.map((s) => (
@@ -279,8 +279,8 @@ export function SettingsModal() {
               onClick={() => setSection(s.id)}
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-left transition-colors duration-100 w-full ${
                 section === s.id
-                  ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-medium"
-                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
+                  ? "bg-idemora-bg-primary  text-idemora-text-normal font-medium"
+                  : "text-idemora-text-muted    /60"
               }`}
             >
               <span className="shrink-0">{s.icon}</span>
@@ -298,7 +298,7 @@ export function SettingsModal() {
 
           <button
             onClick={closeSettings}
-            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-150"
+            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted     transition-colors duration-150"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -332,7 +332,7 @@ export function SettingsModal() {
                     updateSetting("hasCompletedOnboarding", false);
                     closeSettings();
                   }}
-                  className="px-4 py-1.5 text-sm font-medium rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:opacity-80 transition-opacity"
+                  className="px-4 py-1.5 text-sm font-medium rounded-lg bg-idemora-bg-primary  border-idemora-border  text-idemora-text-normal  transition-opacity"
                 >
                   Restart tour
                 </button>
@@ -419,19 +419,19 @@ export function SettingsModal() {
 
          {section === "keybindings" && (
   <div>
-    <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-4">
+    <p className="text-xs text-idemora-text-muted mb-4">
       Keybindings are fixed in this version. Custom bindings are coming in a future release.
     </p>
     {SHORTCUT_GROUPS.map((group: ShortcutGroup) => (
       <div key={group.title}>
         <SectionTitle>{group.title}</SectionTitle>
-        <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 overflow-hidden mb-4">
+        <div className="rounded-lg border-idemora-border overflow-hidden mb-4">
           {group.shortcuts.map((shortcut: Shortcut, i: number) => (
             <div
               key={i}
-              className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 last:border-0 bg-white dark:bg-zinc-900"
+              className="flex items-center justify-between px-3 py-2 border-b  border-idemora-border last bg-idemora-bg-primary"
             >
-              <span className="text-sm text-zinc-700 dark:text-zinc-300">{shortcut.label}</span>
+              <span className="text-sm text-idemora-text-normal">{shortcut.label}</span>
               <div className="flex items-center gap-1">
                 {shortcut.keys.map((key: string, j: number) => (
                   <KeyChip key={j}>{key}</KeyChip>
@@ -459,23 +459,23 @@ export function SettingsModal() {
               </Row>
 
               <SectionTitle>About</SectionTitle>
-              <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300">App</span>
-                  <span className="text-sm text-zinc-400 dark:text-zinc-500 font-mono">Idemora</span>
+              <div className="rounded-lg border-idemora-border overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 border-b  border-idemora-border bg-idemora-bg-primary">
+                  <span className="text-sm text-idemora-text-normal">App</span>
+                  <span className="text-sm text-idemora-text-muted font-mono">Idemora</span>
                 </div>
-                <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300">Version</span>
-                  <span className="text-sm text-zinc-400 dark:text-zinc-500 font-mono">1.1.0</span>
+                <div className="flex items-center justify-between px-3 py-2 border-b  border-idemora-border bg-idemora-bg-primary">
+                  <span className="text-sm text-idemora-text-normal">Version</span>
+                  <span className="text-sm text-idemora-text-muted font-mono">1.1.0</span>
                 </div>
-                <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900">
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300">Storage</span>
-                  <span className="text-sm text-zinc-400 dark:text-zinc-500 font-mono">Local SQLite</span>
+                <div className="flex items-center justify-between px-3 py-2 bg-idemora-bg-primary">
+                  <span className="text-sm text-idemora-text-normal">Storage</span>
+                  <span className="text-sm text-idemora-text-muted font-mono">Local SQLite</span>
                 </div>
               </div>
 
-              <div className="mt-4 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800">
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed">
+              <div className="mt-4 p-3 rounded-lg bg-idemora-bg-primary /60 border-idemora-border">
+                <p className="text-xs text-idemora-text-muted leading-relaxed">
                   All data is stored locally on your machine. No cloud sync, no accounts.
                   Use Export from the command palette to back up your notes.
                 </p>

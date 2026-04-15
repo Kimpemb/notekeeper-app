@@ -12,15 +12,15 @@ export function EmptyState() {
           height="48"
           viewBox="0 0 48 48"
           fill="none"
-          className="text-zinc-500 dark:text-zinc-300"
+          className="text-idemora-text-muted text-idemora-text-normal"
         >
           <rect x="8" y="6" width="32" height="36" rx="3" stroke="currentColor" strokeWidth="1.5" />
           <path d="M16 16h16M16 22h16M16 28h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
 
         <div className="text-center">
-          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-200">No note selected</p>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+          <p className="text-sm font-medium text-idemora-text-normal">No note selected</p>
+          <p className="text-xs text-idemora-text-muted mt-1">
             Select a note from the sidebar or create a new one
           </p>
         </div>
@@ -28,13 +28,13 @@ export function EmptyState() {
         <div className="flex items-center gap-3 mt-2">
           <button
             onClick={() => createNote()}
-            className="text-xs px-3 py-1.5 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900
-                      hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors duration-150 cursor-pointer"
+            className="text-xs px-3 py-1.5 rounded-md bg-idemora-bg-primary  text-idemora-text-normal 
+                        transition-colors duration-150 cursor-pointer"
           >
             New note
           </button>
-          <span className="text-xs text-zinc-600 dark:text-zinc-300">or press</span>
-          <kbd className="text-xs text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded font-mono">
+          <span className="text-xs text-idemora-text-normal">or press</span>
+          <kbd className="text-xs text-idemora-text-normal bg-idemora-bg-primary  px-2 py-0.5 rounded font-mono">
             Ctrl K
           </kbd>
         </div>

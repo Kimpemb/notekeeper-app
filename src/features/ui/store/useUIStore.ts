@@ -7,11 +7,12 @@ import {
   tickSession,
   type SessionState,
 } from "@/features/notes/similarity/clusterEngine";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 type RefreshStatus = "idle" | "reloading" | "reloaded";
-export type SidebarPanel = "notes" | "search" | "tags" | "trash" | null;
+export type SidebarPanel = "notes" | "search" | "tags" | "trash" | "bookmarks" | null;
 export type SplitDirection = "horizontal" | "vertical";
 
 export interface Tab {
@@ -85,6 +86,8 @@ interface UIStore {
   expandNode: (id: string) => void;
   collapseNode: (id: string) => void;
   collapseAll: () => void;
+  collapseAllNodes: () => void;
+  expandAllNodes: () => void;
 
   // ─── Sidebar search focus ─────────────────────────────────────────────────
   focusSidebarSearch: (() => void) | null;
@@ -337,6 +340,14 @@ export const useUIStore = create<UIStore>((set, get) => {
     expandNode: (id) => set((s) => { const next = new Set(s.expandedNodes); next.add(id); return { expandedNodes: next }; }),
     collapseNode: (id) => set((s) => { const next = new Set(s.expandedNodes); next.delete(id); return { expandedNodes: next }; }),
     collapseAll: () => set({ expandedNodes: new Set() }),
+    collapseAllNodes: () => set({ expandedNodes: new Set() }),
+    expandAllNodes: () => {
+      const { notes } = useNoteStore.getState();
+      const parentIds = notes
+        .filter((n) => notes.some((c) => c.parent_id === n.id))
+        .map((n) => n.id);
+      set((state) => ({ expandedNodes: new Set([...state.expandedNodes, ...parentIds]) }));
+    },
 
     // ─── Sidebar search focus ─────────────────────────────────────────────────
     focusSidebarSearch: null,

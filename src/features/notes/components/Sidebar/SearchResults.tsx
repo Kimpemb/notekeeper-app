@@ -14,7 +14,7 @@ function SnippetText({ text }: { text: string }) {
         part.startsWith("**") && part.endsWith("**") ? (
           <mark
             key={i}
-            className="bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 rounded px-0.5 not-italic font-medium"
+            className="bg-amber-100 /50 text-amber-800  rounded px-0.5 not-italic font-medium"
           >
             {part.slice(2, -2)}
           </mark>
@@ -120,7 +120,7 @@ export function SearchResults({ query }: Props) {
   if (loading) {
     return (
       <div className="px-4 py-6 flex items-center justify-center">
-        <span className="text-xs text-zinc-400 dark:text-zinc-500 animate-pulse">
+        <span className="text-xs text-idemora-text-muted animate-pulse">
           Searching…
         </span>
       </div>
@@ -130,9 +130,9 @@ export function SearchResults({ query }: Props) {
   if (searched && results.length === 0) {
     return (
       <div className="px-4 py-6 text-center">
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+        <p className="text-xs text-idemora-text-muted">
           No results for{" "}
-          <span className="font-medium text-zinc-500 dark:text-zinc-400">
+          <span className="font-medium text-idemora-text-muted">
             "{query}"
           </span>
         </p>
@@ -156,8 +156,8 @@ export function SearchResults({ query }: Props) {
               onClick={() => handleResultClick(result, index)}
               className={`w-full text-left px-2.5 py-2 rounded-md transition-colors duration-75 group ${
                 isActive
-                  ? "bg-zinc-200 dark:bg-zinc-700"
-                  : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  ? "bg-idemora-bg-primary "
+                  : " "
               }`}
             >
               <div className="flex items-center gap-1.5 mb-0.5">
@@ -166,7 +166,7 @@ export function SearchResults({ query }: Props) {
                   height="11"
                   viewBox="0 0 12 12"
                   fill="none"
-                  className="text-zinc-300 dark:text-zinc-600 shrink-0"
+                  className="text-idemora-text-normal  shrink-0"
                 >
                   <rect
                     x="1.5"
@@ -184,12 +184,12 @@ export function SearchResults({ query }: Props) {
                     strokeLinecap="round"
                   />
                 </svg>
-                <span className="text-xs font-medium text-zinc-700 dark:text-zinc-200 truncate">
+                <span className="text-xs font-medium text-idemora-text-normal truncate">
                   {result.title}
                 </span>
               </div>
               {result.snippet && (
-                <p className="text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500 line-clamp-2 pl-4">
+                <p className="text-[11px] leading-relaxed text-idemora-text-muted line-clamp-2 pl-4">
                   <SnippetText text={result.snippet} />
                 </p>
               )}
@@ -200,7 +200,7 @@ export function SearchResults({ query }: Props) {
 
       {results.length > 0 && (
         <li className="px-2.5 pt-1">
-          <p className="text-[10px] text-zinc-300 dark:text-zinc-700 tabular-nums">
+          <p className="text-[10px] text-idemora-text-normal  tabular-nums">
             {results.length} result{results.length !== 1 ? "s" : ""}
           </p>
         </li>

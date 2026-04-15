@@ -147,7 +147,7 @@ const TIPS_BY_CATEGORY: { title: string; tips: Tip[] }[] = [
 
 function Key({ label }: { label: string }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[1.4rem] h-5 px-1.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 border border-zinc-300 dark:border-zinc-600 leading-none">
+    <kbd className="inline-flex items-center justify-center min-w-[1.4rem] h-5 px-1.5 rounded text-[10px] font-medium bg-idemora-bg-primary  text-idemora-text-muted border   leading-none">
       {label}
     </kbd>
   );
@@ -183,14 +183,14 @@ export function TipsPanel() {
       }}
       aria-hidden={!tipsOpen}
     >
-      <div className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+      <div className="border-b border-idemora-border bg-idemora-bg-primary ">
         <div className="flex items-center justify-between px-5 pt-3 pb-2">
-          <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
+          <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wide">
             Tips & shortcuts
           </span>
           <button
             onClick={closeTips}
-            className="w-6 h-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+            className="w-6 h-6 flex items-center justify-center rounded text-idemora-text-muted     transition-colors duration-100"
             aria-label="Close tips"
           >
             <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
@@ -202,7 +202,7 @@ export function TipsPanel() {
           <div className="flex gap-8 min-w-max">
             {TIPS_BY_CATEGORY.map((category) => (
               <div key={category.title} className="w-52 shrink-0">
-                <p className="text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wide mb-2">
+                <p className="text-[11px] font-semibold text-idemora-text-muted uppercase tracking-wide mb-2">
                   {category.title}
                 </p>
                 <div className="space-y-1.5">
@@ -212,7 +212,7 @@ export function TipsPanel() {
                       <div
                         key={i}
                         onClick={() => handleTipClick(tip)}
-                        className={`flex items-start gap-2 ${hasAction ? "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded transition-colors duration-100" : ""}`}
+                        className={`flex items-start gap-2 ${hasAction ? "cursor-pointer  /50 rounded transition-colors duration-100" : ""}`}
                         style={{ padding: hasAction ? "2px 4px" : "0" }}
                         title={hasAction ? "Click to execute" : ""}
                       >
@@ -220,17 +220,17 @@ export function TipsPanel() {
                           {tip.keys ? (
                             tip.keys.map((k, ki) => (
                               <span key={ki} className="flex items-center gap-0.5">
-                                {ki > 0 && <span className="text-zinc-300 dark:text-zinc-600 text-[10px] mx-0.5">+</span>}
+                                {ki > 0 && <span className="text-idemora-text-normal  text-[10px] mx-0.5">+</span>}
                                 <Key label={k} />
                               </span>
                             ))
                           ) : (
-                            <span className="text-[11px] text-zinc-500 dark:text-zinc-400 italic leading-tight">
+                            <span className="text-[11px] text-idemora-text-muted italic leading-tight">
                               {tip.action}
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-zinc-500 dark:text-zinc-500 leading-tight pt-px">
+                        <span className="text-[11px] text-idemora-text-muted leading-tight pt-px">
                           {tip.description}
                         </span>
                       </div>

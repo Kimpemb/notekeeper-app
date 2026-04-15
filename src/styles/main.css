@@ -7,4 +7,14 @@
 @import "./ui.css";
 @import "./drag-handle.css";
 
+@theme inline {
+  --color-idemora-bg-primary: var(--idemora-bg-primary);
+  --color-idemora-bg-secondary: var(--idemora-bg-secondary);
+  --color-idemora-border: var(--idemora-border);
+  --color-idemora-text-faint: var(--idemora-text-faint);
+  --color-idemora-text-muted: var(--idemora-text-muted);
+  --color-idemora-text-normal: var(--idemora-text-normal);
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
+

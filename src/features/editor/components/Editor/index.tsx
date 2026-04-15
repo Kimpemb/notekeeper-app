@@ -126,11 +126,43 @@ function reconcileSubPageBlocks(
   return JSON.stringify(doc);
 }
 
+// ── Breadcrumb helpers ────────────────────────────────────────────────────────
+interface BreadcrumbSegment { id: string; title: string; }
+
+function buildBreadcrumb(
+  noteId: string,
+  notes: Array<{ id: string; title: string; parent_id: string | null }>
+): BreadcrumbSegment[] {
+  const path: BreadcrumbSegment[] = [];
+  let current = notes.find((n) => n.id === noteId);
+  while (current) {
+    path.unshift({ id: current.id, title: current.title });
+    if (!current.parent_id) break;
+    current = notes.find((n) => n.id === current!.parent_id);
+  }
+  return path;
+}
+
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
   const note = useNoteStore(useCallback((s) => s.notes.find((n) => n.id === noteId) ?? null, [noteId]));
   const notes         = useNoteStore((s) => s.notes);
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
+
+  // Nav — pane 1
+  const goBack          = useNoteStore((s) => s.goBack);
+  const goForward       = useNoteStore((s) => s.goForward);
+  const pane1CanGoBack  = useNoteStore((s) => s.canGoBack());
+  const pane1CanGoForward = useNoteStore((s) => s.canGoForward());
+
+  // Nav — pane 2
+  const pane2CanGoBack    = useUIStore((s) => s.pane2CanGoBack());
+  const pane2CanGoForward = useUIStore((s) => s.pane2CanGoForward());
+  const pane2GoBack       = useUIStore((s) => s.pane2GoBack);
+  const pane2GoForward    = useUIStore((s) => s.pane2GoForward);
+
+  const canGoBack    = paneId === 2 ? pane2CanGoBack    : pane1CanGoBack;
+  const canGoForward = paneId === 2 ? pane2CanGoForward : pane1CanGoForward;
 
   const pane1ActiveNoteId = useUIStore((s) => s.activeTabNoteId());
   const pane2ActiveNoteId = useUIStore((s) => s.paneActiveNoteId(2));
@@ -167,8 +199,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const lastSavedContent      = useRef<string | null>(note?.content ?? null);
   const titleFocusedRef       = useRef(false);
   const subPageCreatingRef    = useRef(false);
-  // Suppresses autosave during the window when idemora:content-updated reloads
-  // the editor's TipTap state from a graph-written DB change.
   const suppressSave          = useRef(false);
 
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
@@ -322,10 +352,10 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   function closeLinkSuggest() { closeLinkSuggestInternal(); editor?.commands.focus(); }
   function closeBlockRefSuggest() { closeBlockRefSuggestInternal(); editor?.commands.focus(); }
 
-useEffect(() => {
-  if (!editor || !note?.content) return;
-  syncBacklinks(noteId, extractNoteLinkIds(editor)).catch(console.error);
-}, [noteId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!editor || !note?.content) return;
+    syncBacklinks(noteId, extractNoteLinkIds(editor)).catch(console.error);
+  }, [noteId]);
 
   useEffect(() => {
     if (!editor) return;
@@ -345,7 +375,7 @@ useEffect(() => {
   useEffect(() => {
     if (!scrollRef.current || initialScrollTop === 0) return;
     scrollRef.current.scrollTop = initialScrollTop;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!titleRef.current) return;
@@ -364,7 +394,7 @@ useEffect(() => {
       }, 50);
       return () => clearTimeout(t);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -410,14 +440,8 @@ useEffect(() => {
       }
     }, 0);
     return () => clearTimeout(timer);
-  }, [note?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [note?.content]);
 
-  // ── idemora:content-updated ───────────────────────────────────────────────
-  // Fired by useGraphEdit after it writes a noteLink directly to the DB.
-  // We reload TipTap's in-memory state from the new content so that subsequent
-  // autosaves include the injected link rather than overwriting it.
-  // suppressSave is set for the reload window to prevent the debounce from
-  // firing with stale content during the transition.
   useEffect(() => {
     function handleContentUpdated(e: Event) {
       const { noteId: updatedId, content: freshContent } =
@@ -431,9 +455,7 @@ useEffect(() => {
       suppressSave.current = true;
       lastSavedContent.current = freshContent;
 
-      // emitUpdate: false — prevents onUpdate firing and re-triggering
-      // slash menu / link suggest logic from the injected noteLink node.
-editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false });
+      editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false });
 
       requestAnimationFrame(() => {
         suppressSave.current = false;
@@ -442,7 +464,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
 
     window.addEventListener("idemora:content-updated", handleContentUpdated);
     return () => window.removeEventListener("idemora:content-updated", handleContentUpdated);
-  }, [noteId, editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [noteId, editor]);
 
   useEffect(() => {
     if (!editor || !note) return;
@@ -467,7 +489,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
 
     const t = setTimeout(apply, 80);
     return () => clearTimeout(t);
-  }, [noteId, notes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [noteId, notes]);
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
@@ -476,7 +498,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
       if (success) setPendingScrollHeading(null);
     }, 100);
     return () => clearTimeout(timer);
-  }, [noteId, pendingScrollHeading, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [noteId, pendingScrollHeading, isActiveTab]);
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
@@ -491,7 +513,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
       }, 400);
     }, 50);
     return () => clearTimeout(timer);
-  }, [noteId, pendingScrollQuery, isActiveTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [noteId, pendingScrollQuery, isActiveTab]);
 
   useEffect(() => {
     if (!editor || !isActiveTab) return;
@@ -507,7 +529,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
     lastSavedContent.current = content;
     if (!editor) return;
     syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
-  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete, suppressSave });
 
@@ -516,7 +538,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
     function handle(e: KeyboardEvent) { if (e.key === "Escape") { e.preventDefault(); closeSlashMenu(); } }
     document.addEventListener("keydown", handle, true);
     return () => document.removeEventListener("keydown", handle, true);
-  }, [slashOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [slashOpen]);
 
   useEffect(() => {
     function handle(e: KeyboardEvent) {
@@ -607,6 +629,12 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
 
   // ── Early return — all hooks must be above this line ─────────────────────
   if (!note) return null;
+
+  // Breadcrumb for this pane
+  const breadcrumb        = buildBreadcrumb(noteId, notes);
+  const breadcrumbCurrent = breadcrumb[breadcrumb.length - 1] ?? null;
+  const breadcrumbParent  = breadcrumb[breadcrumb.length - 2] ?? null;
+  const isUntitled        = /^Untitled-\d+$/.test(note.title);
 
   function handleTitleFocus() { titleFocusedRef.current = true; }
   function handleTitleBlur() {
@@ -772,83 +800,129 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
     editor.chain().focus().sortTaskList().run();
   }
 
-  const isUntitled = /^Untitled-\d+$/.test(note.title);
+  // src/features/editor/components/Editor/index.tsx (only the return section - rest of the file remains the same)
 
   return (
     <div className="flex h-full w-full overflow-hidden">
       <div className="flex flex-col flex-1 h-full overflow-hidden">
 
-        {findReplaceOpen && editor && (
-          <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
-        )}
+        {/* ── Editor nav bar: back/forward + breadcrumb + all editor buttons ── */}
+        <div className="flex items-center justify-between gap-2 px-3 h-9 shrink-0">
+          <div className="flex items-center gap-1 min-w-0">
+            <button
+              onClick={() => paneId === 2 ? pane2GoBack() : goBack()}
+              disabled={!canGoBack}
+              title="Go back (Ctrl+[)"
+              className="shrink-0 w-9 h-9 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+            >
+              <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
+                <path d="M9 7H3M3 7l3.5-3.5M3 7l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <button
+              onClick={() => paneId === 2 ? pane2GoForward() : goForward()}
+              disabled={!canGoForward}
+              title="Go forward (Ctrl+])"
+              className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+            >
+              <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
+                <path d="M5 7h6M11 7L7.5 3.5M11 7L7.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
 
-        {showEditorButtons && (
-          <div className="flex items-center gap-1.5 justify-end px-3 py-1.5 shrink-0 flex-wrap border-b border-zinc-100 dark:border-zinc-800">
-            <div className="flex items-center gap-1.5">
-              <div
-                className={`flex items-center gap-1.5 overflow-hidden transition-all duration-200 ease-in-out ${
-                  panelsOpen ? "max-w-xs opacity-100" : "max-w-0 opacity-0"
-                }`}
-              >
-                {!myOutlineOpen && (
-                  <button onClick={() => toggleOutline(paneId)}
-                    className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                    Outline
-                  </button>
+            {breadcrumbCurrent && (
+              <div className="flex items-center gap-1 ml-1 min-w-0">
+                {breadcrumbParent && (
+                  <>
+                    <button
+  onClick={() => setActiveNote(breadcrumbParent.id)}
+  className="text-base text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100 max-w-32 truncate shrink-0"
+>
+                      {breadcrumbParent.title}
+                    </button>
+                    <span className="text-idemora-text-faint text-base shrink-0">/</span>
+                  </>
                 )}
-                {!myBacklinksOpen && (
-                  <button onClick={() => toggleBacklinks(paneId)}
-                    className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    Backlinks
-                  </button>
-                )}
-                {!mySimilarOpen && (
-                  <button onClick={() => toggleSimilar(paneId)}
-                    className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 whitespace-nowrap">
-                    <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
-                    Similar
+                <span className={`text-base truncate ${isUntitled ? "text-idemora-text-muted" : "text-idemora-text-normal"}`}>
+                  {isUntitled ? "Untitled" : breadcrumbCurrent.title}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* All editor buttons moved to the right side */}
+          {showEditorButtons && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <div
+                  className={`flex items-center gap-1.5 overflow-hidden transition-all duration-200 ease-in-out ${
+                    panelsOpen ? "max-w-xs opacity-100" : "max-w-0 opacity-0"
+                  }`}
+                >
+                  {!myOutlineOpen && (
+                    <button onClick={() => toggleOutline(paneId)}
+                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
+                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                      Outline
+                    </button>
+                  )}
+                  {!myBacklinksOpen && (
+                    <button onClick={() => toggleBacklinks(paneId)}
+                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
+                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      Backlinks
+                    </button>
+                  )}
+                  {!mySimilarOpen && (
+                    <button onClick={() => toggleSimilar(paneId)}
+                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
+                      <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
+                      Similar
+                    </button>
+                  )}
+                </div>
+
+                {(!myOutlineOpen || !myBacklinksOpen || !mySimilarOpen) && (
+                  <button
+                    onClick={() => setPanelsOpen((o) => !o)}
+                    className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary border-idemora-border hover:bg-idemora-bg-secondary ${
+                      panelsOpen
+                        ? "text-idemora-text-normal"
+                        : "text-idemora-text-muted"
+                    }`}
+                  >
+                    <svg
+                      width="9" height="9" viewBox="0 0 9 9" fill="none"
+                      className={`transition-transform duration-200 ${panelsOpen ? "" : "rotate-180"}`}
+                    >
+                      <path d="M6.5 4.5L3 2M6.5 4.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
                   </button>
                 )}
               </div>
 
-              {(!myOutlineOpen || !myBacklinksOpen || !mySimilarOpen) && (
-                <button
-                  onClick={() => setPanelsOpen((o) => !o)}
-                  className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 ${
-                    panelsOpen
-                      ? "text-zinc-700 dark:text-zinc-200 border-zinc-300 dark:border-zinc-600"
-                      : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
-                  }`}
-                >
-                  <svg
-                    width="9" height="9" viewBox="0 0 9 9" fill="none"
-                    className={`transition-transform duration-200 ${panelsOpen ? "" : "rotate-180"}`}
-                  >
-                    <path d="M6.5 4.5L3 2M6.5 4.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              )}
+              <button
+  onClick={() => openGraphForNote(noteId)}
+  className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border border-idemora-border"
+>
+                <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+                  <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+                  <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+                  <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+                  <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+                  <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+                Local Graph
+              </button>
+
+              <AIActionBar note={note} />
             </div>
+          )}
+        </div>
 
-            <button
-              onClick={() => openGraphForNote(noteId)}
-              className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
-            >
-              <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
-                <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
-                <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
-                <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
-                <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
-                <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
-                <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              </svg>
-              Local Graph
-            </button>
-
-            <AIActionBar note={note} />
-          </div>
+        {findReplaceOpen && editor && (
+          <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
         )}
 
         {editor && taskListToolbarPos && isActiveTab && (
@@ -859,7 +933,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
             <button
               onClick={handleSortTaskList}
               title="Sort: unchecked first, checked last"
-              className="flex items-center gap-1.5 px-2.5 h-6 rounded-full text-xs font-medium transition-all duration-150 border bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600 shadow-sm"
+              className="flex items-center gap-1.5 px-2.5 h-6 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border shadow-sm"
             >
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                 <path d="M1.5 3h5M1.5 5.5h3.5M1.5 8h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -873,14 +947,14 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
         {editor && hasSelection && bubblePos && (
           <div
             style={{ position: "fixed", top: bubblePos.top, left: bubblePos.left, zIndex: 40 }}
-            className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-xl"
+            className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-idemora-bg-primary border border-idemora-border shadow-xl"
             onMouseDown={(e) => { if ((e.target as HTMLElement).closest("button") === null) e.preventDefault(); }}
           >
             <BubbleBtn onClick={() => editor.chain().focus().toggleBold().run()}   active={editor.isActive("bold")}   title="Bold"><span className="font-bold text-sm">B</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive("italic")} title="Italic"><span className="italic text-sm">I</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive("strike")} title="Strikethrough"><span className="line-through text-sm">S</span></BubbleBtn>
             <BubbleBtn onClick={() => editor.chain().focus().toggleCode().run()}   active={editor.isActive("code")}   title="Inline code"><span className="font-mono text-sm">{"<>"}</span></BubbleBtn>
-            <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
+            <div className="w-px h-4 bg-idemora-border mx-0.5" />
             <BubbleBtn onClick={convertToToggle} active={editor.isActive("toggle")} title="Convert to toggle">
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path d="M3 4l3 3-3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
@@ -893,8 +967,8 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
                 <path d="M3.5 6.5l2 2 3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </BubbleBtn>
-            <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
-            <button onClick={handleThreeDots} title="More commands" className="w-8 h-7 flex items-center justify-center rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors duration-75">
+            <div className="w-px h-4 bg-idemora-border mx-0.5" />
+            <button onClick={handleThreeDots} title="More commands" className="w-8 h-7 flex items-center justify-center rounded-md text-idemora-text-normal hover:text-idemora-text-muted hover:bg-idemora-bg-secondary transition-colors duration-75">
               <span className="text-sm tracking-widest">···</span>
             </button>
           </div>
@@ -912,7 +986,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
               autoCorrect="off" autoCapitalize="off"
               onFocus={handleTitleFocus} onBlur={handleTitleBlur}
               onKeyDown={handleTitleKeyDown} onPaste={handleTitlePaste}
-              className="block w-full font-bold mb-3 outline-none text-zinc-900 dark:text-zinc-100 empty:before:content-[attr(data-placeholder)] empty:before:text-zinc-300 dark:empty:before:text-zinc-600 empty:before:pointer-events-none"
+              className="block w-full font-bold mb-3 outline-none text-idemora-text-normal empty:before:content-[attr(data-placeholder)] empty:before:text-idemora-text-faint empty:before:pointer-events-none"
               style={{ fontSize: "3rem", lineHeight: 1.2 }}
               data-placeholder={isUntitled ? note.title : "Untitled"}
             >
@@ -920,7 +994,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
             </h1>
             <TagBar noteId={note.id} tags={note.tags} />
             <div key={note.id} ref={editorWrapRef}>
-              <EditorContent editor={editor} className="text-zinc-800 dark:text-zinc-200 min-h-[60vh]" />
+              <EditorContent editor={editor} className="text-idemora-text-normal min-h-[60vh]" />
               <div className="h-[25vh]" />
             </div>
           </div>
@@ -975,7 +1049,7 @@ function BubbleBtn({ onClick, active, title, children }: {
       onMouseDown={(e) => { e.preventDefault(); onClick(); }}
       title={title}
       className={`w-8 h-7 flex items-center justify-center rounded-md transition-colors duration-75 ${
-        active ? "bg-zinc-200 dark:bg-zinc-600 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+        active ? "bg-idemora-bg-secondary text-idemora-text-normal" : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
       }`}
     >
       {children}

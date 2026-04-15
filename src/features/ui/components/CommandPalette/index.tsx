@@ -29,7 +29,7 @@ function getYesterdayStart(): number {
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const NoteIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-400">
+  <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-idemora-text-muted">
     <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
     <path d="M3.5 4h5M3.5 6.5h5M3.5 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
   </svg>
@@ -37,30 +37,30 @@ const NoteIcon = () => (
 
 const ActionIcon = ({ id }: { id: string }) => {
   if (id === "new-note") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M6.5 2v9M2 6.5h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
     </svg>
   );
   if (id === "new-note-new-tab") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M6.5 2v9M2 6.5h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
       <path d="M10 1h2v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   if (id === "open-in-new-tab") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <rect x="1" y="3" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.2"/>
       <path d="M5 1h7v7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   if (id === "toggle-theme") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <circle cx="6.5" cy="6.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
       <path d="M6.5 1v1.5M6.5 10.5V12M1 6.5h1.5M10.5 6.5H12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   );
   if (id === "toggle-graph") return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
       <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
       <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
       <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
@@ -70,50 +70,50 @@ const ActionIcon = ({ id }: { id: string }) => {
     </svg>
   );
   if (id === "toggle-sidebar") return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
       <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
       <path d="M5 1v12" stroke="currentColor" strokeWidth="1.2"/>
     </svg>
   );
   if (id === "daily-note") return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
       <rect x="1.5" y="2.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
       <path d="M4.5 1.5v2M9.5 1.5v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
       <path d="M1.5 5.5h11" stroke="currentColor" strokeWidth="1.1"/>
     </svg>
   );
   if (id === "reload-notes") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M1.5 6.5A5 5 0 1011.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
       <path d="M1.5 3.5v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   if (id === "toggle-backlinks") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M9 4H5a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
       <path d="M7 2h4v4M11 2L7.5 5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   if (id === "toggle-outline") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M2 3.5h9M2 6.5h6M2 9.5h7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   );
   if (id === "toggle-file-tree") return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M1 3.5a1 1 0 011-1h3l1 1.5h6a1 1 0 011 1V11a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
       <path d="M4 8.5h3M4 6.5h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
     </svg>
   );
   if (id === "toggle-tips") return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
       <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2"/>
       <path d="M7 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
       <circle cx="7" cy="4.5" r="0.7" fill="currentColor"/>
     </svg>
   );
   if (id === "toggle-similar") return (
-  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
     <circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
     <circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
     <circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
@@ -121,7 +121,7 @@ const ActionIcon = ({ id }: { id: string }) => {
   </svg>
 );
 if (id === "open-local-graph") return (
-  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
     <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
     <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
     <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
@@ -131,19 +131,19 @@ if (id === "open-local-graph") return (
   </svg>
 );
 if (id === "summarize") return (
-  <svg width="13" height="13" viewBox="0 0 11 11" fill="none" className="shrink-0 text-zinc-400">
+  <svg width="13" height="13" viewBox="0 0 11 11" fill="none" className="shrink-0 text-idemora-text-muted">
     <path d="M1.5 2.5h8M1.5 5h6M1.5 7.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
   </svg>
 );
 if (id === "explain") return (
-  <svg width="13" height="13" viewBox="0 0 11 11" fill="none" className="shrink-0 text-zinc-400">
+  <svg width="13" height="13" viewBox="0 0 11 11" fill="none" className="shrink-0 text-idemora-text-muted">
     <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/>
     <path d="M5.5 5v3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     <circle cx="5.5" cy="3.5" r="0.6" fill="currentColor"/>
   </svg>
 );
   if (id === "open-shortcuts") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <rect x="1" y="2.5" width="4" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
       <rect x="7" y="2.5" width="5" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
       <rect x="1" y="7.5" width="5" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
@@ -151,33 +151,33 @@ if (id === "explain") return (
     </svg>
   );
   if (id === "toggle-ai-chat") return (
-  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
     <path d="M2 2h10a1 1 0 011 1v6a1 1 0 01-1 1H8l-3 2v-2H2a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
     <path d="M4.5 6.5h5M4.5 4.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
   </svg>
 );
   if (id === "export-all") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
       <path d="M4 6.5h5M4 4.5h5M4 8.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   );
   if (id === "export-json" || id === "export-md" || id === "export-pdf") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
       <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
       <path d="M6.5 5.5v4M4.5 7.5l2 2 2-2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   if (id === "import") return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
       <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
       <path d="M6.5 9.5v-4M4.5 7.5l2-2 2 2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   if (id === "voice-typing") return (
-  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-zinc-400">
+  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
     <path d="M7 1C5.9 1 5 1.9 5 3v3c0 1.1.9 2 2 2s2-.9 2-2V3c0-1.1-.9-2-2-2z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
     <path d="M11 6v1c0 2.2-1.8 4-4 4s-4-1.8-4-4V6M7 11v2M4 13h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
   </svg>
@@ -191,7 +191,7 @@ interface ActionItem { kind: "action"; id: string; label: string; hint: string; 
 // ── Section label ─────────────────────────────────────────────────────────────
 function SectionLabel({ label }: { label: string }) {
   return (
-    <p className="px-4 pt-4 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600 select-none">
+    <p className="px-4 pt-4 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted  select-none">
       {label}
     </p>
   );
@@ -205,7 +205,7 @@ function highlightMatch(text: string, q: string) {
   return (
     <span>
       {text.slice(0, idx)}
-      <span className="text-blue-500 dark:text-blue-400 font-semibold">{text.slice(idx, idx + q.length)}</span>
+      <span className="text-blue-500  font-semibold">{text.slice(idx, idx + q.length)}</span>
       {text.slice(idx + q.length)}
     </span>
   );
@@ -225,22 +225,22 @@ function NoteRow({
       onMouseEnter={onMouseEnter}
       onClick={onClick}
       className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors duration-75 ${
-        isSelected ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+        isSelected ? "bg-idemora-bg-primary " : " /50"
       }`}
     >
       <NoteIcon />
       <div className="flex-1 min-w-0 flex items-baseline gap-2">
-        <span className="text-base text-zinc-800 dark:text-zinc-200 truncate shrink-0">
+        <span className="text-base text-idemora-text-normal truncate shrink-0">
           {highlightMatch(note.title, query)}
         </span>
         {buildBreadcrumb(note.id, notes) && (
-          <span className="text-sm text-zinc-400 dark:text-zinc-600 truncate">
+          <span className="text-sm text-idemora-text-muted  truncate">
             — {buildBreadcrumb(note.id, notes)}
           </span>
         )}
       </div>
       {isSelected && (
-        <kbd className="text-sm text-zinc-400 bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded font-mono shrink-0">↵</kbd>
+        <kbd className="text-sm text-idemora-text-muted bg-idemora-bg-primary  px-1.5 py-0.5 rounded font-mono shrink-0">↵</kbd>
       )}
     </li>
   );
@@ -561,11 +561,11 @@ function openNote(noteId: string) {
     <div data-overlay-sentinel className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 sm:px-6 lg:px-0">
       <div
         ref={panelRef}
-        className="relative w-full max-w-5xl h-[85vh] rounded-t-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 border-b-0 shadow-2xl flex flex-col"
+        className="relative w-full max-w-5xl h-[85vh] rounded-t-xl overflow-hidden bg-idemora-bg-primary border-idemora-border-b-0 shadow-2xl flex flex-col"
       >
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
-          <svg className="shrink-0 text-zinc-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <div className="flex items-center gap-3 px-4 py-3 border-b  border-idemora-border shrink-0">
+          <svg className="shrink-0 text-idemora-text-muted" width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.4"/>
             <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
@@ -575,23 +575,23 @@ function openNote(noteId: string) {
             onChange={(e) => { setQuery(e.target.value); setSelectedNote(0); setSelectedAction(0); }}
             onKeyDown={handleInputKeyDown}
             placeholder="Search notes or run a command…"
-            className="flex-1 bg-transparent outline-none text-base text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
+            className="flex-1 bg-transparent outline-none text-base text-idemora-text-normal placeholder:text-idemora-text-muted "
           />
           {query && (
             <button
               onClick={() => { setQuery(""); setSelectedNote(0); setSelectedAction(0); inputRef.current?.focus(); }}
-              className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors duration-75"
+              className="text-idemora-text-muted   transition-colors duration-75"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
             </button>
           )}
-          <kbd className="text-sm text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">ESC</kbd>
+          <kbd className="text-sm text-idemora-text-muted bg-idemora-bg-primary  px-1.5 py-0.5 rounded font-mono">ESC</kbd>
         </div>
 
         {/* Body */}
-        <div className="flex flex-1 min-h-0 divide-x divide-zinc-100 dark:divide-zinc-800">
+        <div className="flex flex-1 min-h-0 divide-x divide-zinc-100 ">
 
           {/* LEFT: Notes */}
           <div
@@ -603,7 +603,7 @@ function openNote(noteId: string) {
                 <>
                   <SectionLabel label="Notes" />
                   {searchedNotes.length === 0 && (
-                    <p className="px-4 py-6 text-sm text-zinc-400 dark:text-zinc-500 text-center">
+                    <p className="px-4 py-6 text-sm text-idemora-text-muted text-center">
                       No notes matching "{query}"
                     </p>
                   )}
@@ -657,7 +657,7 @@ function openNote(noteId: string) {
                     </>
                   )}
                   {todayNotes.length === 0 && yesterdayNotes.length === 0 && (
-                    <p className="px-4 py-6 text-sm text-zinc-400 dark:text-zinc-500 text-center">
+                    <p className="px-4 py-6 text-sm text-idemora-text-muted text-center">
                       No recent notes
                     </p>
                   )}
@@ -671,7 +671,7 @@ function openNote(noteId: string) {
             className={`flex flex-col w-1/2 min-h-0 ${activeSide === "actions" ? "" : "opacity-60"}`}
             onMouseEnter={() => setActiveSide("actions")}
           >
-            <div className="border-b border-zinc-100 dark:border-zinc-800 overflow-y-auto" style={{ maxHeight: "55%" }}>
+            <div className="border-b  border-idemora-border overflow-y-auto" style={{ maxHeight: "55%" }}>
               <SectionLabel label="Commands" />
               <ul>
                 {filteredActions.map((action, i) => {
@@ -683,14 +683,14 @@ function openNote(noteId: string) {
                         onMouseEnter={() => setSelectedAction(i)}
                         onClick={() => action.action()}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer transition-colors duration-75 ${
-                          isSelected ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                          isSelected ? "bg-idemora-bg-primary " : " /50"
                         }`}
                       >
                         <ActionIcon id={action.id} />
-                        <span className="flex-1 text-base text-zinc-800 dark:text-zinc-200 truncate">{action.label}</span>
-                        <span className="text-xs text-zinc-400 dark:text-zinc-600 shrink-0">{action.hint}</span>
+                        <span className="flex-1 text-base text-idemora-text-normal truncate">{action.label}</span>
+                        <span className="text-xs text-idemora-text-muted  shrink-0">{action.hint}</span>
                         {isSelected && (
-                          <kbd className="text-sm text-zinc-400 bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded font-mono shrink-0 ml-1">↵</kbd>
+                          <kbd className="text-sm text-idemora-text-muted bg-idemora-bg-primary  px-1.5 py-0.5 rounded font-mono shrink-0 ml-1">↵</kbd>
                         )}
                       </button>
                     </li>
@@ -704,10 +704,10 @@ function openNote(noteId: string) {
               <ul className="pb-2">
                 {SHORTCUTS.map((s) => (
                   <li key={s.label} className="flex items-center justify-between px-4 py-2">
-                    <span className="text-sm text-zinc-500 dark:text-zinc-400">{s.label}</span>
+                    <span className="text-sm text-idemora-text-muted">{s.label}</span>
                     <div className="flex items-center gap-1">
                       {s.keys.map((k) => (
-                        <kbd key={k} className="text-xs text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">{k}</kbd>
+                        <kbd key={k} className="text-xs text-idemora-text-muted bg-idemora-bg-primary  px-1.5 py-0.5 rounded font-mono">{k}</kbd>
                       ))}
                     </div>
                   </li>
@@ -718,18 +718,18 @@ function openNote(noteId: string) {
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 flex justify-end items-center gap-4 px-4 py-2 border-t border-zinc-100 dark:border-zinc-800">
-          <span className="text-[10px] text-zinc-300 dark:text-zinc-700 flex items-center gap-1">
-            <kbd className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 px-1 py-0.5 rounded font-mono">↑↓</kbd> navigate
+        <div className="shrink-0 flex justify-end items-center gap-4 px-4 py-2 border-t  border-idemora-border">
+          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">↑↓</kbd> navigate
           </span>
-          <span className="text-[10px] text-zinc-300 dark:text-zinc-700 flex items-center gap-1">
-            <kbd className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 px-1 py-0.5 rounded font-mono">Tab</kbd> switch side
+          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">Tab</kbd> switch side
           </span>
-          <span className="text-[10px] text-zinc-300 dark:text-zinc-700 flex items-center gap-1">
-            <kbd className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 px-1 py-0.5 rounded font-mono">↵</kbd> open
+          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">↵</kbd> open
           </span>
-          <span className="text-[10px] text-zinc-300 dark:text-zinc-700 flex items-center gap-1">
-            <kbd className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 px-1 py-0.5 rounded font-mono">ESC</kbd> close
+          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">ESC</kbd> close
           </span>
         </div>
       </div>

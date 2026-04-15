@@ -50,8 +50,8 @@ function AIBtn({
       title={title}
       className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border
         ${active
-          ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800"
-          : "bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600"
+          ? "bg-blue-50 /30 text-blue-600  border-blue-200 "
+          : "bg-idemora-bg-primary text-idemora-text-muted border-idemora-border     :"
         }
         disabled:opacity-50 disabled:cursor-not-allowed`}
     >
@@ -108,7 +108,7 @@ function ResultPanel({
         .map((line, i) => {
           const content = line.replace(/^[-•]\s*/, '');
           return (
-            <div key={i} className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <div key={i} className="flex items-start gap-2 text-sm text-idemora-text-normal mb-1.5">
               <span className="text-blue-400 mt-0.5 shrink-0">•</span>
               <span className="leading-relaxed">{content}</span>
             </div>
@@ -118,28 +118,28 @@ function ResultPanel({
 
     // Render plain paragraphs (for explain action)
     return lines.map((line, i) => (
-      <p key={i} className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed mb-2 last:mb-0">
+      <p key={i} className="text-sm text-idemora-text-normal leading-relaxed mb-2 last:mb-0">
         {line}
       </p>
     ));
   }
 
   return (
-    <div className="absolute top-12 right-3 z-30 w-80 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden">
+    <div className="absolute top-12 right-3 z-30 w-80 rounded-xl border-idemora-border  bg-idemora-bg-primary shadow-xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-zinc-100 dark:border-zinc-800">
+      <div className="flex items-center justify-between px-3.5 py-2.5 border-b  border-idemora-border">
         <div className="flex items-center gap-2">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M6 1v2M6 9v2M1 6h2M9 6h2M2.5 2.5l1.5 1.5M8 8l1.5 1.5M9.5 2.5L8 4M4 8L2.5 9.5"
               stroke="#3b82f6" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
-          <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+          <span className="text-xs font-semibold text-idemora-text-normal">
             {labels[result.action]}
           </span>
         </div>
         <button
           onClick={onDismiss}
-          className="w-5 h-5 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          className="w-5 h-5 flex items-center justify-center rounded text-idemora-text-muted     transition-colors"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
@@ -151,7 +151,7 @@ function ResultPanel({
       <div className="px-3.5 py-3">
         {result.action === "tags" && result.tags ? (
           <div className="space-y-3">
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">Click to select</p>
+            <p className="text-xs text-idemora-text-muted">Click to select</p>
             <div className="flex flex-wrap gap-1.5">
               {result.tags.map((tag) => (
                 <button
@@ -159,8 +159,8 @@ function ResultPanel({
                   onClick={() => toggleTag(tag)}
                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border transition-colors duration-100 ${
                     selectedTags.includes(tag)
-                      ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700"
-                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700"
+                      ? "bg-blue-50 /30 text-blue-600  border-blue-300 "
+                      : "bg-idemora-bg-primary  text-idemora-text-muted border-idemora-border "
                   }`}
                 >
                   #{tag}
@@ -172,8 +172,8 @@ function ResultPanel({
               disabled={selectedTags.length === 0 || applyingTags || tagsApplied}
               className={`w-full py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 ${
                 tagsApplied
-                  ? "bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800"
-                  : "bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                  ? "bg-green-50 /30 text-green-600  border-green-200 "
+                  : "bg-blue-500  text-idemora-text-normal disabled:opacity-40 disabled:cursor-not-allowed"
               }`}
             >
               {tagsApplied
@@ -289,7 +289,7 @@ useEffect(() => {
   return (
     <>
       <div className="flex items-center gap-1.5">
-        <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 mx-0.5" />
+        <div className="w-px h-4 bg-idemora-bg-primary  mx-0.5" />
 
         <AIBtn
           onClick={() => runAction("summarize")}
@@ -333,13 +333,13 @@ useEffect(() => {
 
       {/* ── Error toast ── */}
       {error && (
-        <div className="absolute top-12 right-3 z-30 flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-xs text-red-600 dark:text-red-400 shadow-lg">
+        <div className="absolute top-12 right-3 z-30 flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 /30 border-red-200  text-xs text-red-600  shadow-lg">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.2" />
             <path d="M6 4v2.5M6 8h.01" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
           </svg>
           {error}
-          <button onClick={() => setError(null)} className="ml-1 hover:opacity-70">✕</button>
+          <button onClick={() => setError(null)} className="ml-1 ">✕</button>
         </div>
       )}
 

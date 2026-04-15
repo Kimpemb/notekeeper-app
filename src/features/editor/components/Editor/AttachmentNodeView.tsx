@@ -35,7 +35,7 @@ function FileMissingBlock({ label }: { label: string }) {
         maxWidth: "480px",
         fontSize: "13px",
       }}
-      className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500"
+      className="bg-idemora-bg-secondary border border-idemora-border text-idemora-text-muted"
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -55,7 +55,6 @@ function PdfBlock({ src, filename, size, selected }: {
   size: number | null;
   selected: boolean;
 }) {
-  // null = checking, true = exists, false = missing
   const [exists, setExists] = useState<boolean | null>(null);
   const [visible, setVisible] = useState(false);
 
@@ -98,7 +97,7 @@ function PdfBlock({ src, filename, size, selected }: {
             userSelect: "none",
             maxWidth: "480px",
           }}
-          className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-750 transition-colors duration-100"
+          className="bg-idemora-bg-primary border border-idemora-border hover:bg-idemora-bg-secondary transition-colors duration-100"
           title="Click to open PDF"
         >
           {/* PDF icon */}
@@ -112,7 +111,7 @@ function PdfBlock({ src, filename, size, selected }: {
               justifyContent: "center",
               flexShrink: 0,
             }}
-            className="bg-red-100 dark:bg-red-950/50"
+            className="bg-red-500/10"
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="text-red-500">
               <path d="M3 2h8l4 4v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
@@ -127,19 +126,19 @@ function PdfBlock({ src, filename, size, selected }: {
           <div style={{ minWidth: 0, flex: 1 }}>
             <p
               style={{ fontSize: "13px", fontWeight: 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-              className="text-zinc-800 dark:text-zinc-200"
+              className="text-idemora-text-normal"
             >
               {filename || "Untitled.pdf"}
             </p>
             {size && (
-              <p style={{ fontSize: "11px", margin: "2px 0 0" }} className="text-zinc-400 dark:text-zinc-500">
+              <p style={{ fontSize: "11px", margin: "2px 0 0" }} className="text-idemora-text-muted">
                 {formatBytes(size)} · Click to open
               </p>
             )}
           </div>
 
           {/* Open arrow */}
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-zinc-400 shrink-0">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-idemora-text-muted shrink-0">
             <path d="M3 7h8M7 3l4 4-4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
@@ -160,7 +159,6 @@ function AudioBlock({ src, filename, size, selected }: {
   const [audioError, setAudioError] = useState(false);
   const [visible, setVisible]       = useState(false);
 
-  // If src is empty we know immediately — no need to wait for onError
   useEffect(() => {
     if (!url) {
       setAudioError(true);
@@ -181,7 +179,7 @@ function AudioBlock({ src, filename, size, selected }: {
             outlineOffset: "2px",
             maxWidth: "480px",
           }}
-          className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+          className="bg-idemora-bg-primary border border-idemora-border"
         >
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
@@ -195,7 +193,7 @@ function AudioBlock({ src, filename, size, selected }: {
                 justifyContent: "center",
                 flexShrink: 0,
               }}
-              className="bg-violet-100 dark:bg-violet-950/50"
+              className="bg-violet-500/10"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-violet-500">
                 <path d="M6 2l8 2v8l-8-2V2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
@@ -206,12 +204,12 @@ function AudioBlock({ src, filename, size, selected }: {
             <div style={{ minWidth: 0, flex: 1 }}>
               <p
                 style={{ fontSize: "13px", fontWeight: 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                className="text-zinc-800 dark:text-zinc-200"
+                className="text-idemora-text-normal"
               >
                 {filename || "Audio file"}
               </p>
               {size && (
-                <p style={{ fontSize: "11px", margin: "2px 0 0" }} className="text-zinc-400 dark:text-zinc-500">
+                <p style={{ fontSize: "11px", margin: "2px 0 0" }} className="text-idemora-text-muted">
                   {formatBytes(size)}
                 </p>
               )}

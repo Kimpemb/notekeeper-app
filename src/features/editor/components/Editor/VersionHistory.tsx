@@ -46,7 +46,7 @@ export function VersionHistory({ noteId, paneId }: Props) {
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [versions, selectedIndex, closeVersionHistory, paneId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [versions, selectedIndex, closeVersionHistory, paneId]);
 
   async function handleRestore(version: NoteVersion) {
     const confirmed = window.confirm("Restore this version? Your current content will be saved as a new version first.");
@@ -71,21 +71,43 @@ export function VersionHistory({ noteId, paneId }: Props) {
   };
 
   return (
-    <div className="absolute right-0 top-0 bottom-0 w-80 flex flex-col bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800 shadow-xl z-20">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
-        <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Version History</span>
+    <div className="absolute right-0 top-0 bottom-0 w-80 flex flex-col bg-idemora-bg-secondary border-l border-idemora-border shadow-xl z-20">
+      {/* Header - matches OutlinePanel */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-idemora-border shrink-0">
         <div className="flex items-center gap-2">
-          <kbd className="text-xs text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">ESC</kbd>
-          <button onClick={() => closeVersionHistory(paneId)} className="text-zinc-400 border border-transparent rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors duration-150 p-1">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1.5 1.5l11 11M12.5 1.5l-11 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          </button>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-idemora-text-muted shrink-0">
+            <path d="M2 3h9M2 6h6M2 9h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+          <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wider">Version History</span>
+          {!loading && versions.length > 0 && (
+            <span className="text-xs text-idemora-text-faint tabular-nums">{versions.length}</span>
+          )}
         </div>
+        <button
+          onClick={() => closeVersionHistory(paneId)}
+          className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+        >
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
 
-      <div ref={containerRef} className="flex-1 overflow-y-auto py-1.5" onScroll={handleScroll}>
-        {loading && <div className="px-4 py-6 text-sm text-zinc-400 text-center">Loading versions…</div>}
+      {/* Body - matches OutlinePanel list styling */}
+      <div ref={containerRef} className="flex-1 overflow-y-auto py-2" onScroll={handleScroll}>
+        {loading && (
+          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+            <p className="text-xs text-idemora-text-muted">Loading versions…</p>
+          </div>
+        )}
         {!loading && versions.length === 0 && (
-          <div className="px-4 py-6 text-sm text-zinc-400 dark:text-zinc-500 text-center">No versions yet. Versions are saved automatically as you write.</div>
+          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-idemora-text-faint">
+              <path d="M4 4h16v16H4zM8 8h8M8 12h6M8 16h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+            <p className="text-xs text-idemora-text-muted">No versions yet.</p>
+            <p className="text-xs text-idemora-text-faint">Versions are saved automatically as you write.</p>
+          </div>
         )}
         {!loading && versions.map((version, idx) => (
           <div
@@ -94,28 +116,33 @@ export function VersionHistory({ noteId, paneId }: Props) {
             onMouseEnter={() => handleMouseEnter(version, idx)}
             onMouseLeave={() => setPreview(null)}
             onClick={() => handleRestore(version)}
-            className={`px-4 py-3 cursor-pointer transition-colors duration-75 ${selectedIndex === idx ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"}`}
+            className={`
+  mx-2 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150
+  ${selectedIndex === idx ? "bg-blue-500/10" : ""}
+`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{formatDate(version.created_at)}</p>
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">{formatTime(version.created_at)}</p>
+                <p className={`text-sm font-medium ${selectedIndex === idx ? "text-blue-400" : "text-idemora-text-normal"}`}>
+                  {formatDate(version.created_at)}
+                </p>
+                <p className="text-xs text-idemora-text-muted mt-0.5">{formatTime(version.created_at)}</p>
                 {(selectedIndex === idx || preview?.id === version.id) && version.plaintext && (
-                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2 leading-relaxed border-t border-zinc-100 dark:border-zinc-800 pt-2">
+                  <p className="mt-2 text-xs text-idemora-text-muted line-clamp-2 leading-relaxed pt-2 border-t border-idemora-border">
                     {version.plaintext.slice(0, 120)}{version.plaintext.length > 120 && "…"}
                   </p>
                 )}
               </div>
               {selectedIndex === idx && (
-                <kbd className="text-xs text-zinc-400 bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded font-mono shrink-0 mt-1">↵</kbd>
+                <kbd className="text-xs text-idemora-text-faint bg-idemora-bg-primary px-1.5 py-0.5 rounded font-mono shrink-0 mt-1">↵</kbd>
               )}
             </div>
             {(selectedIndex === idx || preview?.id === version.id) && (
-              <div className="mt-2 flex justify-end">
+              <div className="mt-3 flex justify-end">
                 <button
                   onClick={(e) => { e.stopPropagation(); handleRestore(version); }}
                   disabled={restoring === version.id}
-                  className="text-xs px-2 py-1 rounded-md bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-600 disabled:opacity-50 transition-colors duration-75"
+                  className="text-xs px-2 py-1 rounded-md bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 transition-colors duration-100"
                 >
                   {restoring === version.id ? "Restoring…" : "Restore this version"}
                 </button>

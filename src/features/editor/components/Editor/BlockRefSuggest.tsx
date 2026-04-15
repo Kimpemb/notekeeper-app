@@ -33,7 +33,6 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
     setExpanded(false);
 
     if (!query.trim()) {
-      // No query — walk note JSON directly from store, no blockId required
       const recent: BlockSearchResult[] = [];
       for (const note of notes) {
         if (note.id === activeNoteId) continue;
@@ -48,7 +47,6 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
       return;
     }
 
-    // Query — search via SQLite FTS, results already have correct matched line as plaintext
     searchBlocks(query, activeNoteId ?? "").then(setResults).catch(() => setResults([]));
   }, [query, activeNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -114,20 +112,20 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
           : { top: position.top + 4 }),
         zIndex: 50,
       }}
-      className="w-[300px] rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl"
+      className="w-[300px] rounded-xl overflow-hidden bg-idemora-bg-primary border border-idemora-border shadow-2xl"
     >
       {/* Header */}
-      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-1.5">
+      <div className="px-3 py-2 border-b border-idemora-border flex items-center gap-1.5">
         <BlockIcon className="text-indigo-400 shrink-0" />
-        <span className="text-xs text-zinc-400">
-          Embed block{query && <span className="ml-1 text-zinc-500 font-medium">"{query}"</span>}
+        <span className="text-xs text-idemora-text-muted">
+          Embed block{query && <span className="ml-1 text-idemora-text-normal font-medium">"{query}"</span>}
         </span>
       </div>
 
       {/* List */}
       <ul className="py-1 max-h-72 overflow-y-auto">
         {visible.length === 0 && (
-          <li className="px-4 py-4 text-sm text-zinc-400 text-center">
+          <li className="px-4 py-4 text-sm text-idemora-text-muted text-center">
             {query ? "No matching blocks" : "No blocks found"}
           </li>
         )}
@@ -139,18 +137,18 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
             onMouseDown={(e) => { e.preventDefault(); insert(result); }}
             className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors duration-75 ${
               i === selected
-                ? "bg-zinc-100 dark:bg-zinc-800"
-                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                ? "bg-idemora-bg-secondary"
+                : "hover:bg-idemora-bg-secondary/50"
             }`}
           >
-            <span className="mt-0.5 w-6 h-6 flex items-center justify-center rounded shrink-0 bg-indigo-50 dark:bg-indigo-950 text-indigo-400 dark:text-indigo-500">
+            <span className="mt-0.5 w-6 h-6 flex items-center justify-center rounded shrink-0 bg-indigo-500/10 text-indigo-400">
               <BlockTypeIcon type={result.blockType} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-zinc-800 dark:text-zinc-200 line-clamp-2 leading-snug">
-                {result.plaintext || <span className="italic text-zinc-400">(empty)</span>}
+              <p className="text-sm text-idemora-text-normal line-clamp-2 leading-snug">
+                {result.plaintext || <span className="italic text-idemora-text-muted">(empty)</span>}
               </p>
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">
+              <p className="text-[11px] text-idemora-text-muted mt-0.5 truncate">
                 {result.noteTitle}
               </p>
             </div>
@@ -161,7 +159,7 @@ export function BlockRefSuggest({ position, editor, query, triggerStart, onClose
       {hasMore && (
         <button
           onMouseDown={(e) => { e.preventDefault(); setExpanded(true); }}
-          className="w-full px-3 py-2 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 border-t border-zinc-100 dark:border-zinc-800 transition-colors duration-75 text-left"
+          className="w-full px-3 py-2 text-xs text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-t border-idemora-border transition-colors duration-75 text-left"
         >
           ··· {remaining} more {remaining === 1 ? "block" : "blocks"}
         </button>

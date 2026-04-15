@@ -3,9 +3,10 @@
 // Floating toolbar that appears when the cursor is inside a table.
 // Provides: add/delete row, add/delete column, merge/split cells, delete table.
 // Positioned fixed just above the current table using the table DOM element's
-// bounding rect — similar approach to the bubble menu in index.tsx.
+// bounding rect — recalculated on selection, transaction, AND scroll so it
+// never drifts while the user scrolls.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { Editor } from "@tiptap/react";
 
 interface Props {
@@ -18,49 +19,68 @@ interface ToolbarPos {
 }
 
 export function TableToolbar({ editor }: Props) {
-  const [pos, setPos]               = useState<ToolbarPos | null>(null);
-  const [canMerge, setCanMerge]     = useState(false);
-  const [canSplit, setCanSplit]      = useState(false);
-  const toolbarRef                   = useRef<HTMLDivElement>(null);
+  const [pos, setPos]           = useState<ToolbarPos | null>(null);
+  const [canMerge, setCanMerge] = useState(false);
+  const [canSplit, setCanSplit] = useState(false);
+  const toolbarRef              = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function update() {
-      const { state, view } = editor;
-      const { $from } = state.selection;
+  const update = useCallback(() => {
+    const { state, view } = editor;
+    const { $from } = state.selection;
 
-      // Check if cursor is inside a table
-      let insideTable = false;
-      for (let d = $from.depth; d > 0; d--) {
-        if ($from.node(d).type.name === "table") { insideTable = true; break; }
-      }
-
-      if (!insideTable) { setPos(null); return; }
-
-      // Find the table DOM element and position toolbar above it
-      // Walk up from the cursor's DOM node to find the table element
-      const domAtPos = view.domAtPos($from.pos);
-      let el = domAtPos.node as HTMLElement;
-      while (el && el.tagName !== "TABLE") {
-        el = el.parentElement as HTMLElement;
-      }
-
-      if (!el) { setPos(null); return; }
-
-      const rect = el.getBoundingClientRect();
-      setPos({ top: rect.top - 40, left: rect.left });
-
-      // Update merge/split state
-      setCanMerge(editor.can().mergeCells());
-      setCanSplit(editor.can().splitCell());
+    // Check if cursor is inside a table
+    let insideTable = false;
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type.name === "table") { insideTable = true; break; }
     }
 
+    if (!insideTable) { setPos(null); return; }
+
+    // Walk up from the cursor's DOM node to find the <table> element
+    const domAtPos = view.domAtPos($from.pos);
+    let el = domAtPos.node as HTMLElement;
+    while (el && el.tagName !== "TABLE") {
+      el = el.parentElement as HTMLElement;
+    }
+
+    if (!el) { setPos(null); return; }
+
+    const rect = el.getBoundingClientRect();
+    setPos({ top: rect.top - 40, left: rect.left });
+    setCanMerge(editor.can().mergeCells());
+    setCanSplit(editor.can().splitCell());
+  }, [editor]);
+
+  useEffect(() => {
     editor.on("selectionUpdate", update);
     editor.on("transaction", update);
     return () => {
       editor.off("selectionUpdate", update);
       editor.off("transaction", update);
     };
-  }, [editor]);
+  }, [editor, update]);
+
+  // Re-position on scroll so the toolbar doesn't drift
+  useEffect(() => {
+    // Find the scroll container — walk up from the editor DOM node
+    function getScrollContainer(): HTMLElement | null {
+      let el: HTMLElement | null = editor.view.dom as HTMLElement;
+      while (el) {
+        const overflow = window.getComputedStyle(el).overflowY;
+        if ((overflow === "auto" || overflow === "scroll") && el.scrollHeight > el.clientHeight) {
+          return el;
+        }
+        el = el.parentElement;
+      }
+      return null;
+    }
+
+    const container = getScrollContainer();
+    if (!container) return;
+
+    container.addEventListener("scroll", update, { passive: true });
+    return () => container.removeEventListener("scroll", update);
+  }, [editor, update]);
 
   if (!pos) return null;
 
@@ -80,13 +100,15 @@ export function TableToolbar({ editor }: Props) {
       disabled={disabled}
       className={`flex items-center justify-center w-7 h-7 rounded-md text-xs transition-colors duration-75 ${
         disabled
-          ? "text-zinc-300 dark:text-zinc-600 cursor-not-allowed"
-          : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer"
+          ? "text-idemora-text-faint cursor-not-allowed opacity-40 pointer-events-none"
+          : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] cursor-pointer"
       }`}
     >
       {children}
     </button>
   );
+
+  const divider = <div className="w-px h-4 bg-idemora-border mx-0.5 shrink-0" />;
 
   return (
     <div
@@ -97,7 +119,7 @@ export function TableToolbar({ editor }: Props) {
         left: pos.left,
         zIndex: 40,
       }}
-      className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-xl"
+      className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-idemora-bg-primary border border-idemora-border shadow-xl"
       onMouseDown={(e) => e.preventDefault()}
     >
       {/* Add column before */}
@@ -122,7 +144,7 @@ export function TableToolbar({ editor }: Props) {
         </svg>
       )}
 
-      <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
+      {divider}
 
       {/* Add row before */}
       {btn(() => editor.chain().focus().addRowBefore().run(), "Add row before",
@@ -146,7 +168,7 @@ export function TableToolbar({ editor }: Props) {
         </svg>
       )}
 
-      <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
+      {divider}
 
       {/* Merge cells */}
       {btn(() => editor.chain().focus().mergeCells().run(), "Merge cells",
@@ -165,7 +187,7 @@ export function TableToolbar({ editor }: Props) {
         !canSplit
       )}
 
-      <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-600 mx-0.5" />
+      {divider}
 
       {/* Delete table */}
       {btn(() => editor.chain().focus().deleteTable().run(), "Delete table",

@@ -48,7 +48,7 @@ export function SlashMenu({
       label: "Sub-page",
       description: "Create a new page inside this note",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-blue-500">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-blue-400">
           <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
           <path d="M3.5 4h5M3.5 6.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           <path d="M6.5 9.5h3M8 8v3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
@@ -58,27 +58,27 @@ export function SlashMenu({
     },
 
     {
-  id: "chat",
-  label: "Ask AI",
-  description: "Chat with your notes — ask, question, AI",
-  icon: (
-    <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-violet-500">
-      <path d="M6 1C3.24 1 1 3 1 5.45c0 1.37.64 2.6 1.66 3.42L2.5 11l2-.97c.48.13.98.2 1.5.2 2.76 0 5-2 5-4.45S8.76 1 6 1z"
-        stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-      <path d="M3.5 5h5M3.5 7h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-    </svg>
-  ),
-  action: () => {
-    window.dispatchEvent(new CustomEvent("idemora:open-chat", { detail: { paneId: _paneId } }));
-  },
-},
+      id: "chat",
+      label: "Ask AI",
+      description: "Chat with your notes — ask, question, AI",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-violet-400">
+          <path d="M6 1C3.24 1 1 3 1 5.45c0 1.37.64 2.6 1.66 3.42L2.5 11l2-.97c.48.13.98.2 1.5.2 2.76 0 5-2 5-4.45S8.76 1 6 1z"
+            stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+          <path d="M3.5 5h5M3.5 7h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
+      ),
+      action: () => {
+        window.dispatchEvent(new CustomEvent("idemora:open-chat", { detail: { paneId: _paneId } }));
+      },
+    },
 
-{
+    {
       id: "dataview",
       label: "Dataview",
       description: "Live table of notes filtered by properties — query, table, filter",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-500">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-400">
           <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
           <path d="M1 4h10M4 4v7" stroke="currentColor" strokeWidth="1"/>
           <path d="M6 6.5h3M6 8.5h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
@@ -93,39 +93,39 @@ export function SlashMenu({
     },
 
     {
-  id: "block-ref",
-  label: "Embed Block",
-  description: "Embed a block from another note — block reference, transclude",
-  icon: (
-    <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-500">
-      <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
-      <path d="M3 4h6M3 6.5h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-      <path d="M7 8.5l2 1.5-2 1.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  ),
-  action: () => {
-    editor.chain().focus().insertContent("((").run();
-  },
-},
+      id: "block-ref",
+      label: "Embed Block",
+      description: "Embed a block from another note — block reference, transclude",
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-indigo-400">
+          <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M3 4h6M3 6.5h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+          <path d="M7 8.5l2 1.5-2 1.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ),
+      action: () => {
+        editor.chain().focus().insertContent("((").run();
+      },
+    },
     {
       id: "h1", label: "Heading 1", description: "Large section heading",
-      icon: <span className="font-bold text-base">H1</span>,
+      icon: <span className="font-bold text-base text-idemora-text-normal">H1</span>,
       action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
     },
     {
       id: "h2", label: "Heading 2", description: "Medium section heading",
-      icon: <span className="font-bold text-base">H2</span>,
+      icon: <span className="font-bold text-base text-idemora-text-normal">H2</span>,
       action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
     },
     {
       id: "h3", label: "Heading 3", description: "Small section heading",
-      icon: <span className="font-bold text-base">H3</span>,
+      icon: <span className="font-bold text-base text-idemora-text-normal">H3</span>,
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
     },
     {
       id: "bullet", label: "Bullet List", description: "Unordered list of items",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <circle cx="2" cy="3" r="1" fill="currentColor"/><circle cx="2" cy="6" r="1" fill="currentColor"/><circle cx="2" cy="9" r="1" fill="currentColor"/>
           <path d="M5 3h6M5 6h6M5 9h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
         </svg>
@@ -135,7 +135,7 @@ export function SlashMenu({
     {
       id: "ordered", label: "Numbered List", description: "Ordered list of items",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <path d="M1.5 1.5v3M1 4h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
           <path d="M1 7h2l-2 2.5H3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
           <path d="M5 3h6M5 6h6M5 9h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -146,7 +146,7 @@ export function SlashMenu({
     {
       id: "todo", label: "To-do List", description: "Checklist with checkboxes — todo, task",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <rect x="1" y="1.5" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
           <path d="M1.75 3.25l0.9 0.9 1.35-1.35" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
           <rect x="1" y="7" width="3.5" height="3.5" rx="0.75" stroke="currentColor" strokeWidth="1.1"/>
@@ -158,7 +158,7 @@ export function SlashMenu({
     ...(!insideToggleBody ? [{
       id: "toggle", label: "Toggle", description: "Collapsible block — toggle, collapsible, expand, details",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <path d="M3 4l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
           <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.1"/>
           <path d="M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
@@ -188,7 +188,7 @@ export function SlashMenu({
     {
       id: "table", label: "Table", description: "Insert a table — table, grid",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
           <path d="M1 4.5h10M1 7.5h10M4.5 1v10" stroke="currentColor" strokeWidth="1.1"/>
         </svg>
@@ -198,7 +198,7 @@ export function SlashMenu({
     {
       id: "image", label: "Image", description: "Upload an image from your device — photo, picture",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
           <circle cx="4" cy="4" r="1" fill="currentColor"/>
           <path d="M1 8.5l3-3 2.5 2.5 1.5-1.5L11 9.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
@@ -209,7 +209,7 @@ export function SlashMenu({
     {
       id: "pdf", label: "PDF", description: "Attach a PDF file — document, attachment",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-red-500">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-red-400">
           <path d="M2 1h5.5l2.5 2.5V11H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
           <path d="M7.5 1v2.5H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
           <path d="M3.5 7h1.5a.75.75 0 010 1.5H3.5V7z" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
@@ -220,7 +220,7 @@ export function SlashMenu({
     {
       id: "audio", label: "Audio", description: "Attach an audio file — mp3, wav, music, sound",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-violet-500">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-violet-400">
           <path d="M4 2l6 1.5v5L4 10V2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
           <circle cx="2.5" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.1"/>
           <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.1"/>
@@ -231,7 +231,7 @@ export function SlashMenu({
     {
       id: "divider", label: "Divider", description: "Horizontal rule",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <path d="M1 6h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
         </svg>
       ),
@@ -240,7 +240,7 @@ export function SlashMenu({
     {
       id: "code", label: "Code Block", description: "Multiline code snippet",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <rect x="1" y="1.5" width="10" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
           <path d="M3.5 5L2 6l1.5 1M8.5 5L10 6l-1.5 1M5.5 4l-1 4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
@@ -250,7 +250,7 @@ export function SlashMenu({
     {
       id: "blockquote", label: "Blockquote", description: "Highlighted quote",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+        <svg width="15" height="15" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal">
           <path d="M2 3h2v3H2V3zm4 0h2v3H6V3zM4 6c0 1-.9 2-2 2M8 6c0 1-.9 2-2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       ),
@@ -259,7 +259,7 @@ export function SlashMenu({
     {
       id: "callout-info", label: "Info Callout", description: "Blue info callout block — callout, info, note",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-blue-500">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-blue-400">
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
           <path d="M8 7v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           <circle cx="8" cy="5" r="0.75" fill="currentColor"/>
@@ -270,7 +270,7 @@ export function SlashMenu({
     {
       id: "callout-warning", label: "Warning Callout", description: "Amber warning callout block — warning, caution",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-amber-500">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-amber-400">
           <path d="M8 2.5L14 13H2L8 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
           <path d="M8 7v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           <circle cx="8" cy="11.5" r="0.75" fill="currentColor"/>
@@ -281,7 +281,7 @@ export function SlashMenu({
     {
       id: "callout-tip", label: "Tip Callout", description: "Green tip callout block — tip, success",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-green-500">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-green-400">
           <path d="M8 2a4.5 4.5 0 0 1 2.5 8.2V11.5a.5.5 0 0 1-.5.5h-4a.5.5 0 0 1-.5-.5v-1.3A4.5 4.5 0 0 1 8 2Z" stroke="currentColor" strokeWidth="1.4"/>
           <path d="M6 13.5h4M7 15h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
         </svg>
@@ -291,7 +291,7 @@ export function SlashMenu({
     {
       id: "callout-danger", label: "Danger Callout", description: "Red danger callout block — danger, error",
       icon: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-red-500">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="text-red-400">
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/>
           <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
         </svg>
@@ -339,16 +339,16 @@ export function SlashMenu({
         ...(flip ? { bottom: window.innerHeight - position.caretTop } : { top: position.top }),
         zIndex: 50,
       }}
-      className="w-64 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl"
+      className="w-64 rounded-xl overflow-hidden bg-idemora-bg-secondary border border-idemora-border shadow-2xl"
     >
       {query && (
-        <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
-          <span className="text-xs text-zinc-400">Filter: </span>
-          <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{query}</span>
+        <div className="px-3 py-2 border-b border-idemora-border">
+          <span className="text-xs text-idemora-text-muted">Filter: </span>
+          <span className="text-xs font-medium text-idemora-text-normal">{query}</span>
         </div>
       )}
       <ul ref={listRef} className="py-1.5 max-h-72 overflow-y-auto">
-        {filtered.length === 0 && <li className="px-4 py-4 text-sm text-zinc-400 text-center">No commands match</li>}
+        {filtered.length === 0 && <li className="px-4 py-4 text-sm text-idemora-text-muted text-center">No commands match</li>}
         {filtered.map((cmd, i) => (
           <li
             key={cmd.id}
@@ -356,15 +356,17 @@ export function SlashMenu({
             onMouseEnter={() => setSelected(i)}
             onMouseDown={(e) => { e.preventDefault(); onCommand(cmd.action); }}
             className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors duration-75 ${
-              i === selected ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+              i === selected ? "bg-blue-500/10 text-idemora-text-normal" : "text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
             }`}
           >
-            <span className="w-8 h-8 flex items-center justify-center rounded-md shrink-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
+            <span className="w-8 h-8 flex items-center justify-center rounded-md shrink-0 bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal">
               {cmd.icon}
             </span>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{cmd.label}</p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate">{cmd.description}</p>
+              <p className={`text-sm font-medium ${i === selected ? "text-blue-400" : "text-idemora-text-normal"}`}>
+                {cmd.label}
+              </p>
+              <p className="text-xs text-idemora-text-muted truncate">{cmd.description}</p>
             </div>
           </li>
         ))}

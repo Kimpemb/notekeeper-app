@@ -118,25 +118,46 @@ export function NoteLinkPreview({
         transformOrigin: "left center",
         animation: "notelink-preview-in 120ms cubic-bezier(0.4,0,0.2,1)",
       }}
-      className="flex flex-col rounded-lg shadow-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 overflow-hidden"
+      className="flex flex-col rounded-lg shadow-2xl bg-idemora-bg-secondary border border-idemora-border overflow-hidden"
     >
       <style>{`
         @keyframes notelink-preview-in {
           from { opacity: 0; transform: scale(0.96) translateX(-4px); }
           to   { opacity: 1; transform: scale(1) translateX(0); }
         }
+        .preview-title-btn:hover {
+          background-color: rgba(59, 130, 246, 0.1);
+        }
+        .preview-title-btn:hover .title-text {
+          color: #60a5fa;
+        }
+        .preview-title-btn:hover .title-icon {
+          color: #60a5fa;
+        }
+        .preview-heading-btn:hover {
+          background-color: rgba(59, 130, 246, 0.1);
+        }
+        .preview-heading-btn:hover .heading-level {
+          color: #60a5fa;
+        }
+        .preview-heading-btn:hover .heading-text {
+          color: #60a5fa !important;
+        }
+        .preview-heading-btn:hover .heading-icon {
+          color: #60a5fa;
+        }
       `}</style>
 
       {/* Header — clickable, navigates to note top */}
       <button
         onClick={handleTitleClick}
-        className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 shrink-0 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 group"
+        className="preview-title-btn px-3 py-2 border-b border-idemora-border shrink-0 text-left w-full transition-colors duration-100"
       >
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-100">
+          <p className="title-text text-xs font-semibold text-idemora-text-normal transition-colors duration-100">
             {title}
           </p>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-zinc-300 dark:text-zinc-600 group-hover:text-blue-400 shrink-0 transition-colors duration-100">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="title-icon text-idemora-text-muted shrink-0 transition-colors duration-100">
             <path d="M2 5h6M5 2l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
@@ -145,7 +166,7 @@ export function NoteLinkPreview({
       {/* Body — scrollable, headings are clickable */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {isEmpty ? (
-          <p className="px-3 py-2 text-xs text-zinc-400 dark:text-zinc-600 italic">No content yet.</p>
+          <p className="px-3 py-2 text-xs text-idemora-text-faint italic">No content yet.</p>
         ) : headings.length > 0 ? (
           <ul className="py-1">
             {headings.map((h, i) => (
@@ -153,21 +174,19 @@ export function NoteLinkPreview({
                 <button
                   onClick={() => handleHeadingClick(h.text)}
                   style={{ paddingLeft: `${8 + (h.level - 1) * 10}px` }}
-                  className="w-full flex items-center gap-1.5 py-1 pr-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-75 group"
+                  className="preview-heading-btn w-full flex items-center gap-1.5 py-1.5 pr-3 text-left transition-colors duration-100"
                 >
-                  <span className="shrink-0 text-[9px] font-bold text-zinc-300 dark:text-zinc-600 uppercase group-hover:text-blue-400 transition-colors duration-75">
+                  <span className="heading-level shrink-0 text-[10px] font-mono text-idemora-text-faint transition-colors duration-100">
                     H{h.level}
                   </span>
-                  <span className={`truncate text-xs transition-colors duration-75 group-hover:text-blue-600 dark:group-hover:text-blue-400 ${
+                  <span className={`heading-text truncate text-xs transition-colors duration-100 ${
                     h.level === 1
-                      ? "font-semibold text-zinc-700 dark:text-zinc-200"
-                      : h.level === 2
-                      ? "font-medium text-zinc-600 dark:text-zinc-300"
-                      : "text-zinc-500 dark:text-zinc-400"
+                      ? "font-medium text-idemora-text-normal"
+                      : "text-idemora-text-muted"
                   }`}>
                     {h.text}
                   </span>
-                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0 ml-auto text-zinc-200 dark:text-zinc-700 group-hover:text-blue-400 transition-colors duration-75">
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="heading-icon shrink-0 ml-auto text-idemora-text-faint transition-colors duration-100">
                     <path d="M1 4h6M4 1.5l2.5 2.5L4 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
@@ -175,15 +194,15 @@ export function NoteLinkPreview({
             ))}
           </ul>
         ) : (
-          <p className="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed line-clamp-4">
+          <p className="px-3 py-2 text-xs text-idemora-text-muted leading-relaxed line-clamp-4">
             {snippet}
           </p>
         )}
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-1.5 border-t border-zinc-100 dark:border-zinc-800 shrink-0">
-        <p className="text-[10px] text-zinc-300 dark:text-zinc-600">
+      <div className="px-3 py-2 border-t border-idemora-border shrink-0">
+        <p className="text-[10px] text-idemora-text-faint">
           {headings.length > 0 ? "Click heading to jump there" : "Click title to open note"}
         </p>
       </div>

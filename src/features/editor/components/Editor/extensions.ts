@@ -14,8 +14,6 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { CodeBlockNodeView } from "./CodeBlockNodeView";
 import { CalloutNodeView } from "./CalloutNodeView";
 
-
-
 import {
   ToggleNodeView,
   ToggleSummaryNodeView,
@@ -54,7 +52,6 @@ export const CodeBlock = CodeBlockLowlight.extend({
 });
 
 // ── Task list (checklist / to-do) ─────────────────────────────────────────────
-// Extended to support sort state attributes for cycling sort behavior
 export const CheckList = TaskList.extend({
   addAttributes() {
     return {
@@ -101,38 +98,38 @@ export { TableRow, TableHeader, TableCell };
 export const TaskItemExitExtension = Extension.create({
   name: "taskItemExit",
   addKeyboardShortcuts() {
-  return {
-    Tab: ({ editor }) => {
-      const { $from } = editor.state.selection;
-      let depth = $from.depth;
-      while (depth > 0) {
-        if ($from.node(depth).type.name === "codeBlock") {
-          editor.chain().focus().insertContent("    ").run();
-          return true;
-        }
-        depth--;
-      }
-      return false;
-    },
-    "Shift-Tab": ({ editor }) => {
-      const { $from } = editor.state.selection;
-      let depth = $from.depth;
-      while (depth > 0) {
-        if ($from.node(depth).type.name === "codeBlock") {
-          const { from } = editor.state.selection;
-          const lineStart = $from.start($from.depth);
-          const textBefore = editor.state.doc.textBetween(lineStart, from);
-          if (textBefore.endsWith("    ")) {
-            editor.chain().focus().deleteRange({ from: from - 4, to: from }).run();
+    return {
+      Tab: ({ editor }) => {
+        const { $from } = editor.state.selection;
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "codeBlock") {
+            editor.chain().focus().insertContent("    ").run();
+            return true;
           }
-          return true;
+          depth--;
         }
-        depth--;
-      }
-      return false;
-    },
-  };
-},
+        return false;
+      },
+      "Shift-Tab": ({ editor }) => {
+        const { $from } = editor.state.selection;
+        let depth = $from.depth;
+        while (depth > 0) {
+          if ($from.node(depth).type.name === "codeBlock") {
+            const { from } = editor.state.selection;
+            const lineStart = $from.start($from.depth);
+            const textBefore = editor.state.doc.textBetween(lineStart, from);
+            if (textBefore.endsWith("    ")) {
+              editor.chain().focus().deleteRange({ from: from - 4, to: from }).run();
+            }
+            return true;
+          }
+          depth--;
+        }
+        return false;
+      },
+    };
+  },
 });
 
 // ── Callout block (info / warning / tip / danger) ─────────────────────────────
@@ -240,25 +237,11 @@ export const Callout = Node.create({
 });
 
 // ── Toggle nodes ──────────────────────────────────────────────────────────────
-//
-// Schema design:
-//   `open` lives ONLY on the toggle parent. toggleSummary and toggleBody carry
-//   no open attribute — visibility is a pure CSS consequence of the parent's
-//   .toggle-open / .toggle-closed class. This eliminates the duplicated-state
-//   problem where all three nodes required synchronized setNodeMarkup calls.
-//
-//   Before: every toggle operation did 2-3 setNodeMarkup calls and could
-//           produce inconsistent state if nodes drifted.
-//   After:  every toggle operation does exactly 1 setNodeMarkup call.
-
 export const ToggleSummary = Node.create({
   name: "toggleSummary",
   content: "inline*",
   defining: true,
   isolating: false,
-
-  // No addAttributes — toggleSummary carries no state of its own.
-
   parseHTML() { return [{ tag: "div[data-toggle-summary]" }]; },
   renderHTML({ HTMLAttributes }) {
     return ["div", { "data-toggle-summary": "", ...HTMLAttributes }, 0];
@@ -273,9 +256,6 @@ export const ToggleBody = Node.create({
   content: "block+",
   defining: true,
   isolating: false,
-
-  // No addAttributes — visibility is driven by parent CSS class, not by data.
-
   parseHTML() { return [{ tag: "div[data-toggle-body]" }]; },
   renderHTML({ HTMLAttributes }) {
     return ["div", { "data-toggle-body": "", ...HTMLAttributes }, 0];
@@ -293,8 +273,6 @@ export const Toggle = Node.create({
 
   addAttributes() {
     return {
-      // Single source of truth for open/closed state.
-      // Neither child node carries this attribute.
       open: {
         default: false,
         parseHTML: (el) => el.getAttribute("data-open") === "true",
@@ -318,11 +296,6 @@ export const ToggleKeyboardExtension = Extension.create({
 
   addKeyboardShortcuts() {
     return {
-      // Enter inside toggleSummary:
-      //   open + has body  → jump cursor into first body line
-      //   open + no body   → shouldn't happen (body always created on open),
-      //                      but guard: close toggle
-      //   closed           → insert new sibling toggle below
       Enter: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty) return false;
@@ -363,7 +336,6 @@ export const ToggleKeyboardExtension = Extension.create({
                 .chain().focus()
                 .command(({ tr, state, dispatch }) => {
                   if (dispatch) {
-                    // New sibling toggle — no open attr needed on summary/body
                     const newSummary = state.schema.nodes.toggleSummary.create();
                     const newToggle  = state.schema.nodes.toggle.create({ open: false }, newSummary);
                     tr.insert(afterPos, newToggle);
@@ -383,13 +355,10 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
-      // Backspace at start of empty summary → unwrap toggle to paragraph
-      // Backspace at start of first body line → move cursor back to summary end
       Backspace: ({ editor }) => {
         const { $from, empty } = editor.state.selection;
         if (!empty || $from.parentOffset !== 0) return false;
 
-        // Case 1: in toggleSummary
         let depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "toggleSummary") {
@@ -417,7 +386,6 @@ export const ToggleKeyboardExtension = Extension.create({
           depth--;
         }
 
-        // Case 2: at start of first block in toggleBody
         depth = $from.depth;
         while (depth > 0) {
           if ($from.node(depth).type.name === "toggleBody") {
@@ -452,7 +420,6 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
-      // Mod+Enter in summary → toggle open/closed (delegates to helper)
       "Mod-Enter": ({ editor }) => {
         const { $from } = editor.state.selection;
         let depth = $from.depth;
@@ -469,8 +436,6 @@ export const ToggleKeyboardExtension = Extension.create({
         return false;
       },
 
-      // Mod+A in summary → select all summary content
-      // Mod+A in body    → select all body content
       "Mod-a": ({ editor }) => {
         const { $from } = editor.state.selection;
 
@@ -531,6 +496,7 @@ export const ToggleBodyPlaceholderExtension = Extension.create({
                     const span = document.createElement("span");
                     span.textContent = "Write something, or press '/' for commands";
                     span.className = "toggle-body-hint";
+                    span.style.color = "var(--idemora-text-faint)";
                     return span;
                   },
                   { side: 1, key: `toggle-body-hint-${pos}` }
@@ -571,6 +537,7 @@ export const EmptyLinePlaceholderExtension = Extension.create({
                     const span = document.createElement("span");
                     span.textContent = "Press '/' for commands";
                     span.className = "empty-line-hint";
+                    span.style.color = "var(--idemora-text-faint)";
                     return span;
                   },
                   { side: 1, key: `empty-hint-${pos}` }
@@ -607,7 +574,7 @@ export const SlashPlaceholderExtension = Extension.create({
                 () => {
                   const span = document.createElement("span");
                   span.textContent = "Type to search";
-                  span.style.color = "rgba(128,128,128,0.42)";
+                  span.style.color = "var(--idemora-text-faint)";
                   span.style.pointerEvents = "none";
                   span.style.userSelect = "none";
                   span.setAttribute("data-slash-hint", "true");
@@ -767,15 +734,7 @@ export { ImageExtension } from "./ImageExtension";
 // ── Attachment (PDF + Audio) ──────────────────────────────────────────────────
 export { AttachmentExtension } from "./AttachmentExtension";
 
-// ── Task list sort: cycles through unchecked-first, checked-first, original ──
-//
-// Adds a `sortTaskList` command that cycles the nearest taskList through three states:
-//   - "original":      original order (as created)
-//   - "uncheckedFirst": unchecked items top, checked bottom (stable within groups)
-//   - "checkedFirst":   checked items top, unchecked bottom (stable within groups)
-//
-// Each taskList stores its sort state in the node's `data-sort-state` attribute.
-// The first sort captures the original item order as a snapshot.
+// ── Task list sort ───────────────────────────────────────────────────────────
 export const TaskListSortExtension = Extension.create({
   name: "taskListSort",
 
@@ -786,7 +745,6 @@ export const TaskListSortExtension = Extension.create({
         ({ state, dispatch }) => {
           const { $from } = state.selection;
 
-          // Walk up to find the nearest taskList ancestor
           let taskListPos = -1;
           let taskListNode: import("@tiptap/pm/model").Node | null = null;
 
@@ -801,7 +759,6 @@ export const TaskListSortExtension = Extension.create({
 
           if (taskListPos === -1 || !taskListNode) return false;
 
-          // Collect top-level taskItem children with original index
           const items: { node: import("@tiptap/pm/model").Node; checked: boolean; originalIndex: number }[] = [];
           taskListNode.forEach((child, _offset, index) => {
             if (child.type.name === "taskItem") {
@@ -813,20 +770,16 @@ export const TaskListSortExtension = Extension.create({
             }
           });
 
-          // Get current sort state from node attribute (or default to "original")
           const currentState = taskListNode.attrs["data-sort-state"] || "original";
           
-          // Determine next state: original → uncheckedFirst → checkedFirst → original
           let nextState: string;
           if (currentState === "original") nextState = "uncheckedFirst";
           else if (currentState === "uncheckedFirst") nextState = "checkedFirst";
           else nextState = "original";
 
-          // If transitioning back to original and we have a stored snapshot, use it
           if (nextState === "original") {
             const storedSnapshot = taskListNode.attrs["data-original-order"];
             if (storedSnapshot && Array.isArray(storedSnapshot) && storedSnapshot.length === items.length) {
-              // Rebuild using stored node references (by original index)
               const restored = storedSnapshot.map((originalIdx: number) => items[originalIdx].node);
               const newTaskList = state.schema.nodes.taskList.create(
                 { ...taskListNode.attrs, "data-sort-state": "original", "data-original-order": storedSnapshot },
@@ -839,7 +792,6 @@ export const TaskListSortExtension = Extension.create({
             }
           }
 
-          // Stable sort based on nextState
           const sorted = [...items].sort((a, b) => {
             if (nextState === "uncheckedFirst") {
               if (a.checked === b.checked) return a.originalIndex - b.originalIndex;
@@ -848,21 +800,17 @@ export const TaskListSortExtension = Extension.create({
               if (a.checked === b.checked) return a.originalIndex - b.originalIndex;
               return a.checked ? -1 : 1;
             }
-            // original order fallback
             return a.originalIndex - b.originalIndex;
           });
 
-          // Skip if already in desired order
           const alreadySorted = sorted.every((item, i) => item.originalIndex === items[i].originalIndex);
           if (alreadySorted && nextState !== "original") return false;
 
-          // Store original order snapshot if this is first sort (transition from original)
           let originalOrder: number[] | undefined = taskListNode.attrs["data-original-order"];
           if (currentState === "original" && !originalOrder) {
             originalOrder = items.map((_, i) => i);
           }
 
-          // Build new node with updated attributes
           const sortedNodes = sorted.map((item) => item.node);
           const newTaskList = state.schema.nodes.taskList.create(
             {
@@ -883,7 +831,6 @@ export const TaskListSortExtension = Extension.create({
   },
 });
 
-// Extend TipTap's Commands interface so TypeScript knows about sortTaskList
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     taskListSort: {
@@ -891,9 +838,6 @@ declare module "@tiptap/core" {
     };
   }
 }
-
-
-
 
 export { BlockIdExtension } from "./BlockIdExtension";
 export { BlockRefNode }     from "./BlockRefNode";

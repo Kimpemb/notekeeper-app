@@ -6,9 +6,6 @@ import { createNote as dbCreateNote } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 
-// No custom props — ReactNodeViewRenderer only passes ReactNodeViewProps.
-// The callbacks are read from editor.storage["subPage"] which is populated
-// by createGraphSubPageNode's addStorage() when the extension is registered.
 export function GraphSubPageNodeView({
   node,
   updateAttributes,
@@ -21,7 +18,6 @@ export function GraphSubPageNodeView({
     mode: "editing" | "display";
   };
 
-  // Read callbacks from storage — set by createGraphSubPageNode's addStorage()
   const storage = (editor.storage as unknown as Record<string, unknown>)["subPage"] as {
     onOpenInEditor:   (noteId: string) => void;
     onNavigateToNode: (noteId: string) => void;
@@ -36,7 +32,6 @@ export function GraphSubPageNodeView({
   const notes      = useNoteStore((s) => s.notes);
   const expandNode = useUIStore((s) => s.expandNode);
 
-  // Focus input when entering editing mode
   useEffect(() => {
     if (mode === "editing" && inputRef.current) {
       setTimeout(() => {
@@ -70,15 +65,15 @@ export function GraphSubPageNodeView({
   }
 
   function handleClick(e: React.MouseEvent) {
-  if (!noteId) return;
-  e.preventDefault();
-  e.stopPropagation();
-  if (e.shiftKey) {
-    storage?.onNavigateToNode(noteId);
-  } else {
-    storage?.onOpenInEditor(noteId);
+    if (!noteId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.shiftKey) {
+      storage?.onNavigateToNode(noteId);
+    } else {
+      storage?.onOpenInEditor(noteId);
+    }
   }
-}
 
   const liveTitle = noteId
     ? (notes.find((n) => n.id === noteId)?.title ?? title)
@@ -87,8 +82,8 @@ export function GraphSubPageNodeView({
   return (
     <NodeViewWrapper className="graph-subpage-node my-0.5">
       {mode === "editing" ? (
-        <div className="flex items-center gap-2.5 px-1 py-1.5 rounded-md">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-zinc-400 shrink-0">
+        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-md bg-idemora-bg-primary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-idemora-text-muted shrink-0">
             <path d="M4 2h6l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
             <path d="M10 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
             <path d="M6 8h4M6 11h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
@@ -102,21 +97,21 @@ export function GraphSubPageNodeView({
             onBlur={() => commit(inputValue)}
             onClick={(e) => e.stopPropagation()}
             placeholder="Untitled"
-            className="flex-1 bg-transparent outline-none text-sm text-zinc-200 placeholder-zinc-500"
+            className="flex-1 bg-transparent outline-none text-sm text-idemora-text-normal placeholder-idemora-text-faint"
           />
         </div>
       ) : (
         <div
           onClick={handleClick}
-          className="flex items-center gap-2.5 px-1 py-1.5 rounded-md cursor-pointer hover:bg-indigo-500/10 transition-colors duration-100"
+          className="flex items-center gap-2.5 px-2 py-1.5 rounded-md cursor-pointer hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
           title={noteId ? "Click to open in graph editor · Shift+click to open in main editor" : ""}
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-zinc-400 shrink-0">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-idemora-text-muted shrink-0 group-hover:text-blue-400 transition-colors duration-150">
             <path d="M4 2h6l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
             <path d="M10 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
             <path d="M6 8h4M6 11h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
           </svg>
-          <span className="flex-1 text-sm text-zinc-300 select-none">
+          <span className="flex-1 text-sm text-idemora-text-normal select-none group-hover:text-blue-400 transition-colors duration-150">
             {liveTitle}
           </span>
         </div>

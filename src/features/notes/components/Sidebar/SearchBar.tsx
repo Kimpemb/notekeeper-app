@@ -42,7 +42,7 @@ export function SearchBar() {
 
   return (
     <div className="relative flex items-center w-full">
-      <span className="absolute left-2.5 text-zinc-400 dark:text-zinc-500 pointer-events-none flex items-center">
+      <span className="absolute left-2.5 text-idemora-text-muted pointer-events-none flex items-center">
         <SearchIcon />
       </span>
       <input
@@ -52,12 +52,12 @@ export function SearchBar() {
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Search…"
-        className="w-full h-8 pl-8 pr-7 rounded-md text-sm bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 focus:bg-zinc-100 dark:focus:bg-zinc-800 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 outline-none border-none transition-colors duration-100"
+        className="w-full h-8 pl-8 pr-7 rounded-md text-sm bg-transparent   focus  text-idemora-text-normal placeholder:text-idemora-text-muted :text-idemora-text-muted outline-none border-none transition-colors duration-100"
       />
       {searchQuery && (
         <button
           onClick={handleClear}
-          className="absolute right-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors duration-100"
+          className="absolute right-2 text-idemora-text-muted   transition-colors duration-100"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>

@@ -105,28 +105,26 @@ if (sourceNote) {
   const totalCount = results.length + aiResults.length;
 
   return (
-    <div className="flex flex-col h-full w-72 shrink-0 border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+    <div className="flex flex-col h-full w-72 shrink-0 border-l border-idemora-border bg-idemora-bg-secondary">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 rounded-md bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center shrink-0">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-indigo-500 dark:text-indigo-400">
-              <circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-              <circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-              <circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-              <path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Similar</span>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-idemora-border shrink-0">
+        <div className="flex items-center gap-2">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-idemora-text-muted shrink-0">
+            <circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+            <circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+            <circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+            <path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+          </svg>
+          <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wider">Similar</span>
           {!loading && totalCount > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 tabular-nums">
-              {totalCount}
-            </span>
+            <span className="text-xs text-idemora-text-faint tabular-nums">{totalCount}</span>
           )}
         </div>
         <button
           onClick={() => closeSimilar(paneId)}
-          className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted
+            hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+            transition-colors duration-100"
         >
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
             <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -135,30 +133,26 @@ if (sourceNote) {
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto pt-6">
+      <div className="flex-1 overflow-y-auto py-2">
         {loading ? (
           <div className="flex items-center justify-center h-32">
-            <span className="text-xs text-zinc-400 animate-pulse">Loading…</span>
+            <span className="text-xs text-idemora-text-muted animate-pulse">Loading…</span>
           </div>
         ) : totalCount === 0 && !aiLoading ? (
-          <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" className="text-zinc-300 dark:text-zinc-600">
-                <circle cx="6" cy="17" r="3" stroke="currentColor" strokeWidth="1.4"/>
-                <circle cx="17" cy="17" r="3" stroke="currentColor" strokeWidth="1.4"/>
-                <circle cx="11" cy="5" r="3" stroke="currentColor" strokeWidth="1.4"/>
-                <path d="M9 7.5L7.2 14.5M13 7.5L14.8 14.5M8.5 17h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">No similar notes</p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-600 leading-relaxed">
-                Add tags or expand your note's title to surface connections.
-              </p>
-            </div>
+          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-idemora-text-faint">
+              <circle cx="6" cy="17" r="3" stroke="currentColor" strokeWidth="1.4"/>
+              <circle cx="17" cy="17" r="3" stroke="currentColor" strokeWidth="1.4"/>
+              <circle cx="11" cy="5" r="3" stroke="currentColor" strokeWidth="1.4"/>
+              <path d="M9 7.5L7.2 14.5M13 7.5L14.8 14.5M8.5 17h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            <p className="text-xs text-idemora-text-muted">No similar notes</p>
+            <p className="text-xs text-idemora-text-faint">
+              Add tags or expand your note's title to surface connections.
+            </p>
           </div>
         ) : (
-          <div className="py-2">
+          <div>
             {/* ── Algorithmic results ── */}
             {results.some((r) => r.confidence === "Strong") && (
               <div>
@@ -177,7 +171,7 @@ if (sourceNote) {
             )}
 
             {results.some((r) => r.confidence === "Strong") && results.some((r) => r.confidence === "Possible") && (
-              <div className="mx-4 border-t border-zinc-100 dark:border-zinc-800 my-1" />
+              <div className="mx-4 border-t border-idemora-border my-1" />
             )}
 
             {results.some((r) => r.confidence === "Possible") && (
@@ -200,10 +194,10 @@ if (sourceNote) {
             {(aiLoading || aiResults.length > 0) && (
               <>
                 {results.length > 0 && (
-                  <div className="mx-4 border-t border-zinc-100 dark:border-zinc-800 my-1" />
+                  <div className="mx-4 border-t border-idemora-border my-1" />
                 )}
                 <div className="flex items-center gap-2 px-4 pt-2 pb-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted">
                     AI Suggestions
                   </span>
                   <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
@@ -211,27 +205,27 @@ if (sourceNote) {
                       stroke="#6366f1" strokeWidth="1.3" strokeLinecap="round" />
                   </svg>
                   {aiLoading && (
-                    <span className="text-[10px] text-zinc-400 animate-pulse">thinking…</span>
+                    <span className="text-[10px] text-idemora-text-muted animate-pulse">thinking…</span>
                   )}
                 </div>
                 {!aiLoading && (
                   <div className="px-3 pb-2 space-y-1.5">
                     {aiResults.map((r) => (
-  <AISuggestionCard
-    key={r.noteId}
-    result={r}
-    onNavigate={() => setActiveNote(r.noteId)}
-    onDismiss={() => handleDismissAI(r.noteId)}
-    onLink={() => {
-      window.dispatchEvent(
-        new CustomEvent("idemora:insert-link", {
-          detail: { noteId: r.noteId, noteTitle: r.title },
-        })
-      );
-      handleDismissAI(r.noteId);
-    }}
-  />
-))}
+                      <AISuggestionCard
+                        key={r.noteId}
+                        result={r}
+                        onNavigate={() => setActiveNote(r.noteId)}
+                        onDismiss={() => handleDismissAI(r.noteId)}
+                        onLink={() => {
+                          window.dispatchEvent(
+                            new CustomEvent("idemora:insert-link", {
+                              detail: { noteId: r.noteId, noteTitle: r.title },
+                            })
+                          );
+                          handleDismissAI(r.noteId);
+                        }}
+                      />
+                    ))}
                   </div>
                 )}
               </>
@@ -248,10 +242,10 @@ if (sourceNote) {
 function SectionLabel({ label, count }: { label: string; count: number }) {
   return (
     <div className="flex items-center gap-2 px-4 pt-2 pb-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted">
         {label}
       </span>
-      <span className="text-[10px] text-zinc-300 dark:text-zinc-700 tabular-nums">{count}</span>
+      <span className="text-[10px] text-idemora-text-faint tabular-nums">{count}</span>
     </div>
   );
 }
@@ -269,22 +263,22 @@ function SimilarNoteCard({
   const busy = linking || ignoring;
 
   return (
-    <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 overflow-hidden">
+    <div className="rounded-lg border border-idemora-border bg-idemora-bg-primary overflow-hidden">
       <button
         onClick={onNavigate}
-        className="w-full flex items-center gap-2.5 px-3 pt-2.5 pb-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100 group"
+        className="w-full flex items-center gap-2.5 px-3 pt-2.5 pb-1.5 text-left hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 group"
       >
-        <div className="w-6 h-6 rounded-md bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center shrink-0 group-hover:border-indigo-200 dark:group-hover:border-indigo-800 transition-colors duration-150">
-          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors duration-150">
+        <div className="w-6 h-6 rounded-md bg-idemora-bg-secondary border border-idemora-border flex items-center justify-center shrink-0 transition-colors duration-150">
+          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-idemora-text-muted group-hover:text-blue-400 transition-colors duration-150">
             <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M4 6h5M4 8h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           </svg>
         </div>
-        <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 truncate flex-1 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition-colors duration-150">
+        <p className="text-sm font-medium text-idemora-text-normal truncate flex-1 group-hover:text-blue-400 transition-colors duration-150">
           {note.title}
         </p>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-zinc-300 dark:text-zinc-700 group-hover:text-indigo-400 shrink-0 transition-all duration-150 group-hover:translate-x-0.5">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-idemora-text-normal group-hover:text-blue-400 shrink-0 transition-all duration-150 group-hover:translate-x-0.5">
           <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
@@ -292,7 +286,7 @@ function SimilarNoteCard({
       {note.sharedTags.length > 0 && (
         <div className="flex flex-wrap gap-1 px-3 pb-1.5">
           {note.sharedTags.map((tag) => (
-            <span key={tag} className="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900">
+            <span key={tag} className="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
               {tag}
             </span>
           ))}
@@ -300,17 +294,17 @@ function SimilarNoteCard({
       )}
 
       {note.sharedKeywords.length > 0 && (
-        <p className="px-3 pb-2 text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed">
+        <p className="px-3 pb-2 text-xs text-idemora-text-muted leading-relaxed">
           {note.sharedKeywords.slice(0, 5).join(", ")}
           {note.sharedKeywords.length > 5 && (
-            <span className="text-zinc-300 dark:text-zinc-600"> +{note.sharedKeywords.length - 5} more</span>
+            <span className="text-idemora-text-faint"> +{note.sharedKeywords.length - 5} more</span>
           )}
         </p>
       )}
 
       <div className="flex items-center gap-1.5 px-3 pb-2.5">
         <button onClick={onLink} disabled={busy}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20 transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {linking ? <span className="animate-pulse">Linking…</span> : (
             <>
@@ -323,7 +317,7 @@ function SimilarNoteCard({
           )}
         </button>
         <button onClick={onIgnore} disabled={busy}
-          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {ignoring ? <span className="animate-pulse">…</span> : (
             <>
@@ -350,33 +344,33 @@ function AISuggestionCard({
   onLink: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 overflow-hidden">
+    <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 overflow-hidden">
       <button
         onClick={onNavigate}
-        className="w-full flex items-center gap-2.5 px-3 pt-2.5 pb-1.5 text-left hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors duration-100 group"
+        className="w-full flex items-center gap-2.5 px-3 pt-2.5 pb-1.5 text-left hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 group"
       >
-        <div className="w-6 h-6 rounded-md bg-white dark:bg-zinc-800 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center shrink-0">
-          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-indigo-400">
+        <div className="w-6 h-6 rounded-md bg-idemora-bg-secondary border border-blue-500/20 flex items-center justify-center shrink-0">
+          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-blue-400">
             <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M4 6h5M4 8h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           </svg>
         </div>
-        <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 truncate flex-1 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition-colors duration-150">
+        <p className="text-sm font-medium text-idemora-text-normal truncate flex-1 group-hover:text-blue-400 transition-colors duration-150">
           {result.title}
         </p>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-indigo-300 dark:text-indigo-700 shrink-0">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-blue-400 shrink-0">
           <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
 
-      <p className="px-3 pb-2 text-xs text-indigo-500 dark:text-indigo-400 leading-relaxed italic">
+      <p className="px-3 pb-2 text-xs text-blue-400 leading-relaxed italic">
         {result.reason}
       </p>
 
       <div className="flex items-center gap-1.5 px-3 pb-2.5">
         <button onClick={onLink}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 transition-colors duration-100"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20 transition-colors duration-100"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M4 2H2a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -385,7 +379,7 @@ function AISuggestionCard({
           Link →
         </button>
         <button onClick={onDismiss}
-          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
         >
           <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
             <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>

@@ -14,7 +14,7 @@ interface Field {
 
 export function FrontmatterEditor({ frontmatter, onChange }: Props) {
   const [fields, setFields] = useState<Field[]>([]);
-  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const timeoutRef = useRef<number | undefined>(undefined); // Changed from NodeJS.Timeout to number
   const isInternalUpdate = useRef(false);
 
   // Generate stable ID for new fields
@@ -65,7 +65,7 @@ export function FrontmatterEditor({ frontmatter, onChange }: Props) {
         }
         onChange(Object.keys(obj).length ? JSON.stringify(obj) : null);
       }
-    }, 500);
+    }, 500) as unknown as number;
   }, [onChange]);
 
   const updateFields = useCallback((newFields: Field[]) => {
@@ -109,7 +109,7 @@ export function FrontmatterEditor({ frontmatter, onChange }: Props) {
       <div className="mb-4">
         <button
           onClick={addField}
-          className="flex items-center gap-1.5 text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100"
+          className="flex items-center gap-1.5 text-xs text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -121,14 +121,14 @@ export function FrontmatterEditor({ frontmatter, onChange }: Props) {
   }
 
   return (
-    <div className="mb-4 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
+    <div className="mb-4 p-3 rounded-lg bg-idemora-bg-secondary border border-idemora-border">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-mono text-zinc-400 dark:text-zinc-500">
+        <span className="text-xs font-mono text-idemora-text-muted">
           frontmatter
         </span>
         <button
           onClick={addField}
-          className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100"
+          className="text-xs text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
           title="Add field"
         >
           <svg width="12" height="12" viewBox="0 0 10 10" fill="none">
@@ -148,9 +148,9 @@ export function FrontmatterEditor({ frontmatter, onChange }: Props) {
               onChange={(e) => updateField(field.id, e.target.value, field.value)}
               onKeyDown={(e) => handleKeyDown(e, field.id, true)}
               placeholder="key"
-              className="flex-1 px-2 py-1 text-sm font-mono bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-300 dark:placeholder:text-zinc-600"
+              className="flex-1 px-2 py-1 text-sm font-mono bg-idemora-bg-primary border border-idemora-border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-idemora-text-normal placeholder-idemora-text-faint"
             />
-            <span className="text-zinc-400 dark:text-zinc-500">:</span>
+            <span className="text-idemora-text-muted">:</span>
             <input
               data-field-id={field.id}
               data-field-type="value"
@@ -159,11 +159,11 @@ export function FrontmatterEditor({ frontmatter, onChange }: Props) {
               onChange={(e) => updateField(field.id, field.key, e.target.value)}
               onKeyDown={(e) => handleKeyDown(e, field.id, false)}
               placeholder="value"
-              className="flex-1 px-2 py-1 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-300 dark:placeholder:text-zinc-600"
+              className="flex-1 px-2 py-1 text-sm bg-idemora-bg-primary border border-idemora-border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-idemora-text-normal placeholder-idemora-text-faint"
             />
             <button
               onClick={() => removeField(field.id)}
-              className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors duration-100"
+              className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-idemora-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors duration-100"
               title="Remove field"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -174,8 +174,8 @@ export function FrontmatterEditor({ frontmatter, onChange }: Props) {
         ))}
       </div>
 
-      <div className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-        Click <span className="text-indigo-400">+</span> to add fields
+      <div className="mt-2 text-xs text-idemora-text-muted">
+        Click <span className="text-blue-400">+</span> to add fields
       </div>
     </div>
   );

@@ -37,9 +37,9 @@ export function UpdateToast({ version, onDismiss }: UpdateToastProps) {
         visible ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
       }`}
     >
-      <div className="flex items-center gap-3 px-4 py-7 rounded-xl bg-zinc-800 dark:bg-zinc-800 shadow-xl border border-zinc-700 min-w-[280px] max-w-[320px]">
+      <div className="flex items-center gap-3 px-4 py-7 rounded-xl bg-idemora-bg-primary  shadow-xl border  min-w-[280px] max-w-[320px]">
         {/* Leaf icon */}
-        <div className="shrink-0 text-zinc-400">
+        <div className="shrink-0 text-idemora-text-muted">
           <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
               d="M6 22C6 22 8 14 14 10C20 6 24 6 24 6C24 6 24 10 20 16C16 22 8 22 6 22Z"
@@ -60,17 +60,17 @@ export function UpdateToast({ version, onDismiss }: UpdateToastProps) {
 
         {/* Text */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-zinc-100 leading-tight">
+          <p className="text-sm font-semibold text-idemora-text-normal leading-tight">
             Updated to {version}
           </p>
-          <p className="text-xs text-zinc-400 mt-0.5">Relaunch to apply</p>
+          <p className="text-xs text-idemora-text-muted mt-0.5">Relaunch to apply</p>
         </div>
 
         {/* Relaunch button */}
         <button
           onClick={handleRelaunch}
           disabled={installing}
-          className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border border-zinc-600 text-zinc-200 hover:bg-zinc-700 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border  text-idemora-text-normal  transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {installing ? "Installing..." : "Relaunch"}
         </button>
@@ -78,7 +78,7 @@ export function UpdateToast({ version, onDismiss }: UpdateToastProps) {
         {/* Close button */}
         <button
           onClick={handleDismiss}
-          className="absolute top-2 right-2 w-4 h-4 flex items-center justify-center text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+          className="absolute top-2 right-2 w-4 h-4 flex items-center justify-center text-idemora-text-muted  transition-colors duration-150"
         >
           <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
             <path d="M1 1L7 7M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>

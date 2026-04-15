@@ -24,6 +24,7 @@ import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
+import "@/styles/idemora-theme.css";
 import { invoke } from "@tauri-apps/api/core";
 import { OnboardingModal, useSampleNotes } from "./features/onboarding";
 import { UpdateToast } from "@/features/ui/components/UpdateToast";
@@ -36,28 +37,16 @@ document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") e.preventDefault();
 });
 
-interface BreadcrumbSegment { id: string; title: string; }
-
-function buildBreadcrumb(
-  noteId: string | null,
-  notes: Array<{ id: string; title: string; parent_id: string | null }>
-): BreadcrumbSegment[] {
-  if (!noteId) return [];
-  const path: BreadcrumbSegment[] = [];
-  let current = notes.find((n) => n.id === noteId);
-  while (current) {
-    path.unshift({ id: current.id, title: current.title });
-    if (!current.parent_id) break;
-    current = notes.find((n) => n.id === current!.parent_id);
-  }
-  return path;
-}
+// Left zone is always 272px when open, 40px when closed.
+// Independent of sidebarWidth — the panel below can be any width.
+const LEFT_ZONE_OPEN   = 272;
+const LEFT_ZONE_CLOSED = 40;
 
 export default function App() {
   const appWindow = getCurrentWindow();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
-  const [dbReady, setDbReady] = useState(false);
-  const [dbError, setDbError] = useState<string | null>(null);
+  const [dbReady, setDbReady]     = useState(false);
+  const [dbError, setDbError]     = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
@@ -67,12 +56,9 @@ export default function App() {
   const notes                  = useNoteStore((s) => s.notes);
   const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
   const setActive              = useNoteStore((s) => s.setActiveNote);
-  const goBack                 = useNoteStore((s) => s.goBack);
-  const goForward              = useNoteStore((s) => s.goForward);
-  const pane1CanGoBack         = useNoteStore((s) => s.canGoBack());
-  const pane1CanGoForward      = useNoteStore((s) => s.canGoForward());
 
   // UI store
+  const activeSidebarPanel  = useUIStore((s) => s.activeSidebarPanel);
   const toggleSidebarPanel  = useUIStore((s) => s.toggleSidebarPanel);
   const togglePalette       = useUIStore((s) => s.togglePalette);
   const openShortcuts       = useUIStore((s) => s.openShortcuts);
@@ -89,10 +75,6 @@ export default function App() {
   const openGraph           = useUIStore((s) => s.openGraph);
   const graphFocusNoteId    = useUIStore((s) => s.graphFocusNoteId);
   const activePaneId        = useUIStore((s) => s.activePaneId);
-  const pane2CanGoBack      = useUIStore((s) => s.pane2CanGoBack());
-  const pane2CanGoForward   = useUIStore((s) => s.pane2CanGoForward());
-  const pane2GoBack         = useUIStore((s) => s.pane2GoBack);
-  const pane2GoForward      = useUIStore((s) => s.pane2GoForward);
   const tabs                = useUIStore((s) => s.tabs);
   const activeTabId         = useUIStore((s) => s.activeTabId);
   const openTab             = useUIStore((s) => s.openTab);
@@ -123,11 +105,12 @@ export default function App() {
   const newNoteParentRef = useRef<string | null>(null);
   const scrollPositions  = useRef<Map<string, number>>(new Map());
 
-  const canGoBack      = activePaneId === 2 ? pane2CanGoBack    : pane1CanGoBack;
-  const canGoForward   = activePaneId === 2 ? pane2CanGoForward : pane1CanGoForward;
   const backlinkActive = activePaneId === 1 ? pane1BacklinksOpen : pane2BacklinksOpen;
   const outlineActive  = activePaneId === 1 ? pane1OutlineOpen   : pane2OutlineOpen;
   const chatActive     = activePaneId === 1 ? chatOpen1          : chatOpen2;
+
+  const panelOpen     = activeSidebarPanel !== null;
+  const leftZoneWidth = panelOpen ? LEFT_ZONE_OPEN : LEFT_ZONE_CLOSED;
 
   useEffect(() => {
     function preventZoom(e: KeyboardEvent) {
@@ -251,11 +234,15 @@ export default function App() {
     if (ctrl && e.key === "w")  { e.preventDefault(); closeActiveTab(); }
     if (ctrl && e.key === "[") {
       e.preventDefault();
-      if (activePaneId === 2) { triggerNav(pane2GoBack); } else { triggerNav(goBack); }
+      const { pane2GoBack } = useUIStore.getState();
+      const { canGoBack, goBack } = useNoteStore.getState();
+      if (activePaneId === 2) { triggerNav(pane2GoBack); } else if (canGoBack()) { triggerNav(goBack); }
     }
     if (ctrl && e.key === "]") {
       e.preventDefault();
-      if (activePaneId === 2) { triggerNav(pane2GoForward); } else { triggerNav(goForward); }
+      const { pane2GoForward } = useUIStore.getState();
+      const { canGoForward, goForward } = useNoteStore.getState();
+      if (activePaneId === 2) { triggerNav(pane2GoForward); } else if (canGoForward()) { triggerNav(goForward); }
     }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "a") {
       e.preventDefault();
@@ -274,8 +261,7 @@ export default function App() {
     }
     if (ctrl && e.key === ",") { e.preventDefault(); openSettings(); }
   }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, toggleBacklinks, toggleOutline,
-      openShortcuts, openSettings, goBack, goForward, pane2GoBack, pane2GoForward,
-      closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes]);
+      openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -291,11 +277,13 @@ export default function App() {
     } else {
       if (activePaneId === 2) { openTabInPane2(note.id); } else { setActive(note.id); replaceTab(note.id); }
     }
-    openInNewTabRef.current = false;
+    openInNewTabRef.current  = false;
     newNoteParentRef.current = null;
   }
 
-  function noteSlug(title: string): string { return title.replace(/[^a-z0-9]/gi, "-").toLowerCase(); }
+  function noteSlug(title: string): string {
+    return title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+  }
 
   const activeNote = notes.find((n) => n.id === activeNoteId) ?? null;
 
@@ -307,7 +295,8 @@ export default function App() {
         catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
       exportNoteJson: async () => {
-        if (!activeNote) return; setExporting(true);
+        if (!activeNote) return;
+        setExporting(true);
         try { await exportNotesToFile(JSON.stringify([activeNote], null, 2), `${noteSlug(activeNote.title)}.json`); }
         catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
@@ -327,14 +316,8 @@ export default function App() {
     });
   }, [notes, activeNote]);
 
-  // Shortened breadcrumb — parent + current only
-  const breadcrumb = buildBreadcrumb(activeNoteId, notes);
-  const isUntitled = activeNote ? /^Untitled-\d+$/.test(activeNote.title) : false;
-  const breadcrumbCurrent = breadcrumb[breadcrumb.length - 1] ?? null;
-  const breadcrumbParent  = breadcrumb[breadcrumb.length - 2] ?? null;
-
   function renderPane(paneId: 1 | 2) {
-    const paneTabs = paneId === 1 ? tabs : pane2Tabs;
+    const paneTabs        = paneId === 1 ? tabs        : pane2Tabs;
     const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
     return (
       <div
@@ -371,13 +354,14 @@ export default function App() {
     );
   }
 
+  // ── Error / loading screens ───────────────────────────────────────────────
   if (dbError) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-white dark:bg-zinc-950 p-8">
+      <div className="flex h-screen w-screen items-center justify-center bg-idemora-bg-primary p-8">
         <div className="max-w-md text-center space-y-3">
           <p className="text-base font-semibold text-red-500">Failed to initialize database</p>
-          <p className="text-sm text-zinc-500 font-mono bg-zinc-100 dark:bg-zinc-800 p-3 rounded-lg break-all">{dbError}</p>
-          <p className="text-sm text-zinc-400">Check the console for more details.</p>
+          <p className="text-sm text-idemora-text-muted font-mono bg-idemora-bg-secondary p-3 rounded-lg border border-idemora-border break-all">{dbError}</p>
+          <p className="text-sm text-idemora-text-faint">Check the console for more details.</p>
         </div>
       </div>
     );
@@ -385,193 +369,271 @@ export default function App() {
 
   if (!dbReady) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <p className="text-base text-zinc-400 animate-pulse">Loading…</p>
+      <div className="flex h-screen w-screen items-center justify-center bg-idemora-bg-primary">
+        <p className="text-base text-idemora-text-muted animate-pulse">Loading…</p>
       </div>
     );
   }
 
+  // ── Main render ───────────────────────────────────────────────────────────
   return (
     <>
       <OnboardingModal isOpen={showOnboarding} onComplete={handleOnboardingComplete} />
 
-      <div className="flex h-screen w-screen flex-col overflow-hidden bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
+      <div className="flex h-screen w-screen flex-col overflow-hidden bg-idemora-bg-primary text-idemora-text-normal">
+
+        {/* ── Header — full width across the top ── */}
+        <header
+          data-tauri-drag-region
+          className="flex items-center h-11 shrink-0 z-50 border-b border-idemora-border bg-idemora-bg-primary select-none"
+        >
+          <div
+            className="flex items-center gap-1 px-2 shrink-0 overflow-hidden transition-[width] duration-150 ease-in-out"
+            style={{ width: `${leftZoneWidth}px` }}
+          >
+            {/* Collapse sidebar button - Apple Finder style */}
+            <button
+              onClick={() => toggleSidebarPanel(activeSidebarPanel ?? "notes")}
+              title={panelOpen ? "Collapse sidebar (Ctrl+\\\\)" : "Expand sidebar (Ctrl+\\\\)"}
+              className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150
+                ${panelOpen
+                  ? "text-idemora-text-normal"
+                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+                }`}
+            >
+              {panelOpen ? (
+                <svg width="20" height="20" viewBox="0 0 20 20">
+                  <rect x="1" y="1" width="18" height="18" rx="4"
+                    fill="none" stroke="currentColor" strokeWidth="1.5"/>
+                  <path d="M4.5 4 Q3 4 3 6.5 L3 13.5 Q3 16 4.5 16 L7 16 Q8.5 16 8.5 14.5 L8.5 5.5 Q8.5 4 7 4 Z"
+                    fill="currentColor"/>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 20 20">
+                  <rect x="1" y="1" width="18" height="18" rx="4"
+                    fill="none" stroke="currentColor" strokeWidth="1.5"/>
+                  <path d="M4.5 4 Q3 4 3 6.5 L3 13.5 Q3 16 4.5 16 L4.5 16 Q5.5 16 5.5 14.5 L5.5 5.5 Q5.5 4 4.5 4 Z"
+                    fill="currentColor"/>
+                </svg>
+              )}
+            </button>
+
+            {/* Panel mode icons — only visible when panel is open */}
+            {panelOpen && (
+              <>
+                <button
+  onClick={() => {
+    console.log("Notes clicked, current activeSidebarPanel:", activeSidebarPanel);
+    toggleSidebarPanel("notes");
+  }}
+  title="Notes"
+                  className={`relative shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-100
+                    ${activeSidebarPanel === "notes"
+                      ? "text-idemora-text-normal"
+                      : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+                    }`}
+                >
+                  {activeSidebarPanel === "notes" && (
+                    <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />
+                  )}
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M2 5.5a1.5 1.5 0 011.5-1.5h3.5L9 6.5h5.5a1.5 1.5 0 011.5 1.5v5.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 012 13.5v-8z"
+                      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+
+                <button
+                  onClick={() => toggleSidebarPanel("search")}
+                  title="Search"
+                  className={`relative shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-100
+                    ${activeSidebarPanel === "search"
+                      ? "text-idemora-text-normal"
+                      : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+                    }`}
+                >
+                  {activeSidebarPanel === "search" && (
+                    <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />
+                  )}
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <circle cx="7.5" cy="7.5" r="4.5" stroke="currentColor" strokeWidth="1.4"/>
+                    <path d="M11 11l4.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                  </svg>
+                </button>
+
+                <button
+                  onClick={() => toggleSidebarPanel("bookmarks")}
+                  title="Bookmarks"
+                  className={`relative shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-100
+                    ${activeSidebarPanel === "bookmarks"
+                      ? "text-idemora-text-normal"
+                      : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+                    }`}
+                >
+                  {activeSidebarPanel === "bookmarks" && (
+                    <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />
+                  )}
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M5 2.5h8a1.5 1.5 0 011.5 1.5v11l-5.5-3-5.5 3V4a1.5 1.5 0 011.5-1.5z"
+                      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
+
+          <TabBar />
+
+          <div className="flex items-center gap-1 px-2 shrink-0">
+            {/* Tags */}
+            <button
+              onClick={() => toggleSidebarPanel("tags")}
+              title="Tags"
+              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${
+                activeSidebarPanel === "tags"
+                  ? "bg-blue-500/20 text-blue-400"
+                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+              }`}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M2 2h6.5l8 8-6.5 6.5-8-8V2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                <circle cx="5.5" cy="5.5" r="1.2" fill="currentColor" stroke="none"/>
+              </svg>
+            </button>
+
+            {/* Backlinks */}
+            <button
+              onClick={() => toggleBacklinks(activePaneId)}
+              title="Toggle backlinks (Ctrl+;)"
+              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${
+                backlinkActive
+                  ? "bg-blue-500/20 text-blue-400"
+                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+              }`}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M11.5 5h-5a1.5 1.5 0 00-1.5 1.5v5a1.5 1.5 0 001.5 1.5h5a1.5 1.5 0 001.5-1.5V8.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                <path d="M9 2.5h5v5M13.5 2.5L9 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+
+            {/* Outline */}
+            <button
+              onClick={() => toggleOutline(activePaneId)}
+              title="Toggle outline (Ctrl+')"
+              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${
+                outlineActive
+                  ? "bg-blue-500/20 text-blue-400"
+                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+              }`}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M2.5 4.5h13M2.5 9h9M2.5 13.5h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+            </button>
+
+            {/* AI Chat */}
+            <button
+              onClick={() => {
+                const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
+                const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
+                chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+              }}
+              title="Toggle AI chat (Ctrl+Shift+A)"
+              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${
+                chatActive
+                  ? "bg-blue-500/20 text-blue-400"
+                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+              }`}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M2.5 2.5h13a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5h-4.5l-4 2.5v-2.5h-4.5A1.5 1.5 0 011 12V4a1.5 1.5 0 011.5-1.5z"
+                  stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                <path d="M5.5 8h7M5.5 5.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+            </button>
+
+            <div className="w-px h-5 bg-idemora-border mx-1 shrink-0" />
+
+            {/* Minimize */}
+            <button
+              onClick={async () => { const w = getCurrentWindow(); await w.minimize(); }}
+              title="Minimize"
+              className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-150"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 2" fill="none">
+                <rect width="14" height="1.5" fill="currentColor"/>
+              </svg>
+            </button>
+
+            {/* Maximize / Restore */}
+            <button
+              onClick={async () => {
+                const w = getCurrentWindow();
+                const isMax = await w.isMaximized();
+                if (isMax) { await w.unmaximize(); } else { await w.maximize(); }
+              }}
+              title="Maximize"
+              className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-150"
+            >
+              {isWindowMaximized ? (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M3.5 1.5h7a2 2 0 012 2v7a2 2 0 01-2 2h-7a2 2 0 01-2-2v-7a2 2 0 012-2z" stroke="currentColor" strokeWidth="1.3" fill="none"/>
+                  <path d="M5 5l4 4M9 5l-4 4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <rect x="1.5" y="1.5" width="11" height="11" stroke="currentColor" strokeWidth="1.3" fill="none"/>
+                </svg>
+              )}
+            </button>
+
+            {/* Close */}
+            <button
+              onClick={async () => { const w = getCurrentWindow(); await w.close(); }}
+              title="Close"
+              className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-150"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2.5 2.5l9 9M11.5 2.5l-9 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <TipsPanel />
+        <ResurfaceBar />
+
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
-          <div className="flex flex-col flex-1 overflow-hidden">
-
-            {/* ── Header ── */}
-            <header
-              data-tauri-drag-region
-              className="flex items-center h-11 shrink-0 z-50 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 select-none"
-            >
-              {/* Left: nav + breadcrumb */}
-              <div className="flex items-center gap-0 px-2 shrink-0">
-                <button
-                  onClick={() => triggerNav(activePaneId === 2 ? pane2GoBack : goBack)}
-                  disabled={!canGoBack}
-                  title="Go back (Ctrl+'[')"
-                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-                <button
-                  onClick={() => triggerNav(activePaneId === 2 ? pane2GoForward : goForward)}
-                  disabled={!canGoForward}
-                  title="Go forward (Ctrl+']')"
-                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5.5 3L9.5 7l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </button>
-
-                {breadcrumbCurrent && (
-                  <div className="flex items-center gap-1 ml-1">
-                    {breadcrumbParent && (
-                      <>
-                        <button
-                          onClick={() => setActive(breadcrumbParent.id)}
-                          className="text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100 max-w-24 truncate"
-                        >
-                          {breadcrumbParent.title}
-                        </button>
-                        <span className="text-zinc-300 dark:text-zinc-700 text-xs">/</span>
-                      </>
-                    )}
-                    <span className={`text-xs max-w-32 truncate ${isUntitled ? "text-zinc-400 dark:text-zinc-600" : "text-zinc-500 dark:text-zinc-400"}`}>
-                      {isUntitled ? "Untitled" : breadcrumbCurrent.title}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Center: tabs — flex-1 */}
-              <TabBar />
-
-              {/* Right: note-scoped actions + window controls */}
-              <div className="flex items-center gap-1 px-2 shrink-0">
-                <button
-                  onClick={() => toggleBacklinks(activePaneId)}
-                  title="Toggle backlinks (Ctrl+;)"
-                  className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
-                    backlinkActive
-                      ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
-                      : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                  }`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M9 4H5a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                    <path d="M7 2h4v4M11 2L7.5 5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-
-                <button
-                  onClick={() => toggleOutline(activePaneId)}
-                  title="Toggle outline (Ctrl+')"
-                  className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
-                    outlineActive
-                      ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
-                      : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                  }`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M2 3.5h10M2 7h7M2 10.5h8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                  </svg>
-                </button>
-
-                <button
-                  onClick={() => {
-                    const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
-                    const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
-                    chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
-                  }}
-                  title="Toggle AI chat (Ctrl+Shift+A)"
-                  className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 ${
-                    chatActive
-                      ? "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
-                      : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                  }`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M2 2h10a1 1 0 011 1v6a1 1 0 01-1 1H8l-3 2v-2H2a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-                    <path d="M4.5 6.5h5M4.5 4.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-                  </svg>
-                </button>
-
-                <div className="flex items-center gap-1 ml-1 border-l border-zinc-200 dark:border-zinc-700 pl-2">
-                  <button
-                    onClick={async () => { const window = getCurrentWindow(); await window.minimize(); }}
-                    title="Minimize"
-                    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 10 2" fill="none">
-                      <rect width="10" height="1.5" fill="currentColor"/>
-                    </svg>
-                  </button>
-                  <button
-                    onClick={async () => {
-                      const window = getCurrentWindow();
-                      const isMax = await window.isMaximized();
-                      if (isMax) { await window.unmaximize(); } else { await window.maximize(); }
-                    }}
-                    title="Maximize"
-                    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150"
-                  >
-                    {isWindowMaximized ? (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <path d="M3 1H9C10.1046 1 11 1.89543 11 3V9C11 10.1046 10.1046 11 9 11H3C1.89543 11 1 10.1046 1 9V3C1 1.89543 1.89543 1 3 1Z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
-                        <path d="M4 4L8 8M8 4L4 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-                      </svg>
-                    ) : (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <rect x="1" y="1" width="10" height="10" stroke="currentColor" strokeWidth="1.2" fill="none"/>
-                      </svg>
-                    )}
-                  </button>
-                  <button
-                    onClick={async () => { const window = getCurrentWindow(); await window.close(); }}
-                    title="Close"
-                    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:bg-red-500 hover:text-white transition-colors duration-150"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </header>
-
-            <TipsPanel />
-            <ResurfaceBar />
-
-            <main className={`flex-1 flex overflow-hidden ${splitOpen && splitDirection === "vertical" ? "flex-col items-stretch" : "flex-row"}`}>
-              {renderPane(1)}
-              {splitOpen && <><SplitDivider />{renderPane(2)}</>}
-            </main>
-          </div>
+          <main className={`flex-1 flex overflow-hidden ${splitOpen && splitDirection === "vertical" ? "flex-col items-stretch" : "flex-row"}`}>
+            {renderPane(1)}
+            {splitOpen && <><SplitDivider />{renderPane(2)}</>}
+          </main>
         </div>
 
-        <CommandPalette />
-        <KeyboardShortcuts />
-        <ImportModal />
-        <SettingsModal />
-        <TemplatePickerModal
-          open={templatePickerOpen}
-          onSelect={handleTemplateSelect}
-          onCancel={() => { openInNewTabRef.current = false; newNoteParentRef.current = null; closeTemplatePicker(); }}
-        />
-
-        {graphOpen && <GraphView ref={graphViewRef} initialFocusNoteId={graphFocusNoteId} />}
-
-        {exporting && (
-          <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-zinc-800 dark:bg-zinc-700 text-xs text-zinc-200 shadow-lg animate-pulse">
-            Exporting…
-          </div>
-        )}
-
-        {updateVersion && (
-          <UpdateToast version={updateVersion} onDismiss={() => setUpdateVersion(null)} />
-        )}
       </div>
+
+      <CommandPalette />
+      <KeyboardShortcuts />
+      <ImportModal />
+      <SettingsModal />
+      <TemplatePickerModal
+        open={templatePickerOpen}
+        onSelect={handleTemplateSelect}
+        onCancel={() => { openInNewTabRef.current = false; newNoteParentRef.current = null; closeTemplatePicker(); }}
+      />
+
+      {graphOpen && <GraphView ref={graphViewRef} initialFocusNoteId={graphFocusNoteId} />}
+
+      {exporting && (
+        <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-muted shadow-lg animate-pulse">
+          Exporting…
+        </div>
+      )}
+
+      {updateVersion && (
+        <UpdateToast version={updateVersion} onDismiss={() => setUpdateVersion(null)} />
+      )}
     </>
   );
 }

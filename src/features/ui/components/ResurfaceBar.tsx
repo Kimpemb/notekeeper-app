@@ -25,7 +25,7 @@ const CHECK_INTERVAL = 60 * 1000;
 interface Suggestion {
   noteId: string;
   noteTitle: string;
-  referringNoteId: string;   // ← needed for dismissClusterPair
+  referringNoteId: string;
   referringNoteTitle: string;
   score: number;
 }
@@ -48,7 +48,6 @@ export function ResurfaceBar() {
   const timerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Tick session time every 30s so leftAt stays current
   useEffect(() => {
     const id = setInterval(() => tickCluster(), 30_000);
     return () => clearInterval(id);
@@ -72,7 +71,6 @@ export function ResurfaceBar() {
 
       if (!shouldTrigger(clusterSession, cluster)) return;
 
-      // 24-hour gate — skip if same cluster was shown within last 24h
       if (meta) {
         const withinWindow = Date.now() - meta.lastShownAt < TWENTY_FOUR_H;
         const sameCluster  = !isNewCluster(meta.lastClusterNoteIds, cluster);
@@ -184,13 +182,13 @@ export function ResurfaceBar() {
       }}
     >
       <div
-        className="rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-700/80 bg-white dark:bg-zinc-900 overflow-hidden"
+        className="rounded-xl shadow-2xl border border-idemora-border bg-idemora-bg-secondary overflow-hidden"
         style={{ backdropFilter: "blur(12px)" }}
       >
-        {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-zinc-100 dark:border-zinc-800">
-          <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center shrink-0">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-indigo-500 dark:text-indigo-400">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-idemora-border">
+          <div className="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-blue-400">
               <circle cx="3" cy="9" r="1.8" stroke="currentColor" strokeWidth="1.1"/>
               <circle cx="9" cy="9" r="1.8" stroke="currentColor" strokeWidth="1.1"/>
               <circle cx="6" cy="2.5" r="1.8" stroke="currentColor" strokeWidth="1.1"/>
@@ -198,14 +196,14 @@ export function ResurfaceBar() {
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wider">
               Related note
             </span>
           </div>
           <button
             onClick={handleDismiss}
             title="Dismiss — won't suggest this again"
-            className="w-5 h-5 flex items-center justify-center rounded-md text-zinc-300 dark:text-zinc-600 hover:text-zinc-500 dark:hover:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+            className="w-5 h-5 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
           >
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
               <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -213,31 +211,31 @@ export function ResurfaceBar() {
           </button>
         </div>
 
-        {/* ── Body ───────────────────────────────────────────────────────── */}
+        {/* Body */}
         <div className="px-4 py-3">
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">
+          <p className="text-xs text-idemora-text-muted mb-1">
             You've been working in{" "}
-            <span className="font-medium text-zinc-600 dark:text-zinc-300">
+            <span className="font-medium text-idemora-text-normal">
               {suggestion.referringNoteTitle}
             </span>
             {" "}— this note might be relevant:
           </p>
-          <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 truncate leading-snug">
+          <p className="text-sm font-semibold text-idemora-text-normal truncate leading-snug">
             {suggestion.noteTitle}
           </p>
         </div>
 
-        {/* ── Actions ────────────────────────────────────────────────────── */}
+        {/* Actions */}
         <div className="flex items-center gap-2 px-4 pb-3">
           <button
             onClick={handleLink}
-            className="flex-1 py-1.5 rounded-lg text-xs font-medium border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors duration-100 text-center"
+            className="flex-1 py-1.5 rounded-lg text-xs font-medium border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 text-center"
           >
             Link →
           </button>
           <button
             onClick={handleOpen}
-            className="flex-1 py-1.5 rounded-lg text-xs font-semibold bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors duration-100 text-center"
+            className="flex-1 py-1.5 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors duration-100 text-center"
           >
             Open note
           </button>

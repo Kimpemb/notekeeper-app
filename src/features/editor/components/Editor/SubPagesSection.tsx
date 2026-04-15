@@ -36,7 +36,6 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
     if (isAdding) inputRef.current?.focus();
   }, [isAdding]);
 
-  // Reset expanded state when switching notes
   useEffect(() => {
     setExpanded(false);
   }, [noteId]);
@@ -91,7 +90,6 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
     useNoteStore.setState((s) => ({ notes: [...s.notes, note] }));
     expandNode(noteId);
 
-    // Inject the subPage block into the editor body
     if (editor && !editor.isDestroyed) {
       const { doc } = editor.state;
       const last = doc.lastChild;
@@ -118,15 +116,15 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
 
   return (
     <div className="w-full mx-auto px-8 pb-10 max-w-2xl xl:max-w-3xl 2xl:max-w-4xl">
-      <div className="border-t border-zinc-100 dark:border-zinc-800 pt-6">
+      <div className="border-t border-idemora-border pt-6">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+          <span className="text-xs font-semibold uppercase tracking-widest text-idemora-text-muted">
             Sub-pages
           </span>
           {!isAdding && (
             <button
               onClick={handleAddClick}
-              className="flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100"
+              className="flex items-center gap-1 text-xs text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                 <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -144,23 +142,26 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
             const isMoving     = moveId === child.id;
 
             return (
-              <div key={child.id} className="relative group">
+              <div
+                key={child.id}
+                className="relative group rounded-lg bg-idemora-bg-primary hover-card transition-all duration-150"
+              >
                 <button
                   onClick={(e) => handleOpen(child.id, e)}
                   title="Click to open · Ctrl+click for new tab"
-                  className="w-full text-left rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-white dark:hover:bg-zinc-800 hover:shadow-sm transition-all duration-150 p-3"
+                  className="w-full text-left p-3 bg-transparent"
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-zinc-400 dark:text-zinc-500 shrink-0">
+                    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-idemora-text-muted shrink-0">
                       <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
                       <path d="M3.5 4h5M3.5 6.5h5M3.5 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
                     </svg>
-                    <span className={`text-sm font-medium truncate pr-12 ${isUntitled ? "text-zinc-400 dark:text-zinc-600 italic" : "text-zinc-700 dark:text-zinc-200 group-hover:text-zinc-900 dark:group-hover:text-zinc-100"} transition-colors duration-100`}>
+                    <span className={`text-sm font-medium truncate pr-12 ${isUntitled ? "text-idemora-text-muted italic" : "text-idemora-text-normal"}`}>
                       {isUntitled ? "Untitled" : child.title}
                     </span>
                   </div>
                   {snippet && (
-                    <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate leading-relaxed">
+                    <p className="text-xs text-idemora-text-muted truncate leading-relaxed">
                       {snippet}
                     </p>
                   )}
@@ -171,7 +172,7 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
                     <button
                       onClick={(e) => { e.stopPropagation(); setMoveId(child.id); }}
                       title="Move to another page"
-                      className="w-5 h-5 flex items-center justify-center rounded text-zinc-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all duration-100"
+                      className="w-5 h-5 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal transition-all duration-100"
                     >
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                         <path d="M6 1.5L8 3 6 4.5M2 3h6M4 6.5L2 8 4 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -181,7 +182,7 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
                     <button
                       onClick={(e) => { e.stopPropagation(); setConfirmId(child.id); }}
                       title="Move to trash"
-                      className="w-5 h-5 flex items-center justify-center rounded text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-all duration-100"
+                      className="w-5 h-5 flex items-center justify-center rounded text-idemora-text-muted hover:text-red-400 transition-all duration-100"
                     >
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                         <path d="M1.5 2.5h7M4 2.5V1.5h2V2.5M3 2.5v6a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
@@ -191,20 +192,20 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
                 )}
 
                 {isConfirming && (
-                  <div className="absolute inset-0 rounded-lg bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-900 flex items-center justify-between px-3 gap-2">
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                  <div className="absolute inset-0 rounded-lg bg-idemora-bg-primary flex items-center justify-between px-3 gap-2">
+                    <span className="text-xs text-idemora-text-muted truncate">
                       Move to trash?
                     </span>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         onClick={() => handleConfirmDelete(child.id)}
-                        className="px-2 py-0.5 rounded text-xs font-medium bg-red-500 hover:bg-red-600 text-white transition-colors duration-100"
+                        className="px-2 py-0.5 rounded text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-colors duration-100"
                       >
                         Trash
                       </button>
                       <button
                         onClick={() => setConfirmId(null)}
-                        className="px-2 py-0.5 rounded text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+                        className="px-2 py-0.5 rounded text-xs font-medium text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
                       >
                         Cancel
                       </button>
@@ -224,8 +225,8 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
           })}
 
           {isAdding && (
-            <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-zinc-900 p-3 flex items-center gap-2">
-              <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-zinc-400 dark:text-zinc-500 shrink-0">
+            <div className="rounded-lg bg-idemora-bg-primary p-3 flex items-center gap-2">
+              <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-idemora-text-muted shrink-0">
                 <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
                 <path d="M3.5 4h5M3.5 6.5h5M3.5 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
               </svg>
@@ -236,17 +237,17 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
                 onChange={(e) => setNewTitle(e.target.value)}
                 onKeyDown={handleInputKeyDown}
                 placeholder="Note title…"
-                className="flex-1 text-sm bg-transparent outline-none text-zinc-700 dark:text-zinc-200 placeholder-zinc-300 dark:placeholder-zinc-600"
+                className="flex-1 text-sm bg-transparent outline-none text-idemora-text-normal placeholder-idemora-text-faint"
               />
               <button
                 onClick={handleCreateNote}
-                className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium transition-colors duration-100"
+                className="text-xs text-blue-500 hover:text-blue-400 font-medium transition-colors duration-100"
               >
                 Create
               </button>
               <button
                 onClick={() => { setIsAdding(false); setNewTitle(""); }}
-                className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors duration-100"
+                className="text-xs text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
               >
                 Cancel
               </button>
@@ -254,11 +255,10 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
           )}
         </div>
 
-        {/* Show all / Show less toggle */}
         {hasMore && (
           <button
             onClick={() => setExpanded((e) => !e)}
-            className="mt-3 flex items-center gap-1.5 text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-100"
+            className="mt-3 flex items-center gap-1.5 text-xs text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
           >
             <svg
               width="10" height="10" viewBox="0 0 10 10" fill="none"

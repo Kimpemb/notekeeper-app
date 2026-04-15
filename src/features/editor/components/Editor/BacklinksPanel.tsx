@@ -34,7 +34,9 @@ function highlightMention(snippet: string, targetTitle: string): React.ReactNode
   const parts = snippet.split(regex);
   return parts.map((part, i) =>
     regex.test(part) ? (
-      <mark key={i} className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded px-0.5 not-italic font-medium">{part}</mark>
+      <mark key={i} className="bg-blue-500/20 text-blue-400 rounded px-0.5 not-italic font-medium">
+        {part}
+      </mark>
     ) : (
       <span key={i}>{part}</span>
     )
@@ -88,23 +90,23 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
   const totalCount = backlinks.length + mentions.length;
 
   return (
-    <div className="flex flex-col h-full w-72 shrink-0 border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 rounded-md bg-blue-50 dark:bg-blue-950 flex items-center justify-center shrink-0">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-blue-500 dark:text-blue-400">
-              <path d="M9 4H5a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              <path d="M7 2h4v4M11 2L6.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
-          <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Backlinks</span>
+    <div className="flex flex-col h-full w-72 shrink-0 border-l border-idemora-border bg-idemora-bg-secondary">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-idemora-border shrink-0">
+        <div className="flex items-center gap-2">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-idemora-text-muted shrink-0">
+            <path d="M9 4H5a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            <path d="M7 2h4v4M11 2L6.5 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wider">Backlinks</span>
           {!loading && totalCount > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 tabular-nums">{totalCount}</span>
+            <span className="text-xs text-idemora-text-faint tabular-nums">{totalCount}</span>
           )}
         </div>
         <button
           onClick={() => closeBacklinks(paneId)}
-          className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted
+            hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+            transition-colors duration-100"
         >
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
             <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -112,28 +114,28 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto pt-6">
+      <div className="flex-1 overflow-y-auto py-2">
         {loading ? (
           <div className="flex items-center justify-center h-32">
-            <span className="text-xs text-zinc-400 animate-pulse">Loading…</span>
+            <span className="text-xs text-idemora-text-muted animate-pulse">Loading…</span>
           </div>
         ) : totalCount === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" className="text-zinc-300 dark:text-zinc-600">
-                <path d="M16 7H6a2 2 0 00-2 2v8a2 2 0 002 2h10a2 2 0 002-2v-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                <path d="M13 2h7v7M20 2l-9 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">No backlinks yet</p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-600 leading-relaxed">
-                Type <kbd className="font-mono px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 text-[10px]">[[</kbd> in any note to link here.
-              </p>
-            </div>
+          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-idemora-text-faint">
+              <path d="M16 7H6a2 2 0 00-2 2v8a2 2 0 002 2h10a2 2 0 002-2v-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M13 2h7v7M20 2l-9 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <p className="text-xs text-idemora-text-muted">No backlinks yet</p>
+            <p className="text-xs text-idemora-text-faint">
+              Type{" "}
+              <kbd className="font-mono px-1.5 py-0.5 rounded-md bg-idemora-bg-primary text-idemora-text-muted text-[10px]">
+                [[
+              </kbd>{" "}
+              in any note to link here.
+            </p>
           </div>
         ) : (
-          <div className="py-2">
+          <div>
             {backlinks.length > 0 && (
               <div>
                 <SectionLabel label="Linked" count={backlinks.length} />
@@ -145,7 +147,7 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
               </div>
             )}
             {backlinks.length > 0 && mentions.length > 0 && (
-              <div className="mx-4 border-t border-zinc-100 dark:border-zinc-800 my-1" />
+              <div className="mx-4 border-t border-idemora-border my-1" />
             )}
             {mentions.length > 0 && (
               <div>
@@ -174,30 +176,39 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
 function SectionLabel({ label, count }: { label: string; count: number }) {
   return (
     <div className="flex items-center gap-2 px-4 pt-2 pb-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-600">{label}</span>
-      <span className="text-[10px] text-zinc-300 dark:text-zinc-700 tabular-nums">{count}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted">
+        {label}
+      </span>
+      <span className="text-[10px] text-idemora-text-faint tabular-nums">{count}</span>
     </div>
   );
 }
 
 function BacklinkCard({ note, onNavigate }: { note: Note; onNavigate: () => void }) {
   return (
-    <button onClick={onNavigate} className="w-full text-left rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:border-blue-200 dark:hover:border-blue-800 hover:bg-blue-50/40 dark:hover:bg-blue-950/30 hover:shadow-sm transition-all duration-150 group overflow-hidden">
+    <button
+      onClick={onNavigate}
+      className="w-full text-left rounded-lg border border-idemora-border bg-idemora-bg-primary hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-all duration-150 group overflow-hidden"
+    >
       <div className="flex items-start gap-2.5 px-3 py-2.5">
-        <div className="w-6 h-6 rounded-md bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center shrink-0 mt-0.5 group-hover:border-blue-200 dark:group-hover:border-blue-800 transition-colors duration-150">
-          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-zinc-400 dark:text-zinc-500 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors duration-150">
+        <div className="w-6 h-6 rounded-md bg-idemora-bg-secondary border border-idemora-border flex items-center justify-center shrink-0 mt-0.5 transition-colors duration-150">
+          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-idemora-text-muted group-hover:text-blue-400 transition-colors duration-150">
             <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M4 6h5M4 8h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           </svg>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 truncate group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-150">{note.title}</p>
+          <p className="text-sm font-medium text-idemora-text-normal truncate group-hover:text-blue-400 transition-colors duration-150">
+            {note.title}
+          </p>
           {note.plaintext && (
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate mt-0.5 leading-relaxed">{note.plaintext.slice(0, 80)}</p>
+            <p className="text-xs text-idemora-text-muted truncate mt-0.5 leading-relaxed">
+              {note.plaintext.slice(0, 80)}
+            </p>
           )}
         </div>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-zinc-300 dark:text-zinc-700 group-hover:text-blue-400 dark:group-hover:text-blue-500 shrink-0 mt-1 transition-all duration-150 group-hover:translate-x-0.5">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-idemora-text-muted group-hover:text-blue-400 shrink-0 mt-1 transition-all duration-150 group-hover:translate-x-0.5">
           <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
@@ -209,32 +220,39 @@ function UnlinkedMentionCard({ mention, targetTitle, linking, onNavigate, onLink
   mention: UnlinkedMention; targetTitle: string; linking: boolean; onNavigate: () => void; onLinkIt: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 overflow-hidden">
-      <button onClick={onNavigate} className="w-full flex items-center gap-2.5 px-3 pt-2.5 pb-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100 group">
-        <div className="w-6 h-6 rounded-md bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center shrink-0 group-hover:border-zinc-300 dark:group-hover:border-zinc-600 transition-colors duration-150">
-          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-zinc-400 dark:text-zinc-500">
+    <div className="rounded-lg border border-idemora-border bg-idemora-bg-primary overflow-hidden hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-150">
+      <button
+        onClick={onNavigate}
+        className="w-full flex items-center gap-2.5 px-3 pt-2.5 pb-1.5 text-left transition-colors duration-100 group"
+      >
+        <div className="w-6 h-6 rounded-md bg-idemora-bg-secondary border border-idemora-border flex items-center justify-center shrink-0 transition-colors duration-150">
+          <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-idemora-text-muted group-hover:text-blue-400 transition-colors duration-150">
             <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M4 6h5M4 8h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           </svg>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200 truncate">{mention.note.title}</p>
+          <p className="text-sm font-medium text-idemora-text-normal truncate group-hover:text-blue-400 transition-colors duration-150">
+            {mention.note.title}
+          </p>
         </div>
         {mention.occurrences > 1 && (
-          <span className="text-[10px] text-zinc-400 dark:text-zinc-600 tabular-nums shrink-0">{mention.occurrences}×</span>
+          <span className="text-[10px] text-idemora-text-faint tabular-nums shrink-0">{mention.occurrences}×</span>
         )}
       </button>
-      <p className="px-3 pb-2 text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed overflow-y-auto max-h-16">
+      <p className="px-3 pb-2 text-xs text-idemora-text-muted leading-relaxed overflow-y-auto max-h-16">
         {highlightMention(mention.snippet, targetTitle)}
       </p>
       <div className="px-3 pb-2.5">
         <button
           onClick={onLinkIt}
           disabled={linking}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {linking ? <span className="animate-pulse">Linking…</span> : (
+          {linking ? (
+            <span className="animate-pulse">Linking…</span>
+          ) : (
             <>
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                 <path d="M4 2H2a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>

@@ -3,8 +3,15 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { NoteTreeItem } from "./NoteTreeItem";
-import { SearchResults } from "./SearchResults";
 import type { Note } from "@/types";
+
+type SortOrder = 
+  | "alpha-asc" 
+  | "alpha-desc" 
+  | "modified-desc" 
+  | "modified-asc" 
+  | "created-desc" 
+  | "created-asc";
 
 function noteHasTag(tags: string | null, tag: string): boolean {
   if (!tags) return false;
@@ -17,13 +24,16 @@ interface DragState {
   section: "pinned" | "notes";
 }
 
-export function NoteTree() {
+interface NoteTreeProps {
+  sortOrder: SortOrder;
+}
+
+export function NoteTree({ sortOrder }: NoteTreeProps) {
   const notes        = useNoteStore((s) => s.notes);
   const pinnedIds    = useNoteStore((s) => s.pinnedIds);
   const reorderNote  = useNoteStore((s) => s.reorderNote);
   const deleteNote   = useNoteStore((s) => s.deleteNote);
   const setActive    = useNoteStore((s) => s.setActiveNote);
-  const searchQuery  = useUIStore((s) => s.searchQuery);
   const activeTag    = useUIStore((s) => s.activeTag);
   const setActiveTag = useUIStore((s) => s.setActiveTag);
   const selectedNoteIds    = useUIStore((s) => s.selectedNoteIds);
@@ -45,15 +55,35 @@ export function NoteTree() {
 
   useEffect(() => { focusedNoteIdRef.current = focusedNoteId; }, [focusedNoteId]);
 
+  // ── Sort notes function ─────────────────────────────────────────────────────
+  const sortNotes = useCallback((notesArray: Note[]): Note[] => {
+    return [...notesArray].sort((a, b) => {
+      switch (sortOrder) {
+        case "alpha-asc":
+          return a.title.localeCompare(b.title);
+        case "alpha-desc":
+          return b.title.localeCompare(a.title);
+        case "modified-desc":
+          return b.updated_at - a.updated_at;
+        case "modified-asc":
+          return a.updated_at - b.updated_at;
+        case "created-desc":
+          return b.created_at - a.created_at;
+        case "created-asc":
+          return a.created_at - b.created_at;
+        default:
+          return b.updated_at - a.updated_at;
+      }
+    });
+  }, [sortOrder]);
+
   // ── Delete selected notes ──────────────────────────────────────────────────
   const deleteSelectedNotes = useCallback(async () => {
     const ids = [...selectedNoteIds];
     if (ids.length === 0) return;
     
-    // Clear selection first to prevent any UI glitches
     clearSelection();
     
-    // Delete all selected notes
     for (const id of ids) {
       try {
         await deleteNote(id);
@@ -66,7 +96,6 @@ export function NoteTree() {
   // ── Keyboard handler ───────────────────────────────────────────────────────
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
-    // Don't intercept when typing in an input or the editor.
     if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
 
     const { selectedNoteIds: sel } = useUIStore.getState();
@@ -78,18 +107,14 @@ export function NoteTree() {
 
     if (flat.length === 0) return;
 
-    // ── Delete ───────────────────────────────────────────────────────────────
     if (e.key === "Delete" && sel.size > 0) {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      
-      // Delete immediately on first press
       deleteSelectedNotes();
       return;
     }
 
-    // ── Escape ───────────────────────────────────────────────────────────────
     if (e.key === "Escape") {
       if (sel.size > 0) { 
         useUIStore.getState().clearSelection(); 
@@ -101,8 +126,6 @@ export function NoteTree() {
       }
     }
 
-    // ── Arrow navigation — only when sidebar has logical focus ───────────────
-    // Sidebar has focus when focusedNoteId is set OR when a note is active.
     const currentFocus = focusedNoteIdRef.current ?? useNoteStore.getState().activeNoteId;
     if (!currentFocus) return;
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -120,21 +143,17 @@ export function NoteTree() {
     if (!nextId || nextId === currentFocus) return;
 
     if (e.shiftKey && sel.size > 0) {
-      // Shift+Arrow — extend selection.
       useUIStore.getState().toggleNoteSelection(nextId);
       lastSelectedIdRef.current = nextId;
     } else if (e.shiftKey) {
-      // Shift+Arrow from a non-selected state — select current + next.
       useUIStore.getState().toggleNoteSelection(currentFocus);
       useUIStore.getState().toggleNoteSelection(nextId);
       lastSelectedIdRef.current = nextId;
     }
-    // Always move focus.
     setFocusedNoteId(nextId);
 
   }, [deleteSelectedNotes]);
 
-  // Separate handler for Enter and Space — needs focusedNoteId in scope.
   const handleEnterSpace = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
     if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
@@ -144,7 +163,6 @@ export function NoteTree() {
 
     if (e.key === "Enter") {
       e.preventDefault();
-      // Open the focused note in the current tab.
       setActive(focused);
       replaceTab(focused);
       lastSelectedIdRef.current = focused;
@@ -152,7 +170,6 @@ export function NoteTree() {
 
     if (e.key === " ") {
       e.preventDefault();
-      // Space toggles selection of the focused note (like Ctrl+click).
       toggleNoteSelection(focused);
       lastSelectedIdRef.current = focused;
     }
@@ -167,7 +184,6 @@ export function NoteTree() {
     };
   }, [handleKeyDown, handleEnterSpace]);
 
-  // Drop focus when user clicks outside the sidebar.
   useEffect(() => {
     function handleMouseDown(e: MouseEvent) {
       const sidebar = document.getElementById("sidebar-panel");
@@ -179,35 +195,32 @@ export function NoteTree() {
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, []);
 
-  // ── FTS5 search results view ───────────────────────────────────────────────
-  if (searchQuery.trim()) {
-    return <SearchResults query={searchQuery} />;
-  }
-
   // ── Tag filter view ────────────────────────────────────────────────────────
   if (activeTag) {
-    const tagged    = notes.filter((n) => noteHasTag(n.tags, activeTag));
+    const tagged = notes.filter((n) => noteHasTag(n.tags, activeTag));
     const taggedIds = tagged.map((n) => n.id);
+    const sortedTagged = sortNotes(tagged);
+    
     return (
       <div className="px-2">
         <div className="flex items-center gap-2 px-2 pt-2 pb-1">
-          <span className="text-[10px] font-semibold tracking-widest uppercase text-zinc-400 dark:text-zinc-600 select-none flex-1">
+          <span className="text-[10px] font-semibold tracking-widest uppercase text-idemora-text-muted select-none flex-1">
             #{activeTag}
           </span>
           <button
             onClick={() => setActiveTag(null)}
-            className="text-[10px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors duration-100"
+            className="text-[10px] text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
           >
             Clear
           </button>
         </div>
-        {tagged.length === 0 ? (
-          <p className="px-2 py-4 text-xs text-zinc-400 dark:text-zinc-500 text-center select-none">
+        {sortedTagged.length === 0 ? (
+          <p className="px-2 py-4 text-xs text-idemora-text-muted text-center select-none">
             No notes tagged #{activeTag}
           </p>
         ) : (
           <ul className="space-y-0.5">
-            {tagged.map((note) => (
+            {sortedTagged.map((note) => (
               <NoteTreeItem
                 key={note.id}
                 noteId={note.id}
@@ -216,6 +229,7 @@ export function NoteTree() {
                 lastSelectedIdRef={lastSelectedIdRef}
                 focusedNoteId={focusedNoteId}
                 setFocusedNoteId={setFocusedNoteId}
+                sortOrder={sortOrder}
               />
             ))}
           </ul>
@@ -225,14 +239,14 @@ export function NoteTree() {
   }
 
   // ── Default tree view ──────────────────────────────────────────────────────
-  const pinnedNotes   = notes.filter((n) => n.parent_id === null && pinnedIds.has(n.id));
-  const unpinnedNotes = notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
+  const pinnedNotes = sortNotes(notes.filter((n) => n.parent_id === null && pinnedIds.has(n.id)));
+  const unpinnedNotes = sortNotes(notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id)));
   const flatOrderedIds = [...pinnedNotes, ...unpinnedNotes].map((n) => n.id);
   const selectionCount = selectedNoteIds.size;
 
   if (pinnedNotes.length === 0 && unpinnedNotes.length === 0) {
     return (
-      <p className="px-4 py-6 text-xs text-zinc-400 dark:text-zinc-500 text-center select-none">
+      <p className="px-4 py-6 text-xs text-idemora-text-muted text-center select-none">
         No notes yet.<br />Click + to create one.
       </p>
     );
@@ -287,6 +301,7 @@ export function NoteTree() {
           lastSelectedIdRef={lastSelectedIdRef}
           focusedNoteId={focusedNoteId}
           setFocusedNoteId={setFocusedNoteId}
+          sortOrder={sortOrder}
         />
       </li>
     );
@@ -294,16 +309,15 @@ export function NoteTree() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* ── Bulk action bar ──────────────────────────────────────────────────── */}
       {selectionCount > 0 && (
-        <div className="mx-2 mb-1 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 flex items-center gap-2">
-          <span className="flex-1 text-xs font-medium text-blue-700 dark:text-blue-300">
+        <div className="mx-2 mb-1 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center gap-2">
+          <span className="flex-1 text-xs font-medium text-blue-400">
             {selectionCount} selected
           </span>
           <button
             onClick={deleteSelectedNotes}
             title="Move selected to trash (Del)"
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-500 hover:bg-red-100 dark:hover:bg-red-950 transition-colors duration-75"
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-400 hover:bg-red-500/10 transition-colors duration-75"
           >
             <svg width="11" height="11" viewBox="0 0 13 13" fill="none">
               <path d="M2 3h9M5 3V2h3v1M3.5 3l.5 8h5l.5-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -313,7 +327,7 @@ export function NoteTree() {
           <button
             onClick={clearSelection}
             title="Clear selection (Esc)"
-            className="w-5 h-5 flex items-center justify-center rounded text-blue-400 hover:text-blue-700 dark:hover:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors duration-75"
+            className="w-5 h-5 flex items-center justify-center rounded text-blue-400 hover:bg-blue-500/10 transition-colors duration-75"
           >
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
               <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -325,7 +339,7 @@ export function NoteTree() {
       <div className="px-2 space-y-0.5 flex-1">
         {pinnedNotes.length > 0 && (
           <div className="mb-1">
-            <p className="px-2 pt-2 pb-1 text-[10px] font-semibold tracking-widest uppercase text-zinc-400 dark:text-zinc-600 select-none">
+            <p className="px-2 pt-2 pb-1 text-[10px] font-semibold tracking-widest uppercase text-idemora-text-muted select-none">
               Pinned
             </p>
             <ul className="space-y-0.5">
@@ -335,13 +349,13 @@ export function NoteTree() {
         )}
 
         {pinnedNotes.length > 0 && unpinnedNotes.length > 0 && (
-          <div className="mx-2 border-t border-zinc-200 dark:border-zinc-800 my-1" />
+          <div className="mx-2 border-t border-idemora-border my-1" />
         )}
 
         {unpinnedNotes.length > 0 && (
           <div>
             {pinnedNotes.length > 0 && (
-              <p className="px-2 pt-1 pb-1 text-[10px] font-semibold tracking-widest uppercase text-zinc-400 dark:text-zinc-600 select-none">
+              <p className="px-2 pt-1 pb-1 text-[10px] font-semibold tracking-widest uppercase text-idemora-text-muted select-none">
                 Notes
               </p>
             )}

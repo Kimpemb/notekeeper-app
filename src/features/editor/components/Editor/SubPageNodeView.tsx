@@ -184,7 +184,7 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     >
       {mode === "editing" ? (
         <div className="flex items-center gap-2.5 px-1 py-1.5 rounded-md">
-          <PageIcon className="text-zinc-400 dark:text-zinc-500" />
+          <PageIcon className="text-idemora-text-muted" />
           <input
             ref={inputRef}
             type="text"
@@ -194,21 +194,21 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
             onBlur={() => commit(inputValue)}
             onClick={(e) => e.stopPropagation()}
             placeholder="Untitled"
-            className="flex-1 bg-transparent outline-none border-none text-base text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-500 caret-zinc-800 dark:caret-zinc-200"
+            className="flex-1 bg-transparent outline-none border-none text-base text-idemora-text-normal placeholder-idemora-text-faint caret-idemora-text-normal"
           />
         </div>
       ) : (
         <div
           className={`group flex items-center gap-2.5 px-1 py-1.5 rounded-md w-full transition-colors duration-100 ${
             graphMode
-              ? "cursor-pointer hover:bg-indigo-500/10 dark:hover:bg-indigo-500/20"
-              : "cursor-default hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              ? "cursor-pointer hover:bg-blue-500/10"
+              : "cursor-default"
           }`}
           onClick={handleClick}
           title={graphMode ? "Click to open in graph" : "Click to open · Ctrl+click for new tab"}
         >
-          <PageIcon className="text-zinc-400 dark:text-zinc-500 shrink-0" />
-          <span className="flex-1 text-base text-zinc-700 dark:text-zinc-300 select-none">
+          <PageIcon className="text-idemora-text-muted shrink-0 group-hover:text-blue-400 transition-colors duration-150" />
+          <span className="flex-1 text-base text-idemora-text-normal select-none group-hover:text-blue-400 transition-colors duration-150">
             {liveTitle}
           </span>
         </div>

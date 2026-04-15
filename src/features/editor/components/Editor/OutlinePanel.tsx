@@ -43,19 +43,22 @@ function scrollToHeading(editor: Editor, pos: number) {
   if (!scrollContainer) return;
   const containerRect = scrollContainer.getBoundingClientRect();
   const elRect = el.getBoundingClientRect();
-  scrollContainer.scrollTo({ top: scrollContainer.scrollTop + (elRect.top - containerRect.top) - 80, behavior: "smooth" });
+  scrollContainer.scrollTo({
+    top: scrollContainer.scrollTop + (elRect.top - containerRect.top) - 80,
+    behavior: "smooth",
+  });
 }
 
 const indentClass: Record<1 | 2 | 3, string> = { 1: "pl-3", 2: "pl-6", 3: "pl-9" };
 const levelStyle: Record<1 | 2 | 3, string> = {
-  1: "text-sm font-semibold text-zinc-700 dark:text-zinc-300",
-  2: "text-xs font-medium text-zinc-600 dark:text-zinc-400",
-  3: "text-xs font-normal text-zinc-500 dark:text-zinc-500",
+  1: "text-sm font-semibold",
+  2: "text-xs font-medium",
+  3: "text-xs font-normal",
 };
-const dotStyle: Record<1 | 2 | 3, string> = {
-  1: "w-1.5 h-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500 shrink-0",
-  2: "w-1 h-1 rounded-full bg-zinc-300 dark:bg-zinc-600 shrink-0",
-  3: "w-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-700 shrink-0",
+const dotSize: Record<1 | 2 | 3, string> = {
+  1: "w-1.5 h-1.5",
+  2: "w-1 h-1",
+  3: "w-1 h-1",
 };
 
 export function OutlinePanel({ editor, paneId }: Props) {
@@ -63,7 +66,7 @@ export function OutlinePanel({ editor, paneId }: Props) {
   const [activePos, setActivePos] = useState<number | null>(null);
   const closeOutline = useUIStore((s) => s.closeOutline);
 
-  const refresh = useCallback(() => { setHeadings(extractHeadings(editor)); }, [editor]);
+  const refresh = useCallback(() => setHeadings(extractHeadings(editor)), [editor]);
 
   useEffect(() => {
     refresh();
@@ -74,6 +77,7 @@ export function OutlinePanel({ editor, paneId }: Props) {
   useEffect(() => {
     const scrollContainer = getScrollContainer(editor);
     if (!scrollContainer) return;
+
     function onScroll() {
       const containerRect = scrollContainer!.getBoundingClientRect();
       let best: number | null = null;
@@ -85,41 +89,51 @@ export function OutlinePanel({ editor, paneId }: Props) {
       }
       setActivePos(best);
     }
+
     scrollContainer.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
     return () => scrollContainer.removeEventListener("scroll", onScroll);
   }, [editor, headings]);
 
   return (
-    <div className="flex flex-col h-full w-56 shrink-0 border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+    <div className="flex flex-col h-full w-56 shrink-0 border-l border-idemora-border bg-idemora-bg-secondary">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-idemora-border shrink-0">
         <div className="flex items-center gap-2">
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-zinc-400 shrink-0">
-            <path d="M2 3h9M2 6h6M2 9h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-idemora-text-muted shrink-0">
+            <path d="M2 3h9M2 6h6M2 9h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
-          <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">Outline</span>
+          <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wider">Outline</span>
           {headings.length > 0 && (
-            <span className="text-xs text-zinc-400 dark:text-zinc-600 tabular-nums">{headings.length}</span>
+            <span className="text-xs text-idemora-text-faint tabular-nums">{headings.length}</span>
           )}
         </div>
         <button
           onClick={() => closeOutline(paneId)}
-          className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-100"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted
+            hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+            transition-colors duration-100"
         >
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-            <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
         </button>
       </div>
 
+      {/* Body */}
       <div className="flex-1 overflow-y-auto py-2">
         {headings.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-zinc-300 dark:text-zinc-700">
-              <path d="M4 6h16M4 10h10M4 14h12M4 18h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-idemora-text-faint">
+              <path d="M4 6h16M4 10h10M4 14h12M4 18h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
-            <p className="text-xs text-zinc-400 dark:text-zinc-600">No headings yet.</p>
-            <p className="text-xs text-zinc-300 dark:text-zinc-700">
-              Type <kbd className="font-mono px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">/h1</kbd> to add one.
+            <p className="text-xs text-idemora-text-muted">No headings yet.</p>
+            <p className="text-xs text-idemora-text-faint">
+              Type{" "}
+              <kbd className="font-mono px-1 py-0.5 rounded bg-idemora-bg-primary text-idemora-text-muted">
+                /h1
+              </kbd>{" "}
+              to add one.
             </p>
           </div>
         ) : (
@@ -130,11 +144,35 @@ export function OutlinePanel({ editor, paneId }: Props) {
                 <li key={`${h.pos}-${i}`}>
                   <button
                     onClick={() => scrollToHeading(editor, h.pos)}
-                    className={`w-full flex items-center gap-2 py-1.5 pr-3 text-left transition-colors duration-75 group ${indentClass[h.level]} ${isActive ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+                    className={[
+                      "w-full flex items-center gap-2 py-2 pr-3 text-left rounded-r-lg transition-colors duration-150",
+                      indentClass[h.level],
+                      isActive
+                        ? "bg-blue-500/10 text-blue-400"
+                        : "text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07]",
+                    ].join(" ")}
                   >
-                    <span className={dotStyle[h.level]} />
-                    <span className={`truncate leading-snug ${levelStyle[h.level]} ${isActive ? "text-zinc-900 dark:text-zinc-100" : ""} group-hover:text-zinc-900 dark:group-hover:text-zinc-100 transition-colors duration-75`}>
-                      {h.text || <span className="italic opacity-40">Untitled</span>}
+                    <span
+                      className={[
+                        dotSize[h.level],
+                        "rounded-full shrink-0",
+                        isActive
+                          ? "bg-blue-400"
+                          : h.level === 1
+                          ? "bg-idemora-text-normal"
+                          : h.level === 2
+                          ? "bg-idemora-text-muted"
+                          : "bg-idemora-text-faint",
+                      ].join(" ")}
+                    />
+                    <span
+                      className={[
+                        "truncate leading-snug",
+                        levelStyle[h.level],
+                        isActive ? "text-blue-400" : "text-idemora-text-muted",
+                      ].join(" ")}
+                    >
+                      {h.text || <span className="italic text-idemora-text-faint">Untitled</span>}
                     </span>
                   </button>
                 </li>

@@ -69,12 +69,12 @@ export function NewTabScreen({ paneId }: Props) {
   const showResults = query.trim() && !loading;
 
   return (
-    <div className="flex flex-col items-center w-full h-full bg-white dark:bg-zinc-950 overflow-y-auto">
+    <div className="flex flex-col items-center w-full h-full bg-idemora-bg-primary  overflow-y-auto">
       <div className="w-full max-w-lg mt-16 px-6">
 
         {/* Search input */}
         <div className="relative mb-6">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-idemora-text-muted" width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.5"/>
             <path d="M9.5 9.5L12.5 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
@@ -85,14 +85,14 @@ export function NewTabScreen({ paneId }: Props) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search or open a note…"
-            className="w-full h-10 pl-9 pr-4 rounded-lg text-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 outline-none border border-zinc-200 dark:border-zinc-700 focus:border-blue-400 dark:focus:border-blue-500 transition-colors duration-100"
+            className="w-full h-10 pl-9 pr-4 rounded-lg text-sm bg-idemora-bg-primary  text-idemora-text-normal placeholder:text-idemora-text-muted :text-idemora-text-muted outline-none border-idemora-border  focus  transition-colors duration-100"
           />
         </div>
 
         {/* New note button */}
         <button
           onClick={handleNewNote}
-          className="w-full flex items-center gap-3 px-4 h-10 rounded-lg text-sm font-medium text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors duration-100 border border-dashed border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 mb-6"
+          className="w-full flex items-center gap-3 px-4 h-10 rounded-lg text-sm font-medium text-idemora-text-muted     transition-colors duration-100 border-dashed border-idemora-border   : mb-6"
         >
           <svg width="12" height="12" viewBox="0 0 10 10" fill="none">
             <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -102,11 +102,11 @@ export function NewTabScreen({ paneId }: Props) {
 
         {/* Search results */}
         {loading && (
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center animate-pulse">Searching…</p>
+          <p className="text-xs text-idemora-text-muted text-center animate-pulse">Searching…</p>
         )}
 
         {showResults && results.length === 0 && (
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center">No results for "{query}"</p>
+          <p className="text-xs text-idemora-text-muted text-center">No results for "{query}"</p>
         )}
 
         {showResults && results.length > 0 && (
@@ -117,13 +117,13 @@ export function NewTabScreen({ paneId }: Props) {
                   onClick={() => openNote(r.id)}
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-75 ${
                     i === selectedIdx
-                      ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200"
-                      : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                      ? "bg-idemora-bg-primary  text-idemora-text-normal"
+                      : "text-idemora-text-normal text-idemora-text-muted  /60"
                   }`}
                 >
                   <div className="font-medium truncate">{r.title}</div>
                   {r.snippet && (
-                    <div className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">{r.snippet.replace(/\*\*/g, "")}</div>
+                    <div className="text-[11px] text-idemora-text-muted truncate mt-0.5">{r.snippet.replace(/\*\*/g, "")}</div>
                   )}
                 </button>
               </li>
@@ -134,7 +134,7 @@ export function NewTabScreen({ paneId }: Props) {
         {/* Recent notes */}
         {showRecent && recentNotes.length > 0 && (
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-600 font-medium mb-2 px-1">Recent</p>
+            <p className="text-[10px] uppercase tracking-wider text-idemora-text-muted  font-medium mb-2 px-1">Recent</p>
             <ul className="space-y-0.5">
               {recentNotes.map((n) => {
                 const isUntitled = /^Untitled-\d+$/.test(n.title);
@@ -142,9 +142,9 @@ export function NewTabScreen({ paneId }: Props) {
                   <li key={n.id}>
                     <button
                       onClick={() => openNote(n.id)}
-                      className="w-full text-left px-3 py-2 rounded-md text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors duration-75 truncate"
+                      className="w-full text-left px-3 py-2 rounded-md text-sm text-idemora-text-normal text-idemora-text-muted  /60   transition-colors duration-75 truncate"
                     >
-                      {isUntitled ? <span className="text-zinc-400 dark:text-zinc-600">Untitled</span> : n.title}
+                      {isUntitled ? <span className="text-idemora-text-muted ">Untitled</span> : n.title}
                     </button>
                   </li>
                 );

@@ -79,18 +79,18 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
   }
 
   function handleUnlink() {
-  setContextMenu(null);
-  if (typeof getPos !== "function") return;
-  const pos = getPos();
-  if (pos === undefined) return;
-  const nodeSize = node.nodeSize;
-  editor
-    .chain()
-    .focus()
-    .deleteRange({ from: pos, to: pos + nodeSize })
-    .insertContentAt(pos, { type: "text", text: liveTitle })
-    .run();
-}
+    setContextMenu(null);
+    if (typeof getPos !== "function") return;
+    const pos = getPos();
+    if (pos === undefined) return;
+    const nodeSize = node.nodeSize;
+    editor
+      .chain()
+      .focus()
+      .deleteRange({ from: pos, to: pos + nodeSize })
+      .insertContentAt(pos, { type: "text", text: liveTitle })
+      .run();
+  }
 
   function handleNavigate() {
     setContextMenu(null);
@@ -111,8 +111,8 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
         title={exists ? `Go to: ${liveTitle}` : "Note not found"}
         className={`inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-xs font-medium cursor-pointer select-none transition-colors duration-100 ${
           exists
-            ? "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800"
-            : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-500 border border-zinc-200 dark:border-zinc-700 line-through"
+            ? "bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20"
+            : "bg-idemora-bg-primary text-idemora-text-muted border border-idemora-border line-through hover:bg-idemora-bg-secondary"
         }`}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="shrink-0 opacity-70">
@@ -148,15 +148,15 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
             zIndex: 9999,
             minWidth: 180,
           }}
-          className="py-1 rounded-lg shadow-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 overflow-hidden"
+          className="py-1 rounded-lg shadow-xl bg-idemora-bg-primary border border-idemora-border overflow-hidden"
         >
           {/* Navigate */}
           {exists && (
             <button
               onMouseDown={(e) => { e.preventDefault(); handleNavigate(); }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors duration-75"
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-75"
             >
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-zinc-400">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
                 <path d="M9 4H5a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 <path d="M7 2h4v4M11 2L6.5 6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
@@ -164,12 +164,12 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
             </button>
           )}
 
-          {exists && <div className="mx-3 border-t border-zinc-100 dark:border-zinc-700" />}
+          {exists && <div className="mx-3 border-t border-idemora-border" />}
 
           {/* Unlink */}
           <button
             onMouseDown={(e) => { e.preventDefault(); handleUnlink(); }}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors duration-75"
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors duration-75"
           >
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0">
               <path d="M5 8l-3 3M8 5l3-3M4.5 4.5l4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>

@@ -14,7 +14,6 @@ export function CodeBlockNodeView({ node, updateAttributes, editor }: NodeViewPr
   const [search, setSearch]               = useState("");
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
 
-  // Ref on the whole pill — used for dropdown positioning & outside-click detection
   const pillRef     = useRef<HTMLDivElement>(null);
   const langBtnRef  = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -35,7 +34,6 @@ export function CodeBlockNodeView({ node, updateAttributes, editor }: NodeViewPr
     const dropHeight = 340;
     const shouldFlip = spaceBelow < dropHeight && spaceAbove > spaceBelow;
 
-    // Clamp left so dropdown never bleeds off the right edge
     const rawLeft = rect.left;
     const maxLeft = window.innerWidth - DROPDOWN_WIDTH - 12;
     const left = Math.min(rawLeft, maxLeft);
@@ -100,29 +98,29 @@ export function CodeBlockNodeView({ node, updateAttributes, editor }: NodeViewPr
 
   return (
     <NodeViewWrapper
-      className="code-block-wrap"
+      className="code-block-wrap group relative my-3"
       onKeyDown={(e: React.KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "a") e.preventDefault();
       }}
     >
-      <pre className="code-block-pre">
+      <pre className="code-block-pre relative rounded-lg overflow-hidden bg-idemora-bg-secondary border border-idemora-border">
         {/* Sticky toolbar */}
         <div
-          className="code-block-lang-anchor"
+          className="code-block-lang-anchor sticky top-0 z-10 flex justify-end pointer-events-none"
           onMouseDown={(e) => e.preventDefault()}
         >
           {/* Unified pill */}
-          <div ref={pillRef} className="code-block-pill">
+          <div ref={pillRef} className="code-block-pill pointer-events-auto flex items-center gap-1 m-2 rounded-md bg-idemora-bg-primary/90 backdrop-blur-sm border border-idemora-border shadow-sm">
 
             {/* Language segment */}
             <button
               ref={langBtnRef}
-              className="code-block-pill-lang"
+              className="code-block-pill-lang flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md transition-colors duration-100 text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
               onClick={() => (open ? setOpen(false) : openDropdown())}
               tabIndex={-1}
               title="Set language"
             >
-              <span className="code-block-pill-lang-inner">
+              <span className="code-block-pill-lang-inner flex items-center gap-1">
                 <span>{current.value ? current.label : "Plain"}</span>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
                   <path
@@ -135,16 +133,16 @@ export function CodeBlockNodeView({ node, updateAttributes, editor }: NodeViewPr
             </button>
 
             {/* Divider */}
-            <span className="code-block-pill-divider" aria-hidden />
+            <span className="code-block-pill-divider w-px h-4 bg-idemora-border" aria-hidden />
 
             {/* Copy segment */}
             <button
-              className="code-block-pill-icon"
+              className="code-block-pill-icon flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-100 text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
               onClick={copyCode}
               tabIndex={-1}
               title={copied ? "Copied!" : "Copy code"}
             >
-              <span className="code-block-pill-icon-inner">
+              <span className="code-block-pill-icon-inner flex items-center justify-center">
                 {copied ? (
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path d="M11.5 4L5.5 10L2.5 7" stroke="currentColor" strokeWidth="1.6"
@@ -163,20 +161,20 @@ export function CodeBlockNodeView({ node, updateAttributes, editor }: NodeViewPr
           </div>
         </div>
 
-        <NodeViewContent className="code-block-content" />
+        <NodeViewContent className="code-block-content p-3 font-mono text-sm leading-relaxed text-idemora-text-normal overflow-x-auto" />
       </pre>
 
       {open && createPortal(
         <div
           ref={dropdownRef}
-          className="code-block-lang-dropdown"
+          className="code-block-lang-dropdown rounded-lg border border-idemora-border bg-idemora-bg-primary shadow-xl overflow-hidden"
           style={dropdownStyle}
         >
           {/* Search */}
-          <div className="code-block-lang-search-wrap">
+          <div className="code-block-lang-search-wrap p-2 border-b border-idemora-border">
             <input
               ref={searchRef}
-              className="code-block-lang-search"
+              className="code-block-lang-search w-full px-3 py-1.5 text-sm rounded-md border border-idemora-border bg-idemora-bg-primary text-idemora-text-normal placeholder-idemora-text-faint focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors duration-150"
               placeholder="Search for a language..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -188,23 +186,29 @@ export function CodeBlockNodeView({ node, updateAttributes, editor }: NodeViewPr
           </div>
 
           {/* Language list */}
-          <div className="code-block-lang-list">
+          <div className="code-block-lang-list max-h-[280px] overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <p className="code-block-lang-empty">No results</p>
+              <p className="code-block-lang-empty px-3 py-4 text-sm text-idemora-text-muted text-center">
+                No results
+              </p>
             ) : (
               filtered.map((l) => {
                 const isActive = l.value === (language ?? "");
                 return (
                   <button
                     key={l.value}
-                    className={`code-block-lang-option${isActive ? " active" : ""}`}
+                    className={`code-block-lang-option w-full flex items-center justify-between px-3 py-1.5 text-sm transition-colors duration-75 text-left ${
+                      isActive
+                        ? "bg-blue-500/10 text-blue-500"
+                        : "text-idemora-text-muted hover:bg-idemora-bg-secondary hover:text-idemora-text-normal"
+                    }`}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => select(l.value)}
                     tabIndex={-1}
                   >
                     <span>{l.label}</span>
                     {isActive && (
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="code-block-lang-check">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="code-block-lang-check shrink-0">
                         <path d="M2.5 7L5.5 10L11.5 4" stroke="currentColor" strokeWidth="1.6"
                           strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>

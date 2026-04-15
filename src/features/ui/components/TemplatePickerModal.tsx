@@ -69,22 +69,22 @@ export function TemplatePickerModal({ open, onSelect, onCancel }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 /50 backdrop-blur-sm"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-lg mx-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl overflow-hidden"
+        className="w-full max-w-lg mx-4 rounded-xl bg-idemora-bg-primary border-idemora-border  shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-zinc-100 dark:border-zinc-800">
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b  border-idemora-border">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">New note</h2>
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">Choose a starting point</p>
+            <h2 className="text-sm font-semibold text-idemora-text-normal">New note</h2>
+            <p className="text-xs text-idemora-text-muted mt-0.5">Choose a starting point</p>
           </div>
           <button
             onClick={onCancel}
-            className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-100"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted     transition-colors duration-100"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -102,20 +102,20 @@ export function TemplatePickerModal({ open, onSelect, onCancel }: Props) {
               onMouseEnter={() => setSelectedIndex(i)}
               className={`group flex flex-col gap-2 p-3.5 rounded-lg border text-left transition-all duration-100 ${
                 i === selectedIndex
-                  ? "bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 shadow-sm"
-                  : "bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700"
+                  ? "bg-idemora-bg-primary    shadow-sm"
+                  : "bg-idemora-bg-primary /50 border-idemora-border "
               }`}
             >
               <span className="text-xl leading-none select-none">{template.icon}</span>
               <div>
                 <p className={`text-xs font-semibold transition-colors duration-100 ${
                   i === selectedIndex
-                    ? "text-zinc-900 dark:text-zinc-100"
-                    : "text-zinc-700 dark:text-zinc-300"
+                    ? "text-idemora-text-normal"
+                    : "text-idemora-text-normal"
                 }`}>
                   {template.label}
                 </p>
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 leading-snug">
+                <p className="text-xs text-idemora-text-muted mt-0.5 leading-snug">
                   {template.description}
                 </p>
               </div>
@@ -125,16 +125,16 @@ export function TemplatePickerModal({ open, onSelect, onCancel }: Props) {
 
         {/* Footer */}
         <div className="px-5 pb-4 flex items-center justify-end gap-3">
-          <span className="text-[10px] text-zinc-300 dark:text-zinc-700 flex items-center gap-1">
-            <kbd className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 px-1 py-0.5 rounded font-mono">↑↓←→</kbd>
+          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">↑↓←→</kbd>
             navigate
           </span>
-          <span className="text-[10px] text-zinc-300 dark:text-zinc-700 flex items-center gap-1">
-            <kbd className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 px-1 py-0.5 rounded font-mono">↵</kbd>
+          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">↵</kbd>
             select
           </span>
-          <span className="text-[10px] text-zinc-300 dark:text-zinc-700 flex items-center gap-1">
-            <kbd className="bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 px-1 py-0.5 rounded font-mono">ESC</kbd>
+          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">ESC</kbd>
             cancel
           </span>
         </div>

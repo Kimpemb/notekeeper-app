@@ -10,7 +10,7 @@ import { useAIStore } from "@/features/ai/store/useAIStore";
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-3 mt-6 first:mt-0">
+    <p className="text-[11px] font-semibold uppercase tracking-widest text-idemora-text-muted mb-3 mt-6 first:mt-0">
       {children}
     </p>
   );
@@ -26,11 +26,11 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+    <div className="flex items-start justify-between gap-4 py-2.5 border-b  border-idemora-border last">
       <div className="flex flex-col gap-0.5 min-w-0">
-        <span className="text-sm text-zinc-800 dark:text-zinc-200 leading-snug">{label}</span>
+        <span className="text-sm text-idemora-text-normal leading-snug">{label}</span>
         {description && (
-          <span className="text-xs text-zinc-400 dark:text-zinc-500 leading-snug">{description}</span>
+          <span className="text-xs text-idemora-text-muted leading-snug">{description}</span>
         )}
       </div>
       <div className="shrink-0">{children}</div>
@@ -55,10 +55,10 @@ function Toggle({
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
         disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
-      } ${checked ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-700"}`}
+      } ${checked ? "bg-blue-500" : "bg-idemora-bg-primary "}`}
     >
       <span
-        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-idemora-bg-primary shadow-sm transition-transform duration-200 ${
           checked ? "translate-x-4" : "translate-x-0"
         }`}
       />
@@ -70,10 +70,10 @@ function Toggle({
 
 function StatusBadge({ status }: { status: "idle" | "testing" | "connected" | "error" }) {
   const styles = {
-    idle:      "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500",
-    testing:   "bg-blue-50 dark:bg-blue-900/30 text-blue-500",
-    connected: "bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400",
-    error:     "bg-red-50 dark:bg-red-900/30 text-red-500",
+    idle:      "bg-idemora-bg-primary  text-idemora-text-muted",
+    testing:   "bg-blue-50 /30 text-blue-500",
+    connected: "bg-green-50 /30 text-green-600 ",
+    error:     "bg-red-50 /30 text-red-500",
   };
   const labels = {
     idle:      "Not connected",
@@ -82,7 +82,7 @@ function StatusBadge({ status }: { status: "idle" | "testing" | "connected" | "e
     error:     "Connection failed",
   };
   const dots = {
-    idle:      "bg-zinc-300 dark:bg-zinc-600",
+    idle:      "bg-idemora-bg-primary ",
     testing:   "bg-blue-400 animate-pulse",
     connected: "bg-green-500",
     error:     "bg-red-400",
@@ -151,11 +151,11 @@ export function AISetupModal() {
                 placeholder="AIza..."
                 spellCheck={false}
                 autoComplete="off"
-                className="w-full px-3 py-2 pr-10 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 placeholder-zinc-300 dark:placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                className="w-full px-3 py-2 pr-10 text-sm rounded-lg border-idemora-border  bg-idemora-bg-primary text-idemora-text-normal placeholder-idemora-text-muted  focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
               />
               <button
                 onClick={() => setShowKey((v) => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-idemora-text-muted   transition-colors"
                 title={showKey ? "Hide key" : "Show key"}
               >
                 {showKey ? (
@@ -175,14 +175,14 @@ export function AISetupModal() {
 
             {/* Error message */}
             {connectionStatus === "error" && connectionError && (
-              <p className="text-xs text-red-500 dark:text-red-400">{connectionError}</p>
+              <p className="text-xs text-red-500 ">{connectionError}</p>
             )}
 
             <div className="flex items-center gap-2">
               <button
                 onClick={handleTest}
                 disabled={!localKey.trim() || isTesting}
-                className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors duration-150"
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-lg bg-blue-500  disabled:opacity-40 disabled:cursor-not-allowed text-idemora-text-normal transition-colors duration-150"
               >
                 {isTesting && (
                   <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -195,7 +195,7 @@ export function AISetupModal() {
                 href="https://aistudio.google.com/app/apikey"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                className="text-xs text-blue-500   :text-blue-300 transition-colors"
               >
                 Get a free API key →
               </a>
@@ -215,16 +215,16 @@ export function AISetupModal() {
             />
           </Row>
 
-          <div className="mt-4 flex items-center justify-between p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800">
+          <div className="mt-4 flex items-center justify-between p-3 rounded-lg bg-idemora-bg-primary /60 border-idemora-border">
             <div>
-              <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Gemini 2.0 Flash</p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+              <p className="text-xs font-medium text-idemora-text-normal text-idemora-text-muted">Gemini 2.0 Flash</p>
+              <p className="text-xs text-idemora-text-muted mt-0.5">
                 Key ending in ···{apiKey.slice(-4)}
               </p>
             </div>
             <button
               onClick={handleDisconnect}
-              className="text-xs text-red-400 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300 transition-colors font-medium"
+              className="text-xs text-red-400   :text-red-300 transition-colors font-medium"
             >
               Disconnect
             </button>
@@ -233,8 +233,8 @@ export function AISetupModal() {
       )}
 
       {/* ── Info footer ── */}
-      <div className="mt-4 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800">
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed">
+      <div className="mt-4 p-3 rounded-lg bg-idemora-bg-primary /60 border-idemora-border">
+        <p className="text-xs text-idemora-text-muted leading-relaxed">
           Your API key is stored locally in the app database. It is only used to call Google's Gemini API directly from your device.
         </p>
       </div>

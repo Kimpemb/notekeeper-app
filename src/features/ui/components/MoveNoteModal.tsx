@@ -65,19 +65,62 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
     return [...rootOption, ...list];
   }, [notes, noteId]);
 
+  // ── Improved search ranking ────────────────────────────────────────────────
   const getFiltered = useCallback(() => {
     const q = query.trim().toLowerCase();
     const all = getCandidates();
+    
     if (!q) return all;
-    return all.filter(
-      (n) => n.title.toLowerCase().includes(q) || n.breadcrumb.toLowerCase().includes(q)
-    );
+
+    // Score each candidate: lower score = better match
+    const scored = all.map((candidate) => {
+      const titleLower = candidate.title.toLowerCase();
+      const breadcrumbLower = candidate.breadcrumb.toLowerCase();
+      
+      let score = 0;
+      
+      // Exact title match (highest priority)
+      if (titleLower === q) {
+        score = 1;
+      }
+      // Title starts with query
+      else if (titleLower.startsWith(q)) {
+        score = 2;
+      }
+      // Title contains query as whole word
+      else if (titleLower.includes(` ${q}`) || titleLower.startsWith(`${q} `)) {
+        score = 3;
+      }
+      // Title contains query anywhere
+      else if (titleLower.includes(q)) {
+        score = 4;
+      }
+      // Breadcrumb contains query
+      else if (breadcrumbLower.includes(q)) {
+        score = 5;
+      }
+      // No match
+      else {
+        score = 999;
+      }
+      
+      return { ...candidate, score };
+    });
+    
+    // Sort by score, then by title length (shorter titles first for ties), then alphabetically
+    return scored
+      .filter((c) => c.score < 999)
+      .sort((a, b) => {
+        if (a.score !== b.score) return a.score - b.score;
+        if (a.title.length !== b.title.length) return a.title.length - b.title.length;
+        return a.title.localeCompare(b.title);
+      })
+      .map(({ id, title, breadcrumb }) => ({ id, title, breadcrumb }));
   }, [getCandidates, query]);
 
-const items = getFiltered();
-const filteredRef = useRef(items);
-useEffect(() => { filteredRef.current = items; }, [items]);
-
+  const items = getFiltered();
+  const filteredRef = useRef(items);
+  useEffect(() => { filteredRef.current = items; }, [items]);
 
   useEffect(() => { setSelectedIdx(0); }, [query]);
 
@@ -120,7 +163,7 @@ useEffect(() => { filteredRef.current = items; }, [items]);
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 
   async function confirmMove(targetId: string) {
     const newParent = targetId === "__root__" ? null : targetId;
@@ -132,17 +175,17 @@ useEffect(() => { filteredRef.current = items; }, [items]);
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/20 dark:bg-black/40"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md mx-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-md mx-4 rounded-xl bg-idemora-bg-secondary border border-idemora-border shadow-2xl overflow-hidden flex flex-col"
         style={{ maxHeight: "60vh" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search */}
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
-          <svg className="shrink-0 text-zinc-400" width="13" height="13" viewBox="0 0 14 14" fill="none">
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-idemora-border shrink-0">
+          <svg className="shrink-0 text-idemora-text-muted" width="13" height="13" viewBox="0 0 14 14" fill="none">
             <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.4"/>
             <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
@@ -151,45 +194,47 @@ useEffect(() => { filteredRef.current = items; }, [items]);
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Move to…"
-            className="flex-1 bg-transparent outline-none text-base text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
+            className="flex-1 bg-transparent outline-none text-base text-idemora-text-normal placeholder-idemora-text-faint"
           />
-          <kbd className="text-xs text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded font-mono">ESC</kbd>
+          <kbd className="text-xs text-idemora-text-faint bg-idemora-bg-primary px-1.5 py-0.5 rounded font-mono">ESC</kbd>
         </div>
 
         {/* List */}
         <ul ref={listRef} className="overflow-y-auto py-1">
           {items.length === 0 && (
-            <li className="px-4 py-6 text-base text-zinc-400 text-center">No notes found</li>
+            <li className="px-4 py-6 text-base text-idemora-text-muted text-center">No notes found</li>
           )}
           {items.map((item, i) => (
             <li key={item.id}>
               <button
                 onMouseEnter={() => setSelectedIdx(i)}
                 onClick={() => confirmMove(item.id)}
-                className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors duration-75 ${
+                className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors duration-100 ${
                   i === selectedIdx
-                    ? "bg-zinc-100 dark:bg-zinc-800"
-                    : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                    ? "bg-blue-500/10"
+                    : "hover:bg-black/6 dark:hover:bg-white/7"
                 }`}
               >
                 {item.id === "__root__" ? (
-                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-400">
+                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-idemora-text-muted">
                     <path d="M1 10L6 2l5 8H1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
                   </svg>
                 ) : (
-                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-zinc-400">
+                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-idemora-text-muted">
                     <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
                     <path d="M3.5 4h5M3.5 6.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
                   </svg>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-base text-zinc-800 dark:text-zinc-200 truncate">{item.title}</p>
+                  <p className={`text-base truncate ${i === selectedIdx ? "text-blue-400" : "text-idemora-text-normal"}`}>
+                    {item.title}
+                  </p>
                   {item.breadcrumb && (
-                    <p className="text-xs text-zinc-400 dark:text-zinc-600 truncate">{item.breadcrumb}</p>
+                    <p className="text-xs text-idemora-text-muted truncate">{item.breadcrumb}</p>
                   )}
                 </div>
                 {i === selectedIdx && (
-                  <kbd className="text-xs text-zinc-400 bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded font-mono shrink-0">↵</kbd>
+                  <kbd className="text-xs text-idemora-text-faint bg-idemora-bg-primary px-1.5 py-0.5 rounded font-mono shrink-0">↵</kbd>
                 )}
               </button>
             </li>

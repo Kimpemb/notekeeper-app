@@ -34,8 +34,8 @@ function findBlockById(node: TipTapNode, blockId: string): TipTapNode | null {
 // ── Block type icon ───────────────────────────────────────────────────────────
 function BlockTypeIcon({ blockType, verified }: { blockType: string; verified: boolean }) {
   const cls = verified
-    ? "text-indigo-400 dark:text-indigo-500"
-    : "text-amber-400 dark:text-amber-500";
+    ? "text-indigo-400"
+    : "text-amber-400";
 
   if (blockType.startsWith("heading")) {
     return (
@@ -131,9 +131,6 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
 
   useEffect(() => { fetchContent(); }, [fetchContent]);
 
-  // ── Listen for bulk blocks-updated event ─────────────────────────────────
-  // syncNoteBlocks now emits one "blocks-updated" event with all changed
-  // blocks instead of one "block-updated" per block — avoids N IPC calls.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
 
@@ -180,8 +177,8 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
         className={[
           "group relative my-1.5 px-3 py-1.5 rounded-lg border transition-all duration-100 cursor-pointer select-none",
           missing
-            ? "border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 opacity-60"
-            : "border-indigo-100 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/30 hover:border-indigo-200 dark:hover:border-indigo-800 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/50",
+            ? "border-idemora-border bg-idemora-bg-primary opacity-60"
+            : "border-indigo-500/30 bg-indigo-500/5 hover:bg-indigo-500/10 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/50",
         ].join(" ")}
       >
         {/* Left accent bar — dashed when unverified */}
@@ -189,10 +186,10 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
           className={[
             "absolute left-0 top-2 bottom-2 w-0.5 rounded-full",
             missing
-              ? "bg-zinc-300 dark:bg-zinc-600"
+              ? "bg-idemora-border"
               : verified
-              ? "bg-indigo-300 dark:bg-indigo-700"
-              : "bg-indigo-200 dark:bg-indigo-800",
+              ? "bg-indigo-400"
+              : "bg-indigo-500/50",
           ].join(" ")}
           style={!verified && !missing ? { backgroundImage: "repeating-linear-gradient(to bottom, currentColor 0px, currentColor 3px, transparent 3px, transparent 6px)" } : undefined}
         />
@@ -206,14 +203,14 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
           )}
           <div className="min-w-0 flex-1">
             {loading ? (
-              <div className="h-4 w-32 rounded bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+              <div className="h-4 w-32 rounded bg-idemora-bg-secondary animate-pulse" />
             ) : (
               <>
                 <p className={[
                   "text-sm leading-relaxed line-clamp-3",
                   missing
-                    ? "text-zinc-400 dark:text-zinc-500 italic"
-                    : "text-zinc-700 dark:text-zinc-300",
+                    ? "text-idemora-text-muted italic"
+                    : "text-idemora-text-normal",
                 ].join(" ")}>
                   {text || snapshot || "(empty block)"}
                 </p>
@@ -222,20 +219,20 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
                     <span className={[
                       "text-[10px] truncate max-w-40",
                       verified
-                        ? "text-indigo-300 dark:text-indigo-600"
-                        : "text-amber-300 dark:text-amber-700",
+                        ? "text-indigo-400/70"
+                        : "text-amber-400/70",
                     ].join(" ")}>
                       {sourceTitle}
                     </span>
                     {!verified && (
-                      <span className="text-[10px] text-amber-400 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/40 px-1 py-px rounded">
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1 py-px rounded">
                         ~approx
                       </span>
                     )}
                   </p>
                 )}
                 {missing && (
-                  <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500 italic">
+                  <p className="mt-1 text-[10px] text-idemora-text-faint italic">
                     source deleted
                   </p>
                 )}
@@ -249,7 +246,7 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
           "absolute right-3 top-1/2 -translate-y-1/2 transition-opacity duration-100",
           hovered && !missing ? "opacity-100" : "opacity-0",
         ].join(" ")}>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-indigo-400 dark:text-indigo-500">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-indigo-400">
             <path d="M2 8L8 2M8 2H4M8 2v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
@@ -260,7 +257,7 @@ export function BlockRefNodeView({ node, deleteNode }: NodeViewProps) {
           title="Remove block reference"
           className={[
             "absolute top-1.5 right-1.5 w-4 h-4 rounded flex items-center justify-center transition-all duration-100",
-            "text-zinc-300 dark:text-zinc-600 hover:text-zinc-500 dark:hover:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800",
+            "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary",
             hovered ? "opacity-100" : "opacity-0",
           ].join(" ")}
         >

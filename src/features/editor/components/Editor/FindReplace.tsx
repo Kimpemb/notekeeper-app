@@ -217,7 +217,7 @@ export function FindReplace({ editor, onClose }: Props) {
   const displayIndex = matchCount > 0 ? currentIndex + 1 : 0;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 shrink-0 flex-wrap">
+    <div className="flex items-center gap-2 px-3 py-2 border-b border-idemora-border bg-idemora-bg-primary shrink-0 flex-wrap">
 
       {/* Find input + counter */}
       <div className="flex items-center gap-1.5 min-w-0">
@@ -229,10 +229,10 @@ export function FindReplace({ editor, onClose }: Props) {
             onKeyDown={handleFindKeyDown}
             placeholder="Find…"
             spellCheck={false}
-            className="h-7 pl-2.5 pr-16 rounded-md text-sm bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:border-blue-400 dark:focus:border-blue-500 w-44 transition-colors duration-150"
+            className="h-7 pl-2.5 pr-16 rounded-md text-sm bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal placeholder-idemora-text-muted outline-none focus:ring-2 focus:ring-blue-500 w-44 transition-colors duration-150"
           />
           {/* Match counter */}
-          <span className="absolute right-2 text-xs text-zinc-400 dark:text-zinc-500 pointer-events-none tabular-nums">
+          <span className="absolute right-2 text-xs text-idemora-text-muted pointer-events-none tabular-nums">
             {findText ? `${displayIndex}/${matchCount}` : ""}
           </span>
         </div>
@@ -243,8 +243,8 @@ export function FindReplace({ editor, onClose }: Props) {
           title="Case sensitive"
           className={`h-7 px-2 rounded-md text-xs font-mono transition-colors duration-150 border ${
             caseSensitive
-              ? "bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700"
-              : "bg-white dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 border-zinc-300 dark:border-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-300"
+              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+              : "bg-idemora-bg-primary text-idemora-text-muted border-idemora-border"
           }`}
         >
           Aa
@@ -255,7 +255,7 @@ export function FindReplace({ editor, onClose }: Props) {
           onClick={handlePrev}
           disabled={matchCount === 0}
           title="Previous match (Shift+Enter)"
-          className="h-7 w-7 flex items-center justify-center rounded-md bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 disabled:opacity-30 transition-colors duration-150"
+          className="h-7 w-7 flex items-center justify-center rounded-md bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-30 transition-colors duration-150"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M2 6.5L5 3.5L8 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -265,7 +265,7 @@ export function FindReplace({ editor, onClose }: Props) {
           onClick={handleNext}
           disabled={matchCount === 0}
           title="Next match (Enter)"
-          className="h-7 w-7 flex items-center justify-center rounded-md bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 disabled:opacity-30 transition-colors duration-150"
+          className="h-7 w-7 flex items-center justify-center rounded-md bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-30 transition-colors duration-150"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -274,7 +274,7 @@ export function FindReplace({ editor, onClose }: Props) {
       </div>
 
       {/* Divider */}
-      <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 shrink-0" />
+      <div className="w-px h-4 bg-idemora-border shrink-0" />
 
       {/* Replace input + buttons */}
       <div className="flex items-center gap-1.5 min-w-0">
@@ -284,19 +284,19 @@ export function FindReplace({ editor, onClose }: Props) {
           onKeyDown={handleReplaceKeyDown}
           placeholder="Replace…"
           spellCheck={false}
-          className="h-7 px-2.5 rounded-md text-sm bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:border-blue-400 dark:focus:border-blue-500 w-36 transition-colors duration-150"
+          className="h-7 px-2.5 rounded-md text-sm bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal placeholder-idemora-text-muted outline-none focus:ring-2 focus:ring-blue-500 w-36 transition-colors duration-150"
         />
         <button
           onClick={handleReplace}
           disabled={matchCount === 0 || !findText}
-          className="h-7 px-2.5 rounded-md text-xs bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 transition-colors duration-150 shrink-0"
+          className="h-7 px-2.5 rounded-md text-xs bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal hover:bg-blue-500/10 hover:text-blue-400 disabled:opacity-30 transition-colors duration-150 shrink-0"
         >
           Replace
         </button>
         <button
           onClick={handleReplaceAll}
           disabled={matchCount === 0 || !findText}
-          className="h-7 px-2.5 rounded-md text-xs bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 transition-colors duration-150 shrink-0"
+          className="h-7 px-2.5 rounded-md text-xs bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal hover:bg-blue-500/10 hover:text-blue-400 disabled:opacity-30 transition-colors duration-150 shrink-0"
         >
           Replace All
         </button>
@@ -306,7 +306,7 @@ export function FindReplace({ editor, onClose }: Props) {
       <button
         onClick={handleClose}
         title="Close (Escape)"
-        className="ml-auto h-7 w-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-150 shrink-0"
+        className="ml-auto h-7 w-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-150 shrink-0"
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>

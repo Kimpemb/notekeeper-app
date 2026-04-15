@@ -34,7 +34,7 @@ export class NodeViewErrorBoundary extends Component<Props, State> {
             borderRadius: "6px",
             fontSize: "12px",
           }}
-          className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500"
+          className="bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3"/>

@@ -34,19 +34,20 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
   const remaining = allFiltered.length - VISIBLE_COUNT;
   const hasMore   = !expanded && remaining > 0;
 
-  // Show "Create" option when query is non-empty and doesn't exactly match
-  // an existing note title (case-insensitive)
   const trimmedQuery     = query.trim();
   const showCreate = trimmedQuery.length > 0;
 
-  // Total selectable items = visible notes + optional create row
   const totalItems = visible.length + (showCreate ? 1 : 0);
-  const createIndex = visible.length; // create row is always last
+  const createIndex = visible.length;
 
   useEffect(() => { setSelected(0); setExpanded(false); }, [query]);
   useEffect(() => { itemRefs.current[selected]?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [selected]);
 
+  // Only add keyboard listener when there are items to select OR create option is visible
   useEffect(() => {
+    // Don't add listener if there's nothing to select and no create option
+    if (visible.length === 0 && !showCreate) return;
+
     function handleKey(e: KeyboardEvent) {
       if (e.key === "ArrowDown") {
         e.preventDefault(); e.stopPropagation();
@@ -66,9 +67,10 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
         e.preventDefault(); e.stopPropagation(); onClose();
       }
     }
+    
     document.addEventListener("keydown", handleKey, true);
     return () => document.removeEventListener("keydown", handleKey, true);
-  }, [visible, selected, totalItems, showCreate, createIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, selected, totalItems, showCreate, createIndex, visible.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     function handleMouseDown(e: MouseEvent) {
@@ -110,23 +112,23 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
           : { top: position.top + 4 }),
         zIndex: 50,
       }}
-      className="w-64 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl"
+      className="w-64 rounded-xl overflow-hidden bg-idemora-bg-secondary border border-idemora-border shadow-2xl"
     >
       {/* Header */}
-      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-1.5">
-        <svg width="11" height="11" viewBox="0 0 10 10" fill="none" className="text-zinc-400 shrink-0">
+      <div className="px-3 py-2 border-b border-idemora-border flex items-center gap-1.5">
+        <svg width="11" height="11" viewBox="0 0 10 10" fill="none" className="text-idemora-text-muted shrink-0">
           <path d="M4 2H2a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
           <path d="M6 1h3v3M9 1L5.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
-        <span className="text-xs text-zinc-400">
-          Link to note{query && <span className="ml-1 text-zinc-500 font-medium">"{query}"</span>}
+        <span className="text-xs text-idemora-text-muted">
+          Link to note{query && <span className="ml-1 text-idemora-text-muted font-medium">"{query}"</span>}
         </span>
       </div>
 
       {/* List */}
-        <ul className="py-1 max-h-64 overflow-y-auto">
-          {visible.length === 0 && !showCreate && (
-          <li className="px-4 py-4 text-sm text-zinc-400 text-center">
+      <ul className="py-1 max-h-64 overflow-y-auto">
+        {visible.length === 0 && !showCreate && (
+          <li className="px-4 py-4 text-sm text-idemora-text-muted text-center">
             {notes.length <= 1 ? "No other notes yet" : "No notes match"}
           </li>
         )}
@@ -136,13 +138,13 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
             ref={(el) => { itemRefs.current[i] = el; }}
             onMouseEnter={() => setSelected(i)}
             onMouseDown={(e) => { e.preventDefault(); insertLink(note); }}
-            className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors duration-75 ${
+            className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors duration-100 ${
               i === selected
-                ? "bg-zinc-100 dark:bg-zinc-800"
-                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                ? "bg-blue-500/10"
+                : "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
             }`}
           >
-            <span className="w-7 h-7 flex items-center justify-center rounded-md shrink-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500">
+            <span className="w-7 h-7 flex items-center justify-center rounded-md shrink-0 bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted">
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
                 <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
                 <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
@@ -150,9 +152,11 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
               </svg>
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">{note.title}</p>
+              <p className={`text-sm font-medium truncate ${i === selected ? "text-blue-400" : "text-idemora-text-normal"}`}>
+                {note.title}
+              </p>
               {note.plaintext && (
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate">{note.plaintext.slice(0, 60)}</p>
+                <p className="text-xs text-idemora-text-muted truncate">{note.plaintext.slice(0, 60)}</p>
               )}
             </div>
           </li>
@@ -164,13 +168,13 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
             ref={(el) => { itemRefs.current[createIndex] = el; }}
             onMouseEnter={() => setSelected(createIndex)}
             onMouseDown={(e) => { e.preventDefault(); handleCreate(); }}
-            className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors duration-75 border-t border-zinc-100 dark:border-zinc-800 ${
+            className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors duration-100 border-t border-idemora-border ${
               selected === createIndex
-                ? "bg-zinc-100 dark:bg-zinc-800"
-                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                ? "bg-blue-500/10"
+                : "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
             }`}
           >
-            <span className="w-7 h-7 flex items-center justify-center rounded-md shrink-0 bg-indigo-50 dark:bg-indigo-950 text-indigo-500 dark:text-indigo-400">
+            <span className="w-7 h-7 flex items-center justify-center rounded-md shrink-0 bg-blue-500/10 text-blue-400 border border-blue-500/20">
               {creating ? (
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="animate-spin">
                   <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="8 8"/>
@@ -182,12 +186,12 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
               )}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
+              <p className={`text-sm font-medium truncate ${selected === createIndex ? "text-blue-400" : "text-idemora-text-normal"}`}>
                 {creating ? "Creating…" : (
-                  <><span className="text-zinc-400 dark:text-zinc-500 font-normal">Create </span>{trimmedQuery}</>
+                  <><span className="text-idemora-text-muted font-normal">Create </span>{trimmedQuery}</>
                 )}
               </p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500">New note</p>
+              <p className="text-xs text-idemora-text-muted">New note</p>
             </div>
           </li>
         )}
@@ -197,7 +201,7 @@ export function NoteLinkSuggest({ position, editor, query, bracketStart, onClose
       {hasMore && (
         <button
           onMouseDown={(e) => { e.preventDefault(); setExpanded(true); }}
-          className="w-full px-3 py-2 text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 border-t border-zinc-100 dark:border-zinc-800 transition-colors duration-75 text-left"
+          className="w-full px-3 py-2 text-xs text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] border-t border-idemora-border transition-colors duration-100 text-left"
         >
           ··· {remaining} more {remaining === 1 ? "note" : "notes"}
         </button>

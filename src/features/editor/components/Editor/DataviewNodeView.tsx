@@ -191,19 +191,19 @@ export function DataviewNodeView({ node, updateAttributes }: NodeViewProps) {
 
   return (
     <NodeViewWrapper>
-      <div className="my-2 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden bg-white dark:bg-zinc-900">
+      <div className="my-2 rounded-xl border border-idemora-border overflow-hidden bg-idemora-bg-primary">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-700">
+        <div className="flex items-center justify-between px-3 py-2 bg-idemora-bg-primary border-b border-idemora-border">
           <div className="flex items-center gap-2">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-indigo-400 shrink-0">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-blue-400 shrink-0">
               <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
               <path d="M1 4h10M4 4v7" stroke="currentColor" strokeWidth="1"/>
             </svg>
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs font-medium text-idemora-text-muted">
               Dataview
               {!editing && results.length > 0 && (
-                <span className="ml-1.5 text-zinc-400 dark:text-zinc-500 font-normal">
+                <span className="ml-1.5 text-idemora-text-muted font-normal">
                   {results.length} {results.length === 1 ? "note" : "notes"}
                 </span>
               )}
@@ -212,7 +212,7 @@ export function DataviewNodeView({ node, updateAttributes }: NodeViewProps) {
           <button
             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onClick={() => { if (editing) { saveQuery(); } else { setDraft(query); setEditing(true); } }}
-            className="text-[10px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 flex items-center gap-1 transition-colors"
+            className="text-[10px] text-idemora-text-muted hover:text-idemora-text-normal flex items-center gap-1 transition-colors"
           >
             {editing ? (
               <>
@@ -234,7 +234,7 @@ export function DataviewNodeView({ node, updateAttributes }: NodeViewProps) {
 
         {/* Query editor */}
         {editing && (
-          <div className="p-3 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30">
+          <div className="p-3 border-b border-idemora-border bg-idemora-bg-primary/50">
             <textarea
               ref={textareaRef}
               value={draft}
@@ -242,13 +242,13 @@ export function DataviewNodeView({ node, updateAttributes }: NodeViewProps) {
               onKeyDown={handleKeyDown}
               placeholder={"type: meeting\nstatus: open\ncolumns: title, status, due\nsort: updated_at desc\nlimit: 10"}
               rows={5}
-              className="w-full text-xs font-mono bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-300 dark:placeholder:text-zinc-600 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 resize-none"
+              className="w-full text-xs font-mono bg-idemora-bg-primary border border-idemora-border rounded-lg px-3 py-2 text-idemora-text-normal placeholder-idemora-text-faint focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
             <div className="mt-1.5 flex items-center justify-between">
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-relaxed">
+              <p className="text-[10px] text-idemora-text-muted leading-relaxed">
                 <span className="font-mono">key: value</span> · <span className="font-mono">columns: a, b, c</span> · <span className="font-mono">sort: field asc|desc</span> · <span className="font-mono">limit: N</span>
               </p>
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0 ml-2">⌘↵ to save</p>
+              <p className="text-[10px] text-idemora-text-muted shrink-0 ml-2">⌘↵ to save</p>
             </div>
           </div>
         )}
@@ -256,23 +256,23 @@ export function DataviewNodeView({ node, updateAttributes }: NodeViewProps) {
         {/* Results table */}
         {!editing && (
           results.length === 0 ? (
-            <div className="px-4 py-6 text-sm text-zinc-400 dark:text-zinc-500 text-center">
+            <div className="px-4 py-6 text-sm text-idemora-text-muted text-center">
               {query.trim() ? "No notes match this query" : "No filters set — edit query to get started"}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                    <th className="px-3 py-2 text-left text-[11px] font-medium text-zinc-400 dark:text-zinc-500 whitespace-nowrap">
+                  <tr className="border-b border-idemora-border">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-idemora-text-muted whitespace-nowrap">
                       Title
                     </th>
                     {fmColumns.map((col) => (
-                      <th key={col} className="px-3 py-2 text-left text-[11px] font-medium text-zinc-400 dark:text-zinc-500 whitespace-nowrap capitalize">
+                      <th key={col} className="px-3 py-2 text-left text-[11px] font-medium text-idemora-text-muted whitespace-nowrap capitalize">
                         {col}
                       </th>
                     ))}
-                    <th className="px-3 py-2 text-left text-[11px] font-medium text-zinc-400 dark:text-zinc-500 whitespace-nowrap">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-idemora-text-muted whitespace-nowrap">
                       Updated
                     </th>
                   </tr>
@@ -285,26 +285,25 @@ export function DataviewNodeView({ node, updateAttributes }: NodeViewProps) {
                         key={note.id}
                         onClick={() => navigateTo(note.id)}
                         className={[
-                          "cursor-pointer transition-colors duration-75",
-                          i % 2 === 0 ? "bg-white dark:bg-zinc-900" : "bg-zinc-50/50 dark:bg-zinc-800/20",
-                          "hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30",
+                          "cursor-pointer transition-colors duration-75 hover:bg-blue-500/10",
+                          i % 2 === 0 ? "bg-idemora-bg-primary" : "bg-idemora-bg-secondary",
                         ].join(" ")}
                       >
-                        <td className="px-3 py-2 text-zinc-800 dark:text-zinc-200 font-medium whitespace-nowrap max-w-48 truncate">
+                        <td className="px-3 py-2 text-idemora-text-normal font-medium whitespace-nowrap max-w-48 truncate">
                           {note.title}
                         </td>
                         {fmColumns.map((col) => {
                           const raw = fm[col] ?? "";
                           return (
-                            <td key={col} className="px-3 py-2 text-zinc-500 dark:text-zinc-400 whitespace-nowrap max-w-32 truncate text-xs">
+                            <td key={col} className="px-3 py-2 text-idemora-text-muted whitespace-nowrap max-w-32 truncate text-xs">
                               {raw
                                 ? formatCellValue(raw)
-                                : <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                                : <span className="text-idemora-text-faint">—</span>
                               }
                             </td>
                           );
                         })}
-                        <td className="px-3 py-2 text-zinc-400 dark:text-zinc-500 whitespace-nowrap text-xs">
+                        <td className="px-3 py-2 text-idemora-text-muted whitespace-nowrap text-xs">
                           {formatDate(note.updated_at)}
                         </td>
                       </tr>

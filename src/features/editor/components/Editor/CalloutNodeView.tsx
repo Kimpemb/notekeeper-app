@@ -106,12 +106,26 @@ export function CalloutNodeView({ node, updateAttributes, editor }: NodeViewProp
     }, 0);
   }
 
+  // Get color classes based on callout type
+  const getColorClasses = (t: CalloutType) => {
+    switch (t) {
+      case "info":
+        return "text-blue-500 bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/15";
+      case "warning":
+        return "text-amber-500 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/15";
+      case "tip":
+        return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/15";
+      case "danger":
+        return "text-red-500 bg-red-500/10 border-red-500/20 hover:bg-red-500/15";
+    }
+  };
+
   return (
-    <NodeViewWrapper className={`callout callout-${type}`}>
+    <NodeViewWrapper className={`callout callout-${type} group relative my-3 rounded-lg border ${getColorClasses(type)}`}>
       {/* Icon — left column, click to change type */}
       <button
         ref={btnRef}
-        className="callout-icon-btn"
+        className={`callout-icon-btn absolute left-3 top-3 w-6 h-6 flex items-center justify-center rounded-md transition-colors duration-150 ${getColorClasses(type)}`}
         onClick={() => (open ? setOpen(false) : openDropdown())}
         onMouseDown={(e) => e.preventDefault()}
         tabIndex={-1}
@@ -122,30 +136,38 @@ export function CalloutNodeView({ node, updateAttributes, editor }: NodeViewProp
       </button>
 
       {/* Editable content */}
-      <NodeViewContent className="callout-content" />
+      <NodeViewContent className="callout-content pl-10 pr-4 py-3 text-idemora-text-normal" />
 
       {/* Variant picker */}
       {open && createPortal(
         <div
           ref={dropdownRef}
-          className="callout-dropdown"
+          className="callout-dropdown min-w-[140px] rounded-lg border border-idemora-border bg-idemora-bg-primary shadow-lg overflow-hidden z-[9999]"
           style={dropdownStyle}
           onMouseDown={(e) => e.preventDefault()}
         >
-          {CALLOUT_VARIANTS.map((v) => (
-            <button
-              key={v.type}
-              className={`callout-dropdown-option callout-dropdown-${v.type}${v.type === type ? " active" : ""}`}
-              onClick={() => select(v.type)}
-              onMouseDown={(e) => e.preventDefault()}
-              tabIndex={-1}
-            >
-              <span className={`callout-dropdown-icon callout-dropdown-icon-${v.type}`}>
-                {v.icon}
-              </span>
-              <span>{v.label}</span>
-            </button>
-          ))}
+          {CALLOUT_VARIANTS.map((v) => {
+            const isActive = v.type === type;
+            const colorClasses = getColorClasses(v.type);
+            return (
+              <button
+                key={v.type}
+                className={`callout-dropdown-option w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors duration-100 text-left ${
+                  isActive
+                    ? `${colorClasses} font-medium`
+                    : "text-idemora-text-muted hover:bg-idemora-bg-secondary hover:text-idemora-text-normal"
+                }`}
+                onClick={() => select(v.type)}
+                onMouseDown={(e) => e.preventDefault()}
+                tabIndex={-1}
+              >
+                <span className={`callout-dropdown-icon w-5 h-5 flex items-center justify-center ${isActive ? colorClasses : "text-idemora-text-muted"}`}>
+                  {v.icon}
+                </span>
+                <span>{v.label}</span>
+              </button>
+            );
+          })}
         </div>,
         document.body
       )}

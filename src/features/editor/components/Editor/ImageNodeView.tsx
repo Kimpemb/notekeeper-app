@@ -122,7 +122,7 @@ function ImageNodeViewInner({ node, selected, updateAttributes }: NodeViewProps)
                 gap: "6px",
                 borderRadius: "6px",
               }}
-              className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500 text-xs"
+              className="bg-idemora-bg-primary  border-idemora-border  text-idemora-text-muted text-xs"
             >
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                 <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5"/>
@@ -185,7 +185,7 @@ function ImageNodeViewInner({ node, selected, updateAttributes }: NodeViewProps)
                 borderRadius: "6px",
                 zIndex: 20,
               }}
-              className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-lg"
+              className="bg-idemora-bg-primary  border-idemora-border  shadow-lg"
               onMouseDown={(e) => e.preventDefault()}
             >
               {(["left", "center", "right"] as const).map((a) => (
@@ -204,13 +204,13 @@ function ImageNodeViewInner({ node, selected, updateAttributes }: NodeViewProps)
                     cursor: "pointer",
                     background: align === a ? "#e4e4e7" : "transparent",
                   }}
-                  className={align === a ? "dark:bg-zinc-600" : "hover:bg-zinc-100 dark:hover:bg-zinc-700"}
+                  className={align === a ? "" : " "}
                 >
                   <AlignIcon type={a} />
                 </button>
               ))}
 
-              <div style={{ width: "1px", height: "16px", margin: "0 2px" }} className="bg-zinc-200 dark:bg-zinc-600" />
+              <div style={{ width: "1px", height: "16px", margin: "0 2px" }} className="bg-idemora-bg-primary " />
 
               <button
                 onClick={() => updateAttributes({ width: null })}
@@ -226,7 +226,7 @@ function ImageNodeViewInner({ node, selected, updateAttributes }: NodeViewProps)
                   cursor: "pointer",
                   background: "transparent",
                 }}
-                className="hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500 dark:text-zinc-400"
+                className="  text-idemora-text-muted"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M1 1h4v4M11 11H7V7M1 11l4-4M11 1L7 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>

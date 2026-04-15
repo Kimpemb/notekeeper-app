@@ -36,9 +36,13 @@ function FileTreeNode({ note, depth, allNotes, activeNoteId, expandedIds, onTogg
       <div
         onClick={handleClick}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        className={`group flex items-center gap-1.5 h-8 pr-2 rounded-md cursor-pointer transition-colors duration-75 ${isActive ? "bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-medium" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100"}`}
+        className={`group flex items-center gap-1.5 h-8 pr-2 rounded-md cursor-pointer transition-all duration-150 ${
+          isActive 
+            ? "bg-blue-500/10 text-blue-400 font-medium" 
+            : "text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
+        }`}
       >
-        <span onClick={handleChevron} className={`shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-150 ${hasChildren ? "opacity-40 hover:opacity-100" : "opacity-0 pointer-events-none"} ${isExpanded ? "rotate-90" : ""}`}>
+        <span onClick={handleChevron} className={`shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-150 ${hasChildren ? "opacity-40" : "opacity-0 pointer-events-none"} ${isExpanded ? "rotate-90" : ""}`}>
           <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M2 1.5l3 2.5-3 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </span>
         <span className="shrink-0 opacity-40">
@@ -48,9 +52,11 @@ function FileTreeNode({ note, depth, allNotes, activeNoteId, expandedIds, onTogg
             <svg width="13" height="13" viewBox="0 0 12 12" fill="none"><rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/><path d="M3.5 4h5M3.5 6.5h5M3.5 9h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/></svg>
           )}
         </span>
-        <span className="flex-1 truncate text-sm leading-none">{note.title}</span>
+        <span className={`flex-1 truncate text-sm leading-none transition-colors duration-150 ${isActive ? "text-blue-400" : "text-idemora-text-normal"}`}>
+          {note.title}
+        </span>
         {hasChildren && (
-          <span className="shrink-0 text-[10px] tabular-nums px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity duration-100">
+          <span className="shrink-0 text-[10px] tabular-nums px-1.5 py-0.5 rounded-full bg-idemora-bg-primary text-idemora-text-muted opacity-0 group-hover:opacity-100 transition-opacity duration-100">
             {children.length}
           </span>
         )}
@@ -102,65 +108,92 @@ export function FileTreePanel({ paneId }: FileTreePanelProps) {
   const totalNotes = notes.length;
 
   return (
-    <div className="flex flex-col h-full w-64 shrink-0 border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
-      <div className="flex items-center justify-between px-3 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+    <div className="flex flex-col h-full w-64 shrink-0 border-l border-idemora-border bg-idemora-bg-secondary">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-3 border-b border-idemora-border shrink-0">
         <div className="flex items-center gap-2">
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-zinc-400 shrink-0">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-idemora-text-muted shrink-0">
             <path d="M1 3.5a1 1 0 011-1h3l1 1.5h5a1 1 0 011 1V10a1 1 0 01-1 1H2a1 1 0 01-1-1V3.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
           </svg>
-          <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">File Tree</span>
-          <span className="text-xs text-zinc-400 dark:text-zinc-600 tabular-nums">{totalNotes}</span>
+          <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wider">File Tree</span>
+          <span className="text-xs text-idemora-text-faint tabular-nums">{totalNotes}</span>
         </div>
-        <button onClick={() => closeFileTree(paneId)} className="w-6 h-6 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-100">
+        <button 
+          onClick={() => closeFileTree(paneId)} 
+          className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+        >
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
         </button>
       </div>
 
-      <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+      {/* Search */}
+      <div className="px-3 py-2 border-b border-idemora-border shrink-0">
         <div className="relative">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-idemora-text-muted pointer-events-none">
             <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
             <path d="M7.5 7.5L10 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
           </svg>
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter notes…"
-            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 outline-none border border-transparent focus:border-zinc-300 dark:focus:border-zinc-600 transition-colors duration-100"
+          <input 
+            type="text" 
+            value={search} 
+            onChange={(e) => setSearch(e.target.value)} 
+            placeholder="Filter notes…"
+            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md bg-idemora-bg-primary text-idemora-text-normal placeholder-idemora-text-faint outline-none border border-idemora-border focus:border-blue-500/50 transition-colors duration-100"
           />
           {search && (
-            <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
+            <button 
+              onClick={() => setSearch("")} 
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+            >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
             </button>
           )}
         </div>
       </div>
 
+      {/* Expand/collapse buttons */}
       {!searchResults && notes.some((n) => notes.some((c) => c.parent_id === n.id)) && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
-          <button onClick={expandAll} className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">Expand all</button>
-          <span className="text-zinc-300 dark:text-zinc-700">·</span>
-          <button onClick={collapseAll} className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">Collapse all</button>
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-idemora-border shrink-0">
+          <button onClick={expandAll} className="text-[11px] text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100">Expand all</button>
+          <span className="text-idemora-text-faint">·</span>
+          <button onClick={collapseAll} className="text-[11px] text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100">Collapse all</button>
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto py-2 px-2">
+      {/* Tree content */}
+      <div className="flex-1 overflow-y-auto py-2">
         {searchResults ? (
           searchResults.length === 0 ? (
-            <p className="text-xs text-zinc-400 text-center py-8">No notes match</p>
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-idemora-text-faint">
+                <circle cx="10" cy="10" r="6" stroke="currentColor" strokeWidth="1.4"/>
+                <path d="M15 15L20 20" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+              <p className="text-xs text-idemora-text-muted">No notes match</p>
+            </div>
           ) : (
-            <ul className="space-y-0.5">
+            <ul className="space-y-0.5 px-2">
               {searchResults.map((note) => <FileTreeNode key={note.id} note={note} depth={0} allNotes={notes} activeNoteId={activeNoteId} expandedIds={expandedIds} onToggle={toggleExpanded} paneId={paneId} />)}
             </ul>
           )
         ) : rootNotes.length === 0 ? (
-          <p className="text-xs text-zinc-400 text-center py-8">No notes yet</p>
+          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-idemora-text-faint">
+              <path d="M4 4h16v16H4zM8 8h8M8 12h6M8 16h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+            <p className="text-xs text-idemora-text-muted">No notes yet</p>
+            <p className="text-xs text-idemora-text-faint">Create your first note to get started</p>
+          </div>
         ) : (
-          <ul className="space-y-0.5">
+          <ul className="space-y-0.5 px-2">
             {rootNotes.map((note) => <FileTreeNode key={note.id} note={note} depth={0} allNotes={notes} activeNoteId={activeNoteId} expandedIds={expandedIds} onToggle={toggleExpanded} paneId={paneId} />)}
           </ul>
         )}
       </div>
 
-      <div className="px-3 py-2 border-t border-zinc-200 dark:border-zinc-800 shrink-0">
-        <p className="text-[10px] text-zinc-300 dark:text-zinc-700 text-center select-none">{totalNotes} {totalNotes === 1 ? "note" : "notes"}</p>
+      {/* Footer */}
+      <div className="px-3 py-2 border-t border-idemora-border shrink-0">
+        <p className="text-[10px] text-idemora-text-faint text-center select-none">{totalNotes} {totalNotes === 1 ? "note" : "notes"}</p>
       </div>
     </div>
   );
