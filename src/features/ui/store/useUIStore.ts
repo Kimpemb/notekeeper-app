@@ -14,10 +14,11 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 type RefreshStatus = "idle" | "reloading" | "reloaded";
 export type SidebarPanel = "notes" | "search" | "tags" | "trash" | "bookmarks" | null;
 export type SplitDirection = "horizontal" | "vertical";
+export type RightPanelType = "outline" | "backlinks" | "similar" | "chat" | "version" | null;
 
 export interface Tab {
   id: string;
-  noteId: string | null; // null = empty "new tab" screen
+  noteId: string | null;
 }
 
 export interface GraphViewState {
@@ -119,7 +120,6 @@ interface UIStore {
   pane2BacklinksOpen: boolean;
   openBacklinks: (pane: 1 | 2) => void;
   closeBacklinks: (pane: 1 | 2) => void;
-  toggleBacklinks: (pane: 1 | 2) => void;
   backlinksOpen: (pane: 1 | 2) => boolean;
 
   // ─── Similar notes panel — per pane ──────────────────────────────────────
@@ -127,13 +127,12 @@ interface UIStore {
   pane2SimilarOpen: boolean;
   openSimilar: (pane: 1 | 2) => void;
   closeSimilar: (pane: 1 | 2) => void;
-  toggleSimilar: (pane: 1 | 2) => void;
   similarOpen: (pane: 1 | 2) => boolean;
 
   // ─── Chat panel — per pane ────────────────────────────────────────────────
   chatOpen1: boolean;
   chatOpen2: boolean;
-  openChat:  (paneId: 1 | 2) => void;
+  openChat: (paneId: 1 | 2) => void;
   closeChat: (paneId: 1 | 2) => void;
 
   // ─── File tree panel ──────────────────────────────────────────────────────
@@ -148,7 +147,6 @@ interface UIStore {
   pane2OutlineOpen: boolean;
   openOutline: (pane: 1 | 2) => void;
   closeOutline: (pane: 1 | 2) => void;
-  toggleOutline: (pane: 1 | 2) => void;
   outlineOpen: (pane: 1 | 2) => boolean;
 
   // ─── Import modal ─────────────────────────────────────────────────────────
@@ -167,6 +165,14 @@ interface UIStore {
   closeTips: () => void;
   toggleTips: () => void;
 
+// ─── Tags panel — per pane (right side) ────────────────────────────────────
+pane1TagsOpen: boolean;
+pane2TagsOpen: boolean;
+openTags: (pane: 1 | 2) => void;
+closeTags: (pane: 1 | 2) => void;
+toggleTags: (pane: 1 | 2) => void;
+tagsOpen: (pane: 1 | 2) => boolean;
+  
   // ─── Graph view ───────────────────────────────────────────────────────────
   graphOpen: boolean;
   openGraph: () => void;
@@ -212,6 +218,20 @@ interface UIStore {
     exportNoteMarkdown: () => Promise<void>;
     exportNotePdf: () => Promise<void>;
   }) => void;
+
+  // ─── Right Panel Management (NEW - Single Source of Truth) ────────────────
+  rightPanelOpen: boolean;
+  setRightPanelOpen: (open: boolean) => void;
+  toggleRightPanel: () => void;
+  
+  // Reset all right panels when power switch is toggled off
+  resetRightPanelsForPane: (pane: 1 | 2) => void;
+  
+  // Helper to check if any right panel is active
+  anyRightPanelActive: (pane: 1 | 2) => boolean;
+
+  activeEditor: any; // Use 'any' to avoid importing Editor type
+setActiveEditor: (editor: any) => void;
 
   // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
   tabs: Tab[];
@@ -386,27 +406,25 @@ export const useUIStore = create<UIStore>((set, get) => {
     pane2BacklinksOpen: false,
     openBacklinks: (pane) => set(pane === 1 ? { pane1BacklinksOpen: true } : { pane2BacklinksOpen: true }),
     closeBacklinks: (pane) => set(pane === 1 ? { pane1BacklinksOpen: false } : { pane2BacklinksOpen: false }),
-    toggleBacklinks: (pane) => set((s) => pane === 1 ? { pane1BacklinksOpen: !s.pane1BacklinksOpen } : { pane2BacklinksOpen: !s.pane2BacklinksOpen }),
     backlinksOpen: (pane) => pane === 1 ? get().pane1BacklinksOpen : get().pane2BacklinksOpen,
 
     // ─── Similar notes — per pane ─────────────────────────────────────────────
     pane1SimilarOpen: false,
     pane2SimilarOpen: false,
-    openSimilar:  (pane) => set(pane === 1 ? { pane1SimilarOpen: true }  : { pane2SimilarOpen: true }),
+    openSimilar: (pane) => set(pane === 1 ? { pane1SimilarOpen: true } : { pane2SimilarOpen: true }),
     closeSimilar: (pane) => set(pane === 1 ? { pane1SimilarOpen: false } : { pane2SimilarOpen: false }),
-    toggleSimilar: (pane) => set((s) => pane === 1 ? { pane1SimilarOpen: !s.pane1SimilarOpen } : { pane2SimilarOpen: !s.pane2SimilarOpen }),
-    similarOpen:  (pane) => pane === 1 ? get().pane1SimilarOpen : get().pane2SimilarOpen,
+    similarOpen: (pane) => pane === 1 ? get().pane1SimilarOpen : get().pane2SimilarOpen,
 
     // ─── Chat panel — per pane ────────────────────────────────────────────────
     chatOpen1: false,
     chatOpen2: false,
-    openChat:  (paneId) => set(paneId === 1 ? { chatOpen1: true }  : { chatOpen2: true }),
+    openChat: (paneId) => set(paneId === 1 ? { chatOpen1: true } : { chatOpen2: true }),
     closeChat: (paneId) => set(paneId === 1 ? { chatOpen1: false } : { chatOpen2: false }),
 
     // ─── File tree ────────────────────────────────────────────────────────────
     pane1FileTreeOpen: false,
     pane2FileTreeOpen: false,
-    openFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: true }  : { pane2FileTreeOpen: true }),
+    openFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: true } : { pane2FileTreeOpen: true }),
     closeFileTree: (pane) => set(pane === 1 ? { pane1FileTreeOpen: false } : { pane2FileTreeOpen: false }),
     toggleFileTree: (pane) => set((s) => pane === 1 ? { pane1FileTreeOpen: !s.pane1FileTreeOpen } : { pane2FileTreeOpen: !s.pane2FileTreeOpen }),
 
@@ -415,8 +433,15 @@ export const useUIStore = create<UIStore>((set, get) => {
     pane2OutlineOpen: false,
     openOutline: (pane) => set(pane === 1 ? { pane1OutlineOpen: true } : { pane2OutlineOpen: true }),
     closeOutline: (pane) => set(pane === 1 ? { pane1OutlineOpen: false } : { pane2OutlineOpen: false }),
-    toggleOutline: (pane) => set((s) => pane === 1 ? { pane1OutlineOpen: !s.pane1OutlineOpen } : { pane2OutlineOpen: !s.pane2OutlineOpen }),
     outlineOpen: (pane) => pane === 1 ? get().pane1OutlineOpen : get().pane2OutlineOpen,
+
+// ─── Tags — per pane (right side) ───────────────────────────────────────────
+pane1TagsOpen: false,
+pane2TagsOpen: false,
+openTags: (pane) => set(pane === 1 ? { pane1TagsOpen: true } : { pane2TagsOpen: true }),
+closeTags: (pane) => set(pane === 1 ? { pane1TagsOpen: false } : { pane2TagsOpen: false }),
+toggleTags: (pane) => set((s) => pane === 1 ? { pane1TagsOpen: !s.pane1TagsOpen } : { pane2TagsOpen: !s.pane2TagsOpen }),
+tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
 
     // ─── Import ───────────────────────────────────────────────────────────────
     importOpen: false,
@@ -475,6 +500,54 @@ export const useUIStore = create<UIStore>((set, get) => {
     // ─── Export handlers ──────────────────────────────────────────────────────
     exportHandlers: null,
     setExportHandlers: (handlers) => set({ exportHandlers: handlers }),
+
+    // ─── Right Panel Management (NEW - Single Source of Truth) ────────────────
+    rightPanelOpen: false,
+    
+    setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+    
+    toggleRightPanel: () => {
+      const { rightPanelOpen, activePaneId, resetRightPanelsForPane } = get();
+      if (rightPanelOpen) {
+        // When closing, reset all right panel states
+        resetRightPanelsForPane(activePaneId);
+      }
+      set({ rightPanelOpen: !rightPanelOpen });
+    },
+    
+    resetRightPanelsForPane: (pane: 1 | 2) => {
+  if (pane === 1) {
+    set({
+      pane1OutlineOpen: false,
+      pane1BacklinksOpen: false,
+      pane1SimilarOpen: false,
+      chatOpen1: false,
+      pane1VersionHistoryOpen: false,
+      pane1TagsOpen: false,  // ← ADD THIS
+    });
+  } else {
+    set({
+      pane2OutlineOpen: false,
+      pane2BacklinksOpen: false,
+      pane2SimilarOpen: false,
+      chatOpen2: false,
+      pane2VersionHistoryOpen: false,
+      pane2TagsOpen: false,  // ← ADD THIS
+    });
+  }
+},
+    
+    anyRightPanelActive: (pane: 1 | 2) => {
+  const s = get();
+  if (pane === 1) {
+    return s.pane1OutlineOpen || s.pane1BacklinksOpen || s.pane1SimilarOpen || s.chatOpen1 || s.pane1VersionHistoryOpen || s.pane1TagsOpen;
+  }
+  return s.pane2OutlineOpen || s.pane2BacklinksOpen || s.pane2SimilarOpen || s.chatOpen2 || s.pane2VersionHistoryOpen || s.pane2TagsOpen;
+},
+
+
+    activeEditor: null,
+  setActiveEditor: (editor) => set({ activeEditor: editor }),
 
     // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
     tabs: [], activeTabId: null,

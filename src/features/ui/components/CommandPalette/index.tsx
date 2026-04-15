@@ -1,3 +1,4 @@
+// src/features/ui/components/CommandPalette/index.tsx
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
@@ -113,35 +114,35 @@ const ActionIcon = ({ id }: { id: string }) => {
     </svg>
   );
   if (id === "toggle-similar") return (
-  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
-    <circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-    <circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-    <circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
-    <path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-  </svg>
-);
-if (id === "open-local-graph") return (
-  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
-    <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
-    <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
-    <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
-    <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
-    <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
-    <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-  </svg>
-);
-if (id === "summarize") return (
-  <svg width="13" height="13" viewBox="0 0 11 11" fill="none" className="shrink-0 text-idemora-text-muted">
-    <path d="M1.5 2.5h8M1.5 5h6M1.5 7.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-  </svg>
-);
-if (id === "explain") return (
-  <svg width="13" height="13" viewBox="0 0 11 11" fill="none" className="shrink-0 text-idemora-text-muted">
-    <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/>
-    <path d="M5.5 5v3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-    <circle cx="5.5" cy="3.5" r="0.6" fill="currentColor"/>
-  </svg>
-);
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
+      <circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+      <circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+      <circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+    </svg>
+  );
+  if (id === "open-local-graph") return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
+      <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+      <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+      <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+      <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+      <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+      <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+    </svg>
+  );
+  if (id === "summarize") return (
+    <svg width="13" height="13" viewBox="0 0 11 11" fill="none" className="shrink-0 text-idemora-text-muted">
+      <path d="M1.5 2.5h8M1.5 5h6M1.5 7.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  );
+  if (id === "explain") return (
+    <svg width="13" height="13" viewBox="0 0 11 11" fill="none" className="shrink-0 text-idemora-text-muted">
+      <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M5.5 5v3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <circle cx="5.5" cy="3.5" r="0.6" fill="currentColor"/>
+    </svg>
+  );
   if (id === "open-shortcuts") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <rect x="1" y="2.5" width="4" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.1"/>
@@ -151,11 +152,11 @@ if (id === "explain") return (
     </svg>
   );
   if (id === "toggle-ai-chat") return (
-  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
-    <path d="M2 2h10a1 1 0 011 1v6a1 1 0 01-1 1H8l-3 2v-2H2a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-    <path d="M4.5 6.5h5M4.5 4.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-  </svg>
-);
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
+      <path d="M2 2h10a1 1 0 011 1v6a1 1 0 01-1 1H8l-3 2v-2H2a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M4.5 6.5h5M4.5 4.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+    </svg>
+  );
   if (id === "export-all") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -177,11 +178,11 @@ if (id === "explain") return (
     </svg>
   );
   if (id === "voice-typing") return (
-  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
-    <path d="M7 1C5.9 1 5 1.9 5 3v3c0 1.1.9 2 2 2s2-.9 2-2V3c0-1.1-.9-2-2-2z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
-    <path d="M11 6v1c0 2.2-1.8 4-4 4s-4-1.8-4-4V6M7 11v2M4 13h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-  </svg>
-);
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="shrink-0 text-idemora-text-muted">
+      <path d="M7 1C5.9 1 5 1.9 5 3v3c0 1.1.9 2 2 2s2-.9 2-2V3c0-1.1-.9-2-2-2z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+      <path d="M11 6v1c0 2.2-1.8 4-4 4s-4-1.8-4-4V6M7 11v2M4 13h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  );
   return null;
 };
 
@@ -225,7 +226,7 @@ function NoteRow({
       onMouseEnter={onMouseEnter}
       onClick={onClick}
       className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors duration-100 ${
-        isSelected ? "bg-blue-500/10" : "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
+        isSelected ? "bg-blue-500/10" : "hover:bg-black/6 dark:hover:bg-white/7"
       }`}
     >
       <NoteIcon />
@@ -270,7 +271,7 @@ const SHORTCUTS = [
   { label: "Open local graph",        keys: ["Ctrl", "G"] },
   { label: "Summarize note",          keys: ["Ctrl", "Shift", "U"] },
   { label: "Explain note",            keys: ["Ctrl", "Shift", "E"] },
-  { label: "Toggle AI chat",  keys: ["Ctrl", "Shift", "A"] },
+  { label: "Toggle AI chat",          keys: ["Ctrl", "Shift", "A"] },
   { label: "Keyboard shortcuts",      keys: ["Ctrl", "Shift", "?"] },
   { label: "Voice typing",            keys: ["Win+H", "Fn twice"] },
 ];
@@ -281,11 +282,8 @@ export function CommandPalette() {
   const closePalette       = useUIStore((s) => s.closePalette);
   const toggleTheme        = useUIStore((s) => s.toggleTheme);
   const theme              = useUIStore((s) => s.theme);
-  const toggleBacklinks    = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline      = useUIStore((s) => s.toggleOutline);
   const toggleFileTree     = useUIStore((s) => s.toggleFileTree);
   const toggleTips         = useUIStore((s) => s.toggleTips);
-  const toggleSimilar = useUIStore((s) => s.toggleSimilar);
   const toggleSidebarPanel = useUIStore((s) => s.toggleSidebarPanel);
   const openShortcuts      = useUIStore((s) => s.openShortcuts);
   const openImport         = useUIStore((s) => s.openImport);
@@ -371,20 +369,30 @@ export function CommandPalette() {
       action: async () => { closePalette(); await createOrOpenDailyNote(); },
     },
     {
-  kind: "action", id: "toggle-sidebar", label: "Toggle Sidebar", hint: "Ctrl+\\",
-  action: () => { toggleSidebarPanel("notes"); closePalette(); },
-},
+      kind: "action", id: "toggle-sidebar", label: "Toggle Sidebar", hint: "Ctrl+\\",
+      action: () => { toggleSidebarPanel("notes"); closePalette(); },
+    },
     {
       kind: "action", id: "toggle-graph", label: graphOpen ? "Close Graph View" : "Open Graph View", hint: "Ctrl+Shift+G",
       action: () => { graphOpen ? closeGraph() : openGraph(); closePalette(); },
     },
     {
       kind: "action", id: "toggle-backlinks", label: "Toggle Backlinks", hint: "Ctrl+;",
-      action: () => { toggleBacklinks(useUIStore.getState().activePaneId); closePalette(); },
+      action: () => { 
+        const paneId = useUIStore.getState().activePaneId;
+        const { backlinksOpen, openBacklinks, closeBacklinks } = useUIStore.getState();
+        backlinksOpen(paneId) ? closeBacklinks(paneId) : openBacklinks(paneId);
+        closePalette(); 
+      },
     },
     {
       kind: "action", id: "toggle-outline", label: "Toggle Outline", hint: "Ctrl+'",
-      action: () => { toggleOutline(useUIStore.getState().activePaneId); closePalette(); },
+      action: () => { 
+        const paneId = useUIStore.getState().activePaneId;
+        const { outlineOpen, openOutline, closeOutline } = useUIStore.getState();
+        outlineOpen(paneId) ? closeOutline(paneId) : openOutline(paneId);
+        closePalette(); 
+      },
     },
     {
       kind: "action", id: "toggle-file-tree", label: "Toggle File Tree", hint: "Ctrl+T",
@@ -395,30 +403,35 @@ export function CommandPalette() {
       action: () => { toggleTips(); closePalette(); },
     },
     {
-  kind: "action", id: "toggle-similar", label: "Toggle Similar Notes", hint: "Ctrl+Shift+S",
-  action: () => { toggleSimilar(useUIStore.getState().activePaneId); closePalette(); },
-},
-{
-  kind: "action", id: "open-local-graph", label: "Open Local Graph", hint: "Ctrl+G",
-  action: () => { window.dispatchEvent(new CustomEvent("idemora:open-local-graph")); closePalette(); },
-},
-{
-  kind: "action", id: "summarize", label: "Summarize Note", hint: "Ctrl+Shift+U",
-  action: () => { window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "summarize" } })); closePalette(); },
-},
-{
-  kind: "action", id: "explain", label: "Explain Note", hint: "Ctrl+Shift+E",
-  action: () => { window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "explain" } })); closePalette(); },
-},
-{
-  kind: "action", id: "toggle-ai-chat", label: "Toggle AI Chat", hint: "Ctrl+Shift+A",
-  action: () => {
-    const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
-    const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
-    chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
-    closePalette();
-  },
-},
+      kind: "action", id: "toggle-similar", label: "Toggle Similar Notes", hint: "Ctrl+Shift+S",
+      action: () => { 
+        const paneId = useUIStore.getState().activePaneId;
+        const { similarOpen, openSimilar, closeSimilar } = useUIStore.getState();
+        similarOpen(paneId) ? closeSimilar(paneId) : openSimilar(paneId);
+        closePalette(); 
+      },
+    },
+    {
+      kind: "action", id: "open-local-graph", label: "Open Local Graph", hint: "Ctrl+G",
+      action: () => { window.dispatchEvent(new CustomEvent("idemora:open-local-graph")); closePalette(); },
+    },
+    {
+      kind: "action", id: "summarize", label: "Summarize Note", hint: "Ctrl+Shift+U",
+      action: () => { window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "summarize" } })); closePalette(); },
+    },
+    {
+      kind: "action", id: "explain", label: "Explain Note", hint: "Ctrl+Shift+E",
+      action: () => { window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "explain" } })); closePalette(); },
+    },
+    {
+      kind: "action", id: "toggle-ai-chat", label: "Toggle AI Chat", hint: "Ctrl+Shift+A",
+      action: () => {
+        const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
+        const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
+        chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+        closePalette();
+      },
+    },
     {
       kind: "action", id: "toggle-theme", label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode", hint: "",
       action: () => { toggleTheme(); closePalette(); },
@@ -466,10 +479,10 @@ export function CommandPalette() {
       action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); },
     },
   ], [
-  theme, closePalette, openTemplatePicker, toggleTheme, toggleBacklinks, toggleOutline,
-  toggleSimilar, toggleFileTree, toggleSidebarPanel, toggleTips, openShortcuts, openImport,
-  exportHandlers, activeNoteId, graphOpen, openGraph, closeGraph, loadNotes, createOrOpenDailyNote,
-]);
+    theme, closePalette, openTemplatePicker, toggleTheme, 
+    toggleFileTree, toggleSidebarPanel, toggleTips, openShortcuts, openImport,
+    exportHandlers, activeNoteId, graphOpen, openGraph, closeGraph, loadNotes, createOrOpenDailyNote,
+  ]);
 
   // ── Recent notes split by Today / Yesterday ───────────────────────────────
   const { todayNotes, yesterdayNotes } = useMemo(() => {
@@ -519,7 +532,7 @@ export function CommandPalette() {
 
   const noteList = query.trim() ? searchedNotes : recentNotes;
 
-function openNote(noteId: string) {
+  function openNote(noteId: string) {
     if (activePaneId === 2) {
       openTabInPane2(noteId);
     } else {
@@ -683,7 +696,7 @@ function openNote(noteId: string) {
                         onMouseEnter={() => setSelectedAction(i)}
                         onClick={() => action.action()}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer transition-colors duration-100 ${
-                          isSelected ? "bg-blue-500/10" : "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
+                          isSelected ? "bg-blue-500/10" : "hover:bg-black/6 dark:hover:bg-white/7"
                         }`}
                       >
                         <ActionIcon id={action.id} />

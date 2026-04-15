@@ -102,6 +102,7 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
             <span className="text-xs text-idemora-text-faint tabular-nums">{totalCount}</span>
           )}
         </div>
+        {/* ✅ FIX: Close button ONLY calls closeBacklinks - does NOT touch rightPanelOpen */}
         <button
           onClick={() => closeBacklinks(paneId)}
           className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted

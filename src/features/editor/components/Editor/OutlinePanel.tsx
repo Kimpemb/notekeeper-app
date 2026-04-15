@@ -10,21 +10,30 @@ interface HeadingItem {
 }
 
 interface Props {
-  editor: Editor;
+  editor: Editor | null; // Made nullable for safety
   paneId: 1 | 2;
 }
 
-function extractHeadings(editor: Editor): HeadingItem[] {
+function extractHeadings(editor: Editor | null): HeadingItem[] {
+  // CRITICAL FIX: Guard against null editor or unitialized state
+  if (!editor || !editor.state || !editor.state.doc) return [];
+
   const headings: HeadingItem[] = [];
-  editor.state.doc.descendants((node, pos) => {
-    if (node.type.name === "heading" && node.attrs.level <= 3) {
-      headings.push({ level: node.attrs.level as 1 | 2 | 3, text: node.textContent, pos });
-    }
-  });
+  try {
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "heading" && node.attrs.level <= 3) {
+        headings.push({ level: node.attrs.level as 1 | 2 | 3, text: node.textContent, pos });
+      }
+    });
+  } catch (e) {
+    console.error("OutlinePanel: Failed to extract headings", e);
+  }
   return headings;
 }
 
-function getScrollContainer(editor: Editor): HTMLElement | null {
+function getScrollContainer(editor: Editor | null): HTMLElement | null {
+  if (!editor || !editor.view || !editor.view.dom) return null;
+  
   let el: HTMLElement | null = editor.view.dom as HTMLElement;
   while (el) {
     const overflow = window.getComputedStyle(el).overflowY;
@@ -34,15 +43,20 @@ function getScrollContainer(editor: Editor): HTMLElement | null {
   return null;
 }
 
-function scrollToHeading(editor: Editor, pos: number) {
+function scrollToHeading(editor: Editor | null, pos: number) {
+  if (!editor || !editor.view) return;
+  
   editor.commands.setTextSelection(pos + 1);
   const domNode = editor.view.nodeDOM(pos);
   const el = domNode instanceof HTMLElement ? domNode : (domNode as Node)?.parentElement;
   if (!el) return;
+  
   const scrollContainer = getScrollContainer(editor);
   if (!scrollContainer) return;
+  
   const containerRect = scrollContainer.getBoundingClientRect();
   const elRect = el.getBoundingClientRect();
+  
   scrollContainer.scrollTo({
     top: scrollContainer.scrollTop + (elRect.top - containerRect.top) - 80,
     behavior: "smooth",
@@ -66,21 +80,28 @@ export function OutlinePanel({ editor, paneId }: Props) {
   const [activePos, setActivePos] = useState<number | null>(null);
   const closeOutline = useUIStore((s) => s.closeOutline);
 
-  const refresh = useCallback(() => setHeadings(extractHeadings(editor)), [editor]);
+  const refresh = useCallback(() => {
+    if (editor) setHeadings(extractHeadings(editor));
+  }, [editor]);
 
   useEffect(() => {
+    if (!editor) return;
     refresh();
     editor.on("update", refresh);
     return () => { editor.off("update", refresh); };
   }, [editor, refresh]);
 
   useEffect(() => {
+    if (!editor || headings.length === 0) return;
+    
     const scrollContainer = getScrollContainer(editor);
     if (!scrollContainer) return;
 
     function onScroll() {
-      const containerRect = scrollContainer!.getBoundingClientRect();
+      if (!editor || !scrollContainer) return;
+      const containerRect = scrollContainer.getBoundingClientRect();
       let best: number | null = null;
+      
       for (const h of headings) {
         const domNode = editor.view.nodeDOM(h.pos);
         const el = domNode instanceof HTMLElement ? domNode : (domNode as Node)?.parentElement;
@@ -105,9 +126,10 @@ export function OutlinePanel({ editor, paneId }: Props) {
           </svg>
           <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wider">Outline</span>
           {headings.length > 0 && (
-            <span className="text-xs text-idemora-text-faint tabular-nums">{headings.length}</span>
+            <span className="text-xs text-idemora-text-faint tabular-nums ml-1">({headings.length})</span>
           )}
         </div>
+        {/* ✅ FIX: Close button ONLY calls closeOutline - does NOT touch rightPanelOpen */}
         <button
           onClick={() => closeOutline(paneId)}
           className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted
@@ -122,19 +144,12 @@ export function OutlinePanel({ editor, paneId }: Props) {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto py-2">
-        {headings.length === 0 ? (
+        {!editor || headings.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-idemora-text-faint">
               <path d="M4 6h16M4 10h10M4 14h12M4 18h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
-            <p className="text-xs text-idemora-text-muted">No headings yet.</p>
-            <p className="text-xs text-idemora-text-faint">
-              Type{" "}
-              <kbd className="font-mono px-1 py-0.5 rounded bg-idemora-bg-primary text-idemora-text-muted">
-                /h1
-              </kbd>{" "}
-              to add one.
-            </p>
+            <p className="text-xs text-idemora-text-muted">No headings found.</p>
           </div>
         ) : (
           <ul>

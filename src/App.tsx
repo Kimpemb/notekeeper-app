@@ -31,6 +31,10 @@ import { UpdateToast } from "@/features/ui/components/UpdateToast";
 import { useAIStore } from "./features/ai/store/useAIStore";
 import { runScheduledBackupIfDue } from "@/features/backup/lib/scheduler";
 import { NewTabScreen } from "@/features/ui/components/NewTabScreen";
+import { TagsPanel } from "@/features/notes/components/Sidebar/TagsPanel";
+import { BacklinksPanel } from "@/features/editor/components/Editor/BacklinksPanel";
+import { OutlinePanel } from "@/features/editor/components/Editor/OutlinePanel";
+import { ChatPanel } from "@/features/ai/components/ChatPanel";
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
@@ -38,7 +42,6 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Left zone is always 272px when open, 40px when closed.
-// Independent of sidebarWidth — the panel below can be any width.
 const LEFT_ZONE_OPEN   = 272;
 const LEFT_ZONE_CLOSED = 40;
 
@@ -67,8 +70,10 @@ export default function App() {
   const pane1FileTreeOpen   = useUIStore((s) => s.pane1FileTreeOpen);
   const pane2FileTreeOpen   = useUIStore((s) => s.pane2FileTreeOpen);
   const toggleFileTree      = useUIStore((s) => s.toggleFileTree);
-  const toggleBacklinks     = useUIStore((s) => s.toggleBacklinks);
-  const toggleOutline       = useUIStore((s) => s.toggleOutline);
+  const openBacklinks       = useUIStore((s) => s.openBacklinks);
+  const closeBacklinks      = useUIStore((s) => s.closeBacklinks);
+  const openOutline         = useUIStore((s) => s.openOutline);
+  const closeOutline        = useUIStore((s) => s.closeOutline);
   const templatePickerOpen  = useUIStore((s) => s.templatePickerOpen);
   const closeTemplatePicker = useUIStore((s) => s.closeTemplatePicker);
   const graphOpen           = useUIStore((s) => s.graphOpen);
@@ -84,7 +89,6 @@ export default function App() {
   const pane2Tabs           = useUIStore((s) => s.pane2Tabs);
   const pane2ActiveTabId    = useUIStore((s) => s.pane2ActiveTabId);
   const splitOpen           = useUIStore((s) => s.splitOpen);
-  const splitDirection      = useUIStore((s) => s.splitDirection);
   const setActivePaneId     = useUIStore((s) => s.setActivePaneId);
   const pane1BacklinksOpen  = useUIStore((s) => s.pane1BacklinksOpen);
   const pane2BacklinksOpen  = useUIStore((s) => s.pane2BacklinksOpen);
@@ -92,6 +96,19 @@ export default function App() {
   const pane2OutlineOpen    = useUIStore((s) => s.pane2OutlineOpen);
   const chatOpen1           = useUIStore((s) => s.chatOpen1);
   const chatOpen2           = useUIStore((s) => s.chatOpen2);
+  const activeEditor = useUIStore((s) => s.activeEditor);
+
+  
+  // Right panel state from store (single source of truth)
+  const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+  const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
+  const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
+
+  // Add these with the other UI store hooks
+const openTags = useUIStore((s) => s.openTags);
+const closeTags = useUIStore((s) => s.closeTags);
+const pane1TagsOpen = useUIStore((s) => s.pane1TagsOpen);
+const pane2TagsOpen = useUIStore((s) => s.pane2TagsOpen);
 
   // App settings
   const settings       = useAppSettings((s) => s.settings);
@@ -105,6 +122,8 @@ export default function App() {
   const newNoteParentRef = useRef<string | null>(null);
   const scrollPositions  = useRef<Map<string, number>>(new Map());
 
+  // Right panel active states
+const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   const backlinkActive = activePaneId === 1 ? pane1BacklinksOpen : pane2BacklinksOpen;
   const outlineActive  = activePaneId === 1 ? pane1OutlineOpen   : pane2OutlineOpen;
   const chatActive     = activePaneId === 1 ? chatOpen1          : chatOpen2;
@@ -228,8 +247,14 @@ export default function App() {
       useUIStore.getState().openTemplatePicker();
     }
     if (ctrl && e.key === "\\") { e.preventDefault(); toggleSidebarPanel("notes"); }
-    if (ctrl && e.key === ";")  { e.preventDefault(); toggleBacklinks(activePaneId); }
-    if (ctrl && e.key === "'")  { e.preventDefault(); toggleOutline(activePaneId); }
+    if (ctrl && e.key === ";")  { 
+      e.preventDefault(); 
+      backlinkActive ? closeBacklinks(activePaneId) : openBacklinks(activePaneId);
+    }
+    if (ctrl && e.key === "'")  { 
+      e.preventDefault(); 
+      outlineActive ? closeOutline(activePaneId) : openOutline(activePaneId);
+    }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
     if (ctrl && e.key === "w")  { e.preventDefault(); closeActiveTab(); }
     if (ctrl && e.key === "[") {
@@ -260,8 +285,8 @@ export default function App() {
       if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
     }
     if (ctrl && e.key === ",") { e.preventDefault(); openSettings(); }
-  }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, toggleBacklinks, toggleOutline,
-      openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes]);
+  }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, openBacklinks, closeBacklinks, openOutline, closeOutline,
+      openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, backlinkActive, outlineActive]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -385,195 +410,184 @@ export default function App() {
         {/* ── Header — full width across the top ── */}
         <header
           data-tauri-drag-region
-          className="flex items-center h-11 shrink-0 z-50 border-b border-idemora-border bg-idemora-bg-primary select-none"
+          className="flex items-center h-11 shrink-0 z-50 bg-idemora-bg-header select-none"
         >
+          {/* LEFT ZONE */}
           <div
             className="flex items-center gap-1 px-2 shrink-0 overflow-hidden transition-[width] duration-150 ease-in-out"
             style={{ width: `${leftZoneWidth}px` }}
           >
-            {/* Collapse sidebar button - Apple Finder style */}
             <button
               onClick={() => toggleSidebarPanel(activeSidebarPanel ?? "notes")}
-              title={panelOpen ? "Collapse sidebar (Ctrl+\\\\)" : "Expand sidebar (Ctrl+\\\\)"}
+              title={panelOpen ? "Collapse sidebar" : "Expand sidebar"}
               className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150
                 ${panelOpen
-                  ? "text-idemora-text-normal"
-                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+                  ? "text-idemora-text-normal bg-blue-500/10"
+                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
                 }`}
             >
-              {panelOpen ? (
-                <svg width="20" height="20" viewBox="0 0 20 20">
-                  <rect x="1" y="1" width="18" height="18" rx="4"
-                    fill="none" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M4.5 4 Q3 4 3 6.5 L3 13.5 Q3 16 4.5 16 L7 16 Q8.5 16 8.5 14.5 L8.5 5.5 Q8.5 4 7 4 Z"
-                    fill="currentColor"/>
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 20 20">
-                  <rect x="1" y="1" width="18" height="18" rx="4"
-                    fill="none" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M4.5 4 Q3 4 3 6.5 L3 13.5 Q3 16 4.5 16 L4.5 16 Q5.5 16 5.5 14.5 L5.5 5.5 Q5.5 4 4.5 4 Z"
-                    fill="currentColor"/>
-                </svg>
-              )}
+              <svg width="20" height="20" viewBox="0 0 20 20">
+                <rect x="1" y="1" width="18" height="18" rx="4" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M4.5 4 Q3 4 3 6.5 L3 13.5 Q3 16 4.5 16 L7 16 Q8.5 16 8.5 14.5 L8.5 5.5 Q8.5 4 7 4 Z" fill="currentColor" opacity={panelOpen ? 1 : 0.4}/>
+              </svg>
             </button>
 
-            {/* Panel mode icons — only visible when panel is open */}
             {panelOpen && (
-              <>
-                <button
-  onClick={() => {
-    console.log("Notes clicked, current activeSidebarPanel:", activeSidebarPanel);
-    toggleSidebarPanel("notes");
-  }}
-  title="Notes"
-                  className={`relative shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-100
-                    ${activeSidebarPanel === "notes"
-                      ? "text-idemora-text-normal"
-                      : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
-                    }`}
-                >
-                  {activeSidebarPanel === "notes" && (
-                    <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />
-                  )}
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                    <path d="M2 5.5a1.5 1.5 0 011.5-1.5h3.5L9 6.5h5.5a1.5 1.5 0 011.5 1.5v5.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 012 13.5v-8z"
-                      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-
-                <button
-                  onClick={() => toggleSidebarPanel("search")}
-                  title="Search"
-                  className={`relative shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-100
-                    ${activeSidebarPanel === "search"
-                      ? "text-idemora-text-normal"
-                      : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
-                    }`}
-                >
-                  {activeSidebarPanel === "search" && (
-                    <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />
-                  )}
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                    <circle cx="7.5" cy="7.5" r="4.5" stroke="currentColor" strokeWidth="1.4"/>
-                    <path d="M11 11l4.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                  </svg>
-                </button>
-
-                <button
-                  onClick={() => toggleSidebarPanel("bookmarks")}
-                  title="Bookmarks"
-                  className={`relative shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-100
-                    ${activeSidebarPanel === "bookmarks"
-                      ? "text-idemora-text-normal"
-                      : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
-                    }`}
-                >
-                  {activeSidebarPanel === "bookmarks" && (
-                    <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />
-                  )}
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                    <path d="M5 2.5h8a1.5 1.5 0 011.5 1.5v11l-5.5-3-5.5 3V4a1.5 1.5 0 011.5-1.5z"
-                      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              </>
+              <div className="flex items-center gap-1">
+                {["notes", "search", "bookmarks"].map((id) => (
+                  <button
+                    key={id}
+                    onClick={() => toggleSidebarPanel(id as any)}
+                    className={`relative shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-colors
+                      ${activeSidebarPanel === id ? "text-idemora-text-normal" : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"}`}
+                  >
+                    {activeSidebarPanel === id && <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />}
+                    {id === "notes" && (
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                        <path d="M2 5.5a1.5 1.5 0 011.5-1.5h3.5L9 6.5h5.5a1.5 1.5 0 011.5 1.5v5.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 012 13.5v-8z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                    {id === "search" && (
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                        <circle cx="7.5" cy="7.5" r="4.5" stroke="currentColor" strokeWidth="1.4"/>
+                        <path d="M11 11l4.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                      </svg>
+                    )}
+                    {id === "bookmarks" && (
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                        <path d="M5 2.5h8a1.5 1.5 0 011.5 1.5v11l-5.5-3-5.5 3V4a1.5 1.5 0 011.5-1.5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 
+          {/* CENTER ZONE - TABS */}
           <TabBar />
 
+          {/* RIGHT ZONE */}
           <div className="flex items-center gap-1 px-2 shrink-0">
-            {/* Tags */}
-            <button
-              onClick={() => toggleSidebarPanel("tags")}
-              title="Tags"
-              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${
-                activeSidebarPanel === "tags"
-                  ? "bg-blue-500/20 text-blue-400"
-                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
+            
+            {/* SLIDING BUTTONS CONTAINER - expands/collapses with animation */}
+            <div 
+              className={`flex items-center gap-1 transition-all duration-200 ease-in-out overflow-hidden ${
+                rightPanelOpen 
+                  ? "w-auto opacity-100 ml-0" 
+                  : "w-0 opacity-0 -ml-1"
               }`}
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M2 2h6.5l8 8-6.5 6.5-8-8V2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-                <circle cx="5.5" cy="5.5" r="1.2" fill="currentColor" stroke="none"/>
-              </svg>
-            </button>
+              {/* Tags button */}
+<button
+  onClick={() => {
+    // Ensure right panel is open
+    if (!rightPanelOpen) setRightPanelOpen(true);
+    // Toggle tags panel independently
+    tagsActive ? closeTags(activePaneId) : openTags(activePaneId);
+  }}
+  className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 ${
+    tagsActive 
+      ? "text-idemora-text-normal" 
+      : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
+  }`}
+>
+  {tagsActive && <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />}
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <path d="M2 2h6.5l8 8-6.5 6.5-8-8V2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    <circle cx="5.5" cy="5.5" r="1.2" fill="currentColor"/>
+  </svg>
+</button>
 
-            {/* Backlinks */}
-            <button
-              onClick={() => toggleBacklinks(activePaneId)}
-              title="Toggle backlinks (Ctrl+;)"
-              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${
-                backlinkActive
-                  ? "bg-blue-500/20 text-blue-400"
-                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
-              }`}
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M11.5 5h-5a1.5 1.5 0 00-1.5 1.5v5a1.5 1.5 0 001.5 1.5h5a1.5 1.5 0 001.5-1.5V8.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                <path d="M9 2.5h5v5M13.5 2.5L9 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+              {/* Backlinks button */}
+              <button
+                onClick={() => backlinkActive ? closeBacklinks(activePaneId) : openBacklinks(activePaneId)}
+                className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 ${
+                  backlinkActive 
+                    ? "text-idemora-text-normal" 
+                    : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
+                }`}
+              >
+                {backlinkActive && <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />}
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M11.5 5h-5a1.5 1.5 0 00-1.5 1.5v5a1.5 1.5 0 001.5 1.5h5a1.5 1.5 0 001.5-1.5V8.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  <path d="M9 2.5h5v5M13.5 2.5L9 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
 
-            {/* Outline */}
-            <button
-              onClick={() => toggleOutline(activePaneId)}
-              title="Toggle outline (Ctrl+')"
-              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${
-                outlineActive
-                  ? "bg-blue-500/20 text-blue-400"
-                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
-              }`}
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M2.5 4.5h13M2.5 9h9M2.5 13.5h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            </button>
+              {/* Outline button */}
+              <button
+                onClick={() => outlineActive ? closeOutline(activePaneId) : openOutline(activePaneId)}
+                className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 ${
+                  outlineActive 
+                    ? "text-idemora-text-normal" 
+                    : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
+                }`}
+              >
+                {outlineActive && <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />}
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M2.5 4.5h13M2.5 9h9M2.5 13.5h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+              </button>
 
-            {/* AI Chat */}
+              {/* Chat button */}
+              <button
+                onClick={() => {
+                  const { openChat, closeChat } = useUIStore.getState();
+                  chatActive ? closeChat(activePaneId) : openChat(activePaneId);
+                }}
+                className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 ${
+                  chatActive 
+                    ? "text-idemora-text-normal" 
+                    : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
+                }`}
+              >
+                {chatActive && <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />}
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M2.5 2.5h13a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5h-4.5l-4 2.5v-2.5h-4.5A1.5 1.5 0 011 12V4a1.5 1.5 0 011.5-1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+                  <path d="M5.5 8h7M5.5 5.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Separator line */}
+            <div className="w-px h-5 bg-idemora-border/50 mx-1 shrink-0" />
+
+            {/* POWER SWITCH BUTTON - controls the slide animation */}
             <button
               onClick={() => {
-                const { activePaneId, chatOpen1, chatOpen2, openChat, closeChat } = useUIStore.getState();
-                const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
-                chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+                toggleRightPanel();
+                // When closing and tags panel is open, close it too
+                if (rightPanelOpen && activeSidebarPanel === "tags") {
+                  toggleSidebarPanel("tags");
+                }
               }}
-              title="Toggle AI chat (Ctrl+Shift+A)"
-              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 ${
-                chatActive
-                  ? "bg-blue-500/20 text-blue-400"
-                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
-              }`}
+              className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-all duration-150
+                ${rightPanelOpen 
+                  ? "text-blue-500 bg-blue-500/10" 
+                  : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
+                }`}
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M2.5 2.5h13a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5h-4.5l-4 2.5v-2.5h-4.5A1.5 1.5 0 011 12V4a1.5 1.5 0 011.5-1.5z"
-                  stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                <path d="M5.5 8h7M5.5 5.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <svg width="20" height="20" viewBox="0 0 20 20" style={{ transform: "scaleX(-1)" }}>
+                <rect x="1" y="1" width="18" height="18" rx="4" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M4.5 4 Q3 4 3 6.5 L3 13.5 Q3 16 4.5 16 L7 16 Q8.5 16 8.5 14.5 L8.5 5.5 Q8.5 4 7 4 Z" fill="currentColor" opacity={rightPanelOpen ? 1 : 0.4}/>
               </svg>
             </button>
 
-            <div className="w-px h-5 bg-idemora-border mx-1 shrink-0" />
+            {/* Separator line */}
+            <div className="w-px h-5 bg-idemora-border/50 mx-1 shrink-0" />
 
-            {/* Minimize */}
-            <button
-              onClick={async () => { const w = getCurrentWindow(); await w.minimize(); }}
-              title="Minimize"
-              className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-150"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 2" fill="none">
-                <rect width="14" height="1.5" fill="currentColor"/>
-              </svg>
+            {/* WINDOW CONTROLS */}
+            <button onClick={async () => (await getCurrentWindow()).minimize()} className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-black/6 dark:hover:bg-white/7 transition-colors">
+              <svg width="14" height="14" viewBox="0 0 14 2" fill="none"><rect width="14" height="1.5" fill="currentColor"/></svg>
             </button>
 
-            {/* Maximize / Restore */}
-            <button
+            <button 
               onClick={async () => {
                 const w = getCurrentWindow();
-                const isMax = await w.isMaximized();
-                if (isMax) { await w.unmaximize(); } else { await w.maximize(); }
-              }}
-              title="Maximize"
-              className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-150"
+                (await w.isMaximized()) ? await w.unmaximize() : await w.maximize();
+              }} 
+              className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-black/6 dark:hover:bg-white/7 transition-colors"
             >
               {isWindowMaximized ? (
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -587,15 +601,8 @@ export default function App() {
               )}
             </button>
 
-            {/* Close */}
-            <button
-              onClick={async () => { const w = getCurrentWindow(); await w.close(); }}
-              title="Close"
-              className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-150"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M2.5 2.5l9 9M11.5 2.5l-9 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
+            <button onClick={async () => (await getCurrentWindow()).close()} className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-red-500/80 hover:text-white transition-colors">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 2.5l9 9M11.5 2.5l-9 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
             </button>
           </div>
         </header>
@@ -605,12 +612,31 @@ export default function App() {
 
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
-          <main className={`flex-1 flex overflow-hidden ${splitOpen && splitDirection === "vertical" ? "flex-col items-stretch" : "flex-row"}`}>
-            {renderPane(1)}
-            {splitOpen && <><SplitDivider />{renderPane(2)}</>}
+          
+          <main className="flex-1 flex overflow-hidden min-w-0">
+            {/* Main content area */}
+            <div className="flex-1 flex flex-col min-w-0">
+              <div className="flex-1 flex overflow-hidden">
+                {renderPane(1)}
+                {splitOpen && <><SplitDivider />{renderPane(2)}</>}
+              </div>
+            </div>
+
+            {/* Right panels column - visibility controlled by rightPanelOpen */}
+            {rightPanelOpen && (
+  <div className="flex shrink-0 border-l border-idemora-border">
+    {tagsActive && <TagsPanel />}
+    {backlinkActive && activeNoteId && (
+      <BacklinksPanel noteId={activeNoteId} paneId={activePaneId} />
+    )}
+    {outlineActive && activeEditor && (
+      <OutlinePanel editor={activeEditor} paneId={activePaneId} />
+    )}
+    {chatActive && <ChatPanel noteId={activeNoteId ?? ""} paneId={activePaneId} />}
+  </div>
+)}
           </main>
         </div>
-
       </div>
 
       <CommandPalette />

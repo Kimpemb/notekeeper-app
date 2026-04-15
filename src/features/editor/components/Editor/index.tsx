@@ -24,7 +24,6 @@ import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { syncBacklinks } from "@/features/notes/db/queries";
 import { NoteLink } from "./NoteLink";
 import { NoteLinkSuggest } from "./NoteLinkSuggest";
-import { BacklinksPanel } from "./BacklinksPanel";
 import { OutlinePanel } from "./OutlinePanel";
 import { SimilarNotesPanel } from "./SimilarNotesPanel";
 import { StatusBar } from "./StatusBar";
@@ -38,7 +37,6 @@ import { SubPageNode } from "./SubPageNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
 import { AIActionBar } from "@/features/ai/components/AIActionBar";
-import { ChatPanel } from "@/features/ai/components/ChatPanel";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
 
 import {
@@ -178,11 +176,14 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const myBacklinksOpen      = useUIStore((s) => paneId === 1 ? s.pane1BacklinksOpen      : s.pane2BacklinksOpen);
   const mySimilarOpen        = useUIStore((s) => paneId === 1 ? s.pane1SimilarOpen        : s.pane2SimilarOpen);
   const myVersionHistoryOpen = useUIStore((s) => paneId === 1 ? s.pane1VersionHistoryOpen : s.pane2VersionHistoryOpen);
-  const myChatOpen           = useUIStore((s) => paneId === 1 ? s.chatOpen1               : s.chatOpen2);
 
-  const toggleOutline    = useUIStore((s) => s.toggleOutline);
-  const toggleBacklinks  = useUIStore((s) => s.toggleBacklinks);
-  const toggleSimilar    = useUIStore((s) => s.toggleSimilar);
+  // Use explicit open/close functions instead of toggle
+  const openOutline      = useUIStore((s) => s.openOutline);
+  const closeOutline     = useUIStore((s) => s.closeOutline);
+  const openBacklinks    = useUIStore((s) => s.openBacklinks);
+  const closeBacklinks   = useUIStore((s) => s.closeBacklinks);
+  const openSimilar      = useUIStore((s) => s.openSimilar);
+  const closeSimilar     = useUIStore((s) => s.closeSimilar);
   const openGraphForNote = useUIStore((s) => s.openGraphForNote);
 
   const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
@@ -565,7 +566,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
       }
       if (e.key === "S" && e.shiftKey) {
         e.preventDefault();
-        toggleSimilar(paneId);
+        mySimilarOpen ? closeSimilar(paneId) : openSimilar(paneId);
         return;
       }
       if (e.key === "U" && e.shiftKey) {
@@ -581,7 +582,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     }
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
-  }, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote, toggleSimilar]);
+  }, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote, mySimilarOpen, closeSimilar, openSimilar]);
 
   useEffect(() => {
     function handle() {
@@ -800,8 +801,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     editor.chain().focus().sortTaskList().run();
   }
 
-  // src/features/editor/components/Editor/index.tsx (only the return section - rest of the file remains the same)
-
   return (
     <div className="flex h-full w-full overflow-hidden">
       <div className="flex flex-col flex-1 h-full overflow-hidden">
@@ -835,9 +834,9 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
                 {breadcrumbParent && (
                   <>
                     <button
-  onClick={() => setActiveNote(breadcrumbParent.id)}
-  className="text-base text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100 max-w-32 truncate shrink-0"
->
+                      onClick={() => setActiveNote(breadcrumbParent.id)}
+                      className="text-base text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100 max-w-32 truncate shrink-0"
+                    >
                       {breadcrumbParent.title}
                     </button>
                     <span className="text-idemora-text-faint text-base shrink-0">/</span>
@@ -860,21 +859,27 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
                   }`}
                 >
                   {!myOutlineOpen && (
-                    <button onClick={() => toggleOutline(paneId)}
+                    <button onClick={() => {
+                      myOutlineOpen ? closeOutline(paneId) : openOutline(paneId);
+                    }}
                       className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
                       <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
                       Outline
                     </button>
                   )}
                   {!myBacklinksOpen && (
-                    <button onClick={() => toggleBacklinks(paneId)}
+                    <button onClick={() => {
+                      myBacklinksOpen ? closeBacklinks(paneId) : openBacklinks(paneId);
+                    }}
                       className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
                       <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                       Backlinks
                     </button>
                   )}
                   {!mySimilarOpen && (
-                    <button onClick={() => toggleSimilar(paneId)}
+                    <button onClick={() => {
+                      mySimilarOpen ? closeSimilar(paneId) : openSimilar(paneId);
+                    }}
                       className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
                       <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
                       Similar
@@ -902,9 +907,9 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
               </div>
 
               <button
-  onClick={() => openGraphForNote(noteId)}
-  className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border border-idemora-border"
->
+                onClick={() => openGraphForNote(noteId)}
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border border-idemora-border"
+              >
                 <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
                   <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
                   <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
@@ -1005,10 +1010,8 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
         {myVersionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} paneId={paneId} />}
       </div>
 
-      {myOutlineOpen   && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
-      {myBacklinksOpen && isActiveTab && <BacklinksPanel noteId={note.id} paneId={paneId} />}
-      {mySimilarOpen   && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
-      {myChatOpen      && isActiveTab && <ChatPanel noteId={note.id} paneId={paneId} />}
+      {myOutlineOpen && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
+      {mySimilarOpen && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
       {editor && <TableToolbar editor={editor} />}
 
       {slashOpen && editor && (

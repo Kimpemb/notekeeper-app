@@ -4,7 +4,6 @@ import { useUIStore } from "@/features/ui/store/useUIStore";
 import { SidebarRail } from "@/features/ui/components/SidebarRail";
 import { NotesPanel } from "./NotesPanel";
 import { SearchPanel } from "./SearchPanel";
-import { TagsPanel } from "./TagsPanel";
 import { TrashPanel } from "./TrashPanel";
 import { BookmarksPanel } from "./BookmarksPanel";
 
@@ -60,7 +59,7 @@ export function Sidebar() {
         className="relative flex flex-col h-full overflow-hidden bg-idemora-bg-secondary border-r border-idemora-border transition-[width] duration-150 ease-in-out shrink-0"
       >
         {/* Panel content — all always mounted, only active one is visible */}
-        {(["notes", "search", "tags", "trash", "bookmarks"] as const).map((panel) => (
+        {(["notes", "search", "trash", "bookmarks"] as const).map((panel) => (
           <div
             key={panel}
             style={{
@@ -74,7 +73,6 @@ export function Sidebar() {
           >
             {panel === "notes"     && <NotesPanel />}
             {panel === "search"    && <SearchPanel />}
-            {panel === "tags"      && <TagsPanel />}
             {panel === "trash"     && <TrashPanel />}
             {panel === "bookmarks" && <BookmarksPanel />}
           </div>

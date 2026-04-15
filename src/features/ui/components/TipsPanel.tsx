@@ -40,9 +40,21 @@ function getTipAction(description: string, _keys?: string[]): (() => void) | und
     "Find & replace": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', ctrlKey: true, bubbles: true })),
     "Undo": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })),
     "Redo": () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, bubbles: true })),
-    "Toggle backlinks": () => uiStore.toggleBacklinks(uiStore.activePaneId),
-    "Toggle outline": () => uiStore.toggleOutline(uiStore.activePaneId),
-    "Toggle similar notes": () => uiStore.toggleSimilar(uiStore.activePaneId),
+    "Toggle backlinks": () => {
+      const paneId = uiStore.activePaneId;
+      const { backlinksOpen, openBacklinks, closeBacklinks } = uiStore;
+      backlinksOpen(paneId) ? closeBacklinks(paneId) : openBacklinks(paneId);
+    },
+    "Toggle outline": () => {
+      const paneId = uiStore.activePaneId;
+      const { outlineOpen, openOutline, closeOutline } = uiStore;
+      outlineOpen(paneId) ? closeOutline(paneId) : openOutline(paneId);
+    },
+    "Toggle similar notes": () => {
+      const paneId = uiStore.activePaneId;
+      const { similarOpen, openSimilar, closeSimilar } = uiStore;
+      similarOpen(paneId) ? closeSimilar(paneId) : openSimilar(paneId);
+    },
     "Open local graph": () => window.dispatchEvent(new CustomEvent("idemora:open-local-graph")),
     "Open/close graph": () => uiStore.graphOpen ? uiStore.closeGraph() : uiStore.openGraph(),
     "Open today's note": () => noteStore.createOrOpenDailyNote(),
@@ -147,7 +159,7 @@ const TIPS_BY_CATEGORY: { title: string; tips: Tip[] }[] = [
 
 function Key({ label }: { label: string }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[1.4rem] h-5 px-1.5 rounded text-[10px] font-medium bg-idemora-bg-primary  text-idemora-text-muted border   leading-none">
+    <kbd className="inline-flex items-center justify-center min-w-[1.4rem] h-5 px-1.5 rounded text-[10px] font-medium bg-idemora-bg-primary text-idemora-text-muted border border-idemora-border leading-none">
       {label}
     </kbd>
   );
@@ -183,14 +195,14 @@ export function TipsPanel() {
       }}
       aria-hidden={!tipsOpen}
     >
-      <div className="border-b border-idemora-border bg-idemora-bg-primary ">
+      <div className="border-b border-idemora-border bg-idemora-bg-secondary">
         <div className="flex items-center justify-between px-5 pt-3 pb-2">
           <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wide">
             Tips & shortcuts
           </span>
           <button
             onClick={closeTips}
-            className="w-6 h-6 flex items-center justify-center rounded text-idemora-text-muted     transition-colors duration-100"
+            className="w-6 h-6 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7 transition-colors duration-100"
             aria-label="Close tips"
           >
             <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
@@ -212,15 +224,15 @@ export function TipsPanel() {
                       <div
                         key={i}
                         onClick={() => handleTipClick(tip)}
-                        className={`flex items-start gap-2 ${hasAction ? "cursor-pointer  /50 rounded transition-colors duration-100" : ""}`}
+                        className={`flex items-start gap-2 ${hasAction ? "cursor-pointer hover:bg-black/6 dark:hover:bg-white/7 rounded transition-colors duration-100" : ""}`}
                         style={{ padding: hasAction ? "2px 4px" : "0" }}
                         title={hasAction ? "Click to execute" : ""}
                       >
-                        <div className="flex items-center gap-0.5 shrink-0 min-w-[6.5rem]">
+                        <div className="flex items-center gap-0.5 shrink-0 min-w-26">
                           {tip.keys ? (
                             tip.keys.map((k, ki) => (
                               <span key={ki} className="flex items-center gap-0.5">
-                                {ki > 0 && <span className="text-idemora-text-normal  text-[10px] mx-0.5">+</span>}
+                                {ki > 0 && <span className="text-idemora-text-normal text-[10px] mx-0.5">+</span>}
                                 <Key label={k} />
                               </span>
                             ))

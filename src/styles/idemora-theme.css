@@ -4,6 +4,7 @@
 :root {
   --idemora-bg-primary: #ffffff;
   --idemora-bg-secondary: #f5f5f5;
+  --idemora-bg-header: #f0f0f0;  /* Light mode header - lighter than secondary */
   --idemora-border: #e5e5e5;
   --idemora-text-faint: #a1a1aa;
   --idemora-text-muted: #71717a;
@@ -15,6 +16,7 @@
 .dark {
   --idemora-bg-primary: #1e1e1e;
   --idemora-bg-secondary: #262626;
+  --idemora-bg-header: #2d2d2d;  /* Dark mode header - lighter than secondary */
   --idemora-border: #363636;
   --idemora-text-faint: #666666;
   --idemora-text-muted: #b3b3b3;
@@ -22,9 +24,10 @@
   color-scheme: dark;
 }
 
-/* Utility classes - no change needed, they use CSS variables */
+/* Utility classes */
 .bg-idemora-bg-primary { background-color: var(--idemora-bg-primary); }
 .bg-idemora-bg-secondary { background-color: var(--idemora-bg-secondary); }
+.bg-idemora-bg-header { background-color: var(--idemora-bg-header); }
 .border-idemora-border { border-color: var(--idemora-border); }
 .text-idemora-text-normal { color: var(--idemora-text-normal); }
 .text-idemora-text-muted { color: var(--idemora-text-muted); }
