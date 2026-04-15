@@ -40,11 +40,11 @@ function PasswordInput({
         disabled={disabled}
         autoComplete="off"
         spellCheck={false}
-        className="w-full px-3 py-2 pr-10 text-sm rounded-lg border-idemora-border  bg-idemora-bg-primary text-idemora-text-normal placeholder-idemora-text-muted  focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+        className="w-full px-3 py-2 pr-10 text-sm rounded-lg border border-idemora-border bg-idemora-bg-secondary text-idemora-text-normal placeholder-idemora-text-faint focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
       />
       <button
         onClick={() => setShow((v) => !v)}
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-idemora-text-muted   transition-colors"
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
         title={show ? "Hide password" : "Show password"}
       >
         {show ? (
@@ -121,24 +121,29 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <button onClick={onBack} className="text-xs text-idemora-text-muted   transition-colors">← Back</button>
-        <span className="text-xs text-idemora-text-normal ">/</span>
-        <span className="text-xs font-medium text-idemora-text-normal text-idemora-text-muted">Auto-backup</span>
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onBack} className="text-sm text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100 flex items-center gap-1">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Back
+        </button>
+        <span className="text-sm text-idemora-text-faint">/</span>
+        <span className="text-sm font-medium text-idemora-text-normal">Auto-backup</span>
       </div>
 
       {loading ? <p className="text-xs text-idemora-text-muted animate-pulse">Loading…</p> : (
         <div className="space-y-4">
-          <div className="flex items-center justify-between p-3 rounded-lg border-idemora-border bg-idemora-bg-primary">
+          <div className="flex items-center justify-between p-3 rounded-lg border border-idemora-border bg-idemora-bg-secondary">
             <div>
               <p className="text-sm font-medium text-idemora-text-normal">Enable auto-backup</p>
               <p className="text-xs text-idemora-text-muted mt-0.5">Automatically back up on app launch</p>
             </div>
             <button
               onClick={() => setEnabled((v) => !v)}
-              className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${enabled ? "bg-blue-500" : "bg-idemora-bg-primary "}`}
+              className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${enabled ? "bg-blue-500" : "bg-idemora-bg-primary border border-idemora-border"}`}
             >
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-idemora-bg-primary rounded-full shadow transition-transform duration-200 ${enabled ? "translate-x-4" : ""}`} />
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${enabled ? "translate-x-4" : ""}`} />
             </button>
           </div>
 
@@ -153,8 +158,8 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
                       onClick={() => setFrequency(f)}
                       className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors duration-150 ${
                         frequency === f
-                          ? "bg-blue-500 text-idemora-text-normal border-blue-500"
-                          : "bg-idemora-bg-primary text-idemora-text-normal text-idemora-text-muted border-idemora-border   "
+                          ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                          : "bg-idemora-bg-secondary text-idemora-text-muted border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
                       }`}
                     >
                       {f === "on_change" ? "On change" : f.charAt(0).toUpperCase() + f.slice(1)}
@@ -167,25 +172,25 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
                 <div className="flex items-center gap-1.5 mb-3">
                   <p className="text-[11px] font-semibold uppercase tracking-widest text-idemora-text-muted">Backup folder</p>
                   <div className="relative group">
-                    <button className="w-3.5 h-3.5 rounded-full border   text-idemora-text-muted flex items-center justify-center  : transition-colors">
+                    <button className="w-3.5 h-3.5 rounded-full border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal flex items-center justify-center transition-colors">
                       <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
                         <path d="M4 2h.01M4 3.5v2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                       </svg>
                     </button>
-                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 p-2.5 rounded-lg bg-idemora-bg-primary  text-idemora-text-normal text-xs leading-relaxed shadow-lg opacity-0 group- transition-opacity duration-150 pointer-events-none z-50">
+                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 p-2.5 rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-normal text-xs leading-relaxed shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none z-50">
                       <p className="font-medium mb-1 text-idemora-text-normal">How cloud sync works</p>
                       <p>iCloud Drive and OneDrive create a real folder on your computer — just point Idemora there and it syncs automatically.</p>
-                      <p className="mt-1.5">Google Drive requires the <span className="text-blue-300">Google Drive for Desktop</span> app to work the same way.</p>
+                      <p className="mt-1.5">Google Drive requires the <span className="text-blue-400">Google Drive for Desktop</span> app to work the same way.</p>
                     </div>
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <div className="flex-1 px-3 py-2 text-xs rounded-lg border-idemora-border  bg-idemora-bg-primary text-idemora-text-muted truncate">
+                  <div className="flex-1 px-3 py-2 text-xs rounded-lg border border-idemora-border bg-idemora-bg-secondary text-idemora-text-muted truncate">
                     {folder || "No folder selected"}
                   </div>
                   <button
                     onClick={handlePickFolder}
-                    className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-primary    text-idemora-text-normal border-idemora-border  transition-colors"
+                    className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
                   >
                     Browse
                   </button>
@@ -215,7 +220,7 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
           )}
 
           {message && (
-            <p className={`text-xs ${status === "error" ? "text-red-500 " : "text-green-600 "}`}>
+            <p className={`text-xs ${status === "error" ? "text-red-400" : "text-green-500"}`}>
               {status === "success" ? `✓ ${message}` : message}
             </p>
           )}
@@ -223,7 +228,7 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
           <button
             onClick={handleSave}
             disabled={isLoading}
-            className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500  disabled:opacity-50 disabled:cursor-not-allowed text-idemora-text-normal transition-colors duration-150 flex items-center justify-center gap-2"
+            className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-100 flex items-center justify-center gap-2"
           >
             {isLoading && <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/></svg>}
             {isLoading ? "Saving…" : "Save settings"}
@@ -337,29 +342,34 @@ function TelegramFlow({ onBack }: { onBack: () => void }) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <button onClick={onBack} className="text-xs text-idemora-text-muted   transition-colors">← Back</button>
-        <span className="text-xs text-idemora-text-normal ">/</span>
-        <span className="text-xs font-medium text-idemora-text-normal text-idemora-text-muted">Telegram backup</span>
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onBack} className="text-sm text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100 flex items-center gap-1">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Back
+        </button>
+        <span className="text-sm text-idemora-text-faint">/</span>
+        <span className="text-sm font-medium text-idemora-text-normal">Telegram backup</span>
       </div>
 
       {loading ? <p className="text-xs text-idemora-text-muted animate-pulse">Loading…</p> : (
         <div className="space-y-4">
 
           {/* Setup guide */}
-          <div className="p-3 rounded-lg bg-idemora-bg-primary /60 border-idemora-border space-y-1.5">
-  <p className="text-xs font-medium text-idemora-text-normal text-idemora-text-muted">How to set up your bot</p>
-  <ol className="text-xs text-idemora-text-muted space-y-1 list-decimal list-inside leading-relaxed">
-    <li>Open Telegram → search <span className="font-mono text-idemora-text-muted">@BotFather</span> → send <span className="font-mono text-idemora-text-muted">/newbot</span></li>
-    <li>Enter a display name, then a username ending in <span className="font-mono text-idemora-text-muted">bot</span> — BotFather will give you a token</li>
-    <li>Click the bot link in BotFather's reply → tap <span className="font-medium text-idemora-text-muted">Start</span> → send it any message (e.g. <span className="font-mono text-idemora-text-muted">hi</span>)</li>
-    <li>Paste your token below → click <span className="font-medium text-idemora-text-muted">Fetch chat ID</span></li>
-    <li>If Fetch fails, go back to Telegram → send your bot another message → retry</li>
-  </ol>
-  <p className="text-xs text-idemora-text-muted leading-relaxed pt-0.5">
-    The bot must receive at least one message from you before the app can detect it.
-  </p>
-</div>
+          <div className="p-3 rounded-lg border border-idemora-border bg-idemora-bg-secondary space-y-1.5">
+            <p className="text-xs font-medium text-idemora-text-normal">How to set up your bot</p>
+            <ol className="text-xs text-idemora-text-muted space-y-1 list-decimal list-inside leading-relaxed">
+              <li>Open Telegram → search <span className="font-mono text-idemora-text-normal">@BotFather</span> → send <span className="font-mono text-idemora-text-normal">/newbot</span></li>
+              <li>Enter a display name, then a username ending in <span className="font-mono text-idemora-text-normal">bot</span> — BotFather will give you a token</li>
+              <li>Click the bot link in BotFather's reply → tap <span className="font-medium text-idemora-text-normal">Start</span> → send it any message (e.g. <span className="font-mono text-idemora-text-normal">hi</span>)</li>
+              <li>Paste your token below → click <span className="font-medium text-idemora-text-normal">Fetch chat ID</span></li>
+              <li>If Fetch fails, go back to Telegram → send your bot another message → retry</li>
+            </ol>
+            <p className="text-xs text-idemora-text-muted leading-relaxed pt-0.5">
+              The bot must receive at least one message from you before the app can detect it.
+            </p>
+          </div>
 
           {/* Bot token */}
           <div>
@@ -373,12 +383,12 @@ function TelegramFlow({ onBack }: { onBack: () => void }) {
                 disabled={isLoading}
                 autoComplete="off"
                 spellCheck={false}
-                className="flex-1 px-3 py-2 text-xs rounded-lg border-idemora-border  bg-idemora-bg-primary text-idemora-text-normal placeholder-idemora-text-muted  focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+                className="flex-1 px-3 py-2 text-sm rounded-lg border border-idemora-border bg-idemora-bg-secondary text-idemora-text-normal placeholder-idemora-text-faint focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
               />
               <button
                 onClick={handleFetchChatId}
                 disabled={isLoading}
-                className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-primary    text-idemora-text-normal border-idemora-border  transition-colors disabled:opacity-50"
+                className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 disabled:opacity-50"
               >
                 Fetch chat ID
               </button>
@@ -389,7 +399,7 @@ function TelegramFlow({ onBack }: { onBack: () => void }) {
           {chatId && (
             <div>
               <SectionTitle>Chat ID</SectionTitle>
-              <div className="px-3 py-2 text-xs rounded-lg border-green-200  bg-green-50 /20 text-green-700  font-mono">
+              <div className="px-3 py-2 text-sm rounded-lg border border-green-500/30 bg-green-500/10 text-green-400 font-mono">
                 {chatId} ✓
               </div>
             </div>
@@ -398,16 +408,16 @@ function TelegramFlow({ onBack }: { onBack: () => void }) {
           {step === "ready" && (
             <>
               {/* Auto-send toggle */}
-              <div className="flex items-center justify-between p-3 rounded-lg border-idemora-border bg-idemora-bg-primary">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-idemora-border bg-idemora-bg-secondary">
                 <div>
                   <p className="text-sm font-medium text-idemora-text-normal">Send on every auto-backup</p>
                   <p className="text-xs text-idemora-text-muted mt-0.5">Deliver to Telegram after each scheduled backup</p>
                 </div>
                 <button
                   onClick={() => setTgEnabled((v) => !v)}
-                  className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${tgEnabled ? "bg-blue-500" : "bg-idemora-bg-primary "}`}
+                  className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${tgEnabled ? "bg-blue-500" : "bg-idemora-bg-primary border border-idemora-border"}`}
                 >
-                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-idemora-bg-primary rounded-full shadow transition-transform duration-200 ${tgEnabled ? "translate-x-4" : ""}`} />
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${tgEnabled ? "translate-x-4" : ""}`} />
                 </button>
               </div>
 
@@ -427,7 +437,7 @@ function TelegramFlow({ onBack }: { onBack: () => void }) {
               <button
                 onClick={handleSendNow}
                 disabled={isLoading}
-                className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500  disabled:opacity-50 disabled:cursor-not-allowed text-idemora-text-normal transition-colors duration-150 flex items-center justify-center gap-2"
+                className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-100 flex items-center justify-center gap-2"
               >
                 {isLoading && <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/></svg>}
                 {isLoading ? "Sending…" : "Send backup now"}
@@ -437,7 +447,7 @@ function TelegramFlow({ onBack }: { onBack: () => void }) {
 
           {/* Status message */}
           {message && (
-            <p className={`text-xs ${status === "error" ? "text-red-500 " : "text-green-600 "}`}>
+            <p className={`text-xs ${status === "error" ? "text-red-400" : "text-green-500"}`}>
               {status === "success" ? `✓ ${message}` : message}
             </p>
           )}
@@ -447,7 +457,7 @@ function TelegramFlow({ onBack }: { onBack: () => void }) {
             <button
               onClick={handleSave}
               disabled={isLoading}
-              className="w-full py-1.5 rounded-lg text-xs font-medium bg-idemora-bg-primary    text-idemora-text-normal text-idemora-text-muted border-idemora-border  transition-colors disabled:opacity-50"
+              className="w-full py-1.5 rounded-lg text-xs font-medium bg-idemora-bg-secondary text-idemora-text-muted border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 disabled:opacity-50"
             >
               Save settings
             </button>
@@ -524,49 +534,49 @@ export function BackupModal() {
         <SectionTitle>Backup & Restore</SectionTitle>
         <div className="space-y-3">
 
-          <div className="p-3 rounded-lg border-idemora-border bg-idemora-bg-primary">
+          <div className="p-3 rounded-lg border border-idemora-border bg-idemora-bg-secondary">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-0.5">
                 <p className="text-sm font-medium text-idemora-text-normal">Export backup</p>
                 <p className="text-xs text-idemora-text-muted leading-snug">Encrypt and download all your notes as a .nkbackup file.</p>
               </div>
-              <button onClick={() => { setFlow("export"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500  text-idemora-text-normal transition-colors duration-150">Export</button>
+              <button onClick={() => { setFlow("export"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors duration-100">Export</button>
             </div>
           </div>
 
-          <div className="p-3 rounded-lg border-idemora-border bg-idemora-bg-primary">
+          <div className="p-3 rounded-lg border border-idemora-border bg-idemora-bg-secondary">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-0.5">
                 <p className="text-sm font-medium text-idemora-text-normal">Restore from backup</p>
                 <p className="text-xs text-idemora-text-muted leading-snug">Upload a .nkbackup file and restore your notes.</p>
               </div>
-              <button onClick={() => { setFlow("restore"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-primary    text-idemora-text-normal border-idemora-border  transition-colors duration-150">Restore</button>
+              <button onClick={() => { setFlow("restore"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100">Restore</button>
             </div>
           </div>
 
-          <div className="p-3 rounded-lg border-idemora-border bg-idemora-bg-primary">
+          <div className="p-3 rounded-lg border border-idemora-border bg-idemora-bg-secondary">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-0.5">
                 <p className="text-sm font-medium text-idemora-text-normal">Auto-backup</p>
                 <p className="text-xs text-idemora-text-muted leading-snug">Schedule automatic backups to iCloud, Dropbox, or any local folder.</p>
               </div>
-              <button onClick={() => { setFlow("auto"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-primary    text-idemora-text-normal border-idemora-border  transition-colors duration-150">Configure</button>
+              <button onClick={() => { setFlow("auto"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100">Configure</button>
             </div>
           </div>
 
-          <div className="p-3 rounded-lg border-idemora-border bg-idemora-bg-primary">
+          <div className="p-3 rounded-lg border border-idemora-border bg-idemora-bg-secondary">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-0.5">
                 <p className="text-sm font-medium text-idemora-text-normal">Telegram backup</p>
                 <p className="text-xs text-idemora-text-muted leading-snug">Send encrypted backups to your private Telegram chat.</p>
               </div>
-              <button onClick={() => { setFlow("telegram"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-primary    text-idemora-text-normal border-idemora-border  transition-colors duration-150">Configure</button>
+              <button onClick={() => { setFlow("telegram"); setMessage(null); }} className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100">Configure</button>
             </div>
           </div>
 
         </div>
 
-        <div className="mt-4 p-3 rounded-lg bg-idemora-bg-primary /60 border-idemora-border">
+        <div className="mt-4 p-3 rounded-lg border border-idemora-border bg-idemora-bg-secondary">
           <p className="text-xs text-idemora-text-muted leading-relaxed">
             Backups are AES-256 encrypted. Only you can decrypt them with your password. Backups can only be restored in Idemora.
           </p>
@@ -578,25 +588,30 @@ export function BackupModal() {
   if (flow === "export") {
     return (
       <div>
-        <div className="flex items-center gap-2 mb-4">
-          <button onClick={reset} className="text-xs text-idemora-text-muted   transition-colors">← Back</button>
-          <span className="text-xs text-idemora-text-normal ">/</span>
-          <span className="text-xs font-medium text-idemora-text-normal text-idemora-text-muted">Export backup</span>
+        <div className="flex items-center gap-3 mb-5">
+          <button onClick={reset} className="text-sm text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100 flex items-center gap-1">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Back
+          </button>
+          <span className="text-sm text-idemora-text-faint">/</span>
+          <span className="text-sm font-medium text-idemora-text-normal">Export backup</span>
         </div>
         {status === "success" ? (
           <div className="space-y-3">
-            <div className="p-3 rounded-lg bg-green-50 /30 border-green-200 ">
-              <p className="text-sm text-green-700  font-medium">✓ {message}</p>
+            <div className="p-3 rounded-lg border border-green-500/30 bg-green-500/10">
+              <p className="text-sm text-green-400 font-medium">✓ {message}</p>
             </div>
-            <button onClick={reset} className="w-full py-1.5 rounded-lg text-xs font-medium bg-idemora-bg-primary  text-idemora-text-normal text-idemora-text-muted   transition-colors">Done</button>
+            <button onClick={reset} className="w-full py-1.5 rounded-lg text-xs font-medium bg-idemora-bg-secondary text-idemora-text-muted border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100">Done</button>
           </div>
         ) : (
           <div className="space-y-3">
             <SectionTitle>Set a password</SectionTitle>
             <PasswordInput value={password} onChange={setPassword} placeholder="Password (min. 8 characters)" disabled={isLoading} />
             <PasswordInput value={confirm}  onChange={setConfirm}  placeholder="Confirm password"             disabled={isLoading} />
-            {message && <p className="text-xs text-red-500 ">{message}</p>}
-            <button onClick={handleExport} disabled={isLoading} className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500  disabled:opacity-50 disabled:cursor-not-allowed text-idemora-text-normal transition-colors duration-150 flex items-center justify-center gap-2">
+            {message && <p className="text-xs text-red-400">{message}</p>}
+            <button onClick={handleExport} disabled={isLoading} className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-100 flex items-center justify-center gap-2">
               {isLoading && <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/></svg>}
               {isLoading ? "Encrypting…" : "Export & Download"}
             </button>
@@ -608,28 +623,33 @@ export function BackupModal() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <button onClick={reset} className="text-xs text-idemora-text-muted   transition-colors">← Back</button>
-        <span className="text-xs text-idemora-text-normal ">/</span>
-        <span className="text-xs font-medium text-idemora-text-normal text-idemora-text-muted">Restore from backup</span>
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={reset} className="text-sm text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100 flex items-center gap-1">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M8.5 3L4.5 7l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Back
+        </button>
+        <span className="text-sm text-idemora-text-faint">/</span>
+        <span className="text-sm font-medium text-idemora-text-normal">Restore from backup</span>
       </div>
       {status === "success" ? (
         <div className="space-y-3">
-          <div className="p-3 rounded-lg bg-green-50 /30 border-green-200 ">
-            <p className="text-sm text-green-700  font-medium">✓ {message}</p>
-            <p className="text-xs text-green-600  mt-1">Restart the app to see all restored notes.</p>
+          <div className="p-3 rounded-lg border border-green-500/30 bg-green-500/10">
+            <p className="text-sm text-green-400 font-medium">✓ {message}</p>
+            <p className="text-xs text-green-500/70 mt-1">Restart the app to see all restored notes.</p>
           </div>
-          <button onClick={reset} className="w-full py-1.5 rounded-lg text-xs font-medium bg-idemora-bg-primary  text-idemora-text-normal text-idemora-text-muted   transition-colors">Done</button>
+          <button onClick={reset} className="w-full py-1.5 rounded-lg text-xs font-medium bg-idemora-bg-secondary text-idemora-text-muted border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100">Done</button>
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="p-3 rounded-lg bg-amber-50 /20 border-amber-200 ">
-            <p className="text-xs text-amber-700  leading-relaxed">Restoring will overwrite existing notes with the same ID. This cannot be undone.</p>
+          <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+            <p className="text-xs text-amber-400 leading-relaxed">Restoring will overwrite existing notes with the same ID. This cannot be undone.</p>
           </div>
           <SectionTitle>Enter backup password</SectionTitle>
           <PasswordInput value={password} onChange={setPassword} placeholder="Backup password" disabled={isLoading} />
-          {message && <p className="text-xs text-red-500 ">{message}</p>}
-          <button onClick={handleRestore} disabled={isLoading} className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500  disabled:opacity-50 disabled:cursor-not-allowed text-idemora-text-normal transition-colors duration-150 flex items-center justify-center gap-2">
+          {message && <p className="text-xs text-red-400">{message}</p>}
+          <button onClick={handleRestore} disabled={isLoading} className="w-full py-2 rounded-lg text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-100 flex items-center justify-center gap-2">
             {isLoading && <svg className="animate-spin" width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 8" strokeLinecap="round"/></svg>}
             {isLoading ? "Restoring…" : "Select file & Restore"}
           </button>

@@ -191,7 +191,7 @@ interface ActionItem { kind: "action"; id: string; label: string; hint: string; 
 // ── Section label ─────────────────────────────────────────────────────────────
 function SectionLabel({ label }: { label: string }) {
   return (
-    <p className="px-4 pt-4 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted  select-none">
+    <p className="px-4 pt-4 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted select-none">
       {label}
     </p>
   );
@@ -205,7 +205,7 @@ function highlightMatch(text: string, q: string) {
   return (
     <span>
       {text.slice(0, idx)}
-      <span className="text-blue-500  font-semibold">{text.slice(idx, idx + q.length)}</span>
+      <span className="text-blue-400 font-semibold">{text.slice(idx, idx + q.length)}</span>
       {text.slice(idx + q.length)}
     </span>
   );
@@ -224,8 +224,8 @@ function NoteRow({
       ref={refCallback}
       onMouseEnter={onMouseEnter}
       onClick={onClick}
-      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors duration-75 ${
-        isSelected ? "bg-idemora-bg-primary " : " /50"
+      className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors duration-100 ${
+        isSelected ? "bg-blue-500/10" : "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
       }`}
     >
       <NoteIcon />
@@ -234,13 +234,13 @@ function NoteRow({
           {highlightMatch(note.title, query)}
         </span>
         {buildBreadcrumb(note.id, notes) && (
-          <span className="text-sm text-idemora-text-muted  truncate">
+          <span className="text-sm text-idemora-text-muted truncate">
             — {buildBreadcrumb(note.id, notes)}
           </span>
         )}
       </div>
       {isSelected && (
-        <kbd className="text-sm text-idemora-text-muted bg-idemora-bg-primary  px-1.5 py-0.5 rounded font-mono shrink-0">↵</kbd>
+        <kbd className="text-sm text-idemora-text-faint bg-idemora-bg-primary px-1.5 py-0.5 rounded font-mono shrink-0">↵</kbd>
       )}
     </li>
   );
@@ -561,10 +561,10 @@ function openNote(noteId: string) {
     <div data-overlay-sentinel className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 sm:px-6 lg:px-0">
       <div
         ref={panelRef}
-        className="relative w-full max-w-5xl h-[85vh] rounded-t-xl overflow-hidden bg-idemora-bg-primary border-idemora-border-b-0 shadow-2xl flex flex-col"
+        className="relative w-full max-w-5xl h-[85vh] rounded-t-xl overflow-hidden bg-idemora-bg-secondary border-t border-x border-idemora-border shadow-2xl flex flex-col"
       >
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b  border-idemora-border shrink-0">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-idemora-border shrink-0">
           <svg className="shrink-0 text-idemora-text-muted" width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.4"/>
             <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -575,23 +575,23 @@ function openNote(noteId: string) {
             onChange={(e) => { setQuery(e.target.value); setSelectedNote(0); setSelectedAction(0); }}
             onKeyDown={handleInputKeyDown}
             placeholder="Search notes or run a command…"
-            className="flex-1 bg-transparent outline-none text-base text-idemora-text-normal placeholder:text-idemora-text-muted "
+            className="flex-1 bg-transparent outline-none text-base text-idemora-text-normal placeholder-idemora-text-faint"
           />
           {query && (
             <button
               onClick={() => { setQuery(""); setSelectedNote(0); setSelectedAction(0); inputRef.current?.focus(); }}
-              className="text-idemora-text-muted   transition-colors duration-75"
+              className="text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-75"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
             </button>
           )}
-          <kbd className="text-sm text-idemora-text-muted bg-idemora-bg-primary  px-1.5 py-0.5 rounded font-mono">ESC</kbd>
+          <kbd className="text-sm text-idemora-text-faint bg-idemora-bg-primary px-1.5 py-0.5 rounded font-mono">ESC</kbd>
         </div>
 
         {/* Body */}
-        <div className="flex flex-1 min-h-0 divide-x divide-zinc-100 ">
+        <div className="flex flex-1 min-h-0 divide-x divide-idemora-border">
 
           {/* LEFT: Notes */}
           <div
@@ -671,7 +671,7 @@ function openNote(noteId: string) {
             className={`flex flex-col w-1/2 min-h-0 ${activeSide === "actions" ? "" : "opacity-60"}`}
             onMouseEnter={() => setActiveSide("actions")}
           >
-            <div className="border-b  border-idemora-border overflow-y-auto" style={{ maxHeight: "55%" }}>
+            <div className="border-b border-idemora-border overflow-y-auto" style={{ maxHeight: "55%" }}>
               <SectionLabel label="Commands" />
               <ul>
                 {filteredActions.map((action, i) => {
@@ -682,15 +682,15 @@ function openNote(noteId: string) {
                         ref={(el) => { actionItemRefs.current[i] = el; }}
                         onMouseEnter={() => setSelectedAction(i)}
                         onClick={() => action.action()}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer transition-colors duration-75 ${
-                          isSelected ? "bg-idemora-bg-primary " : " /50"
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer transition-colors duration-100 ${
+                          isSelected ? "bg-blue-500/10" : "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
                         }`}
                       >
                         <ActionIcon id={action.id} />
                         <span className="flex-1 text-base text-idemora-text-normal truncate">{action.label}</span>
-                        <span className="text-xs text-idemora-text-muted  shrink-0">{action.hint}</span>
+                        <span className="text-xs text-idemora-text-faint shrink-0">{action.hint}</span>
                         {isSelected && (
-                          <kbd className="text-sm text-idemora-text-muted bg-idemora-bg-primary  px-1.5 py-0.5 rounded font-mono shrink-0 ml-1">↵</kbd>
+                          <kbd className="text-sm text-idemora-text-faint bg-idemora-bg-primary px-1.5 py-0.5 rounded font-mono shrink-0 ml-1">↵</kbd>
                         )}
                       </button>
                     </li>
@@ -707,7 +707,7 @@ function openNote(noteId: string) {
                     <span className="text-sm text-idemora-text-muted">{s.label}</span>
                     <div className="flex items-center gap-1">
                       {s.keys.map((k) => (
-                        <kbd key={k} className="text-xs text-idemora-text-muted bg-idemora-bg-primary  px-1.5 py-0.5 rounded font-mono">{k}</kbd>
+                        <kbd key={k} className="text-xs text-idemora-text-faint bg-idemora-bg-primary px-1.5 py-0.5 rounded font-mono">{k}</kbd>
                       ))}
                     </div>
                   </li>
@@ -718,18 +718,18 @@ function openNote(noteId: string) {
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 flex justify-end items-center gap-4 px-4 py-2 border-t  border-idemora-border">
-          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
-            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">↑↓</kbd> navigate
+        <div className="shrink-0 flex justify-end items-center gap-4 px-4 py-2 border-t border-idemora-border">
+          <span className="text-[10px] text-idemora-text-faint flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary text-idemora-text-muted px-1 py-0.5 rounded font-mono">↑↓</kbd> navigate
           </span>
-          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
-            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">Tab</kbd> switch side
+          <span className="text-[10px] text-idemora-text-faint flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary text-idemora-text-muted px-1 py-0.5 rounded font-mono">Tab</kbd> switch side
           </span>
-          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
-            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">↵</kbd> open
+          <span className="text-[10px] text-idemora-text-faint flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary text-idemora-text-muted px-1 py-0.5 rounded font-mono">↵</kbd> open
           </span>
-          <span className="text-[10px] text-idemora-text-normal  flex items-center gap-1">
-            <kbd className="bg-idemora-bg-primary  text-idemora-text-muted px-1 py-0.5 rounded font-mono">ESC</kbd> close
+          <span className="text-[10px] text-idemora-text-faint flex items-center gap-1">
+            <kbd className="bg-idemora-bg-primary text-idemora-text-muted px-1 py-0.5 rounded font-mono">ESC</kbd> close
           </span>
         </div>
       </div>

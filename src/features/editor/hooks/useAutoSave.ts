@@ -80,13 +80,24 @@ export function useAutoSave({
           [savedNoteId]
         );
         await enqueueEmbeddingJobs(
-          blocks.map((b) => ({ blockId: b.block_id, noteId: savedNoteId }))
-        );
+  blocks.map((b) => ({ blockId: b.block_id, noteId: savedNoteId }))
+);
         nudgeIndexer();
       } catch (err) {
         console.warn("[AutoSave] embedding enqueue failed:", err);
       }
     }, 2000);
+  }, []);
+
+  // ── runScheduledBackupIfDue (for "on_change" frequency) ───────────────────
+  const runScheduledBackupIfDue = useCallback(async () => {
+    try {
+      const { runScheduledBackupIfDue: backupFn } = await import("@/features/backup/lib/scheduler");
+      await backupFn();
+    } catch (err) {
+      // Silently fail — backup should never block the editor
+      console.warn("[AutoSave] backup trigger failed:", err);
+    }
   }, []);
 
   // ── save ──────────────────────────────────────────────────────────────────
@@ -115,11 +126,14 @@ export function useAutoSave({
       // Embedding is fire-and-forget — never awaited, never blocks the editor
       runEmbeddingPipeline(noteId, content);
 
+      // Trigger scheduled backup check (for "on_change" frequency)
+      runScheduledBackupIfDue();
+
     } catch (err) {
       console.error("[AutoSave] failed:", err);
       setSaveStatus("error");
     }
-  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, suppressSave]);
+  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runScheduledBackupIfDue, suppressSave]);
 
   // ── scheduleSave ──────────────────────────────────────────────────────────
 
@@ -171,7 +185,9 @@ export function useAutoSave({
         const content   = JSON.stringify(editor.getJSON());
         const plaintext = editor.getText();
         updateNote(noteId, { content, plaintext }).catch(console.error);
+        // Also trigger backup on unmount flush for "on_change"
+        runScheduledBackupIfDue();
       }
     };
-  }, [editor, noteId, updateNote, clearTimers, suppressSave]);
+  }, [editor, noteId, updateNote, clearTimers, suppressSave, runScheduledBackupIfDue]);
 }
