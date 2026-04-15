@@ -20,6 +20,22 @@ const SORT_LABELS: Record<SortOrder, string> = {
   "created-asc":   "Created time (old to new)",
 };
 
+// Expand all icon (both chevrons pointing UP)
+const ExpandAllIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+    <path d="M6 9l5-5 5 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M6 13l5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+// Collapse all icon (top caret down, bottom caret up - toward each other)
+const CollapseAllIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <path d="M4 3.5l4 2.5 4-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M4 12.5l4-2.5 4 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
 export function NotesPanel() {
   const openTemplatePicker = useUIStore((s) => s.openTemplatePicker);
   const collapseAllNodes   = useUIStore((s) => s.collapseAllNodes);
@@ -111,33 +127,7 @@ export function NotesPanel() {
           title={allExpanded ? "Collapse all" : "Expand all"}
           className={btnClass}
         >
-          {allExpanded ? (
-            <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
-              <path
-                d="M6 8l5 5 5-5"
-                stroke="currentColor" strokeWidth="1.7"
-                strokeLinecap="round" strokeLinejoin="round"
-              />
-              <path
-                d="M6 14l5-5 5 5"
-                stroke="currentColor" strokeWidth="1.7"
-                strokeLinecap="round" strokeLinejoin="round"
-              />
-            </svg>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
-              <path
-                d="M6 9l5-5 5 5"
-                stroke="currentColor" strokeWidth="1.7"
-                strokeLinecap="round" strokeLinejoin="round"
-              />
-              <path
-                d="M6 13l5 5 5-5"
-                stroke="currentColor" strokeWidth="1.7"
-                strokeLinecap="round" strokeLinejoin="round"
-              />
-            </svg>
-          )}
+          {allExpanded ? <CollapseAllIcon /> : <ExpandAllIcon />}
         </button>
 
       </div>

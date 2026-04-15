@@ -27,3 +27,22 @@ export interface Backlink {
   source_id: string;
   target_id: string;
 }
+
+export interface NoteBookmark {
+  kind: "note";
+  id: string;
+  noteId: string;
+  label: string | null;
+  groupId: string | null;
+  sort_order: number;
+}
+
+export interface BookmarkGroup {
+  kind: "group";
+  id: string;
+  name: string;
+  collapsed: boolean;
+  sort_order: number;
+}
+
+export type BookmarkItem = NoteBookmark | BookmarkGroup;

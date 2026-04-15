@@ -16,10 +16,15 @@ import {
   getRecentVisits,
   getSetting,
   setSetting,
+  loadBookmarks,
+  saveBookmarks,
+  addNoteBookmark,
+  removeBookmark,
+  addBookmarkGroup,
   type CreateNoteInput,
   type UpdateNoteInput,
 } from "@/features/notes/db/queries";
-import type { Note } from "@/types";
+import type { Note, BookmarkItem, NoteBookmark } from "@/types";
 import type { Template } from "@/lib/templates";
 
 const PINNED_SETTING_KEY = "pinned_ids";
@@ -55,6 +60,9 @@ interface NoteStore {
   visitedNoteIds: string[];
   isLoading: boolean;
   error: string | null;
+  
+  // ─── Bookmarks ──────────────────────────────────────────────────────────────
+  bookmarks: BookmarkItem[];
 
   navHistory: string[];
   navIndex: number;
@@ -90,6 +98,17 @@ interface NoteStore {
   pinNote: (id: string) => Promise<void>;
   unpinNote: (id: string) => Promise<void>;
   isPinned: (id: string) => boolean;
+
+  // ─── Bookmark actions ──────────────────────────────────────────────────────
+  addBookmark: (noteId: string, groupId?: string | null) => Promise<void>;
+  removeBookmark: (bookmarkId: string) => Promise<void>;
+  addBookmarkGroup: (name: string) => Promise<void>;
+  removeBookmarkGroup: (groupId: string) => Promise<void>;
+  renameBookmarkGroup: (groupId: string, name: string) => Promise<void>;
+  toggleBookmarkGroupCollapsed: (groupId: string) => Promise<void>;
+  reorderBookmarks: (draggedId: string, targetId: string) => Promise<void>;
+  isBookmarked: (noteId: string) => boolean;
+  getBookmarkForNote: (noteId: string) => NoteBookmark | null;
 }
 
 function nextUntitledName(notes: Note[]): string {
@@ -126,6 +145,9 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   visitedNoteIds: [],
   isLoading: false,
   error: null,
+
+  // ─── Bookmarks initial state ───────────────────────────────────────────────
+  bookmarks: [],
 
   navHistory: [],
   navIndex: -1,
@@ -177,8 +199,12 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   loadNotes: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [notes, pinnedIds] = await Promise.all([getAllNotes(), loadPinnedIds()]);
-      set({ notes, pinnedIds, isLoading: false });
+      const [notes, pinnedIds, bookmarks] = await Promise.all([
+        getAllNotes(),
+        loadPinnedIds(),
+        loadBookmarks(),
+      ]);
+      set({ notes, pinnedIds, bookmarks, isLoading: false });
       await get().loadRecentVisits();
     } catch (err) {
       set({ error: String(err), isLoading: false });
@@ -221,8 +247,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }
     if (id) {
       get().recordVisit(id).catch(console.error);
-      // ── Cluster session tracking ──────────────────────────────────────────
-      // Lazy import avoids a circular dependency (UIStore → queries → NoteStore).
       import("@/features/ui/store/useUIStore").then(({ useUIStore }) => {
         useUIStore.getState().recordClusterVisit(id);
       }).catch(console.error);
@@ -271,13 +295,13 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   },
 
   updateNote: async (id, input) => {
-  await dbUpdateNote(id, input);
-  set((state) => ({
-    notes: state.notes.map((n) =>
-      n.id === id ? { ...n, ...input, updated_at: Date.now() } : n
-    ),
-  }));
-},
+    await dbUpdateNote(id, input);
+    set((state) => ({
+      notes: state.notes.map((n) =>
+        n.id === id ? { ...n, ...input, updated_at: Date.now() } : n
+      ),
+    }));
+  },
 
   reorderNote: async (draggedId, targetId, section) => {
     const { notes, pinnedIds } = get();
@@ -390,4 +414,74 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   },
 
   isPinned: (id) => get().pinnedIds.has(id),
+
+  // ─── Bookmark actions ──────────────────────────────────────────────────────
+  addBookmark: async (noteId, groupId = null) => {
+    const bookmark = await addNoteBookmark(noteId, groupId);
+    set((state) => {
+      const already = state.bookmarks.some((b) => b.id === bookmark.id);
+      if (already) return state;
+      return { bookmarks: [...state.bookmarks, bookmark] };
+    });
+  },
+
+  removeBookmark: async (bookmarkId) => {
+    await removeBookmark(bookmarkId);
+    set((state) => ({
+      bookmarks: state.bookmarks.filter((b) => b.id !== bookmarkId),
+    }));
+  },
+
+  addBookmarkGroup: async (name) => {
+    const group = await addBookmarkGroup(name);
+    set((state) => ({ bookmarks: [...state.bookmarks, group] }));
+  },
+
+  removeBookmarkGroup: async (groupId) => {
+    const items = get().bookmarks.filter(
+      (b) => b.id !== groupId && !(b.kind === "note" && b.groupId === groupId)
+    );
+    await saveBookmarks(items);
+    set({ bookmarks: items });
+  },
+
+  renameBookmarkGroup: async (groupId, name) => {
+    const items = get().bookmarks.map((b) =>
+      b.kind === "group" && b.id === groupId ? { ...b, name } : b
+    );
+    await saveBookmarks(items);
+    set({ bookmarks: items });
+  },
+
+  toggleBookmarkGroupCollapsed: async (groupId) => {
+    const items = get().bookmarks.map((b) =>
+      b.kind === "group" && b.id === groupId
+        ? { ...b, collapsed: !b.collapsed }
+        : b
+    );
+    await saveBookmarks(items);
+    set({ bookmarks: items });
+  },
+
+  reorderBookmarks: async (draggedId, targetId) => {
+    const items = [...get().bookmarks];
+    const from = items.findIndex((b) => b.id === draggedId);
+    const to   = items.findIndex((b) => b.id === targetId);
+    if (from === -1 || to === -1 || from === to) return;
+    const [moved] = items.splice(from, 1);
+    items.splice(to, 0, moved);
+    const reordered = items.map((b, i) => ({ ...b, sort_order: i }));
+    await saveBookmarks(reordered);
+    set({ bookmarks: reordered });
+  },
+
+  isBookmarked: (noteId) =>
+    get().bookmarks.some(
+      (b): b is NoteBookmark => b.kind === "note" && b.noteId === noteId
+    ),
+
+  getBookmarkForNote: (noteId) =>
+    (get().bookmarks.find(
+      (b): b is NoteBookmark => b.kind === "note" && b.noteId === noteId
+    ) ?? null),
 }));

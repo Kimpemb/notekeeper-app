@@ -2,7 +2,7 @@
 import { getDb } from "@/features/notes/db/client";
 import { ALL_MIGRATIONS } from "@/features/notes/db/schema";
 import { deleteImage } from "@/lib/tauri/fs";
-import type { Note, NoteVersion, Backlink } from "@/types";
+import type { Note, NoteVersion, Backlink, BookmarkItem, NoteBookmark, BookmarkGroup } from "@/types";
 import { blobToVector, vectorToBlob } from "@/features/ai/lib/provider"
 import {
   getSimilarityResults,
@@ -1827,4 +1827,64 @@ export async function clearConversationSummary(noteId: string): Promise<void> {
     `DELETE FROM ai_conversation_summary WHERE note_id = $1`,
     [noteId]
   )
+}
+
+// ─── Bookmarks ────────────────────────────────────────────────────────────────
+
+const BOOKMARKS_SETTING_KEY = "bookmarks";
+
+export async function loadBookmarks(): Promise<BookmarkItem[]> {
+  try {
+    const raw = await getSetting(BOOKMARKS_SETTING_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as BookmarkItem[];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveBookmarks(items: BookmarkItem[]): Promise<void> {
+  await setSetting(BOOKMARKS_SETTING_KEY, JSON.stringify(items));
+}
+
+export async function addNoteBookmark(
+  noteId: string,
+  groupId: string | null = null
+): Promise<NoteBookmark> {
+  const items = await loadBookmarks();
+  // prevent duplicates
+  const existing = items.find(
+    (b): b is NoteBookmark => b.kind === "note" && b.noteId === noteId
+  );
+  if (existing) return existing;
+  const maxOrder = items.reduce((m, b) => Math.max(m, b.sort_order), -1);
+  const bookmark: NoteBookmark = {
+    kind: "note",
+    id: crypto.randomUUID(),
+    noteId,
+    label: null,
+    groupId,
+    sort_order: maxOrder + 1,
+  };
+  await saveBookmarks([...items, bookmark]);
+  return bookmark;
+}
+
+export async function removeBookmark(bookmarkId: string): Promise<void> {
+  const items = await loadBookmarks();
+  await saveBookmarks(items.filter((b) => b.id !== bookmarkId));
+}
+
+export async function addBookmarkGroup(name: string): Promise<BookmarkGroup> {
+  const items = await loadBookmarks();
+  const maxOrder = items.reduce((m, b) => Math.max(m, b.sort_order), -1);
+  const group: BookmarkGroup = {
+    kind: "group",
+    id: crypto.randomUUID(),
+    name,
+    collapsed: false,
+    sort_order: maxOrder + 1,
+  };
+  await saveBookmarks([...items, group]);
+  return group;
 }

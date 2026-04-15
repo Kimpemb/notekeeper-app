@@ -4,7 +4,7 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
 import { MoveNoteModal } from "@/features/ui/components/MoveNoteModal";
-import type { Note } from "@/types";
+import type { Note, BookmarkGroup } from "@/types";
 
 type SortOrder = 
   | "alpha-asc" 
@@ -21,6 +21,7 @@ type ContextItemId =
   | "open-in-local-graph"
   | "rename"
   | "pin"
+  | "bookmark"
   | "move"
   | "trash";
 
@@ -36,6 +37,101 @@ interface Props {
 
 interface ContextMenuPos { x: number; y: number; flip: boolean; }
 
+// ── Group picker modal for bookmarks ─────────────────────────────────────────
+interface GroupPickerProps {
+  open: boolean;
+  noteTitle: string;
+  onClose: () => void;
+  onSelect: (groupId: string | null) => void;
+}
+
+function GroupPickerModal({ open, noteTitle, onClose, onSelect }: GroupPickerProps) {
+  const bookmarks = useNoteStore((s) => s.bookmarks);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  
+  if (!open) return null;
+  
+  const groups = bookmarks.filter((b): b is BookmarkGroup => b.kind === "group");
+  
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
+      <div
+        className="w-[480px] rounded-lg bg-idemora-bg-primary border border-idemora-border shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-7 pt-7 pb-6">
+          <span className="text-lg font-medium text-idemora-text-normal">Add bookmark</span>
+          <button
+            onClick={onClose}
+            className="p-1 text-idemora-text-faint hover:text-idemora-text-muted transition-colors duration-100"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Form fields */}
+        <div className="px-7">
+          {/* Title field (read-only, shows note title) */}
+          <div className="flex items-center gap-4 py-3 border-b border-idemora-border/10">
+            <span className="text-sm text-idemora-text-muted w-[110px] shrink-0">Title</span>
+            <input
+              type="text"
+              value={noteTitle}
+              readOnly
+              className="flex-1 bg-idemora-bg-secondary border border-idemora-border rounded-md px-3 py-2 text-sm text-idemora-text-normal outline-none focus:border-blue-500/50 transition-colors duration-100"
+            />
+          </div>
+
+          {/* Bookmark group dropdown */}
+          <div className="flex items-center gap-4 py-3">
+            <span className="text-sm text-idemora-text-muted w-[110px] shrink-0">Bookmark group</span>
+            <select
+              value={selectedGroupId ?? ""}
+              onChange={(e) => setSelectedGroupId(e.target.value || null)}
+              className="flex-1 bg-idemora-bg-secondary border border-idemora-border rounded-md px-3 py-2 text-sm text-idemora-text-normal outline-none focus:border-blue-500/50 transition-colors duration-100 cursor-pointer"
+            >
+              <option value="">No group (top level)</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {groups.length === 0 && (
+            <div className="mt-1 mb-2 text-xs text-idemora-text-faint">
+              No groups yet. Create one in Bookmarks panel.
+            </div>
+          )}
+        </div>
+
+        {/* Footer buttons */}
+        <div className="flex justify-end gap-2.5 mt-5 pt-4 pb-6 px-7 border-t border-idemora-border/10">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-md text-sm text-idemora-text-muted bg-idemora-bg-secondary border border-idemora-border hover:bg-idemora-bg-primary transition-colors duration-100"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => { onSelect(selectedGroupId); onClose(); }}
+            className="px-4 py-2 rounded-md text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors duration-100"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function NoteTreeItem({
   noteId, depth, flatOrderedIds, lastSelectedIdRef, focusedNoteId, setFocusedNoteId, sortOrder,
 }: Props) {
@@ -49,6 +145,12 @@ export function NoteTreeItem({
   const pinNote      = useNoteStore((s) => s.pinNote);
   const unpinNote    = useNoteStore((s) => s.unpinNote);
   const isPinned     = useNoteStore((s) => s.isPinned(noteId));
+  
+  // ─── Bookmark actions ──────────────────────────────────────────────────────
+  const isBookmarked     = useNoteStore((s) => s.isBookmarked(noteId));
+  const getBookmarkForNote = useNoteStore((s) => s.getBookmarkForNote);
+  const addBookmark      = useNoteStore((s) => s.addBookmark);
+  const removeBookmark   = useNoteStore((s) => s.removeBookmark);
 
   const expandedNodes        = useUIStore((s) => s.expandedNodes);
   const toggleNode           = useUIStore((s) => s.toggleNode);
@@ -69,6 +171,11 @@ export function NoteTreeItem({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [moveOpen, setMoveOpen]       = useState(false);
   const [focusedItem, setFocusedItem] = useState<ContextItemId>("new-sub-note");
+  
+  // ─── Group picker state ───────────────────────────────────────────────────
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
+  const [pendingBookmarkNoteId, setPendingBookmarkNoteId] = useState<string | null>(null);
+  const [pendingBookmarkTitle, setPendingBookmarkTitle] = useState<string>("");
 
   const renameRef      = useRef<HTMLInputElement>(null);
   const menuRef        = useRef<HTMLDivElement>(null);
@@ -107,8 +214,8 @@ export function NoteTreeItem({
   const isFocused   = focusedNoteId === noteId;
 
   const navItems: ContextItemId[] = isRoot
-    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "pin", "move", "trash"]
-    : ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "move", "trash"];
+    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "pin", "bookmark", "move", "trash"]
+    : ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "bookmark", "move", "trash"];
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -139,6 +246,15 @@ export function NoteTreeItem({
     };
   }, [contextMenu]);
 
+  const handleGroupSelect = (groupId: string | null) => {
+    if (pendingBookmarkNoteId) {
+      addBookmark(pendingBookmarkNoteId, groupId);
+      setPendingBookmarkNoteId(null);
+      setPendingBookmarkTitle("");
+    }
+    setShowGroupPicker(false);
+  };
+
   function triggerItem(item: ContextItemId) {
     switch (item) {
       case "new-sub-note":
@@ -166,6 +282,17 @@ export function NoteTreeItem({
       case "pin":
         setContextMenu(null);
         isPinned ? unpinNote(noteId).catch(console.error) : pinNote(noteId).catch(console.error);
+        break;
+      case "bookmark":
+        setContextMenu(null);
+        if (isBookmarked) {
+          const b = getBookmarkForNote(noteId);
+          if (b) removeBookmark(b.id);
+        } else {
+          setPendingBookmarkNoteId(noteId);
+          setPendingBookmarkTitle(note?.title ?? "Untitled");
+          setShowGroupPicker(true);
+        }
         break;
       case "move":
         setContextMenu(null);
@@ -309,6 +436,13 @@ export function NoteTreeItem({
                 </svg>
               </span>
             )}
+            {isBookmarked && (
+              <span className="shrink-0 opacity-40 ml-1">
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
+                  <path d="M2 1h6v8l-3-2-3 2V1z" stroke="currentColor" strokeWidth="1" fill="none"/>
+                </svg>
+              </span>
+            )}
           </span>
         )}
         {!renaming && (
@@ -345,6 +479,13 @@ export function NoteTreeItem({
           {isRoot && (
             <CtxItem label={isPinned ? "Unpin" : "Pin to top"} id="pin" focused={focusedItem === "pin"} onHover={() => setFocusedItem("pin")} onClick={() => triggerItem("pin")} />
           )}
+          <CtxItem 
+            label={isBookmarked ? "Remove bookmark" : "Bookmark"} 
+            id="bookmark" 
+            focused={focusedItem === "bookmark"} 
+            onHover={() => setFocusedItem("bookmark")} 
+            onClick={() => triggerItem("bookmark")} 
+          />
           <div className="my-1 border-t border-idemora-border" />
           <CtxItem label="Move"                id="move"                 focused={focusedItem === "move"}                 onHover={() => setFocusedItem("move")}                 onClick={() => triggerItem("move")} suffix="›" />
           <div className="my-1 border-t border-idemora-border" />
@@ -385,6 +526,18 @@ export function NoteTreeItem({
         danger
         onConfirm={async () => { setConfirmOpen(false); await deleteNote(noteId); }}
         onCancel={() => setConfirmOpen(false)}
+      />
+
+      {/* Group picker modal */}
+      <GroupPickerModal
+        open={showGroupPicker}
+        noteTitle={pendingBookmarkTitle}
+        onClose={() => {
+          setShowGroupPicker(false);
+          setPendingBookmarkNoteId(null);
+          setPendingBookmarkTitle("");
+        }}
+        onSelect={handleGroupSelect}
       />
     </div>
   );
