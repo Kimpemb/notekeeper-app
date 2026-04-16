@@ -36,7 +36,6 @@ import { SubPagesSection } from "./SubPagesSection";
 import { SubPageNode } from "./SubPageNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
-import { AIActionBar } from "@/features/ai/components/AIActionBar";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
 
 import {
@@ -62,6 +61,40 @@ import {
 } from "@/lib/tauri/fs";
 
 interface BubblePos { top: number; left: number; }
+
+function LastEdited({ timestamp }: { timestamp: number }) {
+  const [formatted, setFormatted] = useState<string>("");
+  
+  useEffect(() => {
+    const update = () => {
+      const now = Date.now();
+      const diff = now - timestamp;
+      const minutes = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const days = Math.floor(diff / 86400000);
+      
+      if (minutes < 1) setFormatted("Edited just now");
+      else if (minutes < 60) setFormatted(`Edited ${minutes} minute${minutes === 1 ? "" : "s"} ago`);
+      else if (hours < 24) setFormatted(`Edited ${hours} hour${hours === 1 ? "" : "s"} ago`);
+      else if (days < 7) setFormatted(`Edited ${days} day${days === 1 ? "" : "s"} ago`);
+      else setFormatted(new Date(timestamp).toLocaleDateString());
+    };
+    
+    update();
+    const interval = setInterval(update, 60000);
+    return () => clearInterval(interval);
+  }, [timestamp]);
+  
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-idemora-text-muted mb-4">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="opacity-60">
+        <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2"/>
+        <polyline points="6 3 6 6 8 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      <span>{formatted}</span>
+    </div>
+  );
+}
 
 async function uploadImageFromDisk(): Promise<{ path: string; name: string } | null> {
   const filePath = await pickImageFile();
@@ -173,18 +206,20 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const showEditorButtons = isActiveTab && activePaneId === paneId;
 
   const myOutlineOpen        = useUIStore((s) => paneId === 1 ? s.pane1OutlineOpen        : s.pane2OutlineOpen);
-  const myBacklinksOpen      = useUIStore((s) => paneId === 1 ? s.pane1BacklinksOpen      : s.pane2BacklinksOpen);
   const mySimilarOpen        = useUIStore((s) => paneId === 1 ? s.pane1SimilarOpen        : s.pane2SimilarOpen);
   const myVersionHistoryOpen = useUIStore((s) => paneId === 1 ? s.pane1VersionHistoryOpen : s.pane2VersionHistoryOpen);
 
   // Use explicit open/close functions instead of toggle
-  const openOutline      = useUIStore((s) => s.openOutline);
-  const closeOutline     = useUIStore((s) => s.closeOutline);
-  const openBacklinks    = useUIStore((s) => s.openBacklinks);
-  const closeBacklinks   = useUIStore((s) => s.closeBacklinks);
-  const openSimilar      = useUIStore((s) => s.openSimilar);
-  const closeSimilar     = useUIStore((s) => s.closeSimilar);
-  const openGraphForNote = useUIStore((s) => s.openGraphForNote);
+const openGraphForNote = useUIStore((s) => s.openGraphForNote);
+
+// Declare these FIRST
+const chatOpen1 = useUIStore((s) => s.chatOpen1);
+const chatOpen2 = useUIStore((s) => s.chatOpen2);
+const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
+const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
+
+// THEN use them
+const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
 
   const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
   const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
@@ -216,7 +251,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const [linkPos, setLinkPos]     = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [linkQuery, setLinkQuery] = useState("");
   const linkBracketStart          = useRef<number | null>(null);
-  const [panelsOpen, setPanelsOpen] = useState(false);
 
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
   const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
@@ -573,11 +607,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
         openGraphForNote(noteId);
         return;
       }
-      if (e.key === "S" && e.shiftKey) {
-        e.preventDefault();
-        mySimilarOpen ? closeSimilar(paneId) : openSimilar(paneId);
-        return;
-      }
       if (e.key === "U" && e.shiftKey) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent("idemora:ai-action", { detail: { action: "summarize" } }));
@@ -591,7 +620,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     }
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
-  }, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote, mySimilarOpen, closeSimilar, openSimilar]);
+  }, [isActiveTab, activePaneId, paneId, noteId, openGraphForNote]);
 
   useEffect(() => {
     function handle() {
@@ -858,81 +887,70 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
             )}
           </div>
 
-          {/* All editor buttons moved to the right side */}
-          {showEditorButtons && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              <div className="flex items-center gap-1.5">
-                <div
-                  className={`flex items-center gap-1.5 overflow-hidden transition-all duration-200 ease-in-out ${
-                    panelsOpen ? "max-w-xs opacity-100" : "max-w-0 opacity-0"
-                  }`}
-                >
-                  {!myOutlineOpen && (
-                    <button onClick={() => {
-                      myOutlineOpen ? closeOutline(paneId) : openOutline(paneId);
-                    }}
-                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 2.5h8M1.5 5h5.5M1.5 7.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                      Outline
-                    </button>
-                  )}
-                  {!myBacklinksOpen && (
-                    <button onClick={() => {
-                      myBacklinksOpen ? closeBacklinks(paneId) : openBacklinks(paneId);
-                    }}
-                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M8 3H4a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><path d="M6 1h4v4M10 1L6.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      Backlinks
-                    </button>
-                  )}
-                  {!mySimilarOpen && (
-                    <button onClick={() => {
-                      mySimilarOpen ? closeSimilar(paneId) : openSimilar(paneId);
-                    }}
-                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border whitespace-nowrap">
-                      <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><circle cx="3" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="10" cy="10" r="1.8" stroke="currentColor" strokeWidth="1.2"/><circle cx="6.5" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.2"/><path d="M4.6 8.8L5.8 4.6M8.4 8.8L7.2 4.6M4.7 10h3.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>
-                      Similar
-                    </button>
-                  )}
-                </div>
+          {/* Editor toolbar - AI Chat (collapsible) + Local Graph (always visible) */}
+{showEditorButtons && (
+  <div className="flex items-center gap-1.5 shrink-0">
+    {/* AI Chat button - slides in/out */}
+    <div 
+      className={`flex items-center gap-1.5 transition-all duration-200 ease-in-out overflow-hidden ${
+        rightPanelOpen ? "w-auto opacity-100" : "w-0 opacity-0"
+      }`}
+    >
+      <button
+  onClick={() => {
+    const { openChat, closeChat } = useUIStore.getState();
+    if (chatActive) {
+      closeChat(paneId);
+      setRightPanelOpen(false);
+    } else {
+      openChat(paneId);
+      setRightPanelOpen(true);
+    }
+  }}
+  className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border ${
+    chatActive
+      ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+      : "bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border"
+  }`}
+>
+  <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+    <path d="M2.5 2.5h9a1.5 1.5 0 011.5 1.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 011 10V4a1.5 1.5 0 011.5-1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+    <path d="M3.5 5h7M3.5 7h5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+  </svg>
+  AI Chat
+</button>
+    </div>
 
-                {(!myOutlineOpen || !myBacklinksOpen || !mySimilarOpen) && (
-                  <button
-                    onClick={() => setPanelsOpen((o) => !o)}
-                    className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary border-idemora-border hover:bg-idemora-bg-secondary ${
-                      panelsOpen
-                        ? "text-idemora-text-normal"
-                        : "text-idemora-text-muted"
-                    }`}
-                  >
-                    <svg
-                      width="9" height="9" viewBox="0 0 9 9" fill="none"
-                      className={`transition-transform duration-200 ${panelsOpen ? "" : "rotate-180"}`}
-                    >
-                      <path d="M6.5 4.5L3 2M6.5 4.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                )}
-              </div>
+    {/* Collapse/Expand toggle button */}
+    <button
+      onClick={() => setRightPanelOpen(!rightPanelOpen)}
+      className="w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border"
+    >
+      <svg
+        width="9" height="9" viewBox="0 0 9 9" fill="none"
+        className={`transition-transform duration-200 ${rightPanelOpen ? "" : "rotate-180"}`}
+      >
+        <path d="M3 2l3 2.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    </button>
 
-              <button
-                onClick={() => openGraphForNote(noteId)}
-                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border border-idemora-border"
-              >
-                <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
-                  <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
-                  <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
-                  <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
-                  <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
-                  <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
-                  <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-                </svg>
-                Local Graph
-              </button>
-
-              <AIActionBar note={note} />
-            </div>
-          )}
+    {/* Local Graph button - always visible */}
+    <button
+      onClick={() => openGraphForNote(noteId)}
+      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border border-idemora-border"
+    >
+      <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+        <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+        <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+        <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+        <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+        <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+        <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+      </svg>
+      Local Graph
+    </button>
+  </div>
+)}
         </div>
 
         {findReplaceOpen && editor && (
@@ -1000,12 +1018,15 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
               autoCorrect="off" autoCapitalize="off"
               onFocus={handleTitleFocus} onBlur={handleTitleBlur}
               onKeyDown={handleTitleKeyDown} onPaste={handleTitlePaste}
-              className="block w-full font-bold mb-3 outline-none text-idemora-text-normal empty:before:content-[attr(data-placeholder)] empty:before:text-idemora-text-faint empty:before:pointer-events-none"
+              className="block w-full font-bold outline-none text-idemora-text-normal empty:before:content-[attr(data-placeholder)] empty:before:text-idemora-text-faint empty:before:pointer-events-none"
               style={{ fontSize: "3rem", lineHeight: 1.2 }}
               data-placeholder={isUntitled ? note.title : "Untitled"}
             >
               {isUntitled ? "" : note.title}
             </h1>
+
+            <LastEdited timestamp={note.updated_at} />
+
             <TagBar noteId={note.id} tags={note.tags} />
             <div key={note.id} ref={editorWrapRef}>
               <EditorContent editor={editor} className="text-idemora-text-normal min-h-[60vh]" />

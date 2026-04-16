@@ -350,13 +350,26 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   }, [notes, activeNote]);
 
   function renderPane(paneId: 1 | 2) {
-    const paneTabs        = paneId === 1 ? tabs        : pane2Tabs;
-    const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
-    return (
-      <div
-        className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0"
-        onMouseDown={() => { if (activePaneId !== paneId) setActivePaneId(paneId); }}
-      >
+  const paneTabs        = paneId === 1 ? tabs        : pane2Tabs;
+  const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
+
+  // Derive this pane's panel states directly (not from activePaneId)
+  const paneBacklinksOpen = paneId === 1 ? pane1BacklinksOpen : pane2BacklinksOpen;
+  const paneOutlineOpen   = paneId === 1 ? pane1OutlineOpen   : pane2OutlineOpen;
+  const paneChatOpen      = paneId === 1 ? chatOpen1          : chatOpen2;
+  const paneTagsOpen      = paneId === 1 ? pane1TagsOpen      : pane2TagsOpen;
+  const paneNoteId        = paneTabs.find(t => t.id === paneActiveTabId)?.noteId ?? null;
+
+  // Only show inline panels when right panel bar is open AND this pane is active
+  const showPanels = rightPanelOpen && activePaneId === paneId;
+
+  return (
+    <div
+      className="flex flex-1 overflow-hidden min-w-0 min-h-0"
+      onMouseDown={() => { if (activePaneId !== paneId) setActivePaneId(paneId); }}
+    >
+      {/* Editor column */}
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0">
         <div className="flex-1 flex overflow-hidden relative">
           {paneTabs.length === 0 ? <EmptyState /> : paneTabs.map((tab) => {
             const isActive = tab.id === paneActiveTabId;
@@ -384,8 +397,25 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
           {(paneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) && <FileTreePanel paneId={paneId} />}
         </div>
       </div>
-    );
-  }
+
+      {/* Inline panels for this pane */}
+      {showPanels && (
+        <div className="flex shrink-0 border-l border-idemora-border">
+          {paneTagsOpen && <TagsPanel />}
+          {paneBacklinksOpen && paneNoteId && (
+            <BacklinksPanel noteId={paneNoteId} paneId={paneId} />
+          )}
+          {paneOutlineOpen && activeEditor && (
+            <OutlinePanel editor={activeEditor} paneId={paneId} />
+          )}
+          {paneChatOpen && (
+            <ChatPanel noteId={paneNoteId ?? ""} paneId={paneId} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
   // ── Error / loading screens ───────────────────────────────────────────────
   if (dbError) {
@@ -556,26 +586,26 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
           <path d="M2.5 4.5h13M2.5 9h9M2.5 13.5h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       </button>
+    </div>
 
-      {/* Chat button */}
+    {/* Chat button - outside sliding container, hidden when chat is open */}
+    {rightPanelOpen && !chatActive && (
       <button
         onClick={() => {
-          const { openChat, closeChat } = useUIStore.getState();
-          chatActive ? closeChat(activePaneId) : openChat(activePaneId);
+          const { openChat } = useUIStore.getState();
+          openChat(activePaneId);
         }}
-        className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 ${
-          chatActive 
-            ? "text-idemora-text-normal" 
-            : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
-        }`}
+        className="relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
       >
-        {chatActive && <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />}
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
           <path d="M2.5 2.5h13a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5h-4.5l-4 2.5v-2.5h-4.5A1.5 1.5 0 011 12V4a1.5 1.5 0 011.5-1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
           <path d="M5.5 8h7M5.5 5.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
         </svg>
       </button>
-    </div>
+    )}
+
+    {/* Separator line */}
+    <div className="w-px h-5 bg-idemora-border/50 mx-1 shrink-0" />
 
     {/* Separator line */}
     <div className="w-px h-5 bg-idemora-border/50 mx-1 shrink-0" />
@@ -617,28 +647,13 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
           <Sidebar />
           
           <main className="flex-1 flex overflow-hidden min-w-0">
-            {/* Main content area */}
-            <div className="flex-1 flex flex-col min-w-0">
-              <div className="flex-1 flex overflow-hidden">
-                {renderPane(1)}
-                {splitOpen && <><SplitDivider />{renderPane(2)}</>}
-              </div>
-            </div>
-
-            {/* Right panels column - visibility controlled by rightPanelOpen */}
-            {rightPanelOpen && (
-  <div className="flex shrink-0 border-l border-idemora-border">
-    {tagsActive && <TagsPanel />}
-    {backlinkActive && activeNoteId && (
-      <BacklinksPanel noteId={activeNoteId} paneId={activePaneId} />
-    )}
-    {outlineActive && activeEditor && (
-      <OutlinePanel editor={activeEditor} paneId={activePaneId} />
-    )}
-    {chatActive && <ChatPanel noteId={activeNoteId ?? ""} paneId={activePaneId} />}
+  <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex-1 flex overflow-hidden">
+      {renderPane(1)}
+      {splitOpen && <><SplitDivider />{renderPane(2)}</>}
+    </div>
   </div>
-)}
-          </main>
+</main>
         </div>
       </div>
 
