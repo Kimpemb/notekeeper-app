@@ -229,7 +229,16 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   const [taskListToolbarPos, setTaskListToolbarPos] = useState<{ top: number; left: number } | null>(null);
 
-  const initialContent = note?.content ? JSON.parse(note.content) : "";
+  const initialContent = (() => {
+  if (!note?.content || note.content === "null" || note.content === "") {
+    return { type: "doc", content: [] };
+  }
+  try {
+    return JSON.parse(note.content);
+  } catch {
+    return { type: "doc", content: [] };
+  }
+})();
 
   const editor = useEditor({
     extensions: [

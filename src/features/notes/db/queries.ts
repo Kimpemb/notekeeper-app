@@ -192,8 +192,29 @@ async function fixBlocksFtsUpdateTrigger(): Promise<void> {
   }
 }
 
+async function fixNullTitles(): Promise<void> {
+  const db = await getDb();
+  const nullTitleNotes = await db.select<{ id: string; title: string | null }[]>(
+    `SELECT id, title FROM notes WHERE title IS NULL OR title = ''`
+  );
+  
+  for (const note of nullTitleNotes) {
+    const newTitle = `Untitled-${Date.now()}`;
+    await db.execute(
+      `UPDATE notes SET title = $1 WHERE id = $2`,
+      [newTitle, note.id]
+    );
+    await new Promise(resolve => setTimeout(resolve, 1));
+  }
+  
+  if (nullTitleNotes.length > 0) {
+    console.log(`[initDb] Fixed ${nullTitleNotes.length} notes with null/empty titles`);
+  }
+}
+
 export async function initDb(): Promise<void> {
   const db = await getDb();
+  
   for (const sql of ALL_MIGRATIONS) {
     try {
       await db.execute(sql);
@@ -203,11 +224,15 @@ export async function initDb(): Promise<void> {
       throw err;
     }
   }
+  
   await purgeTrashedNotes();
   await fixBlocksFtsUpdateTrigger();
   await rebuildFtsIndexIfNeeded();
   await backfillNoteBlocks();
   await backfillBacklinks();
+  await fixNullTitles();
+  
+  console.log("[initDb] Database initialized successfully");
 }
 
 
@@ -1888,3 +1913,4 @@ export async function addBookmarkGroup(name: string): Promise<BookmarkGroup> {
   await saveBookmarks([...items, group]);
   return group;
 }
+

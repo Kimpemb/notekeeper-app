@@ -316,25 +316,31 @@ export const useUIStore = create<UIStore>((set, get) => {
     toggleTheme: () => { const next = get().theme === "dark" ? "light" : "dark"; applyTheme(next, true); set({ theme: next }); },
     setTheme: (theme) => { applyTheme(theme, true); set({ theme }); },
     loadSettings: async () => {
-      const theme = await getSetting("theme");
-      if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
-      try {
-        const raw = await getSetting(SESSION_KEY);
-        if (raw) {
-          const session: SessionPersist = JSON.parse(raw);
-          if (session.tabs?.length) {
-            set({
-              tabs: session.tabs,
-              activeTabId: session.activeTabId,
-              pane2Tabs: session.pane2Tabs ?? [],
-              pane2ActiveTabId: session.pane2ActiveTabId ?? null,
-              splitOpen: session.splitOpen ?? false,
-              splitDirection: session.splitDirection ?? "horizontal",
-            });
-          }
-        }
-      } catch { /**/ }
-    },
+  const theme = await getSetting("theme");
+  if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
+  
+  const savedRightPanel = await getSetting("rightPanelOpen");
+  if (savedRightPanel !== null) {
+    set({ rightPanelOpen: savedRightPanel === "true" });
+  }
+  
+  try {
+    const raw = await getSetting(SESSION_KEY);
+    if (raw) {
+      const session: SessionPersist = JSON.parse(raw);
+      if (session.tabs?.length) {
+        set({
+          tabs: session.tabs,
+          activeTabId: session.activeTabId,
+          pane2Tabs: session.pane2Tabs ?? [],
+          pane2ActiveTabId: session.pane2ActiveTabId ?? null,
+          splitOpen: session.splitOpen ?? false,
+          splitDirection: session.splitDirection ?? "horizontal",
+        });
+      }
+    }
+  } catch { /**/ }
+},
 
     // ─── Settings modal ───────────────────────────────────────────────────────
     settingsOpen: false,
@@ -502,18 +508,26 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
     setExportHandlers: (handlers) => set({ exportHandlers: handlers }),
 
     // ─── Right Panel Management (NEW - Single Source of Truth) ────────────────
-    rightPanelOpen: false,
+    rightPanelOpen: true,
     
-    setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+    setRightPanelOpen: (open) => {
+  set({ rightPanelOpen: open });
+  // Add this line:
+  setSetting("rightPanelOpen", String(open)).catch(console.error);
+},
     
     toggleRightPanel: () => {
-      const { rightPanelOpen, activePaneId, resetRightPanelsForPane } = get();
-      if (rightPanelOpen) {
-        // When closing, reset all right panel states
-        resetRightPanelsForPane(activePaneId);
-      }
-      set({ rightPanelOpen: !rightPanelOpen });
-    },
+  const { rightPanelOpen, activePaneId, resetRightPanelsForPane } = get();
+  const newState = !rightPanelOpen;
+  
+  if (newState === false) {
+    // When closing, reset all right panel states
+    resetRightPanelsForPane(activePaneId);
+  }
+  
+  set({ rightPanelOpen: newState });
+  setSetting("rightPanelOpen", String(newState)).catch(console.error);
+},
     
     resetRightPanelsForPane: (pane: 1 | 2) => {
   if (pane === 1) {

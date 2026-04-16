@@ -197,19 +197,35 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   },
 
   loadNotes: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const [notes, pinnedIds, bookmarks] = await Promise.all([
-        getAllNotes(),
-        loadPinnedIds(),
-        loadBookmarks(),
-      ]);
-      set({ notes, pinnedIds, bookmarks, isLoading: false });
-      await get().loadRecentVisits();
-    } catch (err) {
-      set({ error: String(err), isLoading: false });
+  set({ isLoading: true, error: null });
+  try {
+    const [fetchedNotes, pinnedIds, bookmarks] = await Promise.all([
+      getAllNotes(),
+      loadPinnedIds(),
+      loadBookmarks(),
+    ]);
+    
+    // Debug: log notes with null content
+    const nullContentNotes = fetchedNotes.filter(n => !n.content);
+    if (nullContentNotes.length > 0) {
+      console.log("Notes with null content:", nullContentNotes.map(n => ({ id: n.id, title: n.title })));
     }
-  },
+    
+    const normalizedNotes = fetchedNotes.map((note) => ({
+      ...note,
+      frontmatter: note.frontmatter ?? null,
+      sort_order: note.sort_order ?? 0,
+      tags: note.tags ?? null,
+      content: note.content ?? JSON.stringify({ type: "doc", content: [] }),
+      plaintext: note.plaintext ?? "",
+    }));
+    
+    set({ notes: normalizedNotes, pinnedIds, bookmarks, isLoading: false });
+    await get().loadRecentVisits();
+  } catch (err) {
+    set({ error: String(err), isLoading: false });
+  }
+},
 
   loadTrashedNotes: async () => {
     try {

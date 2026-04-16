@@ -52,6 +52,7 @@ export default function App() {
   const [dbError, setDbError]     = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [notesLoaded, setNotesLoaded] = useState(false);
 
   // Note store
   const loadNotes              = useNoteStore((s) => s.loadNotes);
@@ -154,19 +155,22 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   }, [appWindow]);
 
   useEffect(() => {
-    initDb()
-      .then(async () => {
-        setDbReady(true);
-        return Promise.all([
-          useUIStore.getState().loadSettings(),
-          useAppSettings.getState().load(),
-          useAIStore.getState().loadAISettings(),
-        ]);
-      })
-      .then(() => loadNotes())
-      .then(() => runScheduledBackupIfDue())
-      .catch((err) => setDbError(String(err)));
-  }, [loadNotes]);
+  initDb()
+    .then(async () => {
+      setDbReady(true);
+      return Promise.all([
+        useUIStore.getState().loadSettings(),
+        useAppSettings.getState().load(),
+        useAIStore.getState().loadAISettings(),
+      ]);
+    })
+    .then(() => loadNotes())
+    .then(() => {
+      setNotesLoaded(true);
+      return runScheduledBackupIfDue();
+    })
+    .catch((err) => setDbError(String(err)));
+}, [loadNotes]);
 
   useSampleNotes();
 
@@ -396,13 +400,13 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
     );
   }
 
-  if (!dbReady) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-idemora-bg-primary">
-        <p className="text-base text-idemora-text-muted animate-pulse">Loading…</p>
-      </div>
-    );
-  }
+  if (!dbReady || !notesLoaded) {
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-idemora-bg-primary">
+      <p className="text-base text-idemora-text-muted animate-pulse">Loading…</p>
+    </div>
+  );
+}
 
   // ── Main render ───────────────────────────────────────────────────────────
   return (
