@@ -76,9 +76,12 @@ export function SidebarRail() {
       </RailButton>
 
       <RailButton label="New canvas" onClick={createNewCanvas}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-          <path d="M12 8v8M8 12h8"/>
+        {/* 7/10 rated canvas icon - layout-dashboard from Lucide */}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="3" width="9" height="9" rx="1.5"/>
+          <rect x="13" y="3" width="9" height="5" rx="1.5"/>
+          <rect x="13" y="12" width="9" height="9" rx="1.5"/>
+          <rect x="2" y="16" width="9" height="5" rx="1.5"/>
         </svg>
       </RailButton>
 

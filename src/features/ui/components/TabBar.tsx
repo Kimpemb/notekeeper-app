@@ -33,7 +33,7 @@ export function TabBar() {
   }, [contextMenu]);
 
   return (
-    <div className="relative flex items-center flex-1 min-w-0 h-full">
+    <div className="relative flex items-center flex-1 min-w-0 h-full ml-8">
       <div
         className="flex items-center h-full overflow-x-auto min-w-0 flex-1 gap-1 px-2"
         style={{ scrollbarWidth: "none" }}
