@@ -37,6 +37,7 @@ import { SubPageNode } from "./SubPageNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
+import { Breadcrumb } from "./Breadcrumb";
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -158,21 +159,7 @@ function reconcileSubPageBlocks(
 }
 
 // ── Breadcrumb helpers ────────────────────────────────────────────────────────
-interface BreadcrumbSegment { id: string; title: string; }
 
-function buildBreadcrumb(
-  noteId: string,
-  notes: Array<{ id: string; title: string; parent_id: string | null }>
-): BreadcrumbSegment[] {
-  const path: BreadcrumbSegment[] = [];
-  let current = notes.find((n) => n.id === noteId);
-  while (current) {
-    path.unshift({ id: current.id, title: current.title });
-    if (!current.parent_id) break;
-    current = notes.find((n) => n.id === current!.parent_id);
-  }
-  return path;
-}
 
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
   const note = useNoteStore(useCallback((s) => s.notes.find((n) => n.id === noteId) ?? null, [noteId]));
@@ -670,9 +657,7 @@ const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
   if (!note) return null;
 
   // Breadcrumb for this pane
-  const breadcrumb        = buildBreadcrumb(noteId, notes);
-  const breadcrumbCurrent = breadcrumb[breadcrumb.length - 1] ?? null;
-  const breadcrumbParent  = breadcrumb[breadcrumb.length - 2] ?? null;
+
   const isUntitled        = /^Untitled-\d+$/.test(note.title);
 
   function handleTitleFocus() { titleFocusedRef.current = true; }
@@ -867,24 +852,7 @@ const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
               </svg>
             </button>
 
-            {breadcrumbCurrent && (
-              <div className="flex items-center gap-1 ml-1 min-w-0">
-                {breadcrumbParent && (
-                  <>
-                    <button
-                      onClick={() => setActiveNote(breadcrumbParent.id)}
-                      className="text-base text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100 max-w-32 truncate shrink-0"
-                    >
-                      {breadcrumbParent.title}
-                    </button>
-                    <span className="text-idemora-text-faint text-base shrink-0">/</span>
-                  </>
-                )}
-                <span className={`text-base truncate ${isUntitled ? "text-idemora-text-muted" : "text-idemora-text-normal"}`}>
-                  {isUntitled ? "Untitled" : breadcrumbCurrent.title}
-                </span>
-              </div>
-            )}
+          <Breadcrumb noteId={noteId} paneId={paneId} />
           </div>
 
           {/* Editor toolbar - AI Chat (collapsible) + Local Graph (always visible) */}

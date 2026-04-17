@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useCanvasStore } from "@/features/canvas/store/useCanvasStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { Breadcrumb } from "@/features/editor/components/Editor/Breadcrumb";
 import { CanvasViewport } from "./CanvasViewport";
 
 interface Props {
@@ -117,6 +118,9 @@ export function CanvasWorkspace({ canvasId, paneId = 1 }: Props) {
             <path d="M5 7h6M11 7L7.5 3.5M11 7L7.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
+
+        {/* Breadcrumb navigation */}
+        <Breadcrumb noteId={canvasId} paneId={paneId} />
 
         {/* Hidden mirror — drives input width */}
         <span
