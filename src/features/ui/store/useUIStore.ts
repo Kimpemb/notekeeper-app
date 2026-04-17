@@ -19,15 +19,9 @@ export type RightPanelType = "outline" | "backlinks" | "similar" | "chat" | "ver
 export interface Tab {
   id: string;
   noteId: string | null;
-  canvasId?: string;
-  type?: "note" | "canvas";
 }
 
-export interface CanvasTab {
-  id: string;
-  canvasId: string;
-  name: string;
-}
+
 
 export interface GraphViewState {
   zoomX: number;
@@ -58,8 +52,6 @@ interface SessionPersist {
   pane2ActiveTabId: string | null;
   splitOpen: boolean;
   splitDirection: SplitDirection;
-  canvasTabs?: CanvasTab[];
-  activeCanvasTabId?: string | null;
 }
 
 function saveSession(state: UIStore) {
@@ -70,11 +62,10 @@ function saveSession(state: UIStore) {
     pane2ActiveTabId: state.pane2ActiveTabId,
     splitOpen: state.splitOpen,
     splitDirection: state.splitDirection,
-    canvasTabs: state.canvasTabs,
-    activeCanvasTabId: state.activeCanvasTabId,
   };
   setSetting(SESSION_KEY, JSON.stringify(persist)).catch(console.error);
 }
+
 
 function makeTabId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -281,12 +272,8 @@ interface UIStore {
   setActivePaneId: (pane: 1 | 2) => void;
   paneActiveNoteId: (pane: 1 | 2) => string | null;
 
-  // ─── Canvas tabs ─────────────────────────────────────────────────────────
-  canvasTabs: CanvasTab[];
-  activeCanvasTabId: string | null;
-  openCanvas: (canvasId: string, canvasName?: string) => void;
-  closeCanvasTab: (tabId: string) => void;
-  setActiveCanvasTab: (tabId: string) => void;
+  // ─── Canvas ─────────────────────────────────────────────────────────
+ 
 
   // ─── Closed tab history ───────────────────────────────────────────────────
   closedTabs: ClosedTab[];
@@ -352,14 +339,12 @@ export const useUIStore = create<UIStore>((set, get) => {
     if (raw) {
       const session: SessionPersist = JSON.parse(raw);
       set({
-        tabs: session.tabs ?? [],
+        tabs: (session.tabs ?? []).map((t: any) => ({ id: t.id, noteId: t.noteId ?? null })),
         activeTabId: session.activeTabId ?? null,
-        pane2Tabs: session.pane2Tabs ?? [],
+        pane2Tabs: (session.pane2Tabs ?? []).map((t: any) => ({ id: t.id, noteId: t.noteId ?? null })),
         pane2ActiveTabId: session.pane2ActiveTabId ?? null,
         splitOpen: session.splitOpen ?? false,
         splitDirection: session.splitDirection ?? "horizontal",
-        canvasTabs: session.canvasTabs ?? [],
-        activeCanvasTabId: session.activeCanvasTabId ?? null,
       });
     }
   } catch { /**/ }
@@ -603,7 +588,7 @@ export const useUIStore = create<UIStore>((set, get) => {
   }
   
   // REPLACE the current tab instead of creating a new one
-  const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId, canvasId: undefined, type: undefined } : t);
+  const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
   set({ tabs: next });
   saveSession(get());
 },
@@ -821,51 +806,7 @@ export const useUIStore = create<UIStore>((set, get) => {
       return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
     },
 
-    // ─── Canvas tabs ─────────────────────────────────────────────────────────
-    canvasTabs: [],
-    activeCanvasTabId: null,
-
-    openCanvas: (canvasId: string, _canvasName?: string) => {
-  const { tabs, activeTabId, activePaneId } = get();
-  const existing = tabs.find((t) => t.canvasId === canvasId);
-  if (existing) {
-    set({ activeTabId: existing.id });
-    saveSession(get());
-    return;
-  }
-  const tab: Tab = { id: makeTabId(), noteId: null, canvasId, type: "canvas" };
-  const next = tabs.length > 0 && activeTabId !== null
-    ? tabs.map((t) => t.id === activeTabId ? tab : t)
-    : [...tabs, tab];
-  set({ tabs: next, activeTabId: tab.id });
-  saveSession(get());
-
-  // Push to the correct nav history
-  if (activePaneId === 2) {
-    get().pane2PushNav(canvasId);
-  } else {
-    useNoteStore.getState().setActiveNote(canvasId, false);
-  }
-},
-
-    closeCanvasTab: (tabId: string) => {
-      const { canvasTabs, activeCanvasTabId } = get();
-      const idx = canvasTabs.findIndex((t) => t.id === tabId);
-      if (idx === -1) return;
-      const next = canvasTabs.filter((t) => t.id !== tabId);
-      let nextActiveId = activeCanvasTabId;
-      if (activeCanvasTabId === tabId) {
-        const neighbour = next[idx] ?? next[idx - 1] ?? null;
-        nextActiveId = neighbour?.id ?? null;
-      }
-      set({ canvasTabs: next, activeCanvasTabId: nextActiveId });
-      saveSession(get());
-    },
-
-    setActiveCanvasTab: (tabId: string) => {
-      set({ activeCanvasTabId: tabId });
-      saveSession(get());
-    },
+  
 
     // ─── Closed tab history ───────────────────────────────────────────────────
     closedTabs: [],
@@ -891,54 +832,43 @@ export const useUIStore = create<UIStore>((set, get) => {
     pane2NavIndex: -1,
     pane2CanGoBack: () => get().pane2NavIndex > 0,
     pane2CanGoForward: () => get().pane2NavIndex < get().pane2NavHistory.length - 1,
-    pane2GoBack: async () => {
-  const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
-  if (pane2NavIndex <= 0) return;
-  const newIndex = pane2NavIndex - 1;
-  const id = pane2NavHistory[newIndex];
-  
-  // Check if ID is a canvas
-  const { useCanvasStore } = await import("@/features/canvas/store/useCanvasStore");
-  const canvas = useCanvasStore.getState().canvases[id];
-  if (canvas) {
-    get().openCanvas(id, canvas.name);
-  } else {
-    const existing = pane2Tabs.find((t) => t.noteId === id);
-    if (existing) {
-      set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
-    } else {
-      set((s) => ({
-        pane2NavIndex: newIndex,
-        pane2Tabs: s.pane2Tabs.map((t) => t.id === s.pane2ActiveTabId ? { ...t, noteId: id } : t),
-      }));
-    }
-  }
-  saveSession(get());
-},
-pane2GoForward: async () => {
-  const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
-  if (pane2NavIndex >= pane2NavHistory.length - 1) return;
-  const newIndex = pane2NavIndex + 1;
-  const id = pane2NavHistory[newIndex];
-  
-  // Check if ID is a canvas
-  const { useCanvasStore } = await import("@/features/canvas/store/useCanvasStore");
-  const canvas = useCanvasStore.getState().canvases[id];
-  if (canvas) {
-    get().openCanvas(id, canvas.name);
-  } else {
-    const existing = pane2Tabs.find((t) => t.noteId === id);
-    if (existing) {
-      set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
-    } else {
-      set((s) => ({
-        pane2NavIndex: newIndex,
-        pane2Tabs: s.pane2Tabs.map((t) => t.id === s.pane2ActiveTabId ? { ...t, noteId: id } : t),
-      }));
-    }
-  }
-  saveSession(get());
-},
+    pane2GoBack: () => {
+      const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
+      if (pane2NavIndex <= 0) return;
+      const newIndex = pane2NavIndex - 1;
+      const id = pane2NavHistory[newIndex];
+      const existing = pane2Tabs.find((t) => t.noteId === id);
+      if (existing) {
+        set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
+      } else {
+        set((s) => ({
+          pane2NavIndex: newIndex,
+          pane2Tabs: s.pane2Tabs.map((t) =>
+            t.id === s.pane2ActiveTabId ? { ...t, noteId: id } : t
+          ),
+        }));
+      }
+      saveSession(get());
+    },
+
+    pane2GoForward: () => {
+      const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
+      if (pane2NavIndex >= pane2NavHistory.length - 1) return;
+      const newIndex = pane2NavIndex + 1;
+      const id = pane2NavHistory[newIndex];
+      const existing = pane2Tabs.find((t) => t.noteId === id);
+      if (existing) {
+        set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
+      } else {
+        set((s) => ({
+          pane2NavIndex: newIndex,
+          pane2Tabs: s.pane2Tabs.map((t) =>
+            t.id === s.pane2ActiveTabId ? { ...t, noteId: id } : t
+          ),
+        }));
+      }
+      saveSession(get());
+    },
     pane2PushNav: (noteId) => {
       set((s) => {
         const trimmed = s.pane2NavHistory.slice(0, s.pane2NavIndex + 1);

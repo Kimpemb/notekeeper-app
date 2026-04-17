@@ -1,13 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
-import { useCanvasStore } from "@/features/canvas/store/useCanvasStore";
 
 interface ContextMenu { x: number; y: number; tabId: string; noteId: string; flip: boolean; }
 
 export function TabBar() {
   const notes = useNoteStore((s) => s.notes);
-const canvases = useCanvasStore((s) => s.canvases);
   const activePaneId = useUIStore((s) => s.activePaneId);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
   
@@ -42,10 +40,8 @@ const canvases = useCanvasStore((s) => s.canvases);
       >
         {tabs.map((tab) => {
           const note = tab.noteId ? notes.find((n) => n.id === tab.noteId) : null;
-          let title = "";
-          if (tab.canvasId) {
-  title = canvases[tab.canvasId]?.name || "Loading canvas...";
-} else if (tab.noteId === null) {
+         let title = "";
+          if (tab.noteId === null) {
             title = "New tab";
           } else {
             title = note ? note.title : "…";

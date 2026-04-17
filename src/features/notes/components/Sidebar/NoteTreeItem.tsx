@@ -399,8 +399,15 @@ export function NoteTreeItem({
             <path d="M2 1.5l3 2.5-3 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </span>
-        <span className="shrink-0 opacity-40">
-          {hasChildren ? (
+       <span className="shrink-0 opacity-40">
+          {note.is_canvas ? (
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+              <circle cx="4" cy="4" r="1" fill="currentColor"/>
+              <circle cx="8" cy="4" r="1" fill="currentColor"/>
+              <path d="M3 8l2-2 2 1.5 2-2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          ) : hasChildren ? (
             <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
               <path d="M1 3a1 1 0 011-1h2.5l1 1.5H10a1 1 0 011 1V9a1 1 0 01-1 1H2a1 1 0 01-1-1V3z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             </svg>

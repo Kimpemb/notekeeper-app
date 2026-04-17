@@ -241,10 +241,13 @@ export async function initDb(): Promise<void> {
 export async function getAllNotes(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
-    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
-    FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
+            created_at, updated_at, deleted_at, sort_order,
+            is_canvas, canvas_state
+     FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
 }
+
 
 export async function getNoteById(id: string): Promise<Note | null> {
   const db = await getDb();
@@ -279,6 +282,8 @@ export interface CreateNoteInput {
   frontmatter?: string | null;
   parent_id?: string | null;
   sort_order?: number;
+  is_canvas?: boolean;        // ← NEW
+  canvas_state?: string | null; // ← NEW
 }
 
 export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
@@ -306,13 +311,18 @@ export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
     updated_at: now(),
     deleted_at: null,
     sort_order,
+    is_canvas: input.is_canvas ?? false,      // ← NEW
+    canvas_state: input.canvas_state ?? null, // ← NEW
   };
 
   await db.execute(
-    `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id,
+                        sync_id, created_at, updated_at, deleted_at, sort_order,
+                        is_canvas, canvas_state)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
-    note.parent_id, note.sync_id, note.created_at, note.updated_at, null, note.sort_order]
+     note.parent_id, note.sync_id, note.created_at, note.updated_at, null, note.sort_order,
+     note.is_canvas ? 1 : 0, note.canvas_state]
   );
 
   return note;
@@ -326,6 +336,8 @@ export interface UpdateNoteInput {
   frontmatter?: string | null;
   parent_id?: string | null;
   sort_order?: number;
+  is_canvas?: boolean;        // ← NEW
+  canvas_state?: string | null; // ← NEW
 }
 
 export async function updateNote(id: string, input: UpdateNoteInput): Promise<void> {
@@ -341,6 +353,9 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
   if (input.frontmatter !== undefined) { fields.push(`frontmatter = $${idx++}`); values.push(input.frontmatter); }
   if (input.parent_id !== undefined)  { fields.push(`parent_id = $${idx++}`);  values.push(input.parent_id); }
   if (input.sort_order !== undefined) { fields.push(`sort_order = $${idx++}`); values.push(input.sort_order); }
+  if (input.canvas_state !== undefined) { fields.push(`canvas_state = $${idx++}`); values.push(input.canvas_state); } // ← NEW
+
+
 
   if (fields.length === 0) return;
 
@@ -954,7 +969,12 @@ function sanitizeNote(raw: Record<string, unknown>): Note {
   const sync_id    = typeof raw.sync_id    === "string" && raw.sync_id.trim() ? raw.sync_id.trim() : crypto.randomUUID();
   const created_at = typeof raw.created_at === "number" ? raw.created_at : now_;
   const updated_at = typeof raw.updated_at === "number" ? raw.updated_at : now_;
-  return { id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at: null, sort_order };
+  return { 
+    id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, 
+    created_at, updated_at, deleted_at: null, sort_order,
+    is_canvas: false,      // ← NEW
+    canvas_state: null,    // ← NEW
+  };
 }
 
 function topoSort(notes: Note[]): Note[] {
@@ -1852,6 +1872,44 @@ export async function clearConversationSummary(noteId: string): Promise<void> {
     `DELETE FROM ai_conversation_summary WHERE note_id = $1`,
     [noteId]
   )
+}
+
+// ─── Canvas migration ─────────────────────────────────────────────────────────
+
+export async function migrateCanvasesToNotes(): Promise<void> {
+  const db = await getDb();
+
+  const tableCheck = await db.select<{ name: string }[]>(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='canvases'`
+  );
+  if (tableCheck.length === 0) return;
+
+  const canvases = await db.select<{
+    id: string; name: string; data: string; created_at: number; updated_at: number;
+  }[]>(`SELECT * FROM canvases`);
+
+  for (const canvas of canvases) {
+    const existing = await db.select<{ id: string }[]>(
+      `SELECT id FROM notes WHERE id = $1`, [canvas.id]
+    );
+    if (existing.length > 0) continue;
+
+    await db.execute(
+      `INSERT INTO notes (id, title, content, plaintext, tags, parent_id, sync_id,
+                          created_at, updated_at, is_canvas, canvas_state)
+       VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6, $7, 1, $8)`,
+      [
+        canvas.id,
+        canvas.name,
+        JSON.stringify({ type: "doc", content: [] }),
+        "",
+        canvas.id,
+        canvas.created_at,
+        canvas.updated_at,
+        canvas.data,
+      ]
+    );
+  }
 }
 
 // ─── Bookmarks ────────────────────────────────────────────────────────────────

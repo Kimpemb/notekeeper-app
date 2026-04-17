@@ -2,7 +2,6 @@
 import { useCallback } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
-import { useCanvasStore } from "@/features/canvas/store/useCanvasStore";
 
 function RailButton({
   label,
@@ -48,9 +47,9 @@ export function SidebarRail() {
   const createOrOpenDailyNote = useNoteStore((s) => s.createOrOpenDailyNote);
 
   const createNewCanvas = useCallback(async () => {
-  const canvas = await useCanvasStore.getState().createCanvas("Untitled Canvas");
-  useUIStore.getState().openCanvas(canvas.id, canvas.name);
-}, []);
+    const note = await useNoteStore.getState().createCanvasNote("Untitled");
+    useUIStore.getState().replaceTab(note.id);
+  }, []);
 
   return (
     <div className="flex flex-col items-center w-12 h-full shrink-0 py-1.5 gap-1 bg-idemora-bg-secondary border-r border-idemora-border z-10">

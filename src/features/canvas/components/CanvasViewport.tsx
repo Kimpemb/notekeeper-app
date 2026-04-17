@@ -4,54 +4,47 @@ import { CanvasBackground } from "./CanvasBackground";
 import { EdgeRenderer } from "../edges/EdgeRenderer";
 import { Node } from "../nodes/Node";
 import { screenToWorld } from "../utils/geometry";
-import type { NodeId } from "../../../types/canvas";
+import type { CanvasNode, NodeId } from "../../../types/canvas";
 
-// Compact input-like default size
 const DEFAULT_NODE_WIDTH  = 180;
 const DEFAULT_NODE_HEIGHT = 44;
 
 interface CanvasViewportProps {
-  canvasId: string;                                    // ADDED: now accepts canvasId as prop
+  noteId: string;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export const CanvasViewport: React.FC<CanvasViewportProps> = ({ canvasId, containerRef }) => {
-  // DELETED: const canvasId = useCanvasStore((s) => s.activeCanvasId);
-  const canvas = useCanvasStore((s) => s.canvases[canvasId]);
-  
-  const addNode = useCanvasStore((s) => s.addNode);
-  const addEdge = useCanvasStore((s) => s.addEdge);
+export const CanvasViewport: React.FC<CanvasViewportProps> = ({ noteId, containerRef }) => {
+  const store = useCanvasStore();
+  const addNode    = useCanvasStore((s) => s.addNode);
+  const addEdge    = useCanvasStore((s) => s.addEdge);
   const updateNode = useCanvasStore((s) => s.updateNode);
   const deleteNode = useCanvasStore((s) => s.deleteNode);
-  const moveNode = useCanvasStore((s) => s.moveNode);
+  const moveNode   = useCanvasStore((s) => s.moveNode);
+  const pan        = useCanvasStore((s) => s.pan);
 
-  const pan = useCanvasStore((s) => s.pan);
+  const nodes           = store.getNodes(noteId);
+  const edges           = store.getEdges(noteId);
+  const viewport        = store.getViewport(noteId);
+  const selectedNodeIds = store.getSelectedNodeIds(noteId);
+  const clearSelection  = () => useCanvasStore.getState().clearSelection(noteId);
+  const selectNodes     = (ids: string[]) => useCanvasStore.getState().selectNodes(noteId, ids);
 
-  const nodes = canvas?.nodes ?? [];
-  const edges = canvas?.edges ?? [];
-  const viewport = canvas?.viewport ?? { x: 0, y: 0, zoom: 1 };
-const selectedNodeIds = canvas?.selectedNodeIds ?? [];
-const clearSelection = () => useCanvasStore.getState().clearSelection(canvasId);
-const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(canvasId, ids);
-
-  const [isPanning, setIsPanning] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [isDraggingNode, setIsDraggingNode] = useState(false);
-  const [draggedNodeId, setDraggedNodeId] = useState<NodeId | null>(null);
-  const [editingNodeId, setEditingNodeId] = useState<NodeId | null>(null);
-
+  const [isPanning,       setIsPanning]       = useState(false);
+  const [dragStart,       setDragStart]       = useState({ x: 0, y: 0 });
+  const [isDraggingNode,  setIsDraggingNode]  = useState(false);
+  const [draggedNodeId,   setDraggedNodeId]   = useState<NodeId | null>(null);
+  const [editingNodeId,   setEditingNodeId]   = useState<NodeId | null>(null);
   const [connectingFromId, setConnectingFromId] = useState<NodeId | null>(null);
   const [connectingFromPt, setConnectingFromPt] = useState({ x: 0, y: 0 });
-  const [draftEndPt, setDraftEndPt] = useState({ x: 0, y: 0 });
+  const [draftEndPt,       setDraftEndPt]       = useState({ x: 0, y: 0 });
 
-  const hoverTargetId = useRef<NodeId | null>(null);
-  const canvasPointerMoved = useRef(false);
-
-  const nodesArray = nodes;
+  const hoverTargetId        = useRef<NodeId | null>(null);
+  const canvasPointerMoved   = useRef(false);
 
   const hitTestNode = useCallback((screenX: number, screenY: number): NodeId | null => {
     const { x: vx, y: vy, zoom } = viewport;
-    for (const node of nodesArray) {
+    for (const node of nodes) {
       const nx = node.x * zoom + vx;
       const ny = node.y * zoom + vy;
       const nw = node.width * zoom;
@@ -61,26 +54,22 @@ const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(can
       }
     }
     return null;
-  }, [nodesArray, viewport]);
+  }, [nodes, viewport]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement) !== e.currentTarget) return;
     const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect || !canvasId) return;
+    if (!rect) return;
 
     const world = screenToWorld(
       e.clientX - rect.left,
       e.clientY - rect.top,
-      viewport.x,
-      viewport.y,
-      viewport.zoom,
+      viewport.x, viewport.y, viewport.zoom,
     );
 
     const id = crypto.randomUUID();
-    addNode(canvasId, {
-      id,
-      type: "text",
-      content: "",
+    addNode(noteId, {
+      id, type: "text", content: "",
       x: world.x - DEFAULT_NODE_WIDTH / 2,
       y: world.y - DEFAULT_NODE_HEIGHT / 2,
       width: DEFAULT_NODE_WIDTH,
@@ -88,7 +77,7 @@ const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(can
     });
     selectNodes([id]);
     setEditingNodeId(id);
-  }, [containerRef, viewport, addNode, selectNodes, canvasId]);
+  }, [containerRef, viewport, addNode, selectNodes, noteId]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     const isPanGesture = e.button === 1 || (e.button === 0 && e.altKey);
@@ -117,19 +106,19 @@ const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(can
     }
 
     if (!isPanning) return;
-    pan(canvasId, e.clientX - dragStart.x, e.clientY - dragStart.y);
+    pan(noteId, e.clientX - dragStart.x, e.clientY - dragStart.y);
     setDragStart({ x: e.clientX, y: e.clientY });
-  }, [isPanning, dragStart, pan, connectingFromId, containerRef, hitTestNode, canvasId]);
+  }, [isPanning, dragStart, pan, connectingFromId, containerRef, hitTestNode, noteId]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     setIsPanning(false);
     setIsDraggingNode(false);
     setDraggedNodeId(null);
 
-    if (connectingFromId && canvasId) {
+    if (connectingFromId) {
       const toId = hoverTargetId.current;
       if (toId && toId !== connectingFromId) {
-        addEdge(canvasId, { id: crypto.randomUUID(), from: connectingFromId, to: toId });
+        addEdge(noteId, { id: crypto.randomUUID(), from: connectingFromId, to: toId });
       }
       setConnectingFromId(null);
       hoverTargetId.current = null;
@@ -139,7 +128,7 @@ const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(can
       clearSelection();
       setEditingNodeId(null);
     }
-  }, [connectingFromId, addEdge, clearSelection, canvasId]);
+  }, [connectingFromId, addEdge, clearSelection, noteId]);
 
   const handleNodeDragStart = useCallback((id: NodeId, e: React.PointerEvent) => {
     setIsDraggingNode(true);
@@ -148,39 +137,38 @@ const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(can
   }, [selectedNodeIds, selectNodes]);
 
   const handleNodeDrag = useCallback((id: NodeId, e: React.PointerEvent) => {
-    if (!isDraggingNode || draggedNodeId !== id || !canvasId) return;
+    if (!isDraggingNode || draggedNodeId !== id) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const world = screenToWorld(
       e.clientX - rect.left,
       e.clientY - rect.top,
-      viewport.x,
-      viewport.y,
-      viewport.zoom,
+      viewport.x, viewport.y, viewport.zoom,
     );
-    const node = nodesArray.find((n) => n.id === id);
-    moveNode(canvasId, id, world.x - (node?.width ?? DEFAULT_NODE_WIDTH) / 2, world.y - (node?.height ?? DEFAULT_NODE_HEIGHT) / 2);
-  }, [isDraggingNode, draggedNodeId, containerRef, viewport, nodesArray, moveNode, canvasId]);
+    const node = nodes.find((n: CanvasNode) => n.id === id);
+    moveNode(noteId, id,
+      world.x - (node?.width ?? DEFAULT_NODE_WIDTH) / 2,
+      world.y - (node?.height ?? DEFAULT_NODE_HEIGHT) / 2
+    );
+  }, [isDraggingNode, draggedNodeId, containerRef, viewport, nodes, moveNode, noteId]);
 
   const handleNodeDragEnd = useCallback(() => {
     setIsDraggingNode(false);
     setDraggedNodeId(null);
   }, []);
 
-  const handleEditStart = useCallback((id: NodeId) => setEditingNodeId(id), []);
+  const handleEditStart  = useCallback((id: NodeId) => setEditingNodeId(id), []);
 
   const handleCommit = useCallback((id: NodeId, content: string) => {
-    if (!canvasId) return;
-    updateNode(canvasId, id, { content });
+    updateNode(noteId, id, { content });
     setEditingNodeId(null);
-  }, [updateNode, canvasId]);
+  }, [updateNode, noteId]);
 
   const handleDiscard = useCallback((id: NodeId) => {
-    if (!canvasId) return;
-    deleteNode(canvasId, id);
+    deleteNode(noteId, id);
     setEditingNodeId(null);
     clearSelection();
-  }, [deleteNode, clearSelection, canvasId]);
+  }, [deleteNode, clearSelection, noteId]);
 
   const handleConnectStart = useCallback((id: NodeId, e: React.PointerEvent) => {
     e.stopPropagation();
@@ -194,23 +182,12 @@ const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(can
     containerRef.current?.setPointerCapture(e.pointerId);
   }, [containerRef]);
 
-  const handleConnectEnd = useCallback((_id: NodeId) => {
-    // no-op — targeting handled by hit-test in handlePointerMove
-  }, []);
+  const handleConnectEnd = useCallback((_id: NodeId) => {}, []);
 
   const connectingTargetId = connectingFromId ? hoverTargetId.current : null;
-
   const draftEdge = connectingFromId
     ? { fromX: connectingFromPt.x, fromY: connectingFromPt.y, toX: draftEndPt.x, toY: draftEndPt.y }
     : null;
-
-  if (!canvasId || !canvas) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center bg-idemora-bg-primary">
-        <p className="text-sm text-idemora-text-muted">No canvas loaded</p>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -221,21 +198,12 @@ const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(can
       onPointerUp={handlePointerUp}
       onDoubleClick={handleDoubleClick}
     >
-      <CanvasBackground
-        zoom={viewport.zoom}
-        viewportX={viewport.x}
-        viewportY={viewport.y}
-      />
+      <CanvasBackground zoom={viewport.zoom} viewportX={viewport.x} viewportY={viewport.y} />
 
-      <EdgeRenderer
-        edges={edges}
-        nodes={nodesArray}
-        viewport={viewport}
-        draftEdge={draftEdge}
-      />
+      <EdgeRenderer edges={edges} nodes={nodes} viewport={viewport} draftEdge={draftEdge} />
 
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-        {nodesArray.map((node) => (
+        {nodes.map((node: CanvasNode) => (
           <Node
             key={node.id}
             node={node}

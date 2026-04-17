@@ -370,24 +370,21 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
             const isActive = tab.id === paneActiveTabId;
             return (
               <div key={tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
-                {tab.noteId === null && !tab.canvasId ? (
+                {tab.noteId === null ? (
                   <NewTabScreen paneId={paneId} />
-                ) : tab.canvasId ? (
-                  <CanvasWorkspace key={tab.canvasId} canvasId={tab.canvasId} paneId={paneId} />
-                ) : (
-                  (() => {
-                    const noteId = tab.noteId!;
-                    return (
-                      <Editor
+                ) : (() => {
+                  const noteId = tab.noteId!;
+                  const note = notes.find((n) => n.id === noteId);
+                  return note?.is_canvas
+                    ? <CanvasWorkspace key={noteId} noteId={noteId} paneId={paneId} />
+                    : <Editor
                         key={noteId}
                         noteId={noteId}
                         paneId={paneId}
                         initialScrollTop={scrollPositions.current.get(noteId) ?? 0}
                         onScrollChange={(top) => scrollPositions.current.set(noteId, top)}
-                      />
-                    );
-                  })()
-                )}
+                      />;
+                })()}
               </div>
             );
           })}

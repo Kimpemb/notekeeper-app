@@ -6,13 +6,15 @@ export interface Note {
   content: string;
   plaintext: string;
   tags: string | null;
-  frontmatter: string | null;  // JSON string of key-value pairs
+  frontmatter: string | null;
   parent_id: string | null;
   sync_id: string;
   created_at: number;
   updated_at: number;
-  deleted_at: number | null;  // null = live, timestamp = in trash
+  deleted_at: number | null;
   sort_order: number;
+  is_canvas: boolean;       // ← NEW
+  canvas_state: string | null; // ← NEW
 }
 
 export interface NoteVersion {

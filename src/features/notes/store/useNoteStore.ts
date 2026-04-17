@@ -87,6 +87,8 @@ interface NoteStore {
   createNoteFromTemplate: (template: Template, input?: CreateNoteInput) => Promise<Note>;
   createOrOpenDailyNote: () => Promise<Note>;
   createChildNote: (parentId: string, title?: string) => Promise<Note>;
+  createCanvasNote: (name?: string) => Promise<Note>;
+  updateCanvasState: (id: string, canvasState: string) => Promise<void>;
   updateNote: (id: string, input: UpdateNoteInput) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   restoreNote: (id: string) => Promise<void>;
@@ -164,19 +166,10 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     if (navIndex <= 0) return;
     const newIndex = navIndex - 1;
     const id = navHistory[newIndex];
-
-    const { useCanvasStore } = await import("@/features/canvas/store/useCanvasStore");
-    const canvas = useCanvasStore.getState().canvases[id];
-    if (canvas) {
-      set({ navIndex: newIndex }); // don't set activeNoteId to a canvas ID
-      const { useUIStore } = await import("@/features/ui/store/useUIStore");
-      useUIStore.getState().openCanvas(id, canvas.name);
-    } else {
-      set({ navIndex: newIndex, activeNoteId: id });
-get().recordVisit(id).catch(console.error);
-const { useUIStore } = await import("@/features/ui/store/useUIStore");
-useUIStore.getState().replaceTab(id);
-    }
+    set({ navIndex: newIndex, activeNoteId: id });
+    get().recordVisit(id).catch(console.error);
+    const { useUIStore } = await import("@/features/ui/store/useUIStore");
+    useUIStore.getState().replaceTab(id);
   },
 
   goForward: async () => {
@@ -184,19 +177,10 @@ useUIStore.getState().replaceTab(id);
     if (navIndex >= navHistory.length - 1) return;
     const newIndex = navIndex + 1;
     const id = navHistory[newIndex];
-
-    const { useCanvasStore } = await import("@/features/canvas/store/useCanvasStore");
-    const canvas = useCanvasStore.getState().canvases[id];
-    if (canvas) {
-      set({ navIndex: newIndex }); // don't set activeNoteId to a canvas ID
-      const { useUIStore } = await import("@/features/ui/store/useUIStore");
-      useUIStore.getState().openCanvas(id, canvas.name);
-    } else {
-      set({ navIndex: newIndex, activeNoteId: id });
-get().recordVisit(id).catch(console.error);
-const { useUIStore } = await import("@/features/ui/store/useUIStore");
-useUIStore.getState().replaceTab(id);
-    }
+    set({ navIndex: newIndex, activeNoteId: id });
+    get().recordVisit(id).catch(console.error);
+    const { useUIStore } = await import("@/features/ui/store/useUIStore");
+    useUIStore.getState().replaceTab(id);
   },
 
   activeNote: () => {
@@ -219,35 +203,37 @@ useUIStore.getState().replaceTab(id);
   },
 
   loadNotes: async () => {
-  set({ isLoading: true, error: null });
-  try {
-    const [fetchedNotes, pinnedIds, bookmarks] = await Promise.all([
-      getAllNotes(),
-      loadPinnedIds(),
-      loadBookmarks(),
-    ]);
-    
-    // Debug: log notes with null content
-    const nullContentNotes = fetchedNotes.filter(n => !n.content);
-    if (nullContentNotes.length > 0) {
-      console.log("Notes with null content:", nullContentNotes.map(n => ({ id: n.id, title: n.title })));
+    set({ isLoading: true, error: null });
+    try {
+      const [fetchedNotes, pinnedIds, bookmarks] = await Promise.all([
+        getAllNotes(),
+        loadPinnedIds(),
+        loadBookmarks(),
+      ]);
+      
+      // Debug: log notes with null content
+      const nullContentNotes = fetchedNotes.filter(n => !n.content);
+      if (nullContentNotes.length > 0) {
+        console.log("Notes with null content:", nullContentNotes.map(n => ({ id: n.id, title: n.title })));
+      }
+      
+      const normalizedNotes = fetchedNotes.map((note) => ({
+        ...note,
+        frontmatter: note.frontmatter ?? null,
+        sort_order: note.sort_order ?? 0,
+        tags: note.tags ?? null,
+        content: note.content ?? JSON.stringify({ type: "doc", content: [] }),
+        plaintext: note.plaintext ?? "",
+        is_canvas: Boolean(note.is_canvas),
+        canvas_state: note.canvas_state ?? null,
+      }));
+      
+      set({ notes: normalizedNotes, pinnedIds, bookmarks, isLoading: false });
+      await get().loadRecentVisits();
+    } catch (err) {
+      set({ error: String(err), isLoading: false });
     }
-    
-    const normalizedNotes = fetchedNotes.map((note) => ({
-      ...note,
-      frontmatter: note.frontmatter ?? null,
-      sort_order: note.sort_order ?? 0,
-      tags: note.tags ?? null,
-      content: note.content ?? JSON.stringify({ type: "doc", content: [] }),
-      plaintext: note.plaintext ?? "",
-    }));
-    
-    set({ notes: normalizedNotes, pinnedIds, bookmarks, isLoading: false });
-    await get().loadRecentVisits();
-  } catch (err) {
-    set({ error: String(err), isLoading: false });
-  }
-},
+  },
 
   loadTrashedNotes: async () => {
     try {
@@ -330,6 +316,26 @@ useUIStore.getState().replaceTab(id);
     set((state) => ({ notes: [...state.notes, note] }));
     get().setActiveNote(note.id);
     return note;
+  },
+
+  createCanvasNote: async (name = "Untitled") => {
+    const note = await dbCreateNote({
+      title: name,
+      is_canvas: true,
+      canvas_state: JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }),
+    });
+    set((state) => ({ notes: [...state.notes, note] }));
+    get().setActiveNote(note.id);
+    return note;
+  },
+
+  updateCanvasState: async (id, canvasState) => {
+    await dbUpdateNote(id, { canvas_state: canvasState });
+    set((state) => ({
+      notes: state.notes.map((n) =>
+        n.id === id ? { ...n, canvas_state: canvasState } : n
+      ),
+    }));
   },
 
   updateNote: async (id, input) => {

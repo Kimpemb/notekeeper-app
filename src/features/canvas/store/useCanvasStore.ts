@@ -1,247 +1,155 @@
+// src/features/canvas/store/useCanvasStore.ts
 import { create } from "zustand";
-import type { Canvas, CanvasNode, CanvasEdge, Viewport } from "@/types/canvas";
-import {
-  createCanvasInDb,
-  getCanvas,
-  saveCanvas,
-  saveCanvasName,
-} from "@/features/canvas/db/canvasQueries";
-
-function makeId(): string {
-  return crypto.randomUUID();
-}
-
-interface CanvasData {
-  name: string;
-  nodes: CanvasNode[];
-  edges: CanvasEdge[];
-  viewport: Viewport;
-  selectedNodeIds: string[];
-  loading: boolean;
-}
-
-interface CanvasStore {
-  canvases: Record<string, CanvasData>;
-  activeCanvasId: string | null;
-
-  loadCanvas: (id: string) => Promise<void>;
-  createCanvas: (name: string) => Promise<Canvas>;
-  updateCanvasName: (id: string, name: string) => Promise<void>;
-  
-  addNode:    (canvasId: string, node: CanvasNode) => void;
-  updateNode: (canvasId: string, id: string, updates: Partial<CanvasNode>) => void;
-  deleteNode: (canvasId: string, id: string) => void;
-  moveNode:   (canvasId: string, id: string, x: number, y: number) => void;
-
-  addEdge:    (canvasId: string, edge: CanvasEdge) => void;
-  deleteEdge: (canvasId: string, id: string) => void;
-
-  selectNodes:    (canvasId: string, ids: string[]) => void;
-  clearSelection: (canvasId: string) => void;
-
-  setViewport: (canvasId: string, viewport: Viewport) => void;
-  pan:         (canvasId: string, dx: number, dy: number) => void;
-  zoom:        (canvasId: string, delta: number, originX: number, originY: number) => void;
-
-  persist: (canvasId: string) => Promise<void>;
-  setActiveCanvas: (id: string | null) => void;
-}
+import type { CanvasNode, CanvasEdge, Viewport } from "@/types/canvas";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
 
+interface CanvasUIState {
+  selectedNodeIds: string[];
+  viewport: Viewport;
+}
+
+interface CanvasStore {
+  uiState: Record<string, CanvasUIState>;
+
+  getNodes:           (noteId: string) => CanvasNode[];
+  getEdges:           (noteId: string) => CanvasEdge[];
+  getViewport:        (noteId: string) => Viewport;
+  getSelectedNodeIds: (noteId: string) => string[];
+
+  addNode:    (noteId: string, node: CanvasNode) => void;
+  updateNode: (noteId: string, id: string, updates: Partial<CanvasNode>) => void;
+  deleteNode: (noteId: string, id: string) => void;
+  moveNode:   (noteId: string, id: string, x: number, y: number) => void;
+
+  addEdge:    (noteId: string, edge: CanvasEdge) => void;
+  deleteEdge: (noteId: string, id: string) => void;
+
+  selectNodes:    (noteId: string, ids: string[]) => void;
+  clearSelection: (noteId: string) => void;
+
+  setViewport: (noteId: string, viewport: Viewport) => void;
+  pan:         (noteId: string, dx: number, dy: number) => void;
+  zoom:        (noteId: string, delta: number, originX: number, originY: number) => void;
+}
+
+function getCanvasData(noteId: string): { nodes: CanvasNode[]; edges: CanvasEdge[]; viewport: Viewport } {
+  const note = useNoteStore.getState().notes.find((n) => n.id === noteId);
+  if (!note?.canvas_state) return { nodes: [], edges: [], viewport: DEFAULT_VIEWPORT };
+  try {
+    const parsed = JSON.parse(note.canvas_state);
+    return {
+      nodes:    parsed.nodes    ?? [],
+      edges:    parsed.edges    ?? [],
+      viewport: parsed.viewport ?? DEFAULT_VIEWPORT,
+    };
+  } catch {
+    return { nodes: [], edges: [], viewport: DEFAULT_VIEWPORT };
+  }
+}
+
+function persistToNote(noteId: string, nodes: CanvasNode[], edges: CanvasEdge[], viewport: Viewport) {
+  useNoteStore.getState().updateCanvasState(
+    noteId,
+    JSON.stringify({ nodes, edges, viewport })
+  );
+}
+
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
-  canvases: {},
-  activeCanvasId: null,
+  uiState: {},
 
-  setActiveCanvas: (id) => set({ activeCanvasId: id }),
+  getNodes:    (noteId) => getCanvasData(noteId).nodes,
+  getEdges:    (noteId) => getCanvasData(noteId).edges,
+  getViewport: (noteId) => get().uiState[noteId]?.viewport ?? getCanvasData(noteId).viewport,
+  getSelectedNodeIds: (noteId) => get().uiState[noteId]?.selectedNodeIds ?? [],
 
-  loadCanvas: async (id) => {
-    if (get().canvases[id]) return;
-    
-    set((s) => ({ 
-      canvases: { ...s.canvases, [id]: { ...s.canvases[id], loading: true } }
-    }));
-    
-    const row = await getCanvas(id);
-    if (!row) { 
-      set((s) => ({ 
-        canvases: { ...s.canvases, [id]: { name: "", nodes: [], edges: [], viewport: DEFAULT_VIEWPORT, selectedNodeIds: [], loading: false } }
-      }));
-      return; 
-    }
-    
-    const data = JSON.parse(row.data);
+  addNode: (noteId, node) => {
+    const { nodes, edges, viewport } = getCanvasData(noteId);
+    persistToNote(noteId, [...nodes, node], edges, viewport);
+  },
+
+  updateNode: (noteId, id, updates) => {
+    const { nodes, edges, viewport } = getCanvasData(noteId);
+    persistToNote(
+      noteId,
+      nodes.map((n) => n.id === id ? { ...n, ...updates } : n),
+      edges,
+      viewport
+    );
+  },
+
+  deleteNode: (noteId, id) => {
+    const { nodes, edges, viewport } = getCanvasData(noteId);
+    persistToNote(
+      noteId,
+      nodes.filter((n) => n.id !== id),
+      edges.filter((e) => e.from !== id && e.to !== id),
+      viewport
+    );
+  },
+
+  moveNode: (noteId, id, x, y) => {
+    const { nodes, edges, viewport } = getCanvasData(noteId);
+    persistToNote(
+      noteId,
+      nodes.map((n) => n.id === id ? { ...n, x, y } : n),
+      edges,
+      viewport
+    );
+  },
+
+  addEdge: (noteId, edge) => {
+    const { nodes, edges, viewport } = getCanvasData(noteId);
+    persistToNote(noteId, nodes, [...edges, edge], viewport);
+  },
+
+  deleteEdge: (noteId, id) => {
+    const { nodes, edges, viewport } = getCanvasData(noteId);
+    persistToNote(noteId, nodes, edges.filter((e) => e.id !== id), viewport);
+  },
+
+  selectNodes: (noteId, ids) => {
     set((s) => ({
-      activeCanvasId: id,
-      canvases: {
-        ...s.canvases,
-        [id]: {
-          name: row.name,
-          nodes: data.nodes ?? [],
-          edges: data.edges ?? [],
-          viewport: data.viewport ?? DEFAULT_VIEWPORT,
-          selectedNodeIds: [],
-          loading: false,
-        }
-      }
+      uiState: {
+        ...s.uiState,
+        [noteId]: { ...s.uiState[noteId], selectedNodeIds: ids },
+      },
     }));
   },
 
-  createCanvas: async (name) => {
-    const id = makeId();
-    await createCanvasInDb(id, name);
-    return { id, name, nodes: [], edges: [], viewport: DEFAULT_VIEWPORT, createdAt: String(Date.now()), updatedAt: String(Date.now()) };
-  },
-
-  updateCanvasName: async (id, name) => {
-    await saveCanvasName(id, name);
+  clearSelection: (noteId) => {
     set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [id]: { ...s.canvases[id], name }
-      }
+      uiState: {
+        ...s.uiState,
+        [noteId]: { ...s.uiState[noteId], selectedNodeIds: [] },
+      },
     }));
   },
 
-  addNode: (canvasId, node) => {
+  setViewport: (noteId, viewport) => {
     set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: { ...s.canvases[canvasId], nodes: [...s.canvases[canvasId].nodes, node] }
-      }
-    }));
-    get().persist(canvasId);
-  },
-
-  updateNode: (canvasId, id, updates) => {
-    set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: {
-          ...s.canvases[canvasId],
-          nodes: s.canvases[canvasId].nodes.map((n) => n.id === id ? { ...n, ...updates } : n)
-        }
-      }
-    }));
-    get().persist(canvasId);
-  },
-
-  deleteNode: (canvasId, id) => {
-    set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: {
-          ...s.canvases[canvasId],
-          nodes: s.canvases[canvasId].nodes.filter((n) => n.id !== id),
-          edges: s.canvases[canvasId].edges.filter((e) => e.from !== id && e.to !== id)
-        }
-      }
-    }));
-    get().persist(canvasId);
-  },
-
-  moveNode: (canvasId, id, x, y) => {
-    set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: {
-          ...s.canvases[canvasId],
-          nodes: s.canvases[canvasId].nodes.map((n) => n.id === id ? { ...n, x, y } : n)
-        }
-      }
+      uiState: {
+        ...s.uiState,
+        [noteId]: { ...s.uiState[noteId], viewport },
+      },
     }));
   },
 
-  addEdge: (canvasId, edge) => {
-    set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: { ...s.canvases[canvasId], edges: [...s.canvases[canvasId].edges, edge] }
-      }
-    }));
-    get().persist(canvasId);
+  pan: (noteId, dx, dy) => {
+    const vp = get().getViewport(noteId);
+    get().setViewport(noteId, { ...vp, x: vp.x + dx, y: vp.y + dy });
   },
 
-  deleteEdge: (canvasId, id) => {
-    set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: {
-          ...s.canvases[canvasId],
-          edges: s.canvases[canvasId].edges.filter((e) => e.id !== id)
-        }
-      }
-    }));
-    get().persist(canvasId);
-  },
-
-  selectNodes: (canvasId, ids) => {
-    set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: { ...s.canvases[canvasId], selectedNodeIds: ids }
-      }
-    }));
-  },
-
-  clearSelection: (canvasId) => {
-    set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: { ...s.canvases[canvasId], selectedNodeIds: [] }
-      }
-    }));
-  },
-
-  setViewport: (canvasId, viewport) => {
-    set((s) => ({
-      canvases: {
-        ...s.canvases,
-        [canvasId]: { ...s.canvases[canvasId], viewport }
-      }
-    }));
-  },
-
-  pan: (canvasId, dx, dy) => {
-    set((s) => {
-      const vp = s.canvases[canvasId]?.viewport || DEFAULT_VIEWPORT;
-      return {
-        canvases: {
-          ...s.canvases,
-          [canvasId]: {
-            ...s.canvases[canvasId],
-            viewport: { ...vp, x: vp.x + dx, y: vp.y + dy }
-          }
-        }
-      };
+  zoom: (noteId, delta, originX, originY) => {
+    const { x, y, zoom } = get().getViewport(noteId);
+    const factor    = delta > 0 ? 1.1 : 0.9;
+    const newZoom   = Math.min(Math.max(zoom * factor, 0.1), 5);
+    const zoomRatio = newZoom / zoom;
+    get().setViewport(noteId, {
+      x: originX - (originX - x) * zoomRatio,
+      y: originY - (originY - y) * zoomRatio,
+      zoom: newZoom,
     });
-  },
-
-  zoom: (canvasId, delta, originX, originY) => {
-    set((s) => {
-      const { x, y, zoom } = s.canvases[canvasId]?.viewport || DEFAULT_VIEWPORT;
-      const factor = delta > 0 ? 1.1 : 0.9;
-      const newZoom = Math.min(Math.max(zoom * factor, 0.1), 5);
-      const zoomRatio = newZoom / zoom;
-      return {
-        canvases: {
-          ...s.canvases,
-          [canvasId]: {
-            ...s.canvases[canvasId],
-            viewport: {
-              x: originX - (originX - x) * zoomRatio,
-              y: originY - (originY - y) * zoomRatio,
-              zoom: newZoom,
-            }
-          }
-        }
-      };
-    });
-  },
-
-  persist: async (canvasId) => {
-    const canvas = get().canvases[canvasId];
-    if (!canvas) return;
-    await saveCanvas(canvasId, { nodes: canvas.nodes, edges: canvas.edges, viewport: canvas.viewport });
   },
 }));

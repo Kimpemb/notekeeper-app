@@ -232,4 +232,8 @@ export const ALL_MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   )`,
+
+  `ALTER TABLE notes ADD COLUMN is_canvas INTEGER NOT NULL DEFAULT 0`,
+
+  `ALTER TABLE notes ADD COLUMN canvas_state TEXT DEFAULT NULL`,
 ];
