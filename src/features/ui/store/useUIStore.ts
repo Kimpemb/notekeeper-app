@@ -588,7 +588,6 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     replaceTab: (noteId) => {
   const { tabs, activeTabId } = get();
-  console.log("replaceTab called", { noteId, activeTabId, tabs: tabs.map(t => ({ id: t.id, noteId: t.noteId, canvasId: t.canvasId })) });
   
   if (tabs.length === 0 || activeTabId === null) {
     const tab: Tab = { id: makeTabId(), noteId };
