@@ -339,32 +339,31 @@ export const useUIStore = create<UIStore>((set, get) => {
     toggleTheme: () => { const next = get().theme === "dark" ? "light" : "dark"; applyTheme(next, true); set({ theme: next }); },
     setTheme: (theme) => { applyTheme(theme, true); set({ theme }); },
     loadSettings: async () => {
-  await setSetting(SESSION_KEY, "");  // ← add this line, remove after one run
-      const theme = await getSetting("theme");
-      if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
-      
-      const savedRightPanel = await getSetting("rightPanelOpen");
-      if (savedRightPanel !== null) {
-        set({ rightPanelOpen: savedRightPanel === "true" });
-      }
-      
-      try {
-        const raw = await getSetting(SESSION_KEY);
-        if (raw) {
-          const session: SessionPersist = JSON.parse(raw);
-          set({
-            tabs: session.tabs ?? [],
-            activeTabId: session.activeTabId ?? null,
-            pane2Tabs: session.pane2Tabs ?? [],
-            pane2ActiveTabId: session.pane2ActiveTabId ?? null,
-            splitOpen: session.splitOpen ?? false,
-            splitDirection: session.splitDirection ?? "horizontal",
-            canvasTabs: session.canvasTabs ?? [],
-            activeCanvasTabId: session.activeCanvasTabId ?? null,
-          });
-        }
-      } catch { /**/ }
-    },
+  const theme = await getSetting("theme");
+  if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
+  
+  const savedRightPanel = await getSetting("rightPanelOpen");
+  if (savedRightPanel !== null) {
+    set({ rightPanelOpen: savedRightPanel === "true" });
+  }
+  
+  try {
+    const raw = await getSetting(SESSION_KEY);
+    if (raw) {
+      const session: SessionPersist = JSON.parse(raw);
+      set({
+        tabs: session.tabs ?? [],
+        activeTabId: session.activeTabId ?? null,
+        pane2Tabs: session.pane2Tabs ?? [],
+        pane2ActiveTabId: session.pane2ActiveTabId ?? null,
+        splitOpen: session.splitOpen ?? false,
+        splitDirection: session.splitDirection ?? "horizontal",
+        canvasTabs: session.canvasTabs ?? [],
+        activeCanvasTabId: session.activeCanvasTabId ?? null,
+      });
+    }
+  } catch { /**/ }
+},
 
     // ─── Settings modal ───────────────────────────────────────────────────────
     settingsOpen: false,
