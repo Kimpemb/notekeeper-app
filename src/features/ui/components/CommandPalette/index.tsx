@@ -298,8 +298,9 @@ export function CommandPalette() {
   const setActiveNote      = useNoteStore((s) => s.setActiveNote);
   const loadNotes          = useNoteStore((s) => s.loadNotes);
   const activePaneId       = useUIStore((s) => s.activePaneId);
-  const openTabInPane2     = useUIStore((s) => s.openTabInPane2);
   const createOrOpenDailyNote = useNoteStore((s) => s.createOrOpenDailyNote);
+  const replaceTab = useUIStore((s) => s.replaceTab);
+const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
 
   const [query, setQuery]                   = useState("");
   const [selectedNote, setSelectedNote]     = useState(0);
@@ -533,13 +534,14 @@ export function CommandPalette() {
   const noteList = query.trim() ? searchedNotes : recentNotes;
 
   function openNote(noteId: string) {
-    if (activePaneId === 2) {
-      openTabInPane2(noteId);
-    } else {
-      setActiveNote(noteId);
-    }
-    closePalette();
+  if (activePaneId === 2) {
+    replacePane2Tab(noteId);  // Change from openTabInPane2 to replacePane2Tab
+  } else {
+    replaceTab(noteId);       // Add this - update UI store tab
+    setActiveNote(noteId);    // Keep this for nav history
   }
+  closePalette();
+}
 
   function handleInputKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Tab") {
