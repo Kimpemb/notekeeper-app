@@ -159,22 +159,40 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     return navIndex < navHistory.length - 1;
   },
 
-  goBack: () => {
+  goBack: async () => {
     const { navHistory, navIndex } = get();
     if (navIndex <= 0) return;
     const newIndex = navIndex - 1;
     const id = navHistory[newIndex];
-    set({ navIndex: newIndex, activeNoteId: id });
-    get().recordVisit(id).catch(console.error);
+
+    const { useCanvasStore } = await import("@/features/canvas/store/useCanvasStore");
+    const canvas = useCanvasStore.getState().canvases[id];
+    if (canvas) {
+      set({ navIndex: newIndex }); // don't set activeNoteId to a canvas ID
+      const { useUIStore } = await import("@/features/ui/store/useUIStore");
+      useUIStore.getState().openCanvas(id, canvas.name);
+    } else {
+      set({ navIndex: newIndex, activeNoteId: id });
+      get().recordVisit(id).catch(console.error);
+    }
   },
 
-  goForward: () => {
+  goForward: async () => {
     const { navHistory, navIndex } = get();
     if (navIndex >= navHistory.length - 1) return;
     const newIndex = navIndex + 1;
     const id = navHistory[newIndex];
-    set({ navIndex: newIndex, activeNoteId: id });
-    get().recordVisit(id).catch(console.error);
+
+    const { useCanvasStore } = await import("@/features/canvas/store/useCanvasStore");
+    const canvas = useCanvasStore.getState().canvases[id];
+    if (canvas) {
+      set({ navIndex: newIndex }); // don't set activeNoteId to a canvas ID
+      const { useUIStore } = await import("@/features/ui/store/useUIStore");
+      useUIStore.getState().openCanvas(id, canvas.name);
+    } else {
+      set({ navIndex: newIndex, activeNoteId: id });
+      get().recordVisit(id).catch(console.error);
+    }
   },
 
   activeNote: () => {

@@ -379,7 +379,7 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
                 {tab.noteId === null && !tab.canvasId ? (
                   <NewTabScreen paneId={paneId} />
                 ) : tab.canvasId ? (
-                  <CanvasWorkspace key={tab.canvasId} canvasId={tab.canvasId} />
+                  <CanvasWorkspace key={tab.canvasId} canvasId={tab.canvasId} paneId={paneId} />
                 ) : (
                   (() => {
                     const noteId = tab.noteId!;

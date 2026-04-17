@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { CanvasViewport } from "./CanvasViewport";
 import { useCanvasStore } from "../store/useCanvasStore";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 
 interface CanvasProps {
   canvasId: string;
@@ -15,6 +17,21 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
   const loadCanvas = useCanvasStore((s) => s.loadCanvas);
   const canvas = useCanvasStore((s) => s.canvases[canvasId]);
   const updateName = useCanvasStore((s) => s.updateCanvasName);
+  
+  // Global navigation from note store (pane 1)
+  const goBack = useNoteStore((s) => s.goBack);
+  const goForward = useNoteStore((s) => s.goForward);
+  const canGoBack = useNoteStore((s) => s.canGoBack());
+  const canGoForward = useNoteStore((s) => s.canGoForward());
+  
+  // Global navigation from UI store (pane 2)
+  const pane2GoBack = useUIStore((s) => s.pane2GoBack);
+  const pane2GoForward = useUIStore((s) => s.pane2GoForward);
+  const pane2CanGoBack = useUIStore((s) => s.pane2CanGoBack());
+  const pane2CanGoForward = useUIStore((s) => s.pane2CanGoForward());
+  const activePaneId = useUIStore((s) => s.activePaneId);
+  
+  const setActiveNote = useNoteStore((s) => s.setActiveNote);
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft,   setTitleDraft]   = useState("");
@@ -24,13 +41,18 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
   const loading = canvas?.loading ?? true;
 
   useEffect(() => { loadCanvas(canvasId); }, [canvasId, loadCanvas]);
+  
+  // Push to navigation history when canvas loads
+  useEffect(() => {
+    if (!loading && canvasId) {
+      setActiveNote(canvasId, false);
+    }
+  }, [canvasId, loading, setActiveNote]);
 
-  // Keep draft in sync when canvasName changes externally (e.g. after load)
   useEffect(() => {
     if (!editingTitle) setTitleDraft(canvasName || "");
   }, [canvasName, editingTitle]);
 
-  // Mirror span drives the input width naturally
   useEffect(() => {
     if (mirrorRef.current) {
       const w = mirrorRef.current.offsetWidth;
@@ -59,6 +81,25 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
     }
   };
 
+  const handleGoBack = () => {
+    if (activePaneId === 2) {
+      pane2GoBack();
+    } else {
+      goBack();
+    }
+  };
+
+  const handleGoForward = () => {
+    if (activePaneId === 2) {
+      pane2GoForward();
+    } else {
+      goForward();
+    }
+  };
+
+  const isBackDisabled = activePaneId === 2 ? !pane2CanGoBack : !canGoBack;
+  const isForwardDisabled = activePaneId === 2 ? !pane2CanGoForward : !canGoForward;
+
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-idemora-bg-primary">
@@ -67,7 +108,6 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
     );
   }
 
-  // "Untitled" is placeholder-styled; any real name renders at full opacity
   const isUntitled    = !canvasName || canvasName === "Untitled";
   const displayName   = isUntitled ? "Untitled" : canvasName;
   const labelOpacity  = isUntitled
@@ -76,33 +116,54 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
 
   return (
     <div className="flex flex-col w-full h-full bg-idemora-bg-primary overflow-hidden">
-
-      {/* ── Title bar ── */}
+      {/* Title bar with back/forward buttons */}
       <div
-        className="flex items-center px-4 shrink-0"
+        className="flex items-center px-3 gap-2 shrink-0 relative"
         style={{
-          height:       34,
+          height: 34,
           borderBottom: "1px solid rgba(255,255,255,0.05)",
         }}
       >
-        {/* Hidden mirror span — measures text width for the input */}
+        {/* Back button */}
+        <button
+          onClick={handleGoBack}
+          disabled={isBackDisabled}
+          className="w-7 h-7 flex items-center justify-center rounded-md transition-colors shrink-0 disabled:opacity-30 enabled:hover:bg-black/6 dark:enabled:hover:bg-white/7 enabled:cursor-pointer text-white"
+          title="Go back (Ctrl+[)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+
+        {/* Forward button */}
+        <button
+          onClick={handleGoForward}
+          disabled={isForwardDisabled}
+          className="w-7 h-7 flex items-center justify-center rounded-md transition-colors shrink-0 disabled:opacity-30 enabled:hover:bg-black/6 dark:enabled:hover:bg-white/7 enabled:cursor-pointer text-white"
+          title="Go forward (Ctrl+])"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+        </button>
+
+        {/* Hidden mirror span - absolutely positioned */}
         <span
           ref={mirrorRef}
           aria-hidden
+          className="absolute invisible whitespace-pre pointer-events-none"
           style={{
-            position:    "absolute",
-            visibility:  "hidden",
-            whiteSpace:  "pre",
-            fontSize:    13,
-            fontWeight:  500,
+            fontSize: 13,
+            fontWeight: 500,
             letterSpacing: "0.02em",
-            fontFamily:  "inherit",
-            pointerEvents: "none",
+            fontFamily: "inherit",
           }}
         >
           {titleDraft || " "}
         </span>
 
+        {/* Title */}
         {editingTitle ? (
           <input
             ref={titleInputRef}
@@ -112,17 +173,14 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
             onKeyDown={handleTitleKeyDown}
             placeholder="Untitled"
             autoFocus
+            className="bg-transparent border-none outline-none p-0 font-medium"
             style={{
-              width:       inputWidth,
-              background:  "transparent",
-              border:      "none",
-              outline:     "none",
-              fontSize:    13,
-              fontWeight:  500,
+              width: inputWidth,
+              fontSize: 13,
+              fontWeight: 500,
               letterSpacing: "0.02em",
-              color:       "rgba(226,232,240,0.85)",
-              padding:     0,
-              fontFamily:  "inherit",
+              color: "rgba(226,232,240,0.85)",
+              fontFamily: "inherit",
             }}
           />
         ) : (
@@ -131,15 +189,13 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
             title="Double-click to rename"
+            className="cursor-default select-none transition-colors duration-200"
             style={{
-              fontSize:      13,
-              fontWeight:    500,
+              fontSize: 13,
+              fontWeight: 500,
               letterSpacing: "0.02em",
-              color:         `rgba(226,232,240,${labelOpacity})`,
-              cursor:        "default",
-              userSelect:    "none",
-              transition:    "color 0.2s ease",
-              fontStyle:     isUntitled ? "italic" : "normal",
+              color: `rgba(226,232,240,${labelOpacity})`,
+              fontStyle: isUntitled ? "italic" : "normal",
             }}
           >
             {displayName}
@@ -147,11 +203,8 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
         )}
       </div>
 
-      {/* ── Canvas area ── */}
-      <div
-        ref={containerRef}
-        className="relative flex-1 overflow-hidden"
-      >
+      {/* Canvas area */}
+      <div ref={containerRef} className="relative flex-1 overflow-hidden">
         <CanvasViewport canvasId={canvasId} containerRef={containerRef} />
       </div>
     </div>
