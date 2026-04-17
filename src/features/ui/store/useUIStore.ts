@@ -19,6 +19,14 @@ export type RightPanelType = "outline" | "backlinks" | "similar" | "chat" | "ver
 export interface Tab {
   id: string;
   noteId: string | null;
+  canvasId?: string;      // add this
+  type?: "note" | "canvas"; // add this
+}
+
+export interface CanvasTab {
+  id: string;
+  canvasId: string;
+  name: string;
 }
 
 export interface GraphViewState {
@@ -50,10 +58,22 @@ interface SessionPersist {
   pane2ActiveTabId: string | null;
   splitOpen: boolean;
   splitDirection: SplitDirection;
+  canvasTabs?: CanvasTab[];
+  activeCanvasTabId?: string | null;
 }
 
-function saveSession(state: SessionPersist) {
-  setSetting(SESSION_KEY, JSON.stringify(state)).catch(console.error);
+function saveSession(state: UIStore) {
+  const persist: SessionPersist = {
+    tabs: state.tabs,
+    activeTabId: state.activeTabId,
+    pane2Tabs: state.pane2Tabs,
+    pane2ActiveTabId: state.pane2ActiveTabId,
+    splitOpen: state.splitOpen,
+    splitDirection: state.splitDirection,
+    canvasTabs: state.canvasTabs,
+    activeCanvasTabId: state.activeCanvasTabId,
+  };
+  setSetting(SESSION_KEY, JSON.stringify(persist)).catch(console.error);
 }
 
 function makeTabId(): string {
@@ -165,13 +185,13 @@ interface UIStore {
   closeTips: () => void;
   toggleTips: () => void;
 
-// ─── Tags panel — per pane (right side) ────────────────────────────────────
-pane1TagsOpen: boolean;
-pane2TagsOpen: boolean;
-openTags: (pane: 1 | 2) => void;
-closeTags: (pane: 1 | 2) => void;
-toggleTags: (pane: 1 | 2) => void;
-tagsOpen: (pane: 1 | 2) => boolean;
+  // ─── Tags panel — per pane (right side) ────────────────────────────────────
+  pane1TagsOpen: boolean;
+  pane2TagsOpen: boolean;
+  openTags: (pane: 1 | 2) => void;
+  closeTags: (pane: 1 | 2) => void;
+  toggleTags: (pane: 1 | 2) => void;
+  tagsOpen: (pane: 1 | 2) => boolean;
   
   // ─── Graph view ───────────────────────────────────────────────────────────
   graphOpen: boolean;
@@ -230,8 +250,8 @@ tagsOpen: (pane: 1 | 2) => boolean;
   // Helper to check if any right panel is active
   anyRightPanelActive: (pane: 1 | 2) => boolean;
 
-  activeEditor: any; // Use 'any' to avoid importing Editor type
-setActiveEditor: (editor: any) => void;
+  activeEditor: any;
+  setActiveEditor: (editor: any) => void;
 
   // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
   tabs: Tab[];
@@ -264,6 +284,13 @@ setActiveEditor: (editor: any) => void;
   activePaneId: 1 | 2;
   setActivePaneId: (pane: 1 | 2) => void;
   paneActiveNoteId: (pane: 1 | 2) => string | null;
+
+  // ─── Canvas tabs ─────────────────────────────────────────────────────────
+  canvasTabs: CanvasTab[];
+  activeCanvasTabId: string | null;
+  openCanvas: (canvasId: string, canvasName?: string) => void;
+  closeCanvasTab: (tabId: string) => void;
+  setActiveCanvasTab: (tabId: string) => void;
 
   // ─── Closed tab history ───────────────────────────────────────────────────
   closedTabs: ClosedTab[];
@@ -316,31 +343,31 @@ export const useUIStore = create<UIStore>((set, get) => {
     toggleTheme: () => { const next = get().theme === "dark" ? "light" : "dark"; applyTheme(next, true); set({ theme: next }); },
     setTheme: (theme) => { applyTheme(theme, true); set({ theme }); },
     loadSettings: async () => {
-  const theme = await getSetting("theme");
-  if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
-  
-  const savedRightPanel = await getSetting("rightPanelOpen");
-  if (savedRightPanel !== null) {
-    set({ rightPanelOpen: savedRightPanel === "true" });
-  }
-  
-  try {
-    const raw = await getSetting(SESSION_KEY);
-    if (raw) {
-      const session: SessionPersist = JSON.parse(raw);
-      if (session.tabs?.length) {
-        set({
-          tabs: session.tabs,
-          activeTabId: session.activeTabId,
-          pane2Tabs: session.pane2Tabs ?? [],
-          pane2ActiveTabId: session.pane2ActiveTabId ?? null,
-          splitOpen: session.splitOpen ?? false,
-          splitDirection: session.splitDirection ?? "horizontal",
-        });
+      const theme = await getSetting("theme");
+      if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
+      
+      const savedRightPanel = await getSetting("rightPanelOpen");
+      if (savedRightPanel !== null) {
+        set({ rightPanelOpen: savedRightPanel === "true" });
       }
-    }
-  } catch { /**/ }
-},
+      
+      try {
+        const raw = await getSetting(SESSION_KEY);
+        if (raw) {
+          const session: SessionPersist = JSON.parse(raw);
+          set({
+            tabs: session.tabs ?? [],
+            activeTabId: session.activeTabId ?? null,
+            pane2Tabs: session.pane2Tabs ?? [],
+            pane2ActiveTabId: session.pane2ActiveTabId ?? null,
+            splitOpen: session.splitOpen ?? false,
+            splitDirection: session.splitDirection ?? "horizontal",
+            canvasTabs: session.canvasTabs ?? [],
+            activeCanvasTabId: session.activeCanvasTabId ?? null,
+          });
+        }
+      } catch { /**/ }
+    },
 
     // ─── Settings modal ───────────────────────────────────────────────────────
     settingsOpen: false,
@@ -441,13 +468,13 @@ export const useUIStore = create<UIStore>((set, get) => {
     closeOutline: (pane) => set(pane === 1 ? { pane1OutlineOpen: false } : { pane2OutlineOpen: false }),
     outlineOpen: (pane) => pane === 1 ? get().pane1OutlineOpen : get().pane2OutlineOpen,
 
-// ─── Tags — per pane (right side) ───────────────────────────────────────────
-pane1TagsOpen: false,
-pane2TagsOpen: false,
-openTags: (pane) => set(pane === 1 ? { pane1TagsOpen: true } : { pane2TagsOpen: true }),
-closeTags: (pane) => set(pane === 1 ? { pane1TagsOpen: false } : { pane2TagsOpen: false }),
-toggleTags: (pane) => set((s) => pane === 1 ? { pane1TagsOpen: !s.pane1TagsOpen } : { pane2TagsOpen: !s.pane2TagsOpen }),
-tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
+    // ─── Tags — per pane (right side) ───────────────────────────────────────────
+    pane1TagsOpen: false,
+    pane2TagsOpen: false,
+    openTags: (pane) => set(pane === 1 ? { pane1TagsOpen: true } : { pane2TagsOpen: true }),
+    closeTags: (pane) => set(pane === 1 ? { pane1TagsOpen: false } : { pane2TagsOpen: false }),
+    toggleTags: (pane) => set((s) => pane === 1 ? { pane1TagsOpen: !s.pane1TagsOpen } : { pane2TagsOpen: !s.pane2TagsOpen }),
+    tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
 
     // ─── Import ───────────────────────────────────────────────────────────────
     importOpen: false,
@@ -507,61 +534,58 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
     exportHandlers: null,
     setExportHandlers: (handlers) => set({ exportHandlers: handlers }),
 
-    // ─── Right Panel Management (NEW - Single Source of Truth) ────────────────
+    // ─── Right Panel Management ───────────────────────────────────────────────
     rightPanelOpen: true,
     
     setRightPanelOpen: (open) => {
-  set({ rightPanelOpen: open });
-  // Add this line:
-  setSetting("rightPanelOpen", String(open)).catch(console.error);
-},
+      set({ rightPanelOpen: open });
+      setSetting("rightPanelOpen", String(open)).catch(console.error);
+    },
     
     toggleRightPanel: () => {
-  const { rightPanelOpen, activePaneId, resetRightPanelsForPane } = get();
-  const newState = !rightPanelOpen;
-  
-  if (newState === false) {
-    // When closing, reset all right panel states
-    resetRightPanelsForPane(activePaneId);
-  }
-  
-  set({ rightPanelOpen: newState });
-  setSetting("rightPanelOpen", String(newState)).catch(console.error);
-},
+      const { rightPanelOpen, activePaneId, resetRightPanelsForPane } = get();
+      const newState = !rightPanelOpen;
+      
+      if (newState === false) {
+        resetRightPanelsForPane(activePaneId);
+      }
+      
+      set({ rightPanelOpen: newState });
+      setSetting("rightPanelOpen", String(newState)).catch(console.error);
+    },
     
     resetRightPanelsForPane: (pane: 1 | 2) => {
-  if (pane === 1) {
-    set({
-      pane1OutlineOpen: false,
-      pane1BacklinksOpen: false,
-      pane1SimilarOpen: false,
-      chatOpen1: false,
-      pane1VersionHistoryOpen: false,
-      pane1TagsOpen: false,  // ← ADD THIS
-    });
-  } else {
-    set({
-      pane2OutlineOpen: false,
-      pane2BacklinksOpen: false,
-      pane2SimilarOpen: false,
-      chatOpen2: false,
-      pane2VersionHistoryOpen: false,
-      pane2TagsOpen: false,  // ← ADD THIS
-    });
-  }
-},
+      if (pane === 1) {
+        set({
+          pane1OutlineOpen: false,
+          pane1BacklinksOpen: false,
+          pane1SimilarOpen: false,
+          chatOpen1: false,
+          pane1VersionHistoryOpen: false,
+          pane1TagsOpen: false,
+        });
+      } else {
+        set({
+          pane2OutlineOpen: false,
+          pane2BacklinksOpen: false,
+          pane2SimilarOpen: false,
+          chatOpen2: false,
+          pane2VersionHistoryOpen: false,
+          pane2TagsOpen: false,
+        });
+      }
+    },
     
     anyRightPanelActive: (pane: 1 | 2) => {
-  const s = get();
-  if (pane === 1) {
-    return s.pane1OutlineOpen || s.pane1BacklinksOpen || s.pane1SimilarOpen || s.chatOpen1 || s.pane1VersionHistoryOpen || s.pane1TagsOpen;
-  }
-  return s.pane2OutlineOpen || s.pane2BacklinksOpen || s.pane2SimilarOpen || s.chatOpen2 || s.pane2VersionHistoryOpen || s.pane2TagsOpen;
-},
-
+      const s = get();
+      if (pane === 1) {
+        return s.pane1OutlineOpen || s.pane1BacklinksOpen || s.pane1SimilarOpen || s.chatOpen1 || s.pane1VersionHistoryOpen || s.pane1TagsOpen;
+      }
+      return s.pane2OutlineOpen || s.pane2BacklinksOpen || s.pane2SimilarOpen || s.chatOpen2 || s.pane2VersionHistoryOpen || s.pane2TagsOpen;
+    },
 
     activeEditor: null,
-  setActiveEditor: (editor) => set({ activeEditor: editor }),
+    setActiveEditor: (editor) => set({ activeEditor: editor }),
 
     // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
     tabs: [], activeTabId: null,
@@ -571,25 +595,25 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       if (tabs.length === 0 || activeTabId === null) {
         const tab: Tab = { id: makeTabId(), noteId };
         set({ tabs: [tab], activeTabId: tab.id });
-        saveSession({ ...get(), tabs: [tab], activeTabId: tab.id });
+        saveSession(get());
         return;
       }
       const existing = tabs.find((t) => t.noteId === noteId);
       if (existing) {
         set({ activeTabId: existing.id });
-        saveSession({ ...get(), activeTabId: existing.id });
+        saveSession(get());
         return;
       }
       const activeTab = tabs.find((t) => t.id === activeTabId);
       if (activeTab && activeTab.noteId === null) {
         const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
         set({ tabs: next });
-        saveSession({ ...get(), tabs: next });
+        saveSession(get());
         return;
       }
       const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
       set({ tabs: next });
-      saveSession({ ...get(), tabs: next });
+      saveSession(get());
     },
 
     openTab: (noteId) => {
@@ -597,7 +621,7 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       const tab: Tab = { id: makeTabId(), noteId };
       const next = [...tabs, tab];
       set({ tabs: next, activeTabId: tab.id });
-      saveSession({ ...get(), tabs: next, activeTabId: tab.id });
+      saveSession(get());
       return tab;
     },
 
@@ -606,7 +630,7 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       const tab: Tab = { id: makeTabId(), noteId: null };
       const next = [...tabs, tab];
       set({ tabs: next, activeTabId: tab.id });
-      saveSession({ ...get(), tabs: next, activeTabId: tab.id });
+      saveSession(get());
       return tab;
     },
 
@@ -625,7 +649,7 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
         ? [...closedTabs, { noteId: closing.noteId, pane: 1 as const }].slice(-20)
         : closedTabs;
       set({ tabs: next, activeTabId: nextActiveTabId, closedTabs: nextClosed });
-      saveSession({ ...get(), tabs: next, activeTabId: nextActiveTabId });
+      saveSession(get());
     },
 
     closeTabsForNotes: (noteIds) => {
@@ -638,10 +662,10 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       if (pane2ActiveTabId && !next2.some((t) => t.id === pane2ActiveTabId)) nextActive2 = next2[next2.length - 1]?.id ?? null;
       const splitOpen = next2.length > 0 ? get().splitOpen : false;
       set({ tabs: next1, activeTabId: nextActive1, pane2Tabs: next2, pane2ActiveTabId: nextActive2, splitOpen });
-      saveSession({ ...get(), tabs: next1, activeTabId: nextActive1, pane2Tabs: next2, pane2ActiveTabId: nextActive2, splitOpen });
+      saveSession(get());
     },
 
-    setActiveTab: (tabId) => { set({ activeTabId: tabId }); saveSession({ ...get(), activeTabId: tabId }); },
+    setActiveTab: (tabId) => { set({ activeTabId: tabId }); saveSession(get()); },
 
     closeActiveTab: () => {
       const { activePaneId, activeTabId, pane2ActiveTabId } = get();
@@ -657,14 +681,14 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
         if (idx === -1) return;
         const nextId = pane2Tabs[(idx + dir + pane2Tabs.length) % pane2Tabs.length].id;
         set({ pane2ActiveTabId: nextId });
-        saveSession({ ...get(), pane2ActiveTabId: nextId });
+        saveSession(get());
       } else {
         if (tabs.length < 2) return;
         const idx = tabs.findIndex((t) => t.id === activeTabId);
         if (idx === -1) return;
         const nextId = tabs[(idx + dir + tabs.length) % tabs.length].id;
         set({ activeTabId: nextId });
-        saveSession({ ...get(), activeTabId: nextId });
+        saveSession(get());
       }
     },
 
@@ -681,12 +705,12 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       if (!splitOpen) {
         const tab: Tab = { id: makeTabId(), noteId };
         set({ splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id, activePaneId: 2 });
-        saveSession({ ...get(), splitOpen: true, pane2Tabs: [tab], pane2ActiveTabId: tab.id });
+        saveSession(get());
       } else {
         const tab: Tab = { id: makeTabId(), noteId };
         const next = [...pane2Tabs, tab];
         set({ pane2Tabs: next, pane2ActiveTabId: tab.id, activePaneId: 2 });
-        saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
+        saveSession(get());
       }
     },
 
@@ -699,13 +723,13 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
         pane2VersionHistoryOpen: false, chatOpen2: false,
         pane2NavHistory: [], pane2NavIndex: -1,
       });
-      saveSession({ ...get(), splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null });
+      saveSession(get());
     },
 
     toggleSplitDirection: () => {
       const next = get().splitDirection === "horizontal" ? "vertical" : "horizontal";
       set({ splitDirection: next });
-      saveSession({ ...get(), splitDirection: next });
+      saveSession(get());
     },
 
     swapPanes: () => {
@@ -726,10 +750,10 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
         pane1VersionHistoryOpen: pane2VersionHistoryOpen, pane2VersionHistoryOpen: pane1VersionHistoryOpen,
         chatOpen1: chatOpen2, chatOpen2: chatOpen1,
       });
-      saveSession({ ...get(), tabs: pane2Tabs, activeTabId: pane2ActiveTabId, pane2Tabs: tabs, pane2ActiveTabId: activeTabId });
+      saveSession(get());
     },
 
-    setPane2ActiveTab: (tabId) => { set({ pane2ActiveTabId: tabId }); saveSession({ ...get(), pane2ActiveTabId: tabId }); },
+    setPane2ActiveTab: (tabId) => { set({ pane2ActiveTabId: tabId }); saveSession(get()); },
 
     closePane2Tab: (tabId) => {
       const { pane2Tabs, pane2ActiveTabId, closedTabs } = get();
@@ -744,7 +768,7 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
         ? [...closedTabs, { noteId: closing.noteId, pane: 2 as const }].slice(-20)
         : closedTabs;
       set({ pane2Tabs: next, pane2ActiveTabId: nextActiveTabId, closedTabs: nextClosed });
-      saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: nextActiveTabId });
+      saveSession(get());
     },
 
     openTabInPane2: (noteId) => {
@@ -752,7 +776,7 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       const tab: Tab = { id: makeTabId(), noteId };
       const next = [...pane2Tabs, tab];
       set({ pane2Tabs: next, pane2ActiveTabId: tab.id });
-      saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
+      saveSession(get());
       get().pane2PushNav(noteId);
     },
 
@@ -761,7 +785,7 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       const tab: Tab = { id: makeTabId(), noteId: null };
       const next = [...pane2Tabs, tab];
       set({ pane2Tabs: next, pane2ActiveTabId: tab.id });
-      saveSession({ ...get(), pane2Tabs: next, pane2ActiveTabId: tab.id });
+      saveSession(get());
     },
 
     replacePane2Tab: (noteId) => {
@@ -769,14 +793,14 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       if (pane2Tabs.length === 0 || pane2ActiveTabId === null) {
         const tab: Tab = { id: makeTabId(), noteId };
         set({ pane2Tabs: [tab], pane2ActiveTabId: tab.id });
-        saveSession({ ...get(), pane2Tabs: [tab], pane2ActiveTabId: tab.id });
+        saveSession(get());
         get().pane2PushNav(noteId);
         return;
       }
       const existing = pane2Tabs.find((t) => t.noteId === noteId);
       if (existing) {
         set({ pane2ActiveTabId: existing.id });
-        saveSession({ ...get(), pane2ActiveTabId: existing.id });
+        saveSession(get());
         get().pane2PushNav(noteId);
         return;
       }
@@ -784,13 +808,13 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       if (activePane2Tab && activePane2Tab.noteId === null) {
         const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? { ...t, noteId } : t);
         set({ pane2Tabs: next });
-        saveSession({ ...get(), pane2Tabs: next });
+        saveSession(get());
         get().pane2PushNav(noteId);
         return;
       }
       const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? { ...t, noteId } : t);
       set({ pane2Tabs: next });
-      saveSession({ ...get(), pane2Tabs: next });
+      saveSession(get());
       get().pane2PushNav(noteId);
     },
 
@@ -801,6 +825,43 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
       const { tabs, activeTabId, pane2Tabs, pane2ActiveTabId } = get();
       if (pane === 2) return pane2Tabs.find((t) => t.id === pane2ActiveTabId)?.noteId ?? null;
       return tabs.find((t) => t.id === activeTabId)?.noteId ?? null;
+    },
+
+    // ─── Canvas tabs ─────────────────────────────────────────────────────────
+    canvasTabs: [],
+    activeCanvasTabId: null,
+
+    openCanvas: (canvasId: string, _canvasName?: string) => {
+      const { tabs } = get();
+      const existing = tabs.find((t) => t.canvasId === canvasId);
+      if (existing) {
+        set({ activeTabId: existing.id });
+        saveSession(get());
+        return;
+      }
+      const tab: Tab = { id: makeTabId(), noteId: null, canvasId, type: "canvas" };
+      const next = [...tabs, tab];
+      set({ tabs: next, activeTabId: tab.id });
+      saveSession(get());
+    },
+
+    closeCanvasTab: (tabId: string) => {
+      const { canvasTabs, activeCanvasTabId } = get();
+      const idx = canvasTabs.findIndex((t) => t.id === tabId);
+      if (idx === -1) return;
+      const next = canvasTabs.filter((t) => t.id !== tabId);
+      let nextActiveId = activeCanvasTabId;
+      if (activeCanvasTabId === tabId) {
+        const neighbour = next[idx] ?? next[idx - 1] ?? null;
+        nextActiveId = neighbour?.id ?? null;
+      }
+      set({ canvasTabs: next, activeCanvasTabId: nextActiveId });
+      saveSession(get());
+    },
+
+    setActiveCanvasTab: (tabId: string) => {
+      set({ activeCanvasTabId: tabId });
+      saveSession(get());
     },
 
     // ─── Closed tab history ───────────────────────────────────────────────────
@@ -841,7 +902,7 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
           pane2Tabs: s.pane2Tabs.map((t) => t.id === s.pane2ActiveTabId ? { ...t, noteId } : t),
         }));
       }
-      saveSession({ ...get() });
+      saveSession(get());
     },
     pane2GoForward: () => {
       const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
@@ -857,7 +918,7 @@ tagsOpen: (pane) => pane === 1 ? get().pane1TagsOpen : get().pane2TagsOpen,
           pane2Tabs: s.pane2Tabs.map((t) => t.id === s.pane2ActiveTabId ? { ...t, noteId } : t),
         }));
       }
-      saveSession({ ...get() });
+      saveSession(get());
     },
     pane2PushNav: (noteId) => {
       set((s) => {

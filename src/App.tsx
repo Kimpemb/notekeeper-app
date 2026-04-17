@@ -35,6 +35,7 @@ import { TagsPanel } from "@/features/notes/components/Sidebar/TagsPanel";
 import { BacklinksPanel } from "@/features/editor/components/Editor/BacklinksPanel";
 import { OutlinePanel } from "@/features/editor/components/Editor/OutlinePanel";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
+import { CanvasWorkspace } from "@/features/canvas/components/CanvasWorkspace";
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
@@ -375,11 +376,13 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
             const isActive = tab.id === paneActiveTabId;
             return (
               <div key={tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
-                {tab.noteId === null ? (
+                {tab.noteId === null && !tab.canvasId ? (
                   <NewTabScreen paneId={paneId} />
+                ) : tab.canvasId ? (
+                  <CanvasWorkspace canvasId={tab.canvasId} />
                 ) : (
                   (() => {
-                    const noteId = tab.noteId;
+                    const noteId = tab.noteId!;
                     return (
                       <Editor
                         key={noteId}

@@ -7,6 +7,7 @@ import { searchNotes } from "@/features/notes/db/queries";
 import { TEMPLATES } from "@/lib/templates";
 import type { Template } from "@/lib/templates";
 import type { SearchResult } from "@/features/notes/db/queries";
+import { useCanvasStore } from "@/features/canvas/store/useCanvasStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -538,6 +539,27 @@ export function NewTabScreen({ paneId }: Props) {
             </svg>
             Templates
           </button>
+          <button
+  onClick={async () => {
+    const { createCanvas } = useCanvasStore.getState();
+    const { openCanvas } = useUIStore.getState();
+    const newCanvas = await createCanvas("Untitled Canvas");
+    openCanvas(newCanvas.id, newCanvas.name);
+  }}
+  className={`
+    flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+    transition-all duration-150
+    bg-idemora-bg-secondary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-primary
+  `}
+>
+  <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
+    <rect x="1" y="1" width="3.3" height="3.3" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
+    <rect x="5.7" y="1" width="3.3" height="3.3" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
+    <rect x="1" y="5.7" width="3.3" height="3.3" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
+    <rect x="5.7" y="5.7" width="3.3" height="3.3" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
+  New canvas
+</button>
         </div>
 
         {/* Body */}

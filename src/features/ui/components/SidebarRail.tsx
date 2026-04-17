@@ -2,6 +2,7 @@
 import { useCallback } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useCanvasStore } from "@/features/canvas/store/useCanvasStore";
 
 function RailButton({
   label,
@@ -46,9 +47,10 @@ export function SidebarRail() {
   const closeGraph            = useUIStore((s) => s.closeGraph);
   const createOrOpenDailyNote = useNoteStore((s) => s.createOrOpenDailyNote);
 
-  const createNewCanvas = useCallback(() => {
-    console.log("Create new canvas");
-  }, []);
+  const createNewCanvas = useCallback(async () => {
+  const canvas = await useCanvasStore.getState().createCanvas("Untitled Canvas");
+  useUIStore.getState().openCanvas(canvas.id, canvas.name);
+}, []);
 
   return (
     <div className="flex flex-col items-center w-12 h-full shrink-0 py-1.5 gap-1 bg-idemora-bg-secondary border-r border-idemora-border z-10">
@@ -76,7 +78,6 @@ export function SidebarRail() {
       </RailButton>
 
       <RailButton label="New canvas" onClick={createNewCanvas}>
-        {/* 7/10 rated canvas icon - layout-dashboard from Lucide */}
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="3" width="9" height="9" rx="1.5"/>
           <rect x="13" y="3" width="9" height="5" rx="1.5"/>

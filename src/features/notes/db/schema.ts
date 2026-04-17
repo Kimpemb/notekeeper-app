@@ -224,4 +224,12 @@ export const ALL_MIGRATIONS: string[] = [
     message_count INTEGER NOT NULL DEFAULT 0,
     updated_at  INTEGER NOT NULL
   )`,
+
+  `CREATE TABLE IF NOT EXISTS canvases (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT 'Untitled Canvas',
+    data       TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
 ];

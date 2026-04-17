@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useCanvasStore } from "@/features/canvas/store/useCanvasStore";
 
 interface ContextMenu { x: number; y: number; tabId: string; noteId: string; flip: boolean; }
 
 export function TabBar() {
   const notes = useNoteStore((s) => s.notes);
+const canvases = useCanvasStore((s) => s.canvases);
   const activePaneId = useUIStore((s) => s.activePaneId);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
   
@@ -40,7 +42,14 @@ export function TabBar() {
       >
         {tabs.map((tab) => {
           const note = tab.noteId ? notes.find((n) => n.id === tab.noteId) : null;
-          const title = tab.noteId === null ? "New tab" : note ? note.title : "…";
+          let title = "";
+          if (tab.canvasId) {
+  title = canvases[tab.canvasId]?.name || "Loading canvas...";
+} else if (tab.noteId === null) {
+            title = "New tab";
+          } else {
+            title = note ? note.title : "…";
+          }
           const isActive = tab.id === activeTabId;
 
           return (
@@ -60,7 +69,7 @@ export function TabBar() {
                 group relative flex items-center gap-2 shrink-0 cursor-pointer select-none px-3 h-8 w-40 text-sm font-medium transition-colors
                 ${isActive 
                   ? "bg-idemora-bg-primary text-idemora-text-normal rounded-t-md z-20" 
-                  : "bg-transparent text-idemora-text-muted hover:bg-black/[0.04] dark:hover:bg-white/[0.04] rounded-md"
+                  : "bg-transparent text-idemora-text-muted hover:bg-black/4 dark:hover:bg-white/4 rounded-md"
                 }
               `}
             >
@@ -92,7 +101,7 @@ export function TabBar() {
 
         <button
           onClick={() => openEmptyTab()}
-          className="shrink-0 p-1.5 text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.04] dark:hover:bg-white/[0.04] rounded-md transition-colors"
+          className="shrink-0 p-1.5 text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/4 dark:hover:bg-white/4 rounded-md transition-colors"
         >
           <svg width="12" height="12" viewBox="0 0 10 10" fill="none">
             <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -113,13 +122,13 @@ export function TabBar() {
         >
           <button
             onClick={() => { activePaneId === 1 ? useUIStore.getState().openTab(contextMenu.noteId) : openTabInPane2(contextMenu.noteId); setContextMenu(null); }}
-            className="w-full text-left px-3 py-2 text-xs hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
+            className="w-full text-left px-3 py-2 text-xs hover:bg-black/4 dark:hover:bg-white/4"
           >
             Open in new tab
           </button>
           <button
             onClick={() => { activePaneId === 1 ? openInSplit(contextMenu.noteId) : (useUIStore.getState().openTab(contextMenu.noteId), setActivePaneId(1)); setContextMenu(null); }}
-            className="w-full text-left px-3 py-2 text-xs hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
+            className="w-full text-left px-3 py-2 text-xs hover:bg-black/4 dark:hover:bg-white/4"
           >
             {activePaneId === 1 ? "Open in split pane" : "Open in main pane"}
           </button>
