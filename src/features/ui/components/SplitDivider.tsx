@@ -10,13 +10,13 @@ export function SplitDivider() {
 
   const isHorizontal = splitDirection === "horizontal";
 
-  const btnClass = "flex items-center justify-center w-5 h-5 rounded text-idemora-text-muted     transition-colors duration-100";
+  const btnClass = "flex items-center justify-center w-5 h-5 rounded text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100";
 
   if (isHorizontal) {
     return (
       <div className="group relative flex items-center justify-center w-2 shrink-0 h-full cursor-col-resize">
-        <div className="w-[1px] h-full bg-idemora-bg-primary  group-  transition-colors duration-150" />
-        <div className="absolute flex flex-col items-center gap-1 opacity-0 group- transition-opacity duration-150 bg-idemora-bg-primary border-idemora-border  rounded-lg py-1.5 px-1 shadow-md z-10">
+        <div className="w-[1px] h-full bg-idemora-border group-hover:bg-idemora-text-faint transition-colors duration-150" />
+        <div className="absolute flex flex-col items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-idemora-bg-primary border border-idemora-border rounded-lg py-1.5 px-1 shadow-md z-10">
           <button onClick={toggleSplitDirection} title="Switch to top/bottom split" className={btnClass}>
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
               <rect x="0.5" y="0.5" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
@@ -50,8 +50,8 @@ export function SplitDivider() {
 
   return (
     <div className="group relative flex items-center justify-center h-2.5 min-h-[10px] shrink-0 w-full cursor-row-resize">
-      <div className="h-[1px] w-full bg-idemora-bg-primary  group-  transition-colors duration-150" />
-      <div className="absolute flex flex-row items-center gap-1 opacity-0 group- transition-opacity duration-150 bg-idemora-bg-primary border-idemora-border  rounded-lg px-1.5 py-1 shadow-md z-10">
+      <div className="h-[1px] w-full bg-idemora-border group-hover:bg-idemora-text-faint transition-colors duration-150" />
+      <div className="absolute flex flex-row items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-idemora-bg-primary border border-idemora-border rounded-lg px-1.5 py-1 shadow-md z-10">
         <button onClick={toggleSplitDirection} title="Switch to side-by-side split" className={btnClass}>
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
             <rect x="0.5" y="0.5" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.1"/>
