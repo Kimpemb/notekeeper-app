@@ -173,7 +173,9 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       useUIStore.getState().openCanvas(id, canvas.name);
     } else {
       set({ navIndex: newIndex, activeNoteId: id });
-      get().recordVisit(id).catch(console.error);
+get().recordVisit(id).catch(console.error);
+const { useUIStore } = await import("@/features/ui/store/useUIStore");
+useUIStore.getState().replaceTab(id);
     }
   },
 
@@ -191,7 +193,9 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       useUIStore.getState().openCanvas(id, canvas.name);
     } else {
       set({ navIndex: newIndex, activeNoteId: id });
-      get().recordVisit(id).catch(console.error);
+get().recordVisit(id).catch(console.error);
+const { useUIStore } = await import("@/features/ui/store/useUIStore");
+useUIStore.getState().replaceTab(id);
     }
   },
 

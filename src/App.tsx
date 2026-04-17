@@ -199,12 +199,6 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
     checkForUpdates();
   }, [dbReady]);
 
-  useEffect(() => {
-    if (!activeNoteId) return;
-    const currentTabNoteId = useUIStore.getState().activeTabNoteId();
-    if (currentTabNoteId === null) return;
-    if (currentTabNoteId !== activeNoteId) replaceTab(activeNoteId);
-  }, [activeNoteId]);
 
   useEffect(() => {
     function handle() {

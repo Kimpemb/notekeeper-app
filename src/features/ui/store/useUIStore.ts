@@ -339,6 +339,7 @@ export const useUIStore = create<UIStore>((set, get) => {
     toggleTheme: () => { const next = get().theme === "dark" ? "light" : "dark"; applyTheme(next, true); set({ theme: next }); },
     setTheme: (theme) => { applyTheme(theme, true); set({ theme }); },
     loadSettings: async () => {
+  await setSetting(SESSION_KEY, "");  // ← add this line, remove after one run
       const theme = await getSetting("theme");
       if (theme === "light" || theme === "dark") { applyTheme(theme); set({ theme }); }
       
@@ -587,31 +588,27 @@ export const useUIStore = create<UIStore>((set, get) => {
     tabs: [], activeTabId: null,
 
     replaceTab: (noteId) => {
-      const { tabs, activeTabId } = get();
-      if (tabs.length === 0 || activeTabId === null) {
-        const tab: Tab = { id: makeTabId(), noteId };
-        set({ tabs: [tab], activeTabId: tab.id });
-        saveSession(get());
-        return;
-      }
-      const existing = tabs.find((t) => t.noteId === noteId);
-      if (existing) {
-        set({ activeTabId: existing.id });
-        saveSession(get());
-        return;
-      }
-      const activeTab = tabs.find((t) => t.id === activeTabId);
-      if (activeTab && activeTab.noteId === null) {
-        const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId, canvasId: undefined, type: undefined } : t);
-        set({ tabs: next });
-        saveSession(get());
-        return;
-      }
-      const newId = makeTabId();
-      const newTab: Tab = { id: newId, noteId };
-      set({ tabs: [...tabs, newTab], activeTabId: newId });
-      saveSession(get());
-    },
+  const { tabs, activeTabId } = get();
+  console.log("replaceTab called", { noteId, activeTabId, tabs: tabs.map(t => ({ id: t.id, noteId: t.noteId, canvasId: t.canvasId })) });
+  
+  if (tabs.length === 0 || activeTabId === null) {
+    const tab: Tab = { id: makeTabId(), noteId };
+    set({ tabs: [tab], activeTabId: tab.id });
+    saveSession(get());
+    return;
+  }
+  const existing = tabs.find((t) => t.noteId === noteId);
+  if (existing) {
+    set({ activeTabId: existing.id });
+    saveSession(get());
+    return;
+  }
+  
+  // REPLACE the current tab instead of creating a new one
+  const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId, canvasId: undefined, type: undefined } : t);
+  set({ tabs: next });
+  saveSession(get());
+},
 
     openTab: (noteId) => {
       const { tabs } = get();
@@ -831,25 +828,27 @@ export const useUIStore = create<UIStore>((set, get) => {
     activeCanvasTabId: null,
 
     openCanvas: (canvasId: string, _canvasName?: string) => {
-      const { tabs, activePaneId } = get();
-      const existing = tabs.find((t) => t.canvasId === canvasId);
-      if (existing) {
-        set({ activeTabId: existing.id });
-        saveSession(get());
-        return;
-      }
-      const tab: Tab = { id: makeTabId(), noteId: null, canvasId, type: "canvas" };
-      const next = [...tabs, tab];
-      set({ tabs: next, activeTabId: tab.id });
-      saveSession(get());
+  const { tabs, activeTabId, activePaneId } = get();
+  const existing = tabs.find((t) => t.canvasId === canvasId);
+  if (existing) {
+    set({ activeTabId: existing.id });
+    saveSession(get());
+    return;
+  }
+  const tab: Tab = { id: makeTabId(), noteId: null, canvasId, type: "canvas" };
+  const next = tabs.length > 0 && activeTabId !== null
+    ? tabs.map((t) => t.id === activeTabId ? tab : t)
+    : [...tabs, tab];
+  set({ tabs: next, activeTabId: tab.id });
+  saveSession(get());
 
-      // Push to the correct nav history
-      if (activePaneId === 2) {
-        get().pane2PushNav(canvasId);
-      } else {
-        useNoteStore.getState().setActiveNote(canvasId, false);
-      }
-    },
+  // Push to the correct nav history
+  if (activePaneId === 2) {
+    get().pane2PushNav(canvasId);
+  } else {
+    useNoteStore.getState().setActiveNote(canvasId, false);
+  }
+},
 
     closeCanvasTab: (tabId: string) => {
       const { canvasTabs, activeCanvasTabId } = get();
