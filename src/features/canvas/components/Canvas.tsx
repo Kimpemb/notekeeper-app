@@ -152,7 +152,7 @@ export const Canvas: React.FC<CanvasProps> = ({ canvasId }) => {
         ref={containerRef}
         className="relative flex-1 overflow-hidden"
       >
-        <CanvasViewport containerRef={containerRef} />
+        <CanvasViewport canvasId={canvasId} containerRef={containerRef} />
       </div>
     </div>
   );

@@ -135,7 +135,7 @@ export function CanvasWorkspace({ canvasId }: Props) {
 
       {/* ── Canvas ── */}
       <div ref={containerRef} className="flex-1 relative overflow-hidden">
-        <CanvasViewport containerRef={containerRef} />
+        <CanvasViewport canvasId={canvasId} containerRef={containerRef} />
       </div>
 
     </div>

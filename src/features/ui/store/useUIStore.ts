@@ -591,30 +591,32 @@ export const useUIStore = create<UIStore>((set, get) => {
     tabs: [], activeTabId: null,
 
     replaceTab: (noteId) => {
-      const { tabs, activeTabId } = get();
-      if (tabs.length === 0 || activeTabId === null) {
-        const tab: Tab = { id: makeTabId(), noteId };
-        set({ tabs: [tab], activeTabId: tab.id });
-        saveSession(get());
-        return;
-      }
-      const existing = tabs.find((t) => t.noteId === noteId);
-      if (existing) {
-        set({ activeTabId: existing.id });
-        saveSession(get());
-        return;
-      }
-      const activeTab = tabs.find((t) => t.id === activeTabId);
-      if (activeTab && activeTab.noteId === null) {
-        const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
-        set({ tabs: next });
-        saveSession(get());
-        return;
-      }
-      const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
-      set({ tabs: next });
-      saveSession(get());
-    },
+  const { tabs, activeTabId } = get();
+  if (tabs.length === 0 || activeTabId === null) {
+    const tab: Tab = { id: makeTabId(), noteId };
+    set({ tabs: [tab], activeTabId: tab.id });
+    saveSession(get());
+    return;
+  }
+  const existing = tabs.find((t) => t.noteId === noteId);
+  if (existing) {
+    set({ activeTabId: existing.id });
+    saveSession(get());
+    return;
+  }
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+  // Replace ANY tab with noteId === null (empty tabs OR canvas tabs)
+  if (activeTab && activeTab.noteId === null) {
+    const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId, canvasId: undefined, type: undefined } : t);
+    set({ tabs: next });
+    saveSession(get());
+    return;
+  }
+  const newId = makeTabId();
+  const newTab: Tab = { id: newId, noteId };
+  set({ tabs: [...tabs, newTab], activeTabId: newId });
+  saveSession(get());
+},
 
     openTab: (noteId) => {
       const { tabs } = get();

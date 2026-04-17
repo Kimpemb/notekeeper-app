@@ -11,12 +11,13 @@ const DEFAULT_NODE_WIDTH  = 180;
 const DEFAULT_NODE_HEIGHT = 44;
 
 interface CanvasViewportProps {
+  canvasId: string;                                    // ADDED: now accepts canvasId as prop
   containerRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export const CanvasViewport: React.FC<CanvasViewportProps> = ({ containerRef }) => {
-  const canvasId = useCanvasStore((s) => s.activeCanvasId);
-  const canvas = useCanvasStore((s) => canvasId ? s.canvases[canvasId] : null);
+export const CanvasViewport: React.FC<CanvasViewportProps> = ({ canvasId, containerRef }) => {
+  // DELETED: const canvasId = useCanvasStore((s) => s.activeCanvasId);
+  const canvas = useCanvasStore((s) => s.canvases[canvasId]);
   
   const addNode = useCanvasStore((s) => s.addNode);
   const addEdge = useCanvasStore((s) => s.addEdge);
@@ -30,8 +31,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({ containerRef }) 
   const edges = canvas?.edges ?? [];
   const viewport = canvas?.viewport ?? { x: 0, y: 0, zoom: 1 };
 const selectedNodeIds = canvas?.selectedNodeIds ?? [];
-const clearSelection = () => useCanvasStore.getState().clearSelection(canvasId!);
-const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(canvasId!, ids);
+const clearSelection = () => useCanvasStore.getState().clearSelection(canvasId);
+const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(canvasId, ids);
 
   const [isPanning, setIsPanning] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -116,7 +117,7 @@ const selectNodes = (ids: string[]) => useCanvasStore.getState().selectNodes(can
     }
 
     if (!isPanning) return;
-    pan(canvasId!, e.clientX - dragStart.x, e.clientY - dragStart.y);
+    pan(canvasId, e.clientX - dragStart.x, e.clientY - dragStart.y);
     setDragStart({ x: e.clientX, y: e.clientY });
   }, [isPanning, dragStart, pan, connectingFromId, containerRef, hitTestNode, canvasId]);
 
