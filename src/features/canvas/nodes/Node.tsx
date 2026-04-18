@@ -24,6 +24,7 @@ const FONT_SIZE = 14;
 const PAD_H     = 10;
 const PAD_V     = 8;
 const LINE_H    = 1.55;
+const DRAG_THRESHOLD = 4;
 
 export const Node: React.FC<NodeProps> = ({
   node, viewport, isSelected, isEditing, isConnecting,
@@ -35,7 +36,9 @@ export const Node: React.FC<NodeProps> = ({
   const measureRef  = useRef<HTMLDivElement>(null);
   const [draft,   setDraft]   = useState(node.content ?? "");
   const [hovered, setHovered] = useState(false);
-  const pointerMoved = useRef(false);
+  const pointerMoved   = useRef(false);
+  const pointerDownPos = useRef({ x: 0, y: 0 });
+  const isDragging     = useRef(false);
 
   const { x: vx, y: vy, zoom } = viewport;
 
@@ -100,27 +103,36 @@ export const Node: React.FC<NodeProps> = ({
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isEditing) return;
     e.stopPropagation();
-    pointerMoved.current = false;
+    pointerMoved.current   = false;
+    isDragging.current     = false;
+    pointerDownPos.current = { x: e.clientX, y: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    onDragStart(node.id, e);
+    // onDragStart deferred until threshold crossed
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (isEditing) return;
-    pointerMoved.current = true;
+    const dx = e.clientX - pointerDownPos.current.x;
+    const dy = e.clientY - pointerDownPos.current.y;
+    if (!isDragging.current) {
+      if (Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
+      isDragging.current   = true;
+      pointerMoved.current = true;
+      onDragStart(node.id, e); // origin seeded here with live pointer position
+    }
     onDrag(node.id, e);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (isEditing) return;
-    const wasDrag = pointerMoved.current;
+    const wasDrag      = isDragging.current;
+    isDragging.current = false;
     pointerMoved.current = false;
     if (wasDrag) {
-      // Only call onDragEnd when the pointer actually moved —
-      // this prevents the transform-clear from firing on pure clicks.
       onDragEnd(node.id, e);
+    } else if (isSelected) {
+      onEditStart(node.id);
     }
-    if (!wasDrag && isSelected) onEditStart(node.id);
   };
 
   const handlePointerEnter = () => {
