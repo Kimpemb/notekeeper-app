@@ -369,7 +369,7 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
           {paneTabs.length === 0 ? <EmptyState /> : paneTabs.map((tab) => {
             const isActive = tab.id === paneActiveTabId;
             return (
-              <div key={tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
+              <div key={tab.noteId && notes.find(n => n.id === tab.noteId)?.is_canvas ? `${tab.id}-${isActive}` : tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
                 {tab.noteId === null ? (
                   <NewTabScreen paneId={paneId} />
                 ) : (() => {

@@ -52,9 +52,9 @@ export function TabBar() {
             <div
               key={tab.id}
               onClick={() => {
-                setActive(tab.id);
-                if (activePaneId === 1 && tab.noteId) setActiveNote(tab.noteId, true);
-              }}
+  setActive(tab.id);
+  if (tab.noteId) setActiveNote(tab.noteId, true);
+}}
               onAuxClick={(e) => { if (e.button === 1) closeTab(tab.id); }}
               onContextMenu={(e) => {
                 if (!tab.noteId) return;
