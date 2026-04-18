@@ -82,13 +82,14 @@ interface NoteStore {
   loadRecentVisits: () => Promise<void>;
   setActiveNote: (id: string | null, skipHistory?: boolean) => void;
   recordVisit: (id: string) => Promise<void>;
-
+  updateCanvasStateInMemory: (id: string, canvasState: string) => void;
   createNote: (input?: CreateNoteInput) => Promise<Note>;
   createNoteFromTemplate: (template: Template, input?: CreateNoteInput) => Promise<Note>;
   createOrOpenDailyNote: () => Promise<Note>;
   createChildNote: (parentId: string, title?: string) => Promise<Note>;
   createCanvasNote: (name?: string) => Promise<Note>;
   updateCanvasState: (id: string, canvasState: string) => Promise<void>;
+  
   updateNote: (id: string, input: UpdateNoteInput) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   restoreNote: (id: string) => Promise<void>;
@@ -337,6 +338,15 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
       ),
     }));
   },
+
+
+updateCanvasStateInMemory: (id, canvasState) => {
+  set((state) => ({
+    notes: state.notes.map((n) =>
+      n.id === id ? { ...n, canvas_state: canvasState } : n
+    ),
+  }));
+},
 
   updateNote: async (id, input) => {
     await dbUpdateNote(id, input);

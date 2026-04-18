@@ -1,50 +1,66 @@
+// src/types/canvas.ts
 // Canvas types - Idemora canvas system
 
 export type CanvasId = string;
-export type NodeId = string;
-export type EdgeId = string;
+export type NodeId   = string;
+export type EdgeId   = string;
 
 export type CanvasNodeType = "note" | "text" | "group";
 
 export type CanvasNode = {
-  id: NodeId;
-  type: CanvasNodeType;
-  noteId?: string;      // Required if type === "note"
-  content?: string;     // Required if type === "text"
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  id:      NodeId;
+  type:    CanvasNodeType;
+  noteId?:  string;   // Required if type === "note"
+  content?: string;   // Required if type === "text"
+  x:       number;
+  y:       number;
+  width:   number;
+  height:  number;
 };
 
 export type CanvasEdge = {
-  id: EdgeId;
+  id:   EdgeId;
   from: NodeId;
-  to: NodeId;
+  to:   NodeId;
 };
 
 export type Viewport = {
-  x: number;
-  y: number;
+  x:    number;
+  y:    number;
   zoom: number;
 };
 
 export type Canvas = {
-  id: CanvasId;
-  name: string;
-  nodes: CanvasNode[];
-  edges: CanvasEdge[];
-  viewport: Viewport;
+  id:        CanvasId;
+  name:      string;
+  nodes:     CanvasNode[];
+  edges:     CanvasEdge[];
+  viewport:  Viewport;
   createdAt: string;
   updatedAt: string;
 };
 
-// For collaboration (future)
-export type CanvasOperation = 
-  | { type: "CREATE_NODE"; payload: CanvasNode }
-  | { type: "UPDATE_NODE"; payload: { id: NodeId; updates: Partial<CanvasNode> } }
-  | { type: "DELETE_NODE"; payload: { id: NodeId } }
-  | { type: "CREATE_EDGE"; payload: CanvasEdge }
-  | { type: "DELETE_EDGE"; payload: { id: EdgeId } }
-  | { type: "UPDATE_VIEWPORT"; payload: Viewport }
-  | { type: "SELECT_NODES"; payload: { nodeIds: NodeId[] } };
+// ─── Solo additions ───────────────────────────────────────────────────────────
+
+/** Screen-space rect drawn while the user drag-selects on the canvas background. */
+export type SelectionRect = {
+  startX: number;
+  startY: number;
+  endX:   number;
+  endY:   number;
+} | null;
+
+/** All supported one-click export formats. */
+export type CanvasExportFormat = "json" | "png" | "md" | "svg";
+
+// ─── Collaboration (future) ───────────────────────────────────────────────────
+
+export type CanvasOperation =
+  | { type: "CREATE_NODE";      payload: CanvasNode }
+  | { type: "UPDATE_NODE";      payload: { id: NodeId;  updates: Partial<CanvasNode> } }
+  | { type: "DELETE_NODE";      payload: { id: NodeId } }
+  | { type: "MOVE_NODES";       payload: { ids: NodeId[]; dx: number; dy: number } }
+  | { type: "CREATE_EDGE";      payload: CanvasEdge }
+  | { type: "DELETE_EDGE";      payload: { id: EdgeId } }
+  | { type: "UPDATE_VIEWPORT";  payload: Viewport }
+  | { type: "SELECT_NODES";     payload: { nodeIds: NodeId[] } };
