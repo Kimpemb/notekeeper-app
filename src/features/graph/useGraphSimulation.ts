@@ -1083,11 +1083,12 @@ linkSelRef.current = link as any;
 
       // Triple-click → eject to real editor
       if (event.detail === 3) {
-        setActiveNote(d.id);
-        showToast(`Opening "${d.title}"…`);
-        setTimeout(() => handleClose(), 300);
-        return;
-      }
+      openTab(d.id);
+      setActiveNote(d.id);
+      showToast(`Opening "${d.title}"…`);
+      setTimeout(() => handleClose(), 300);
+      return;
+    }
 
       if (event.ctrlKey || event.metaKey) {
         openTab(d.id);
@@ -1101,11 +1102,11 @@ linkSelRef.current = link as any;
       }
     })
     .on("dblclick", (event, d) => {
-      // Double-click → inline rename (edit title in graph)
-      event.stopPropagation();
-      if (linkDragState.active) return;
-      showRenameInput(d, false);
-    })
+    event.stopPropagation();
+    if (linkDragState.active) return;
+    if (event.detail >= 3) return; // triple-click coming — don't rename
+    showRenameInput(d, false);
+  })
     .on("contextmenu", (event, d) => {
       event.preventDefault();
       onRequestDeleteNode(d.id, d.title);
