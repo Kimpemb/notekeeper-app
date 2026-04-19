@@ -92,15 +92,29 @@ export function GraphNodeEditor({
   const notes      = useNoteStore((s) => s.notes);
   const updateNote = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
+  const loadNoteContent = useNoteStore((s) => s.loadNoteContent);
   const spellCheck    = useAppSettings((s) => s.settings.spellCheck);
+
+  // Fire loadNoteContent during render — before useEditor mounts — same
+  // pattern as the main editor (Fix 4 from perf session). note.content at
+  // this point is the meta-only placeholder so we must fetch it on demand.
+  const contentLoadFired = useRef(false);
+  if (!contentLoadFired.current) {
+    contentLoadFired.current = true;
+    const raw = note?.content;
+    const isEmpty = !raw || raw === "null" || raw === "" ||
+                    raw === '{"type":"doc","content":[]}';
+    if (isEmpty) loadNoteContent(noteId);
+  }
 
   // ── Title editing ─────────────────────────────────────────────────────────
   const titleRef        = useRef<HTMLHeadingElement>(null);
   const titleFocusedRef = useRef(false);
 
-  // Suppresses autosave during the window when idemora:content-updated reloads
-  // the editor's TipTap state from a graph-written DB change.
-  const suppressSave = useRef(false);
+  // suppressSave starts true — flipped to false only after real content
+  // has arrived and been synced into the editor. Prevents autosave from
+  // writing the empty placeholder back to the DB.
+  const suppressSave = useRef(true);
 
   // ── Slash menu ────────────────────────────────────────────────────────────
   const [slashOpen,  setSlashOpen]  = useState(false);
@@ -121,7 +135,10 @@ export function GraphNodeEditor({
   const noteLinkTriggerStart = useRef<number | null>(null);
 
   // ── Editor ────────────────────────────────────────────────────────────────
-  const initialContent = note?.content ? JSON.parse(note.content) : "";
+  const rawContent    = note?.content;
+  const isContentEmpty = !rawContent || rawContent === "null" || rawContent === "" ||
+                         rawContent === '{"type":"doc","content":[]}';
+  const initialContent = !isContentEmpty ? JSON.parse(rawContent!) : "";
 
   const editor = useEditor({
     extensions: [
@@ -256,7 +273,7 @@ export function GraphNodeEditor({
 
       // emitUpdate: false prevents onUpdate from firing and re-triggering
       // the slash menu / link suggest logic from the injected noteLink node.
-editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false });
+      editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false });
 
       requestAnimationFrame(() => {
         suppressSave.current = false;
@@ -265,7 +282,36 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
 
     window.addEventListener("idemora:content-updated", handleContentUpdated);
     return () => window.removeEventListener("idemora:content-updated", handleContentUpdated);
-  }, [noteId, editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [noteId, editor]);
+
+  // Sync editor when loadNoteContent resolves — handles the case where
+  // useEditor mounted with empty initialContent before the fetch returned.
+ 
+useEffect(() => {
+  if (!editor) return;
+  const raw = note?.content;
+  const isEmpty = !raw || raw === "null" || raw === "" ||
+                  raw === '{"type":"doc","content":[]}';
+  if (isEmpty) return;
+
+  const doc = editor.getJSON();
+  const isEditorEmpty =
+    !doc.content ||
+    doc.content.length === 0 ||
+    (doc.content.length === 1 &&
+     doc.content[0].type === "paragraph" &&
+     (!doc.content[0].content || doc.content[0].content.length === 0));
+
+  if (isEditorEmpty) {
+    suppressSave.current = true;
+    editor.commands.setContent(JSON.parse(raw), { emitUpdate: true });
+    requestAnimationFrame(() => {
+      suppressSave.current = false;
+    });
+  } else {
+    suppressSave.current = false;
+  }
+}, [note?.content, editor]);
 
   // ── Autosave ──────────────────────────────────────────────────────────────
   const onSaveComplete = useCallback((_content: string, savedNoteId: string) => {
@@ -283,7 +329,7 @@ editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdat
     }
     document.addEventListener("keydown", handle, true);
     return () => document.removeEventListener("keydown", handle, true);
-  }, [slashOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [slashOpen]);
 
   // ── Close helpers ─────────────────────────────────────────────────────────
 
