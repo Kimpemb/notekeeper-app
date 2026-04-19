@@ -65,10 +65,16 @@ export function ResurfaceBar() {
         getClusterSuggestionMeta(),
       ]);
 
-      const backlinkMap        = buildBacklinkMap(allBacklinks);
-      const unlinkedMentionMap = buildUnlinkedMentionMap(notes);
-      const cluster            = identifyCluster(clusterSession, notes, backlinkMap, feedback);
+      const backlinkMap = buildBacklinkMap(allBacklinks);
 
+      const [unlinkedMentionMap, cluster] = await Promise.all([
+        new Promise<Map<string, Set<string>>>((resolve) =>
+          setTimeout(() => resolve(buildUnlinkedMentionMap(notes)), 0)
+        ),
+        new Promise<Set<string>>((resolve) =>
+          setTimeout(() => resolve(identifyCluster(clusterSession, notes, backlinkMap, feedback)), 0)
+        ),
+      ]);
       if (!shouldTrigger(clusterSession, cluster)) return;
 
       if (meta) {

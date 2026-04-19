@@ -214,7 +214,7 @@ async function fixNullTitles(): Promise<void> {
 
 export async function initDb(): Promise<void> {
   const db = await getDb();
-  
+
   for (const sql of ALL_MIGRATIONS) {
     try {
       await db.execute(sql);
@@ -224,20 +224,27 @@ export async function initDb(): Promise<void> {
       throw err;
     }
   }
-  
-  await purgeTrashedNotes();
-  await fixBlocksFtsUpdateTrigger();
-  await rebuildFtsIndexIfNeeded();
-  await backfillNoteBlocks();
-  await backfillBacklinks();
+
+  // These must run before app starts
   await fixNullTitles();
-  
+
+  // Defer everything else — run after first render
+  setTimeout(async () => {
+    await purgeTrashedNotes();
+    await fixBlocksFtsUpdateTrigger();
+    await rebuildFtsIndexIfNeeded();
+    await backfillNoteBlocks();
+    await backfillBacklinks();
+    console.log("[initDb] Background maintenance complete");
+  }, 2000);
+
   console.log("[initDb] Database initialized successfully");
 }
 
 
 // ─── Notes ────────────────────────────────────────────────────────────────────
 
+// Original — keep this, other functions inside queries.ts depend on it
 export async function getAllNotes(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
@@ -246,6 +253,24 @@ export async function getAllNotes(): Promise<Note[]> {
             is_canvas, canvas_state
      FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
+}
+
+// New lightweight version — used only by loadNotes in useNoteStore
+export async function getAllNotesMeta(): Promise<Note[]> {
+  const db = await getDb();
+  return db.select<Note[]>(
+    `SELECT id, title, plaintext, tags, frontmatter, parent_id, sync_id,
+            created_at, updated_at, deleted_at, sort_order, is_canvas
+     FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
+  );
+}
+
+export async function getNoteContent(id: string): Promise<{ content: string | null; canvas_state: string | null }> {
+  const db = await getDb();
+  const rows = await db.select<{ content: string | null; canvas_state: string | null }[]>(
+    `SELECT content, canvas_state FROM notes WHERE id = ?`, [id]
+  );
+  return rows[0] ?? { content: null, canvas_state: null };
 }
 
 
@@ -834,11 +859,13 @@ export interface UnlinkedMention {
   occurrences: number;
 }
 
+const UNTITLED_RE = /^Untitled-\d+$/;
+
 export async function getUnlinkedMentions(
   targetId: string,
   targetTitle: string
 ): Promise<UnlinkedMention[]> {
-  if (!targetTitle.trim() || /^Untitled-\d+$/.test(targetTitle)) return [];
+  if (!targetTitle.trim() || UNTITLED_RE.test(targetTitle)) return []
 
   const db = await getDb();
 
@@ -867,7 +894,7 @@ export async function getUnlinkedMentions(
     if (linkedIds.has(note.id)) continue;
     const plaintext = note.plaintext ?? "";
 
-    const rawMatches = [...plaintext.matchAll(new RegExp(regex.source, "gi"))];
+    const rawMatches = [...plaintext.matchAll(regex)];
     const validMatches = rawMatches.filter((match) => {
       const matchIndex = match.index ?? 0;
       return !otherTitles.some((otherTitle) => {

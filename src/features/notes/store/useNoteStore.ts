@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import {
   getAllNotes,
+  getAllNotesMeta,
   getTrashedNotes,
   createNote as dbCreateNote,
   updateNote as dbUpdateNote,
@@ -101,6 +102,7 @@ interface NoteStore {
   pinNote: (id: string) => Promise<void>;
   unpinNote: (id: string) => Promise<void>;
   isPinned: (id: string) => boolean;
+  loadNoteContent: (id: string) => Promise<void>; // ADDED
 
   // ─── Bookmark actions ──────────────────────────────────────────────────────
   addBookmark: (noteId: string, groupId?: string | null) => Promise<void>;
@@ -203,38 +205,32 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     return notes.filter((n) => n.parent_id === null && !pinnedIds.has(n.id));
   },
 
-  loadNotes: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const [fetchedNotes, pinnedIds, bookmarks] = await Promise.all([
-        getAllNotes(),
-        loadPinnedIds(),
-        loadBookmarks(),
-      ]);
-      
-      // Debug: log notes with null content
-      const nullContentNotes = fetchedNotes.filter(n => !n.content);
-      if (nullContentNotes.length > 0) {
-        console.log("Notes with null content:", nullContentNotes.map(n => ({ id: n.id, title: n.title })));
-      }
-      
-      const normalizedNotes = fetchedNotes.map((note) => ({
+ loadNotes: async () => {
+  set({ isLoading: true, error: null });
+  try {
+    const [fetchedNotes, pinnedIds, bookmarks] = await Promise.all([
+      getAllNotesMeta(),
+      loadPinnedIds(),
+      loadBookmarks(),
+    ]);
+
+    const normalizedNotes = fetchedNotes.map((note: Note) => ({
         ...note,
-        frontmatter: note.frontmatter ?? null,
-        sort_order: note.sort_order ?? 0,
-        tags: note.tags ?? null,
-        content: note.content ?? JSON.stringify({ type: "doc", content: [] }),
-        plaintext: note.plaintext ?? "",
-        is_canvas: Boolean(note.is_canvas),
-        canvas_state: note.canvas_state ?? null,
-      }));
-      
-      set({ notes: normalizedNotes, pinnedIds, bookmarks, isLoading: false });
-      await get().loadRecentVisits();
-    } catch (err) {
-      set({ error: String(err), isLoading: false });
-    }
-  },
+      frontmatter: note.frontmatter ?? null,
+      sort_order: note.sort_order ?? 0,
+      tags: note.tags ?? null,
+      content: note.content ?? JSON.stringify({ type: "doc", content: [] }),
+      plaintext: note.plaintext ?? "",
+      is_canvas: Boolean(note.is_canvas),
+      canvas_state: note.canvas_state ?? null,
+    }));
+
+    set({ notes: normalizedNotes, pinnedIds, bookmarks, isLoading: false });
+    await get().loadRecentVisits();
+  } catch (err) {
+    set({ error: String(err), isLoading: false });
+  }
+},
 
   loadTrashedNotes: async () => {
     try {
@@ -468,6 +464,23 @@ updateCanvasStateInMemory: (id, canvasState) => {
   },
 
   isPinned: (id) => get().pinnedIds.has(id),
+
+  // ADDED: loadNoteContent action
+  // ADDED: loadNoteContent action
+loadNoteContent: async (id: string) => {
+  const note = get().notes.find((n) => n.id === id);
+  if (!note) return;
+  const isEmpty = !note.content || 
+    note.content === JSON.stringify({ type: "doc", content: [] });
+  if (!isEmpty) return;
+  const { getNoteContent } = await import("@/features/notes/db/queries");
+  const { content, canvas_state } = await getNoteContent(id);
+  set((state) => ({
+    notes: state.notes.map((n) =>
+      n.id === id ? { ...n, content: content ?? n.content, canvas_state: canvas_state ?? n.canvas_state } : n
+    ),
+  }));
+},
 
   // ─── Bookmark actions ──────────────────────────────────────────────────────
   addBookmark: async (noteId, groupId = null) => {

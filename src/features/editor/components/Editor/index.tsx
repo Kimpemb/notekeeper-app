@@ -63,6 +63,8 @@ import {
 
 interface BubblePos { top: number; left: number; }
 
+
+
 function LastEdited({ timestamp }: { timestamp: number }) {
   const [formatted, setFormatted] = useState<string>("");
   
@@ -250,7 +252,16 @@ const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
 
   const [taskListToolbarPos, setTaskListToolbarPos] = useState<{ top: number; left: number } | null>(null);
 
-  const initialContent = (() => {
+  const loadNoteContent = useNoteStore((s) => s.loadNoteContent);
+const _contentLoadFired = useRef(false);
+if (!_contentLoadFired.current) {
+  _contentLoadFired.current = true;
+  const raw = note?.content;
+  const isEmpty = !raw || raw === "null" || raw === "" || raw === '{"type":"doc","content":[]}';
+  if (isEmpty) loadNoteContent(noteId);
+}
+
+const initialContent = (() => {
   if (!note?.content || note.content === "null" || note.content === "") {
     return { type: "doc", content: [] };
   }
@@ -532,29 +543,32 @@ const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
   }, [noteId, pendingScrollHeading, isActiveTab]);
 
   useEffect(() => {
-    if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
-    const timer = setTimeout(() => {
-      const container = getScrollContainer(editor);
-      scrollToQuery(editor, pendingScrollQuery, container);
-      setTimeout(() => {
-        if (!editor.isDestroyed) {
-          scrollToQuery(editor, pendingScrollQuery, container);
-          setPendingScrollQuery(null);
-        }
-      }, 400);
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [noteId, pendingScrollQuery, isActiveTab]);
+  if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
+  const timer = setTimeout(() => {
+    const container = getScrollContainer(editor);
+    scrollToQuery(editor, pendingScrollQuery, container);
+    setTimeout(() => {
+      if (!editor.isDestroyed) {
+        scrollToQuery(editor, pendingScrollQuery, container);
+        setPendingScrollQuery(null);
+      }
+    }, 400);
+  }, 50);
+  return () => clearTimeout(timer);
+}, [noteId, pendingScrollQuery, isActiveTab]);
 
-  useEffect(() => {
-    if (!editor || !isActiveTab) return;
-    function handleInsertLink(e: Event) {
-      const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
-      editor!.chain().focus().insertContent({ type: "noteLink", attrs: { id: linkedId, label: noteTitle } }).run();
-    }
-    window.addEventListener("idemora:insert-link", handleInsertLink);
-    return () => window.removeEventListener("idemora:insert-link", handleInsertLink);
-  }, [editor, isActiveTab]);
+// ADD THIS NEW useEffect:
+
+
+useEffect(() => {
+  if (!editor || !isActiveTab) return;
+  function handleInsertLink(e: Event) {
+    const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
+    editor!.chain().focus().insertContent({ type: "noteLink", attrs: { id: linkedId, label: noteTitle } }).run();
+  }
+  window.addEventListener("idemora:insert-link", handleInsertLink);
+  return () => window.removeEventListener("idemora:insert-link", handleInsertLink);
+}, [editor, isActiveTab]);
 
   const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
     lastSavedContent.current = content;

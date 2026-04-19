@@ -19,18 +19,18 @@ export type InputState =
   | {
       type:     "dragging";
       nodeIds:  string[];
-      originX:  number; // world-space origin at drag start
+      originX:  number;
       originY:  number;
-      snapshot: Map<string, { x: number; y: number }>; // world positions at drag start
+      snapshot: Map<string, { x: number; y: number }>;
     }
   | {
       type:   "panning";
-      startX: number; // screen-space
+      startX: number;
       startY: number;
     }
   | {
       type:     "selecting";
-      startX:   number; // screen-space
+      startX:   number;
       startY:   number;
       currentX: number;
       currentY: number;
@@ -44,45 +44,46 @@ export type InputState =
       currentY:    number;
     };
 
-// ─── Callbacks out to the engine / React boundary ────────────────────────────
+// ─── Callbacks ───────────────────────────────────────────────────────────────
 
 export type InputCallbacks = {
-  onViewportChange:  (viewport: Viewport) => void;
-  onSelectionChange: (ids: string[]) => void;
-  onNodesMoved:      (moves: { id: string; x: number; y: number }[]) => void;
-  onNodeEditStart:   (id: string) => void;
-  onNodeDelete:      (ids: string[]) => void;
-  onConnected:       (fromId: string, toId: string) => void;
-  onInputStateChange:(state: InputState) => void;
-  onHoverChange:     (id: string | null) => void;
-  onCreateNode:      (screenX: number, screenY: number) => void;
+  onViewportChange:   (viewport: Viewport) => void;
+  onSelectionChange:  (ids: string[]) => void;
+  onNodesMoved:       (moves: { id: string; x: number; y: number }[]) => void;
+  onNodeEditStart:    (id: string) => void;
+  onNodeDelete:       (ids: string[]) => void;
+  onConnected:        (fromId: string, toId: string) => void;
+  onInputStateChange: (state: InputState) => void;
+  onHoverChange:      (id: string | null) => void;
+  onCreateNode:       (screenX: number, screenY: number) => void;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DRAG_THRESHOLD = 4; // px screen-space before drag is recognised
+const DRAG_THRESHOLD    = 4;   // px screen-space
+const HOVER_THROTTLE_MS = 32;  // ~30fps for hover checks — invisible to user
 
 // ─── InputHandler ─────────────────────────────────────────────────────────────
 
 export class InputHandler {
-  private world:        World;
-  private viewport:     () => Viewport; // live getter — never stale
-  private callbacks:    InputCallbacks;
-  private canvas:       HTMLCanvasElement | null = null;
+  private world:     World;
+  private viewport:  () => Viewport;
+  private callbacks: InputCallbacks;
+  private canvas:    HTMLCanvasElement | null = null;
 
-  // Internal mutable state — never React state
-  private inputState:   InputState = { type: "idle" };
-  private selectedIds:  Set<string> = new Set();
+  private inputState:   InputState    = { type: "idle" };
+  private selectedIds:  Set<string>   = new Set();
   private hoveredId:    string | null = null;
   private editingId:    string | null = null;
 
-  // Pointer tracking
-  private activePointerId: number | null = null;
-  private pointerDownPos:  { x: number; y: number } = { x: 0, y: 0 };
-  private pointerDownTarget: NodeId | null = null;
-  private didCrossThreshold: boolean = false;
+  private activePointerId:    number | null = null;
+  private pointerDownPos:     { x: number; y: number } = { x: 0, y: 0 };
+  private pointerDownTarget:  NodeId | null = null;
+  private didCrossThreshold:  boolean = false;
 
-  // Bound listeners (stored so we can remove them)
+  // Hover throttle
+  private lastHoverTime: number = 0;
+
   private _onPointerDown: (e: PointerEvent) => void;
   private _onPointerMove: (e: PointerEvent) => void;
   private _onPointerUp:   (e: PointerEvent) => void;
@@ -92,14 +93,9 @@ export class InputHandler {
   private _onTouchStart:  (e: TouchEvent)   => void;
   private _onTouchMove:   (e: TouchEvent)   => void;
 
-  // Touch pinch state
   private lastPinchDist: number = 0;
 
-  constructor(
-    world: World,
-    viewport: () => Viewport,
-    callbacks: InputCallbacks,
-  ) {
+  constructor(world: World, viewport: () => Viewport, callbacks: InputCallbacks) {
     this.world     = world;
     this.viewport  = viewport;
     this.callbacks = callbacks;
@@ -142,18 +138,16 @@ export class InputHandler {
     this.canvas = null;
   }
 
-  // ─── Public state readers (for renderer) ────────────────────────────────────
+  // ─── Public readers ──────────────────────────────────────────────────────────
 
   getInputState():  InputState    { return this.inputState; }
   getSelectedIds(): Set<string>   { return this.selectedIds; }
   getHoveredId():   string | null { return this.hoveredId; }
   getEditingId():   string | null { return this.editingId; }
 
-  // ─── Public setters (called by engine API / React boundary) ─────────────────
+  // ─── Public setters ──────────────────────────────────────────────────────────
 
-  setEditingId(id: string | null): void {
-    this.editingId = id;
-  }
+  setEditingId(id: string | null): void { this.editingId = id; }
 
   setSelectedIds(ids: string[]): void {
     this.selectedIds = new Set(ids);
@@ -165,7 +159,7 @@ export class InputHandler {
     this.callbacks.onSelectionChange([]);
   }
 
-  // ─── Helpers ────────────────────────────────────────────────────────────────
+  // ─── Internal helpers ────────────────────────────────────────────────────────
 
   private setState(state: InputState): void {
     this.inputState = state;
@@ -186,11 +180,9 @@ export class InputHandler {
 
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0 && e.button !== 1) return;
-
     const pos = this.screenPos(e);
     if (!pos) return;
 
-    // Middle mouse — pan
     if (e.button === 1) {
       e.preventDefault();
       this.canvas?.setPointerCapture(e.pointerId);
@@ -203,21 +195,17 @@ export class InputHandler {
     this.pointerDownPos    = { x: e.clientX, y: e.clientY };
     this.didCrossThreshold = false;
 
-    const vp  = this.viewport();
-    const hit = hitTest(this.world, pos.x, pos.y, vp);
+    const hit = hitTest(this.world, pos.x, pos.y, this.viewport());
     this.pointerDownTarget = hit;
-
     this.canvas?.setPointerCapture(e.pointerId);
 
     if (!hit) {
-      // Click on empty canvas — start potential selection rect
       this.setState({
         type: "selecting",
         startX: pos.x, startY: pos.y,
         currentX: pos.x, currentY: pos.y,
       });
     }
-    // If hit a node — wait for threshold before starting drag
   }
 
   // ─── Pointer move ────────────────────────────────────────────────────────────
@@ -229,20 +217,32 @@ export class InputHandler {
     if (!pos) return;
     const vp = this.viewport();
 
-    // Update hover
-    const hit = hitTest(this.world, pos.x, pos.y, vp);
-    if (hit !== this.hoveredId) {
-      this.hoveredId = hit;
-      this.callbacks.onHoverChange(hit);
+    // Throttle hover hit-test — only run at ~30fps when idle
+    const now = performance.now();
+    if (
+      this.inputState.type === "idle" &&
+      now - this.lastHoverTime > HOVER_THROTTLE_MS
+    ) {
+      this.lastHoverTime = now;
+      const hit = hitTest(this.world, pos.x, pos.y, vp);
+      if (hit !== this.hoveredId) {
+        this.hoveredId = hit;
+        this.callbacks.onHoverChange(hit);
+      }
+    } else if (this.inputState.type !== "idle") {
+      // During active gestures always update hover (needed for connect target highlight)
+      const hit = hitTest(this.world, pos.x, pos.y, vp);
+      if (hit !== this.hoveredId) {
+        this.hoveredId = hit;
+        this.callbacks.onHoverChange(hit);
+      }
     }
 
-    // Connecting — update draft endpoint + hover target
     if (this.inputState.type === "connecting") {
       this.setState({ ...this.inputState, currentX: pos.x, currentY: pos.y });
       return;
     }
 
-    // Panning
     if (this.inputState.type === "panning") {
       const dx = e.clientX - this.inputState.startX;
       const dy = e.clientY - this.inputState.startY;
@@ -251,23 +251,21 @@ export class InputHandler {
       return;
     }
 
-    // Selection rect
     if (this.inputState.type === "selecting") {
       this.setState({ ...this.inputState, currentX: pos.x, currentY: pos.y });
       return;
     }
 
-    // Node drag — check threshold first
+    // Node drag — check threshold
     if (this.pointerDownTarget && this.inputState.type === "idle") {
       const dx = e.clientX - this.pointerDownPos.x;
       const dy = e.clientY - this.pointerDownPos.y;
-      if (Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
+      // Use squared distance — avoids sqrt
+      if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) return;
 
-      // Threshold crossed — start drag
       this.didCrossThreshold = true;
       const id = this.pointerDownTarget;
 
-      // If dragging a non-selected node, select it alone
       if (!this.selectedIds.has(id)) {
         this.selectedIds = new Set([id]);
         this.callbacks.onSelectionChange([id]);
@@ -280,9 +278,7 @@ export class InputHandler {
         if (n) snapshot.set(nid, { x: n.x, y: n.y });
       }
 
-      // Seed origin from live viewport at this exact moment
       const origin = screenToWorld(pos.x, pos.y, vp);
-
       this.setState({
         type: "dragging",
         nodeIds: idsToMove,
@@ -293,7 +289,6 @@ export class InputHandler {
       return;
     }
 
-    // Dragging — move nodes directly in world
     if (this.inputState.type === "dragging") {
       const origin = screenToWorld(pos.x, pos.y, vp);
       const ddx = origin.x - this.inputState.originX;
@@ -302,7 +297,8 @@ export class InputHandler {
       for (const [nid, start] of this.inputState.snapshot) {
         const node = this.world.nodes.get(nid);
         if (!node) continue;
-        this.world.nodes.set(nid, { ...node, x: start.x + ddx, y: start.y + ddy });
+        node.x = start.x + ddx;
+        node.y = start.y + ddy;
       }
     }
   }
@@ -316,22 +312,16 @@ export class InputHandler {
     const pos = this.screenPos(e);
     const vp  = this.viewport();
 
-    // Finish panning
     if (this.inputState.type === "panning") {
       this.setState({ type: "idle" });
       return;
     }
 
-    // Finish connecting
     if (this.inputState.type === "connecting") {
       if (pos) {
         const toId = hitTest(this.world, pos.x, pos.y, vp);
         if (toId && toId !== this.inputState.fromId) {
-          connect(this.world, {
-            id:   crypto.randomUUID(),
-            from: this.inputState.fromId,
-            to:   toId,
-          });
+          connect(this.world, { id: crypto.randomUUID(), from: this.inputState.fromId, to: toId });
           this.callbacks.onConnected(this.inputState.fromId, toId);
         }
       }
@@ -339,7 +329,6 @@ export class InputHandler {
       return;
     }
 
-    // Finish selection rect
     if (this.inputState.type === "selecting") {
       const { startX, startY, currentX, currentY } = this.inputState;
       const moved = Math.abs(currentX - startX) > 2 || Math.abs(currentY - startY) > 2;
@@ -357,18 +346,16 @@ export class InputHandler {
           this.clearSelection();
         }
       } else {
-        // Pure click on empty canvas — clear selection + exit editing
         this.clearSelection();
         if (this.editingId) {
           this.editingId = null;
-          this.callbacks.onNodeEditStart(""); // signal React to close textarea
+          this.callbacks.onNodeEditStart("");
         }
       }
       this.setState({ type: "idle" });
       return;
     }
 
-    // Finish drag
     if (this.inputState.type === "dragging") {
       const moves: { id: string; x: number; y: number }[] = [];
       for (const nid of this.inputState.nodeIds) {
@@ -380,15 +367,12 @@ export class InputHandler {
       return;
     }
 
-    // Pure click on a node (threshold never crossed)
     if (this.pointerDownTarget && !this.didCrossThreshold) {
       const id = this.pointerDownTarget;
       if (this.selectedIds.has(id) && this.selectedIds.size === 1) {
-        // Second click on already-selected node → edit
         this.editingId = id;
         this.callbacks.onNodeEditStart(id);
       } else {
-        // First click — select it, replacing current selection
         this.selectedIds = new Set([id]);
         this.callbacks.onSelectionChange([id]);
       }
@@ -404,19 +388,14 @@ export class InputHandler {
   private onDblClick(e: MouseEvent): void {
     const pos = this.screenPos(e);
     if (!pos) return;
-    const vp  = this.viewport();
-    const hit = hitTest(this.world, pos.x, pos.y, vp);
-    if (!hit) {
-      // Double click on empty canvas — create node
-      this.callbacks.onCreateNode(pos.x, pos.y);
-    }
+    const hit = hitTest(this.world, pos.x, pos.y, this.viewport());
+    if (!hit) this.callbacks.onCreateNode(pos.x, pos.y);
   }
 
   // ─── Keyboard ────────────────────────────────────────────────────────────────
 
   private onKeyDown(e: KeyboardEvent): void {
-    if (this.editingId) return; // React textarea handles keys when editing
-
+    if (this.editingId) return;
     if (e.key === "Delete" || e.key === "Backspace") {
       if (this.selectedIds.size === 0) return;
       e.preventDefault();
@@ -427,7 +406,7 @@ export class InputHandler {
     }
   }
 
-  // ─── Wheel (scroll to pan, ctrl+wheel to zoom) ───────────────────────────────
+  // ─── Wheel ───────────────────────────────────────────────────────────────────
 
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
@@ -435,15 +414,15 @@ export class InputHandler {
     if (e.ctrlKey) {
       const r = this.rect();
       if (!r) return;
-      const ox = e.clientX - r.left;
-      const oy = e.clientY - r.top;
-      this.callbacks.onViewportChange(zoomViewport(vp, -e.deltaY, ox, oy));
+      this.callbacks.onViewportChange(
+        zoomViewport(vp, -e.deltaY, e.clientX - r.left, e.clientY - r.top)
+      );
     } else {
       this.callbacks.onViewportChange(panViewport(vp, -e.deltaX, -e.deltaY));
     }
   }
 
-  // ─── Touch pinch to zoom ─────────────────────────────────────────────────────
+  // ─── Touch pinch ─────────────────────────────────────────────────────────────
 
   private onTouchStart(e: TouchEvent): void {
     if (e.touches.length === 2) {
@@ -473,7 +452,7 @@ export class InputHandler {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  // ─── Connection start (called by engine when handle is clicked) ──────────────
+  // ─── Connection start ────────────────────────────────────────────────────────
 
   startConnecting(fromId: string, fromScreenX: number, fromScreenY: number): void {
     this.setState({
@@ -485,4 +464,7 @@ export class InputHandler {
       currentY: fromScreenY,
     });
   }
+  updateWorld(world: World): void {
+  this.world = world;
+}
 }

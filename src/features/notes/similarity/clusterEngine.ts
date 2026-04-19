@@ -21,6 +21,9 @@
 import type { Note } from "../../../types";
 import { getSimilarityResults, type FeedbackEntry } from "./similarityUtils";
 
+const UNTITLED_RE = /^Untitled-\d+$/;
+
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface VisitEntry {
@@ -350,12 +353,12 @@ export function buildBacklinkMap(
 export function buildUnlinkedMentionMap(allNotes: Note[]): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
   for (const target of allNotes) {
-    if (!target.title || /^Untitled-\d+$/.test(target.title)) continue;
+    if (!target.title || UNTITLED_RE.test(target.title)) continue;
     const escaped = target.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex   = new RegExp(`(?<![\\w])${escaped}(?![\\w])`, "gi");
+    const regex   = new RegExp(`(?<![\\w])${escaped}(?![\\w])`, "i");
     for (const source of allNotes) {
-      if (source.id === target.id) continue;
-      if ((source.plaintext ?? "").match(regex)) {
+      if (source.id === target.id || !source.plaintext) continue;
+      if (regex.test(source.plaintext)) {
         if (!map.has(target.id)) map.set(target.id, new Set());
         map.get(target.id)!.add(source.id);
       }

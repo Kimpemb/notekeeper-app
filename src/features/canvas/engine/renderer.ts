@@ -7,31 +7,137 @@ import { getVisibleNodes } from "./world";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const FONT_FAMILY  = 'ui-sans-serif, system-ui, sans-serif';
-const FONT_SIZE    = 14;   // world-space px
-const PAD_H        = 10;   // world-space px
-const PAD_V        = 8;    // world-space px
-const LINE_H       = 1.55;
-const CORNER_R     = 8;    // world-space px
-const HANDLE_R     = 5;    // screen-space px (always same size regardless of zoom)
-const MIN_CORNER_R = 5;    // screen-space minimum
+const FONT_FAMILY   = 'ui-sans-serif, system-ui, sans-serif';
+const FONT_SIZE     = 14;
+const PAD_H         = 10;
+const PAD_V         = 8;
+const LINE_H        = 1.55;
+const CORNER_R      = 8;
+const HANDLE_R      = 5;
+const MIN_CORNER_R  = 5;
 
-// Colours
-const COL_BG         = "#1a1b26";
-const COL_BORDER     = "rgba(255,255,255,0.22)";
-const COL_BORDER_SEL = "#7c3aed";
-const COL_BORDER_CON = "#10b981";
-const COL_TEXT       = "rgba(226,232,240,0.88)";
-const COL_PLACEHOLDER= "rgba(148,163,184,0.35)";
-const COL_SHADOW     = "rgba(0,0,0,0.25)";
-const COL_SHADOW_SEL = "rgba(124,58,237,0.15)";
-const COL_SHADOW_CON = "rgba(16,185,129,0.2)";
-const COL_EDGE       = "rgba(148,163,184,0.45)";
-const COL_EDGE_DRAFT = "rgba(124,58,237,0.7)";
-const COL_SEL_FILL   = "rgba(124,58,237,0.07)";
-const COL_SEL_BORDER = "rgba(124,58,237,0.6)";
-const COL_GRID       = "rgba(255,255,255,0.04)";
-const COL_HANDLE_FILL= "rgba(255,255,255,0.88)";
+const COL_BG          = "#1a1b26";
+const COL_BORDER      = "rgba(255,255,255,0.22)";
+const COL_BORDER_SEL  = "#7c3aed";
+const COL_BORDER_CON  = "#10b981";
+const COL_TEXT        = "rgba(226,232,240,0.88)";
+const COL_PLACEHOLDER = "rgba(148,163,184,0.35)";
+const COL_EDGE        = "rgba(148,163,184,0.45)";
+const COL_EDGE_DRAFT  = "rgba(124,58,237,0.7)";
+const COL_SEL_FILL    = "rgba(124,58,237,0.07)";
+const COL_SEL_BORDER  = "rgba(124,58,237,0.6)";
+const COL_GRID        = "rgba(255,255,255,0.04)";
+const COL_HANDLE_FILL = "rgba(255,255,255,0.88)";
+
+// ─── Text layout cache ────────────────────────────────────────────────────────
+// Keyed by `${nodeId}:${content}:${zoom.toFixed(2)}:${maxW.toFixed(0)}`
+// Avoids re-measuring text on every frame when nothing changed.
+
+interface CachedLayout {
+  lines: string[];
+  fontSize: number;
+  lineH: number;
+}
+
+const layoutCache = new Map<string, CachedLayout>();
+const MAX_CACHE   = 500;
+
+function getCacheKey(id: string, content: string, zoom: number, maxW: number): string {
+  return `${id}:${content}:${zoom.toFixed(2)}:${maxW.toFixed(0)}`;
+}
+
+function getTextLayout(
+  ctx: CanvasRenderingContext2D,
+  node: CanvasNode,
+  zoom: number,
+): CachedLayout {
+  const content = node.content ?? "";
+  const sw   = node.width * zoom;
+  const maxW = sw - PAD_H * 2 * zoom;
+  const key  = getCacheKey(node.id, content, zoom, maxW);
+
+  const cached = layoutCache.get(key);
+  if (cached) return cached;
+
+  const fontSize = FONT_SIZE * zoom;
+  ctx.font       = `${fontSize}px ${FONT_FAMILY}`;
+
+  const words: string[] = content.split(" ");
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+
+  const layout: CachedLayout = { lines, fontSize, lineH: fontSize * LINE_H };
+
+  if (layoutCache.size >= MAX_CACHE) {
+    const firstKey = layoutCache.keys().next().value;
+    if (firstKey !== undefined) layoutCache.delete(firstKey);
+  }
+  layoutCache.set(key, layout);
+  return layout;
+}
+
+/** Call when a node's content changes so stale entries don't linger. */
+export function invalidateNodeLayout(nodeId: string): void {
+  for (const key of layoutCache.keys()) {
+    if (key.startsWith(`${nodeId}:`)) layoutCache.delete(key);
+  }
+}
+
+// ─── Grid (offscreen cache) ───────────────────────────────────────────────────
+// The dot grid is redrawn onto an offscreen canvas only when zoom changes,
+// then blit onto the main canvas each frame — much cheaper than re-drawing
+// hundreds of dots per frame.
+
+interface GridCache {
+  zoom:     number;
+  canvas:   OffscreenCanvas;
+}
+
+let gridCache: GridCache | null = null;
+
+function getGridCanvas(zoom: number, width: number, height: number): OffscreenCanvas {
+  const spacing = 24 * zoom;
+
+  if (
+    gridCache &&
+    Math.abs(gridCache.zoom - zoom) < 0.001 &&
+    gridCache.canvas.width  >= width &&
+    gridCache.canvas.height >= height
+  ) {
+    return gridCache.canvas;
+  }
+
+  const oc  = new OffscreenCanvas(width, height);
+  const oct = oc.getContext("2d")!;
+
+  oct.clearRect(0, 0, width, height);
+
+  if (spacing >= 6) {
+    const dotR = Math.max(0.5, zoom * 0.8);
+    oct.fillStyle = COL_GRID;
+    for (let x = 0; x < width; x += spacing) {
+      for (let y = 0; y < height; y += spacing) {
+        oct.beginPath();
+        oct.arc(x, y, dotR, 0, Math.PI * 2);
+        oct.fill();
+      }
+    }
+  }
+
+  gridCache = { zoom, canvas: oc };
+  return oc;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,29 +160,27 @@ function roundRect(
   ctx.closePath();
 }
 
-function edgeMidpoints(
-  x: number, y: number, w: number, h: number,
-): { t: [number,number]; r: [number,number]; b: [number,number]; l: [number,number] } {
+function edgeMidpoints(x: number, y: number, w: number, h: number) {
   return {
-    t: [x + w / 2, y],
-    r: [x + w,     y + h / 2],
-    b: [x + w / 2, y + h],
-    l: [x,         y + h / 2],
+    t: [x + w / 2, y]         as [number, number],
+    r: [x + w,     y + h / 2] as [number, number],
+    b: [x + w / 2, y + h]     as [number, number],
+    l: [x,         y + h / 2] as [number, number],
   };
 }
 
 function closestHandles(
   ax: number, ay: number, aw: number, ah: number,
   bx: number, by: number, bw: number, bh: number,
-): { from: [number,number]; to: [number,number] } {
+): { from: [number, number]; to: [number, number] } {
   const aH = edgeMidpoints(ax, ay, aw, ah);
   const bH = edgeMidpoints(bx, by, bw, bh);
   let best = Infinity;
-  let from: [number,number] = aH.r;
-  let to:   [number,number] = bH.l;
-  for (const ap of Object.values(aH) as [number,number][]) {
-    for (const bp of Object.values(bH) as [number,number][]) {
-      const d = (ap[0]-bp[0])**2 + (ap[1]-bp[1])**2;
+  let from: [number, number] = aH.r;
+  let to:   [number, number] = bH.l;
+  for (const ap of Object.values(aH)) {
+    for (const bp of Object.values(bH)) {
+      const d = (ap[0] - bp[0]) ** 2 + (ap[1] - bp[1]) ** 2;
       if (d < best) { best = d; from = ap; to = bp; }
     }
   }
@@ -95,21 +199,13 @@ function drawBackground(
   ctx.fillRect(0, 0, width, height);
 
   const spacing = 24 * viewport.zoom;
-  if (spacing < 6) return; // too dense to draw
+  if (spacing < 6) return;
 
-  const offsetX = ((viewport.x % spacing) + spacing) % spacing;
-  const offsetY = ((viewport.y % spacing) + spacing) % spacing;
-
-  ctx.fillStyle = COL_GRID;
-  const dotR = Math.max(0.5, viewport.zoom * 0.8);
-
-  for (let x = offsetX; x < width; x += spacing) {
-    for (let y = offsetY; y < height; y += spacing) {
-      ctx.beginPath();
-      ctx.arc(x, y, dotR, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
+  // Blit the pre-rendered grid, offset by viewport pan
+  const grid    = getGridCanvas(viewport.zoom, width + Math.ceil(spacing), height + Math.ceil(spacing));
+  const offsetX = (((-viewport.x * viewport.zoom) % spacing) + spacing) % spacing;
+  const offsetY = (((-viewport.y * viewport.zoom) % spacing) + spacing) % spacing;
+  ctx.drawImage(grid, offsetX - spacing, offsetY - spacing);
 }
 
 // ─── Edges ────────────────────────────────────────────────────────────────────
@@ -135,8 +231,8 @@ function drawEdges(
     const bw = b.width * zoom,  bh = b.height * zoom;
 
     const { from, to } = closestHandles(ax, ay, aw, ah, bx, by, bw, bh);
-
     const cpx = (from[0] + to[0]) / 2;
+
     ctx.beginPath();
     ctx.moveTo(from[0], from[1]);
     ctx.bezierCurveTo(cpx, from[1], cpx, to[1], to[0], to[1]);
@@ -144,12 +240,12 @@ function drawEdges(
   }
 }
 
-// ─── Draft edge (while connecting) ───────────────────────────────────────────
+// ─── Draft edge ───────────────────────────────────────────────────────────────
 
 function drawDraftEdge(
   ctx: CanvasRenderingContext2D,
   fromX: number, fromY: number,
-  toX:   number, toY:   number,
+  toX: number,   toY: number,
 ): void {
   ctx.strokeStyle = COL_EDGE_DRAFT;
   ctx.lineWidth   = 1.5;
@@ -180,17 +276,22 @@ function drawNode(
   const sh = node.height * zoom;
   const r  = Math.max(MIN_CORNER_R, CORNER_R * zoom);
 
-  // ── Shadow ──
-  ctx.save();
-  ctx.shadowColor   = isConnecting ? COL_SHADOW_CON : isSelected ? COL_SHADOW_SEL : COL_SHADOW;
-  ctx.shadowBlur    = isSelected || isConnecting ? 16 : 10;
-  ctx.shadowOffsetY = 2;
-
-  // ── Fill ──
+  // ── Fill (no shadow — use border accent instead) ──
   roundRect(ctx, sx, sy, sw, sh, r);
   ctx.fillStyle = COL_BG;
   ctx.fill();
-  ctx.restore();
+
+  // ── Selection glow: drawn as a slightly larger rect behind the node ──
+  // Much cheaper than shadowBlur — avoids save/restore and GPU compositing
+  if (isSelected || isConnecting) {
+    const glow = 3;
+    roundRect(ctx, sx - glow, sy - glow, sw + glow * 2, sh + glow * 2, r + glow);
+    ctx.strokeStyle = isConnecting ? COL_BORDER_CON : COL_BORDER_SEL;
+    ctx.lineWidth   = 3;
+    ctx.globalAlpha = 0.25;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
 
   // ── Border ──
   roundRect(ctx, sx, sy, sw, sh, r);
@@ -200,33 +301,26 @@ function drawNode(
 
   // ── Text (skip if React textarea is active) ──
   if (!isEditing) {
-    const fontSize = FONT_SIZE * zoom;
-    ctx.font      = `${fontSize}px ${FONT_FAMILY}`;
-    ctx.fillStyle = node.content ? COL_TEXT : COL_PLACEHOLDER;
+    if (!node.content) {
+      const fontSize = FONT_SIZE * zoom;
+      ctx.font      = `${fontSize}px ${FONT_FAMILY}`;
+      ctx.fillStyle = COL_PLACEHOLDER;
+      ctx.fillText("Double-click to edit", sx + PAD_H * zoom, sy + PAD_V * zoom + fontSize);
+    } else {
+      const layout  = getTextLayout(ctx, node, zoom);
+      ctx.font      = `${layout.fontSize}px ${FONT_FAMILY}`;
+      ctx.fillStyle = COL_TEXT;
 
-    const text    = node.content || "Double-click to edit";
-    const maxW    = sw - PAD_H * 2 * zoom;
-    const lineH   = fontSize * LINE_H;
-    const startX  = sx + PAD_H * zoom;
-    const startY  = sy + PAD_V * zoom + fontSize;
+      const startX = sx + PAD_H * zoom;
+      let   lineY  = sy + PAD_V * zoom + layout.fontSize;
+      const maxY   = sy + sh - PAD_V * zoom;
 
-    // Simple word-wrap
-    const words = text.split(" ");
-    let line  = "";
-    let lineY = startY;
-
-    for (const word of words) {
-      const test = line ? `${line} ${word}` : word;
-      if (ctx.measureText(test).width > maxW && line) {
+      for (const line of layout.lines) {
+        if (lineY > maxY) break;
         ctx.fillText(line, startX, lineY);
-        line  = word;
-        lineY += lineH;
-        if (lineY > sy + sh - PAD_V * zoom) break; // clip overflow
-      } else {
-        line = test;
+        lineY += layout.lineH;
       }
     }
-    if (line) ctx.fillText(line, startX, lineY);
   }
 
   // ── Connection handles ──
@@ -237,13 +331,13 @@ function drawNode(
       [sx + sw / 2, sy + sh],
       [sx,          sy + sh / 2],
     ];
+    ctx.fillStyle   = COL_HANDLE_FILL;
+    ctx.strokeStyle = COL_BORDER_SEL;
+    ctx.lineWidth   = 2;
     for (const [hx, hy] of handles) {
       ctx.beginPath();
       ctx.arc(hx, hy, HANDLE_R, 0, Math.PI * 2);
-      ctx.fillStyle   = COL_HANDLE_FILL;
       ctx.fill();
-      ctx.strokeStyle = COL_BORDER_SEL;
-      ctx.lineWidth   = 2;
       ctx.stroke();
     }
   }
@@ -275,7 +369,7 @@ function drawNodes(
 function drawSelectionRect(
   ctx: CanvasRenderingContext2D,
   startX: number, startY: number,
-  endX:   number, endY:   number,
+  endX: number,   endY: number,
 ): void {
   const x = Math.min(startX, endX);
   const y = Math.min(startY, endY);
@@ -291,12 +385,12 @@ function drawSelectionRect(
 // ─── Main draw call ───────────────────────────────────────────────────────────
 
 export type RenderState = {
-  world:           World;
-  viewport:        Viewport;
-  selectedIds:     Set<string>;
-  editingId:       string | null;
-  hoveredId:       string | null;
-  inputState:      InputState;
+  world:       World;
+  viewport:    Viewport;
+  selectedIds: Set<string>;
+  editingId:   string | null;
+  hoveredId:   string | null;
+  inputState:  InputState;
 };
 
 export function drawFrame(
@@ -307,7 +401,6 @@ export function drawFrame(
   const { width, height } = ctx.canvas;
 
   ctx.clearRect(0, 0, width, height);
-
   drawBackground(ctx, viewport, width, height);
   drawEdges(ctx, world, viewport);
   drawNodes(
@@ -319,7 +412,7 @@ export function drawFrame(
   if (inputState.type === "selecting") {
     drawSelectionRect(
       ctx,
-      inputState.startX, inputState.startY,
+      inputState.startX,   inputState.startY,
       inputState.currentX, inputState.currentY,
     );
   }

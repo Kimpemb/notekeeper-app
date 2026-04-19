@@ -15,49 +15,46 @@ import {
 } from "./world";
 import type { World } from "./world";
 import { drawFrame } from "./renderer";
+import { invalidateNodeLayout } from "./renderer";
 import type { RenderState } from "./renderer";
 import { InputHandler } from "./inputHandler";
 import type { InputCallbacks } from "./inputHandler";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 export type EngineCallbacks = {
-  /** React needs to mount a textarea for this node */
-  onNodeEditStart: (id: string | null) => void;
-  /** World changed — persist debounced */
-  onWorldChanged: () => void;
-  /** Viewport changed — React may need to rerender chrome */
-  onViewportChanged: (vp: Viewport) => void;
+  onNodeEditStart:  (id: string | null) => void;
+  onWorldChanged:   () => void;
+  onViewportChanged:(vp: Viewport) => void;
 };
 
-const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 0.6 };
-const PERSIST_DEBOUNCE_MS = 300;
-
-// ─── CanvasEngine ─────────────────────────────────────────────────────────────
+const DEFAULT_VIEWPORT: Viewport  = { x: 0, y: 0, zoom: 0.6 };
+const PERSIST_WORLD_MS            = 400;  // debounce for node/edge changes
+const PERSIST_VIEWPORT_MS         = 1000; // debounce for viewport — much less urgent
 
 export class CanvasEngine {
   private noteId:   string;
   private ctx:      CanvasRenderingContext2D | null = null;
   private rafId:    number | null = null;
   private observer: ResizeObserver | null = null;
+  private paused:   boolean = false;
 
-  // Core state — plain objects, never React state
   private world:    World;
   private viewport: Viewport;
 
-  // Sub-systems
   private input:     InputHandler;
   private callbacks: EngineCallbacks;
 
-  // Persistence
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  // Dirty flag — only draw when something changed
+  private dirty: boolean = true;
+
+  // Separate debounce timers for world vs viewport
+  private worldPersistTimer:    ReturnType<typeof setTimeout> | null = null;
+  private viewportPersistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(noteId: string, callbacks: EngineCallbacks) {
     this.noteId    = noteId;
     this.callbacks = callbacks;
 
-    // Load initial state from noteStore
     const note = useNoteStore.getState().notes.find((n) => n.id === noteId);
     if (note?.canvas_state) {
       const { world, viewport } = worldFromJSON(note.canvas_state);
@@ -68,16 +65,15 @@ export class CanvasEngine {
       this.viewport = { ...DEFAULT_VIEWPORT };
     }
 
-    // Input handler — viewport getter always reads live
     const inputCallbacks: InputCallbacks = {
       onViewportChange:   (vp) => this.applyViewport(vp),
-      onSelectionChange:  (_ids) => { /* inputHandler owns selectedIds */ },
-      onNodesMoved:       (_moves) => this.schedulePersist(),
+      onSelectionChange:  (_ids) => { this.markDirty(); },
+      onNodesMoved:       (_moves) => { this.markDirty(); this.scheduleWorldPersist(); },
       onNodeEditStart:    (id) => callbacks.onNodeEditStart(id || null),
-      onNodeDelete:       (_ids) => this.schedulePersist(),
-      onConnected:        (_f, _t) => this.schedulePersist(),
-      onInputStateChange: (_s) => { /* renderer reads inputHandler directly */ },
-      onHoverChange:      (_id) => { /* renderer reads inputHandler directly */ },
+      onNodeDelete:       (_ids) => { this.markDirty(); this.scheduleWorldPersist(); },
+      onConnected:        (_f, _t) => { this.markDirty(); this.scheduleWorldPersist(); },
+      onInputStateChange: (_s) => { this.markDirty(); },
+      onHoverChange:      (_id) => { this.markDirty(); },
       onCreateNode:       (sx, sy) => this.createNodeAtScreen(sx, sy),
     };
 
@@ -91,8 +87,10 @@ export class CanvasEngine {
   // ─── Mount / unmount ────────────────────────────────────────────────────────
 
   mount(canvas: HTMLCanvasElement): void {
-    this.ctx    = canvas.getContext("2d")!;
-    canvas.tabIndex = 0; // make focusable for keydown
+    this.ctx         = canvas.getContext("2d")!;
+    canvas.tabIndex  = 0;
+    this.paused      = false;
+    this.dirty       = true;
 
     this.input.mount(canvas);
     this.setupResizeObserver(canvas);
@@ -103,93 +101,112 @@ export class CanvasEngine {
     this.stopLoop();
     this.observer?.disconnect();
     this.input.unmount();
-    if (this.persistTimer) clearTimeout(this.persistTimer);
-    this.ctx    = null;
+    if (this.worldPersistTimer)    clearTimeout(this.worldPersistTimer);
+    if (this.viewportPersistTimer) clearTimeout(this.viewportPersistTimer);
+    this.ctx = null;
   }
 
-  // ─── Engine API (use these — never mutate world directly from outside) ───────
+  /** Pause rendering when the canvas tab is hidden. */
+  pause(): void  { this.paused = true; }
+
+  /** Resume rendering when the canvas tab becomes visible again. */
+  resume(): void { this.paused = false; this.markDirty(); }
+
+  // ─── Dirty flag ─────────────────────────────────────────────────────────────
+
+  private markDirty(): void {
+    this.dirty = true;
+  }
+
+  // ─── Engine API ──────────────────────────────────────────────────────────────
 
   addNode(node: CanvasNode): void {
     addNode(this.world, node);
-    this.schedulePersist();
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
   removeNode(id: string): void {
     removeNode(this.world, id);
+    invalidateNodeLayout(id);
     this.input.setSelectedIds(
       [...this.input.getSelectedIds()].filter((sid) => sid !== id),
     );
-    this.schedulePersist();
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
   updateNode(id: string, updates: Partial<CanvasNode>): void {
     updateNode(this.world, id, updates);
-    this.schedulePersist();
+    if (updates.content !== undefined) invalidateNodeLayout(id);
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
   moveNode(id: string, x: number, y: number): void {
     moveNode(this.world, id, x, y);
-    this.schedulePersist();
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
   connect(fromId: string, toId: string): void {
     connect(this.world, { id: crypto.randomUUID(), from: fromId, to: toId });
-    this.schedulePersist();
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
   removeEdge(id: string): void {
     removeEdge(this.world, id);
-    this.schedulePersist();
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
   commitNodeEdit(id: string, content: string, height: number): void {
     updateNode(this.world, id, { content, height });
+    invalidateNodeLayout(id);
     this.input.setEditingId(null);
     this.callbacks.onNodeEditStart(null);
-    this.schedulePersist();
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
   discardNodeEdit(id: string): void {
-    // If node has no content it was just created — remove it
     const node = this.world.nodes.get(id);
     if (!node?.content?.trim()) {
       removeNode(this.world, id);
+      invalidateNodeLayout(id);
       this.input.clearSelection();
     }
     this.input.setEditingId(null);
     this.callbacks.onNodeEditStart(null);
-    this.schedulePersist();
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
-  selectNodes(ids: string[]): void {
-    this.input.setSelectedIds(ids);
-  }
-
-  clearSelection(): void {
-    this.input.clearSelection();
-  }
-
-  setViewport(vp: Viewport): void {
-    this.applyViewport(vp);
-  }
+  selectNodes(ids: string[]): void  { this.input.setSelectedIds(ids); this.markDirty(); }
+  clearSelection(): void            { this.input.clearSelection();     this.markDirty(); }
+  setViewport(vp: Viewport): void   { this.applyViewport(vp); }
 
   // ─── Read API ────────────────────────────────────────────────────────────────
 
-  getWorld():      World    { return this.world; }
-  getViewport():   Viewport { return this.viewport; }
-  getEditingId():  string | null { return this.input.getEditingId(); }
-  getSelectedIds(): Set<string>  { return this.input.getSelectedIds(); }
+  getWorld():       World            { return this.world; }
+  getViewport():    Viewport         { return this.viewport; }
+  getEditingId():   string | null    { return this.input.getEditingId(); }
+  getSelectedIds(): Set<string>      { return this.input.getSelectedIds(); }
 
   getEditingNode(): CanvasNode | null {
     const id = this.input.getEditingId();
     return id ? (this.world.nodes.get(id) ?? null) : null;
   }
 
-  // ─── rAF loop ────────────────────────────────────────────────────────────────
+  // ─── rAF loop — only draws when dirty ────────────────────────────────────────
 
   private startLoop(): void {
     const loop = () => {
-      this.render();
+      if (!this.paused && this.dirty) {
+        this.render();
+        this.dirty = false;
+      }
       this.rafId = requestAnimationFrame(loop);
     };
     this.rafId = requestAnimationFrame(loop);
@@ -201,8 +218,6 @@ export class CanvasEngine {
       this.rafId = null;
     }
   }
-
-  // ─── Render ──────────────────────────────────────────────────────────────────
 
   private render(): void {
     if (!this.ctx) return;
@@ -221,11 +236,15 @@ export class CanvasEngine {
 
   private applyViewport(vp: Viewport): void {
     this.viewport = vp;
-    this.callbacks.onViewportChanged(vp);
-    this.schedulePersist();
+    this.markDirty();
+    // Only notify React when editing (textarea needs repositioning)
+    if (this.input.getEditingId()) {
+      this.callbacks.onViewportChanged(vp);
+    }
+    this.scheduleViewportPersist();
   }
 
-  // ─── Node creation from double-click ─────────────────────────────────────────
+  // ─── Node creation ───────────────────────────────────────────────────────────
 
   private createNodeAtScreen(screenX: number, screenY: number): void {
     const world = screenToWorld(screenX, screenY, this.viewport);
@@ -234,8 +253,8 @@ export class CanvasEngine {
       id,
       type:    "text",
       content: "",
-      x:       world.x - 90,  // center the default 180px node
-      y:       world.y - 22,  // center the default 44px node
+      x:       world.x - 90,
+      y:       world.y - 22,
       width:   180,
       height:  44,
     };
@@ -243,7 +262,8 @@ export class CanvasEngine {
     this.input.setSelectedIds([id]);
     this.input.setEditingId(id);
     this.callbacks.onNodeEditStart(id);
-    this.schedulePersist();
+    this.markDirty();
+    this.scheduleWorldPersist();
   }
 
   // ─── Resize observer ─────────────────────────────────────────────────────────
@@ -258,37 +278,44 @@ export class CanvasEngine {
         canvas.style.width  = `${width}px`;
         canvas.style.height = `${height}px`;
         if (this.ctx) {
-          // Reset to identity first — never stack scale calls
           this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
+        this.markDirty();
       }
     });
     this.observer.observe(canvas);
   }
 
-  // ─── Persistence ─────────────────────────────────────────────────────────────
+  // ─── Persistence — world and viewport on separate timers ─────────────────────
 
-  private schedulePersist(): void {
-    if (this.persistTimer) clearTimeout(this.persistTimer);
-    this.persistTimer = setTimeout(() => {
-      this.flush();
-    }, PERSIST_DEBOUNCE_MS);
+  private scheduleWorldPersist(): void {
+    if (this.worldPersistTimer) clearTimeout(this.worldPersistTimer);
+    this.worldPersistTimer = setTimeout(() => this.flushWorld(), PERSIST_WORLD_MS);
   }
 
-  private flush(): void {
+  private scheduleViewportPersist(): void {
+    if (this.viewportPersistTimer) clearTimeout(this.viewportPersistTimer);
+    this.viewportPersistTimer = setTimeout(() => this.flushViewport(), PERSIST_VIEWPORT_MS);
+  }
+
+  private flushWorld(): void {
     const json = worldToJSON(this.world, this.viewport);
-    // In-memory sync
     useNoteStore.getState().updateCanvasStateInMemory(this.noteId, json);
-    // Async DB write
     useNoteStore.getState().updateCanvasState(this.noteId, json).catch(console.error);
     this.callbacks.onWorldChanged();
   }
 
-  // ─── Handle click detection (called from CanvasViewport for handle hits) ─────
+  private flushViewport(): void {
+    // Only persist viewport — no need to call onWorldChanged for a pan
+    const json = worldToJSON(this.world, this.viewport);
+    useNoteStore.getState().updateCanvasState(this.noteId, json).catch(console.error);
+  }
+
+  // ─── Handle detection ────────────────────────────────────────────────────────
 
   getHandleAtScreen(screenX: number, screenY: number): { nodeId: string; handleIndex: number } | null {
     const { zoom, x: vx, y: vy } = this.viewport;
-    const HANDLE_R_HIT = 8; // slightly larger than drawn for easier clicking
+    const HANDLE_R_HIT = 8;
 
     for (const node of this.world.nodes.values()) {
       const sx = node.x * zoom + vx;
@@ -307,7 +334,7 @@ export class CanvasEngine {
         const [hx, hy] = handles[i];
         const dx = screenX - hx;
         const dy = screenY - hy;
-        if (Math.sqrt(dx * dx + dy * dy) <= HANDLE_R_HIT) {
+        if (dx * dx + dy * dy <= HANDLE_R_HIT * HANDLE_R_HIT) {
           return { nodeId: node.id, handleIndex: i };
         }
       }
@@ -317,5 +344,13 @@ export class CanvasEngine {
 
   startConnecting(nodeId: string, screenX: number, screenY: number): void {
     this.input.startConnecting(nodeId, screenX, screenY);
+    this.markDirty();
   }
+
+  loadWorld(world: World, viewport: Viewport): void {
+  this.world    = world;
+  this.viewport = viewport;
+  this.input.updateWorld(world);
+  this.markDirty();
+}
 }

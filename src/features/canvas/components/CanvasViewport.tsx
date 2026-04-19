@@ -1,8 +1,8 @@
-// src/features/canvas/components/CanvasViewport.tsx
-
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { CanvasEngine } from "../engine/engine";
 import type { Viewport } from "@/types/canvas";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { worldFromJSON } from "../engine/world";
 
 const FONT_SIZE = 14;
 const PAD_H     = 10;
@@ -23,6 +23,22 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({ noteId, containe
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [viewport,      setViewport]      = useState<Viewport>({ x: 0, y: 0, zoom: 0.6 });
 
+  // Store hooks for content loading
+  const loadNoteContent = useNoteStore((s) => s.loadNoteContent);
+  const note = useNoteStore((s) => s.notes.find((n) => n.id === noteId));
+
+  // ─── Load content if canvas_state is missing ─────────────────────────────────
+ useEffect(() => {
+  if (!note) return;
+  const isEmpty = !note.canvas_state || (() => {
+    try {
+      const s = JSON.parse(note.canvas_state);
+      return s.nodes?.length === 0 && s.edges?.length === 0;
+    } catch { return true; }
+  })();
+  if (isEmpty) loadNoteContent(noteId);
+}, [noteId, loadNoteContent, note]);
+
   // ─── Mount engine ───────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -42,6 +58,21 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({ noteId, containe
       engineRef.current = null;
     };
   }, [noteId]);
+
+  // ─── Reload engine when canvas_state arrives ────────────────────────────────
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const currentNote = useNoteStore.getState().notes.find((n) => n.id === noteId);
+    if (currentNote?.canvas_state && currentNote.canvas_state !== "null") {
+      try {
+        const { world, viewport } = worldFromJSON(currentNote.canvas_state);
+        engine.loadWorld(world, viewport);
+      } catch (e) {
+        console.error("Failed to load canvas world:", e);
+      }
+    }
+  }, [noteId, note?.canvas_state]);
 
   // ─── Focus canvas when not editing ─────────────────────────────────────────
   useEffect(() => {
