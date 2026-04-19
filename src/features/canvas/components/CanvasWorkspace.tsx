@@ -137,6 +137,7 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
   const [hovered,      setHovered]      = useState(false);
   const [showExport,   setShowExport]   = useState(false);
   const [exporting,    setExporting]    = useState<CanvasExportFormat | null>(null);
+  const [exportStatus, setExportStatus] = useState<"idle" | "exporting" | "done">("idle");
 
   const canvasName = note?.title ?? "Untitled";
 
@@ -171,6 +172,7 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
       if (!note) return;
       setExporting(format);
       setShowExport(false);
+      setExportStatus("exporting");
 
       const store = useCanvasStore.getState();
       const exportData: CanvasExportData = {
@@ -188,8 +190,11 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
           case "md":   exportAsMarkdown(exportData);         break;
           case "svg":  exportAsSvg(exportData);              break;
         }
+        setExportStatus("done");
+        setTimeout(() => setExportStatus("idle"), 2500);
       } catch (err) {
         console.error("Canvas export failed:", err);
+        setExportStatus("idle");
       } finally {
         setExporting(null);
       }
@@ -341,6 +346,48 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
       {/* ── Canvas ─────────────────────────────────────────────────────────── */}
       <div ref={containerRef} className="flex-1 relative overflow-hidden">
         <CanvasViewport noteId={noteId} containerRef={containerRef} />
+
+        {exportStatus !== "idle" && (
+          <div style={{
+            position:      "absolute",
+            bottom:        16,
+            left:          "50%",
+            transform:     "translateX(-50%)",
+            background:    "rgba(20,20,32,0.92)",
+            border:        "1px solid rgba(255,255,255,0.1)",
+            borderRadius:  8,
+            padding:       "7px 16px",
+            fontSize:      12,
+            color:         exportStatus === "done"
+              ? "rgba(134,239,172,0.9)"
+              : "rgba(226,232,240,0.7)",
+            display:       "flex",
+            alignItems:    "center",
+            gap:           8,
+            pointerEvents: "none",
+            whiteSpace:    "nowrap",
+          }}>
+            {exportStatus === "exporting" ? (
+              <>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                  style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }}>
+                  <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5"
+                    strokeDasharray="20" strokeDashoffset="7" strokeLinecap="round"/>
+                </svg>
+                Exporting…
+              </>
+            ) : (
+              <>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                  style={{ flexShrink: 0 }}>
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5"
+                    strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Exported
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

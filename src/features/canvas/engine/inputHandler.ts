@@ -278,7 +278,11 @@ export class InputHandler {
         if (n) snapshot.set(nid, { x: n.x, y: n.y });
       }
 
-      const origin = screenToWorld(pos.x, pos.y, vp);
+      const r = this.rect();
+      const downPos = r
+        ? { x: this.pointerDownPos.x - r.left, y: this.pointerDownPos.y - r.top }
+        : pos;
+      const origin = screenToWorld(downPos.x, downPos.y, vp);
       this.setState({
         type: "dragging",
         nodeIds: idsToMove,
