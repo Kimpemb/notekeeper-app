@@ -247,24 +247,25 @@ export class CanvasEngine {
   // ─── Node creation ───────────────────────────────────────────────────────────
 
   private createNodeAtScreen(screenX: number, screenY: number): void {
-    const world = screenToWorld(screenX, screenY, this.viewport);
-    const id    = crypto.randomUUID();
-    const node: CanvasNode = {
-      id,
-      type:    "text",
-      content: "",
-      x:       world.x - 90,
-      y:       world.y - 22,
-      width:   180,
-      height:  44,
-    };
-    addNode(this.world, node);
-    this.input.setSelectedIds([id]);
-    this.input.setEditingId(id);
-    this.callbacks.onNodeEditStart(id);
-    this.markDirty();
-    this.scheduleWorldPersist();
-  }
+  const world = screenToWorld(screenX, screenY, this.viewport);
+  const id    = crypto.randomUUID();
+  const node: CanvasNode = {
+    id,
+    type:    "text",
+    content: "",
+    x:       world.x - 90,
+    y:       world.y - 22,
+    width:   180,
+    height:  44,
+  };
+  addNode(this.world, node);
+  this.input.setSelectedIds([id]);
+  this.input.setEditingId(id);
+  this.callbacks.onViewportChanged(this.viewport); // sync React viewport before textarea mounts
+  this.callbacks.onNodeEditStart(id);
+  this.markDirty();
+  this.scheduleWorldPersist();
+}
 
   // ─── Resize observer ─────────────────────────────────────────────────────────
 
