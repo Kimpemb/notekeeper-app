@@ -55,21 +55,34 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v1.4.0
+            ## What's new in v1.5.0
 
-            **Backup System (Tier 3)**
-            - Export your entire vault as an AES-256-GCM encrypted .nkbackup file
-            - Restore from any .nkbackup file with full note, backlink, and settings recovery
-            - Wrong password and corrupted file detection with clean error messages
-            - Backups are gzip compressed before encryption — 84% smaller than uncompressed (5.5MB → 907KB on real vaults)
-            - Backups are signed to Idemora — cannot be restored in any other app
+            **Redesigned UI**
+            - Fully restructured and upgraded interface — cleaner layout, refined typography, and a more cohesive visual language throughout
 
-            **Auto-Backup**
-            - Schedule automatic backups on app launch — daily, weekly, or on change only
-            - Change detection via SHA-256 bundle hash — no unnecessary backups if nothing changed
+            **Canvas**
+            - Freeform canvas notes — create nodes, connect them, pan and zoom freely
+            - Full editing power inside canvas nodes — slash commands, note links, sub-pages
+            - Export your canvas as PNG, SVG, Markdown, or JSON
+
+            **Bookmarks**
+            - Pin any note to your bookmarks panel for quick access
+            - Organise bookmarks into named groups and reorder them freely
+
+            **Backup System**
+            - Export your vault as an AES-256-GCM encrypted .nkbackup file
+            - Schedule automatic backups daily, weekly, or on every change
             - Point your backup folder at iCloud Drive, Dropbox, or Google Drive for automatic cloud sync
-            - Last backup timestamp displayed in settings
-            - Silent failure on launch — auto-backup never blocks or crashes the app
+
+            **Performance**
+            - Cold start cut from 7–8s to under 2s — notes load metadata first, content on demand
+            - Canvas engine now only redraws when something actually changes
+
+            **Bug fixes**
+            - Graph node editor now correctly loads note content when opened with E
+            - Triple-clicking a graph node opens it in the main editor as expected
+            - Canvas node drag no longer jumps on pointer-down
+            - Canvas textarea overlay stays pixel-aligned after panning
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
