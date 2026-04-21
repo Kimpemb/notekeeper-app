@@ -5,7 +5,15 @@ import { useUIStore } from "@/features/ui/store/useUIStore";
 import { searchNotes } from "@/features/notes/db/queries";
 import type { SearchResult } from "@/features/notes/db/queries";
 
-// Converts **word** markers from FTS5 snippet() into highlighted spans
+// Detects the snippet kind so tag/frontmatter hits can render differently
+function snippetKind(snippet: string): "tag" | "frontmatter" | "text" {
+  if (snippet.startsWith("Tag: ")) return "tag";
+  // frontmatter snippets look like "status: active · priority: high"
+  if (/^[\w-]+: .+/.test(snippet) && snippet.includes(" · ")) return "frontmatter";
+  return "text";
+}
+
+// Renders **word** FTS markers as highlighted <mark> spans
 function SnippetText({ text }: { text: string }) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return (
@@ -14,7 +22,7 @@ function SnippetText({ text }: { text: string }) {
         part.startsWith("**") && part.endsWith("**") ? (
           <mark
             key={i}
-            className="bg-amber-100 /50 text-amber-800  rounded px-0.5 not-italic font-medium"
+            className="bg-amber-100/50 text-amber-800 rounded px-0.5 not-italic font-medium"
           >
             {part.slice(2, -2)}
           </mark>
@@ -23,6 +31,20 @@ function SnippetText({ text }: { text: string }) {
         )
       )}
     </span>
+  );
+}
+
+// Tag icon — small # symbol
+function TagIcon() {
+  return (
+    <svg width="9" height="10" viewBox="0 0 9 10" fill="none" className="shrink-0 mt-px">
+      <path
+        d="M1 3.5h7M1 6.5h7M3 1l-1 8M7 1l-1 8"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 
@@ -116,16 +138,16 @@ export function SearchResults({ query }: Props) {
 
   // ── Handle click ─────────────────────────────
   function handleResultClick(result: SearchResult, index: number) {
-  const { replaceTab } = useUIStore.getState();
+    const { replaceTab } = useUIStore.getState();
 
-  setSelectedIndex(index);
-  setActiveNote(result.id);
-  replaceTab(result.id);
+    setSelectedIndex(index);
+    setActiveNote(result.id);
+    replaceTab(result.id);
 
-  setTimeout(() => {
-    setPendingScrollQuery(query.trim());
-  }, 350);
-}
+    setTimeout(() => {
+      setPendingScrollQuery(query.trim());
+    }, 350);
+  }
 
   // ── Loading / No results ─────────────────────────────
   if (loading) {
@@ -162,13 +184,14 @@ export function SearchResults({ query }: Props) {
         return (
           <li
             key={result.id}
-            ref={(el) => void (itemRefs.current[index] = el)}          >
+            ref={(el) => void (itemRefs.current[index] = el)}
+          >
             <button
               onClick={() => handleResultClick(result, index)}
               className={`w-full text-left px-2.5 py-2 rounded-md transition-colors duration-75 group ${
                 isActive
-                  ? "bg-idemora-bg-primary "
-                  : " "
+                  ? "bg-idemora-bg-primary"
+                  : ""
               }`}
             >
               <div className="flex items-center gap-1.5 mb-0.5">
@@ -177,7 +200,7 @@ export function SearchResults({ query }: Props) {
                   height="11"
                   viewBox="0 0 12 12"
                   fill="none"
-                  className="text-idemora-text-normal  shrink-0"
+                  className="text-idemora-text-normal shrink-0"
                 >
                   <rect
                     x="1.5"
@@ -199,11 +222,37 @@ export function SearchResults({ query }: Props) {
                   {result.title}
                 </span>
               </div>
-              {result.snippet && (
-                <p className="text-[11px] leading-relaxed text-idemora-text-muted line-clamp-2 pl-4">
-                  <SnippetText text={result.snippet} />
-                </p>
-              )}
+              {result.snippet && (() => {
+                const kind = snippetKind(result.snippet);
+                if (kind === "tag") {
+                  const tags = result.snippet.slice(5).split(", "); // strip "Tag: "
+                  return (
+                    <div className="flex items-center gap-1 pl-4 mt-0.5 flex-wrap">
+                      {tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-idemora-bg-primary text-idemora-text-muted border border-idemora-border"
+                        >
+                          <TagIcon />
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                }
+                if (kind === "frontmatter") {
+                  return (
+                    <p className="text-[11px] leading-relaxed text-idemora-text-muted line-clamp-1 pl-4 mt-0.5 italic">
+                      {result.snippet}
+                    </p>
+                  );
+                }
+                return (
+                  <p className="text-[11px] leading-relaxed text-idemora-text-muted line-clamp-2 pl-4 mt-0.5">
+                    <SnippetText text={result.snippet} />
+                  </p>
+                );
+              })()}
             </button>
           </li>
         );
@@ -211,7 +260,7 @@ export function SearchResults({ query }: Props) {
 
       {results.length > 0 && (
         <li className="px-2.5 pt-1">
-          <p className="text-[10px] text-idemora-text-normal  tabular-nums">
+          <p className="text-[10px] text-idemora-text-normal tabular-nums">
             {results.length} result{results.length !== 1 ? "s" : ""}
           </p>
         </li>

@@ -110,11 +110,26 @@ export function GraphNodeEditor({
   // ── Title editing ─────────────────────────────────────────────────────────
   const titleRef        = useRef<HTMLHeadingElement>(null);
   const titleFocusedRef = useRef(false);
+  // Local title state — synced from store on mount/noteId change only.
+  // Never updated from store while the user is actively typing.
+  const [localTitle, setLocalTitle] = useState(note?.title ?? "");
+  const lastNoteIdRef = useRef(noteId);
 
   // suppressSave starts true — flipped to false only after real content
   // has arrived and been synced into the editor. Prevents autosave from
   // writing the empty placeholder back to the DB.
   const suppressSave = useRef(true);
+
+  // Sync local title when navigating to a different note
+  useEffect(() => {
+    if (lastNoteIdRef.current !== noteId) {
+      lastNoteIdRef.current = noteId;
+      setLocalTitle(note?.title ?? "");
+      if (titleRef.current) {
+        titleRef.current.textContent = note?.title ?? "";
+      }
+    }
+  }, [noteId, note?.title]);
 
   // ── Slash menu ────────────────────────────────────────────────────────────
   const [slashOpen,  setSlashOpen]  = useState(false);
@@ -429,6 +444,7 @@ useEffect(() => {
     if (!note) return;
     const title = titleRef.current?.textContent?.trim() ?? "";
     if (!title || title === note.title) return;
+    setLocalTitle(title);
     updateNote(note.id, { title });
   }
 
@@ -437,6 +453,12 @@ useEffect(() => {
       e.preventDefault();
       editor?.commands.focus("start");
     }
+  }
+
+  function handleTitleInput() {
+    // Track local changes without touching the store — prevents re-render
+    // from resetting the contenteditable while the user is mid-type.
+    setLocalTitle(titleRef.current?.textContent ?? "");
   }
 
   function handleTitlePaste(e: React.ClipboardEvent<HTMLHeadingElement>) {
@@ -468,7 +490,7 @@ useEffect(() => {
 
   if (!note) return null;
 
-  const isUntitled = /^Untitled-\d+$/.test(note.title);
+  const isUntitled = /^Untitled-\d+$/.test(localTitle || note.title);
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -513,8 +535,9 @@ useEffect(() => {
               onFocus={handleTitleFocus}
               onBlur={handleTitleBlur}
               onKeyDown={handleTitleKeyDown}
+              onInput={handleTitleInput}
               onPaste={handleTitlePaste}
-              data-placeholder={isUntitled ? note.title : "Untitled"}
+              data-placeholder={isUntitled ? (note.title || "Untitled") : "Untitled"}
               style={{
                 flex:         1,
                 margin:       0,
@@ -530,7 +553,7 @@ useEffect(() => {
                 opacity:      0.9,
               }}
             >
-              {isUntitled ? "" : note.title}
+              {isUntitled ? "" : localTitle || note.title}
             </h1>
           </div>
           <span style={{ fontSize: 10, color: LABEL, opacity: 0.28 }}>

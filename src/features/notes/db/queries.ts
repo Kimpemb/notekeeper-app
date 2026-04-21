@@ -575,40 +575,38 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
   if (!query.trim()) return [];
   const db = await getDb();
 
-  const bare = query.trim();
+  const raw = query.trim();
+  const isTagQuery = raw.startsWith("#");
+  const bare = isTagQuery ? raw.slice(1) : raw; // strip # only for matching, keep intent
+
+  if (!bare) return [];
 
   // ── FTS5 sanitisation ──────────────────────────────────────────────────────
-  // Strip only the characters that are FTS5 syntax operators: " ' ^ ( ) *
-  // We deliberately preserve # @ - / : . and other symbol characters because
-  // they appear legitimately in content (e.g. "#project", "re: fix", "C++").
-  // Each whitespace-separated token gets a * suffix for prefix matching.
   const ftsQuery = bare
-  .replace(/['"^():]/g, " ")   // ← add : to the stripped set
-  .replace(/\*/g, " ")
-  .replace(/\s+/g, " ")
-  .trim();
+    .replace(/['"^():]/g, " ")
+    .replace(/\*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   const ftsMatch = ftsQuery.length > 0
     ? ftsQuery.split(" ").filter(Boolean).map(t => `${t}*`).join(" ")
     : null;
 
-  // ── LIKE pattern for tag / frontmatter fallback ────────────────────────────
-  // Uses the raw query so "#project" hits the tags JSON literally.
   const likePattern = `%${bare}%`;
 
   const seen    = new Set<string>();
   const results: SearchResult[] = [];
 
-  // ── 1. FTS5 — covers title, plaintext, tags, frontmatter ──────────────────
-  // (tags and frontmatter are in the FTS index after the schema migration;
-  //  if the migration hasn't run yet the LIKE fallback below still covers them)
-  if (ftsMatch) {
+  // ── FTS5 (title + body only, never tags/frontmatter columns) ──────────────
+  async function runFts() {
+    if (!ftsMatch || results.length >= limit) return;
     try {
-      const ftsRows = await db.select<SearchResult[]>(
+      const ftsRows = await db.select<(SearchResult & { _titleSnip: string; _bodySnip: string })[]>(
         `SELECT
           n.id,
           n.title,
-          snippet(notes_fts, -1, '**', '**', '…', 12) AS snippet,
+          snippet(notes_fts, 1, '**', '**', '…', 12) AS _titleSnip,
+          snippet(notes_fts, 2, '**', '**', '…', 12) AS _bodySnip,
           n.updated_at,
           n.parent_id,
           instr(n.plaintext, $2) AS offset
@@ -621,22 +619,18 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
         [ftsMatch, bare, limit]
       );
       for (const row of ftsRows) {
-        if (!seen.has(row.id)) {
-          seen.add(row.id);
-          results.push(row);
-        }
+        if (seen.has(row.id)) continue;
+        const snippet = row._titleSnip?.trim() || row._bodySnip?.trim() || "";
+        if (!snippet) continue; // tags/frontmatter-only FTS hit — let LIKE steps handle it
+        seen.add(row.id);
+        results.push({ ...row, snippet });
       }
-    } catch {
-      // FTS5 can still throw on some edge-case inputs (bare "-", etc.).
-      // Swallow and fall through — the LIKE paths below still run.
-    }
+    } catch { /* fall through */ }
   }
 
-  // ── 2. Tag search — LIKE against the JSON array column ────────────────────
-  // Catches queries like "design" matching tag "ux-design", or "#project"
-  // matching the raw JSON string. Runs even when FTS5 succeeds so that
-  // tag-only matches (not in plaintext) are always surfaced.
-  if (results.length < limit) {
+  // ── Tag LIKE ───────────────────────────────────────────────────────────────
+  async function runTagLike() {
+    if (results.length >= limit) return;
     const tagRows = await db.select<{
       id: string; title: string; updated_at: number; parent_id: string | null; tags: string | null;
     }[]>(
@@ -658,21 +652,13 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
           if (matched.length > 0) snippet = `Tag: ${matched.join(", ")}`;
         } catch { snippet = ""; }
       }
-      results.push({
-        id: row.id,
-        title: row.title,
-        snippet,
-        offset: 0,
-        updated_at: row.updated_at,
-        parent_id: row.parent_id,
-      });
+      results.push({ id: row.id, title: row.title, snippet, offset: 0, updated_at: row.updated_at, parent_id: row.parent_id });
     }
   }
 
-  // ── 3. Frontmatter search — LIKE against the JSON object column ───────────
-  // Covers both keys and values: "status" matches {"status":"active"},
-  // "active" matches it too. Also covers dataview fields stored in frontmatter.
-  if (results.length < limit) {
+  // ── Frontmatter LIKE ───────────────────────────────────────────────────────
+  async function runFrontmatterLike() {
+    if (results.length >= limit) return;
     const fmRows = await db.select<{
       id: string; title: string; updated_at: number; parent_id: string | null; frontmatter: string | null;
     }[]>(
@@ -700,22 +686,13 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
           if (matchedPairs.length > 0) snippet = matchedPairs.join(" · ");
         } catch { snippet = ""; }
       }
-      results.push({
-        id: row.id,
-        title: row.title,
-        snippet,
-        offset: 0,
-        updated_at: row.updated_at,
-        parent_id: row.parent_id,
-      });
+      results.push({ id: row.id, title: row.title, snippet, offset: 0, updated_at: row.updated_at, parent_id: row.parent_id });
     }
   }
 
-  // ── 4. Title + plaintext LIKE fallback ────────────────────────────────────
-  // Runs when FTS5 returned nothing (e.g. query was pure special chars like
-  // "[link]" or "c++" that survive LIKE but choke FTS5). Also catches any
-  // title/body hit that FTS5 missed due to tokenisation edge-cases.
-  if (results.length < limit) {
+  // ── Title + body LIKE fallback ─────────────────────────────────────────────
+  async function runBodyLike() {
+    if (results.length >= limit) return;
     const likeRows = await db.select<{
       id: string; title: string; updated_at: number; parent_id: string | null; plaintext: string | null;
     }[]>(
@@ -729,7 +706,6 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     for (const row of likeRows) {
       if (seen.has(row.id)) continue;
       seen.add(row.id);
-      // Build a short snippet: find the match position in plaintext
       let snippet = "";
       if (row.plaintext) {
         const lower = row.plaintext.toLowerCase();
@@ -740,15 +716,21 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
           snippet = (start > 0 ? "…" : "") + row.plaintext.slice(start, end).trim() + (end < row.plaintext.length ? "…" : "");
         }
       }
-      results.push({
-        id: row.id,
-        title: row.title,
-        snippet,
-        offset: 0,
-        updated_at: row.updated_at,
-        parent_id: row.parent_id,
-      });
+      results.push({ id: row.id, title: row.title, snippet, offset: 0, updated_at: row.updated_at, parent_id: row.parent_id });
     }
+  }
+
+  // ── Run in priority order ──────────────────────────────────────────────────
+  if (isTagQuery) {
+    await runTagLike();
+    await runFts();
+    await runFrontmatterLike();
+    await runBodyLike();
+  } else {
+    await runFts();
+    await runTagLike();
+    await runFrontmatterLike();
+    await runBodyLike();
   }
 
   return results.slice(0, limit);

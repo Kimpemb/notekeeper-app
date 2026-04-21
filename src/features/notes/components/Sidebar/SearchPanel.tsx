@@ -26,6 +26,9 @@ export function SearchPanel() {
     }
   }
 
+  // Check if there's a meaningful search query (ignoring standalone # symbols)
+  const hasMeaningfulQuery = searchQuery.trim().replace(/^#+/, "").length > 0;
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Search input */}
@@ -45,12 +48,12 @@ export function SearchPanel() {
             onKeyDown={handleKeyDown}
             placeholder="Search notes…"
             autoFocus
-            className="w-full h-8 pl-8 pr-7 rounded-md text-sm bg-idemora-bg-primary  text-idemora-text-normal placeholder:text-idemora-text-muted :text-idemora-text-muted outline-none border-none transition-colors duration-100"
+            className="w-full h-8 pl-8 pr-7 rounded-md text-sm bg-idemora-bg-primary text-idemora-text-normal placeholder:text-idemora-text-muted focus:text-idemora-text-normal outline-none border-none transition-colors duration-100"
           />
           {searchQuery && (
             <button
               onClick={() => { clearSearch(); inputRef.current?.focus(); }}
-              className="absolute right-2 text-idemora-text-muted   transition-colors duration-100"
+              className="absolute right-2 text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                 <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -63,7 +66,7 @@ export function SearchPanel() {
       <div className="mx-2 border-t border-idemora-border shrink-0" />
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 min-h-0">
-        {searchQuery.trim() ? (
+        {hasMeaningfulQuery ? (
           <SearchResults query={searchQuery} />
         ) : (
           <p className="px-4 py-6 text-xs text-idemora-text-muted text-center select-none">
