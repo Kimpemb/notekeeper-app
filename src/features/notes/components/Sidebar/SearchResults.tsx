@@ -79,6 +79,17 @@ export function SearchResults({ query }: Props) {
     function handleKey(e: KeyboardEvent) {
       if (!results.length) return;
 
+      // Only handle keys when the search panel is the active sidebar panel
+      if (useUIStore.getState().activeSidebarPanel !== "search") return;
+
+      // Never intercept keys when focus is inside an editor or input
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) return;
+
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
