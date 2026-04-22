@@ -224,8 +224,10 @@ const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
   const lastSavedContent      = useRef<string | null>(note?.content ?? null);
   const titleFocusedRef       = useRef(false);
   const subPageCreatingRef    = useRef(false);
-  const suppressSave          = useRef(false);
-
+  const suppressSave = useRef(false);
+  const contentLoadingRef = useRef(false); // Blocks autosave during programmatic load (brief setContent flash)
+  const contentFullyLoadedRef = useRef(false); // NEW: True once real content has been loaded at least once  
+  
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const bubblePosRef                    = useRef<BubblePos | null>(null);
@@ -447,42 +449,64 @@ const initialContent = (() => {
   }, [onScrollChange]);
 
   useEffect(() => {
-    if (!editor || !note) return;
-    const incoming = note.content ?? null;
-    if (incoming === lastSavedContent.current) return;
+  if (!editor || !note) return;
+  const incoming = note.content ?? null;
+  if (incoming === lastSavedContent.current) return;
 
-    if (editor.isFocused) {
+  // Only bail on focus if we've already loaded real content once.
+  // Before that, a focused editor still has the empty stub and MUST be updated.
+  if (editor.isFocused && contentFullyLoadedRef.current) {
+    lastSavedContent.current = incoming;
+    return;
+  }
+
+  try {
+    const incomingNorm = JSON.stringify(JSON.parse(incoming ?? "null"));
+    const savedNorm    = JSON.stringify(JSON.parse(lastSavedContent.current ?? "null"));
+    if (incomingNorm === savedNorm) {
       lastSavedContent.current = incoming;
       return;
     }
+  } catch { /* malformed JSON — fall through */ }
+
+  lastSavedContent.current = incoming;
+  const timer = setTimeout(() => {
+    if (editor.isDestroyed) return;
+    // If editor is focused and content is already loaded, don't clobber user edits
+    if (editor.isFocused && contentFullyLoadedRef.current) return;
+
+    const { from, to } = editor.state.selection;
+
+    // Mark that we're programmatically loading content
+    contentLoadingRef.current = true;
+
+    // Load the content
+    editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
+
+    // Also mark the transaction to prevent autosave (belt and suspenders)
+    editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
+
+    // Mark that real content has now been loaded at least once
+    contentFullyLoadedRef.current = true;
+
+    // Clear the loading flag after the event loop
+    setTimeout(() => {
+      contentLoadingRef.current = false;
+    }, 0);
 
     try {
-      const incomingNorm = JSON.stringify(JSON.parse(incoming ?? "null"));
-      const savedNorm    = JSON.stringify(JSON.parse(lastSavedContent.current ?? "null"));
-      if (incomingNorm === savedNorm) {
-        lastSavedContent.current = incoming;
-        return;
+      const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
+      if ($from.parent.isTextblock) {
+        editor.commands.setTextSelection({ from, to });
       }
-    } catch { /* malformed JSON — fall through */ }
-
-    lastSavedContent.current = incoming;
-    const timer = setTimeout(() => {
-      if (editor.isDestroyed || editor.isFocused) return;
-      const { from, to } = editor.state.selection;
-      editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-      try {
-        const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
-        if ($from.parent.isTextblock) {
-          editor.commands.setTextSelection({ from, to });
-        }
-      } catch { /**/ }
-      if (titleRef.current && !titleFocusedRef.current) {
-        const isUntitled = /^Untitled-\d+$/.test(note.title);
-        titleRef.current.textContent = isUntitled ? "" : note.title;
-      }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [note?.content]);
+    } catch { /**/ }
+    if (titleRef.current && !titleFocusedRef.current) {
+      const isUntitled = /^Untitled-\d+$/.test(note.title);
+      titleRef.current.textContent = isUntitled ? "" : note.title;
+    }
+  }, 0);
+  return () => clearTimeout(timer);
+}, [note?.content]);
 
   useEffect(() => {
     function handleContentUpdated(e: Event) {
@@ -576,7 +600,15 @@ useEffect(() => {
     syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
   }, [editor]);
 
-  useAutoSave({ editor: editor ?? null, noteId, isActiveTab, onSaveComplete, suppressSave });
+  useAutoSave({
+  editor,
+  noteId,
+  isActiveTab,
+  onSaveComplete,
+  suppressSave,
+  contentLoading: contentLoadingRef,
+  contentFullyLoaded: contentFullyLoadedRef,
+});
 
   useEffect(() => {
     if (!slashOpen) return;

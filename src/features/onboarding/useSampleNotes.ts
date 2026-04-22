@@ -38,20 +38,26 @@ export function useSampleNotes() {
 
   // Main insertion logic
   useEffect(() => {
-    const flag = directFlag !== null ? directFlag : settings.hasInsertedSampleNotes;
+    // Use directFlag from SQLite, fall back to settings store
 
+    // KEY CHANGE 1: directFlag === false — wait for SQLite to resolve
     const shouldRun =
       settingsLoaded &&
-      !flag &&
+      directFlag === false &&  // ← must be explicitly false, not null
       !hasSampleNotes &&
       !hasStarted &&
-      notes.length > 0; // Wait for notes to load first
+      notes.length > 0;
 
     if (!shouldRun) return;
 
     setHasStarted(true);
 
     const run = async () => {
+      // KEY CHANGE 2: Set flag FIRST before creating notes
+      await setSetting("hasInsertedSampleNotes", "true");
+      updateSetting("hasInsertedSampleNotes", true);
+      setDirectFlag(true);
+
       for (let i = 0; i < SAMPLE_NOTES.length; i++) {
         const sample = SAMPLE_NOTES[i];
         try {
@@ -64,7 +70,6 @@ export function useSampleNotes() {
           console.error(`   ❌ Failed: ${sample.title}`, err);
         }
       }
-      
     };
 
     run();
