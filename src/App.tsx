@@ -36,6 +36,7 @@ import { BacklinksPanel } from "@/features/editor/components/Editor/BacklinksPan
 import { OutlinePanel } from "@/features/editor/components/Editor/OutlinePanel";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
 import { CanvasWorkspace } from "@/features/canvas/components/CanvasWorkspace";
+import { MoveBlockModal } from "@/features/ui/components/MoveBlockModal";
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
@@ -54,6 +55,11 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [notesLoaded, setNotesLoaded] = useState(false);
+  const [moveBlockOpen, setMoveBlockOpen] = useState(false);
+  const moveBlockDetailRef = useRef<{
+    nodeJson:         unknown;
+    deleteFromSource: () => void;
+  } | null>(null);
 
   // Note store
   const loadNotes              = useNoteStore((s) => s.loadNotes);
@@ -211,6 +217,19 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   }, []);
 
   useEffect(() => {
+    function handle(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        nodeJson:         unknown;
+        deleteFromSource: () => void;
+      };
+      moveBlockDetailRef.current = detail;
+      setMoveBlockOpen(true);
+    }
+    window.addEventListener("idemora:move-block", handle);
+    return () => window.removeEventListener("idemora:move-block", handle);
+  }, []);
+
+  useEffect(() => {
     const noteId = useUIStore.getState().activeTabNoteId();
     if (noteId && noteId !== useNoteStore.getState().activeNoteId) setActive(noteId, true);
   }, [activeTabId]);
@@ -224,6 +243,36 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
     if (slideTimeout.current) clearTimeout(slideTimeout.current);
     action();
     slideTimeout.current = setTimeout(() => {}, 300);
+  }
+
+  async function handleMoveBlockConfirm(destNoteId: string) {
+    const detail = moveBlockDetailRef.current;
+    if (!detail) return;
+
+    const { nodeJson, deleteFromSource } = detail;
+    const destNote = notes.find((n) => n.id === destNoteId);
+    if (!destNote) return;
+
+    // Parse destination content and append the block node JSON
+    let content: { type: string; content?: unknown[] };
+    try {
+      content = destNote.content ? JSON.parse(destNote.content) : { type: "doc", content: [] };
+    } catch {
+      content = { type: "doc", content: [] };
+    }
+
+    if (!Array.isArray(content.content)) content.content = [];
+    content.content.push(nodeJson);
+
+    // Persist the updated destination note
+    await useNoteStore.getState().updateNote(destNoteId, {
+      content: JSON.stringify(content),
+    });
+
+    // Remove block from source editor
+    deleteFromSource();
+
+    moveBlockDetailRef.current = null;
   }
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -672,6 +721,12 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       {updateVersion && (
         <UpdateToast version={updateVersion} onDismiss={() => setUpdateVersion(null)} />
       )}
+
+      <MoveBlockModal
+        open={moveBlockOpen}
+        onClose={() => setMoveBlockOpen(false)}
+        onConfirm={handleMoveBlockConfirm}
+      />
     </>
   );
 }

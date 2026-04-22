@@ -13,6 +13,9 @@ import { TableHeader } from "@tiptap/extension-table-header";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { CodeBlockNodeView } from "./CodeBlockNodeView";
 import { CalloutNodeView } from "./CalloutNodeView";
+import { Color }     from "@tiptap/extension-color";
+import { TextStyle } from "@tiptap/extension-text-style";
+import Highlight     from "@tiptap/extension-highlight";
 
 import {
   ToggleNodeView,
@@ -20,6 +23,9 @@ import {
   ToggleBodyNodeView,
   toggleOpenState,
 } from "./ToggleNodeView";
+
+export { Color, TextStyle };
+export const MultiHighlight = Highlight.configure({ multicolor: true });
 
 // ── Lowlight instance ─────────────────────────────────────────────────────────
 export const lowlight = createLowlight(common);
