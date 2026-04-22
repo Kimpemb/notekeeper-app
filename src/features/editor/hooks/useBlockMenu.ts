@@ -43,33 +43,45 @@ interface MenuItem {
   action:        (editor: Editor, nodePos: number, dom: HTMLElement) => void;
 }
 
-// ── Colour palettes ────────────────────────────────────────────────────────────
+// ── Helper: select block text range before applying colour ─────────────────────
+
+function selectBlockText(editor: Editor, nodePos: number) {
+  const { state } = editor.view;
+  const node = state.doc.nodeAt(nodePos);
+  if (!node) return;
+  // Select all text content within the block
+  const from = nodePos + 1;
+  const to   = nodePos + node.nodeSize - 1;
+  editor.chain().focus().setTextSelection({ from, to }).run();
+}
+
+// ── Colour palettes (with selectBlockText integration) ────────────────────────
 
 const TEXT_COLOURS: SubMenuItem[] = [
-  { label: "Default", action: (e) => e.chain().focus().unsetColor().run() },
-  { label: "Red",     color: "#ef4444", action: (e) => e.chain().focus().setColor("#ef4444").run() },
-  { label: "Orange",  color: "#f97316", action: (e) => e.chain().focus().setColor("#f97316").run() },
-  { label: "Yellow",  color: "#eab308", action: (e) => e.chain().focus().setColor("#eab308").run() },
-  { label: "Green",   color: "#22c55e", action: (e) => e.chain().focus().setColor("#22c55e").run() },
-  { label: "Blue",    color: "#3b82f6", action: (e) => e.chain().focus().setColor("#3b82f6").run() },
-  { label: "Purple",  color: "#a855f7", action: (e) => e.chain().focus().setColor("#a855f7").run() },
-  { label: "Pink",    color: "#ec4899", action: (e) => e.chain().focus().setColor("#ec4899").run() },
-  { label: "Gray",    color: "#6b7280", action: (e) => e.chain().focus().setColor("#6b7280").run() },
+  { label: "Default", action: (e, p) => { selectBlockText(e, p); e.chain().focus().unsetColor().run(); } },
+  { label: "Red",     color: "#ef4444", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setColor("#ef4444").run(); } },
+  { label: "Orange",  color: "#f97316", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setColor("#f97316").run(); } },
+  { label: "Yellow",  color: "#eab308", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setColor("#eab308").run(); } },
+  { label: "Green",   color: "#22c55e", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setColor("#22c55e").run(); } },
+  { label: "Blue",    color: "#3b82f6", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setColor("#3b82f6").run(); } },
+  { label: "Purple",  color: "#a855f7", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setColor("#a855f7").run(); } },
+  { label: "Pink",    color: "#ec4899", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setColor("#ec4899").run(); } },
+  { label: "Gray",    color: "#6b7280", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setColor("#6b7280").run(); } },
 ];
 
 const BG_COLOURS: SubMenuItem[] = [
-  { label: "None",   action: (e) => e.chain().focus().unsetHighlight().run() },
-  { label: "Red",    color: "#fecaca", action: (e) => e.chain().focus().setHighlight({ color: "#fecaca" }).run() },
-  { label: "Orange", color: "#fed7aa", action: (e) => e.chain().focus().setHighlight({ color: "#fed7aa" }).run() },
-  { label: "Yellow", color: "#fef08a", action: (e) => e.chain().focus().setHighlight({ color: "#fef08a" }).run() },
-  { label: "Green",  color: "#bbf7d0", action: (e) => e.chain().focus().setHighlight({ color: "#bbf7d0" }).run() },
-  { label: "Blue",   color: "#bfdbfe", action: (e) => e.chain().focus().setHighlight({ color: "#bfdbfe" }).run() },
-  { label: "Purple", color: "#e9d5ff", action: (e) => e.chain().focus().setHighlight({ color: "#e9d5ff" }).run() },
-  { label: "Pink",   color: "#fbcfe8", action: (e) => e.chain().focus().setHighlight({ color: "#fbcfe8" }).run() },
-  { label: "Gray",   color: "#e5e7eb", action: (e) => e.chain().focus().setHighlight({ color: "#e5e7eb" }).run() },
+  { label: "None",   action: (e, p) => { selectBlockText(e, p); e.chain().focus().unsetHighlight().unsetColor().run(); } },
+  { label: "Red",    color: "#fecaca", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setHighlight({ color: "#fecaca" }).setColor("#111111").run(); } },
+  { label: "Orange", color: "#fed7aa", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setHighlight({ color: "#fed7aa" }).setColor("#111111").run(); } },
+  { label: "Yellow", color: "#fef08a", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setHighlight({ color: "#fef08a" }).setColor("#111111").run(); } },
+  { label: "Green",  color: "#bbf7d0", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setHighlight({ color: "#bbf7d0" }).setColor("#111111").run(); } },
+  { label: "Blue",   color: "#bfdbfe", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setHighlight({ color: "#bfdbfe" }).setColor("#111111").run(); } },
+  { label: "Purple", color: "#e9d5ff", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setHighlight({ color: "#e9d5ff" }).setColor("#111111").run(); } },
+  { label: "Pink",   color: "#fbcfe8", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setHighlight({ color: "#fbcfe8" }).setColor("#111111").run(); } },
+  { label: "Gray",   color: "#e5e7eb", action: (e, p) => { selectBlockText(e, p); e.chain().focus().setHighlight({ color: "#e5e7eb" }).setColor("#111111").run(); } },
 ];
 
-// ── Turn into: block conversion ────────────────────────────────────────────────
+// ── Turn into: block conversion (trimmed to working types only) ────────────────
 
 function convertBlock(
   editor: Editor,
@@ -87,15 +99,12 @@ function convertBlock(
 }
 
 const TURN_INTO_ITEMS: SubMenuItem[] = [
-  { label: "Paragraph",     action: (e, p) => convertBlock(e, p, "paragraph") },
-  { label: "Heading 1",     action: (e, p) => convertBlock(e, p, "heading", { level: 1 }) },
-  { label: "Heading 2",     action: (e, p) => convertBlock(e, p, "heading", { level: 2 }) },
-  { label: "Heading 3",     action: (e, p) => convertBlock(e, p, "heading", { level: 3 }) },
-  { label: "Bullet list",   action: (e) => e.chain().focus().toggleBulletList().run() },
-  { label: "Numbered list", action: (e) => e.chain().focus().toggleOrderedList().run() },
-  { label: "Todo",          action: (e) => e.chain().focus().toggleTaskList().run() },
-  { label: "Code block",    action: (e) => e.chain().focus().toggleCodeBlock().run() },
-  { label: "Quote",         action: (e) => e.chain().focus().toggleBlockquote().run() },
+  { label: "Paragraph",  action: (e, p) => convertBlock(e, p, "paragraph") },
+  { label: "Heading 1",  action: (e, p) => convertBlock(e, p, "heading", { level: 1 }) },
+  { label: "Heading 2",  action: (e, p) => convertBlock(e, p, "heading", { level: 2 }) },
+  { label: "Heading 3",  action: (e, p) => convertBlock(e, p, "heading", { level: 3 }) },
+  { label: "Quote",      action: (e, p) => convertBlock(e, p, "blockquote") },
+  { label: "Code block", action: (e, p) => convertBlock(e, p, "codeBlock") },
 ];
 
 // ── Menu item definitions ──────────────────────────────────────────────────────
@@ -166,9 +175,12 @@ const MENU_ITEMS: MenuItem[] = [
     separator: true,
     action: (_editor, _nodePos, dom) => {
       const blockId = dom.getAttribute("data-block-id") ?? "";
-      if (!blockId) return;
-      const base = window.location.href.split("#")[0];
-      navigator.clipboard.writeText(`${base}#block-${blockId}`).catch(() => {});
+      if (!blockId) {
+        showToast("No block ID found");
+        return;
+      }
+      navigator.clipboard.writeText(blockId).catch(() => {});
+      showToast("Block ID copied — type (( to embed it");
     },
   },
   {
@@ -262,10 +274,7 @@ function showToast(message: string) {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function isDarkMode(): boolean {
-  return (
-    document.documentElement.classList.contains("dark") ||
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  );
+  return document.documentElement.classList.contains("dark");
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -350,6 +359,11 @@ export function useBlockMenu({
     closeSubmenu();
     const menu      = menuRef.current;
     const highlight = highlightRef.current;
+
+    // Clean up any keyboard listener attached by openMenu
+    const m = menu as (HTMLElement & { _keyCleanup?: () => void }) | null;
+    m?._keyCleanup?.();
+    if (m) delete m._keyCleanup;
 
     if (menu) {
       menu.style.opacity   = "0";
@@ -561,6 +575,46 @@ export function useBlockMenu({
       closeSubmenu();
       activeSubmenuBtn = null;
     });
+
+    // ── Keyboard delete while menu is open ──────────────────────────────────
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        e.stopPropagation();
+        // Re-read nodePos from the live doc to avoid stale closures
+        const { state } = editor.view;
+        const node = state.doc.nodeAt(nodePos);
+        if (node) {
+          if (node.type.name === "subPage") {
+            const noteId = node.attrs.noteId as string | null;
+            window.dispatchEvent(
+              new CustomEvent("idemora:request-delete-subpage", {
+                detail: {
+                  noteId,
+                  nodePos,
+                  deleteNode: () => {
+                    const { state: s } = editor.view;
+                    const n = s.doc.nodeAt(nodePos);
+                    if (!n) return;
+                    editor.view.dispatch(s.tr.delete(nodePos, nodePos + n.nodeSize));
+                  },
+                },
+              })
+            );
+          } else {
+            editor.view.dispatch(state.tr.delete(nodePos, nodePos + node.nodeSize));
+          }
+        }
+        closeMenu();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+
+    // Store cleanup on the menu element itself so closeMenu can reach it
+    (menu as HTMLElement & { _keyCleanup?: () => void })._keyCleanup = () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
 
     // Position menu
     menu.style.display   = "block";

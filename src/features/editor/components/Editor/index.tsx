@@ -49,7 +49,7 @@ import {
   CodeBlockBackspaceExtension,
   BlockIdExtension,
   BlockRefNode,
-  DataviewNode,
+  DataviewNode, Color, TextStyle, MultiHighlight,
 } from "./extensions";
 
 import {
@@ -277,6 +277,9 @@ const initialContent = (() => {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
+      Color,        
+      TextStyle,    
+      MultiHighlight, 
       CodeBlock, Callout, CheckList, CheckItem, EditorTable, TableRow, TableHeader, TableCell,
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
