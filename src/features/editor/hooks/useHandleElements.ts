@@ -102,13 +102,21 @@ export function useHandleElements({
     const gripLeft   = getEditorLeft() - 36;
     const insertLeft = gripLeft - 20;
 
-    grip.style.display  = "flex";
-    grip.style.left     = `${gripLeft}px`;
-    grip.style.top      = `${rect.top + 4}px`;
+    const scrollTop = scrollRef.current?.getBoundingClientRect().top ?? 0;
+if (rect.top < scrollTop) {
+  grip.style.display   = "none";
+  insert.style.display = "none";
+  if (highlight) highlight.style.display = "none";
+  return;
+}
 
-    insert.style.display = "flex";
-    insert.style.left    = `${insertLeft}px`;
-    insert.style.top     = `${rect.top + 4}px`;
+grip.style.display  = "flex";
+grip.style.left     = `${gripLeft}px`;
+grip.style.top      = `${rect.top + 4}px`;
+
+insert.style.display = "flex";
+insert.style.left    = `${insertLeft}px`;
+insert.style.top     = `${rect.top + 4}px`;
 
     if (highlight) {
       const editorEl = editorWrapRef.current;
