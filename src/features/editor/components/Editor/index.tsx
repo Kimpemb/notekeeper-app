@@ -221,7 +221,6 @@ const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
   const editorWrapRef         = useRef<HTMLDivElement>(null);
   const editorTextColumnRef   = useRef<HTMLDivElement>(null);
   const scrollRef             = useRef<HTMLDivElement>(null);
-  const navBarRef             = useRef<HTMLDivElement>(null);
   const lastSavedContent      = useRef<string | null>(note?.content ?? null);
   const titleFocusedRef       = useRef(false);
   const subPageCreatingRef    = useRef(false);
@@ -661,13 +660,12 @@ useEffect(() => {
   }, []);
 
   const { isDraggingRef } = useDragReorder({
-  editor: editor ?? null,
-  scrollRef,
-  editorWrapRef,
-  editorTextColumnRef,
-  navBarRef,
-  getEditorLeft,
-});
+    editor: editor ?? null,
+    scrollRef,
+    editorWrapRef,
+    editorTextColumnRef,
+    getEditorLeft,
+  });
 
   // ── Early return — all hooks must be above this line ─────────────────────
   if (!note) return null;
@@ -845,7 +843,7 @@ useEffect(() => {
       <div className="flex flex-col flex-1 h-full overflow-hidden">
 
         {/* ── Editor nav bar: back/forward + breadcrumb + all editor buttons ── */}
-        <div ref={navBarRef} className="flex items-center justify-between gap-2 px-3 h-9 shrink-0">
+        <div className="flex items-center justify-between gap-2 px-3 h-9 shrink-0">
           <div className="flex items-center gap-1 min-w-0">
             <button
               onClick={() => paneId === 2 ? pane2GoBack() : goBack()}

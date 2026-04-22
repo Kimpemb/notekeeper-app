@@ -35,7 +35,6 @@ interface UseDragReorderOptions {
   scrollRef:            React.RefObject<HTMLDivElement | null>;
   editorWrapRef:        React.RefObject<HTMLDivElement | null>;
   editorTextColumnRef:  React.RefObject<HTMLDivElement | null>;
-  navBarRef:            React.RefObject<HTMLDivElement | null>;
   getEditorLeft:        () => number;
 }
 
@@ -70,7 +69,6 @@ export function useDragReorder({
   scrollRef,
   editorWrapRef,
   editorTextColumnRef,
-  navBarRef,
   getEditorLeft,
 }: UseDragReorderOptions): UseDragReorderResult {
 
@@ -199,148 +197,120 @@ export function useDragReorder({
     }
 
     // ── onMouseMove ──────────────────────────────────────────────────────
-function onMouseMove(e: MouseEvent) {
-  const isDragging = !!dragState.current?.active;
+    function onMouseMove(e: MouseEvent) {
+      const now        = performance.now();
+      const isDragging = !!dragState.current?.active;
+      if (!isDragging && now - lastMoveTimeRef.current < MOUSEMOVE_THROTTLE) return;
+      lastMoveTimeRef.current = now;
 
-  // Exclude header and navbar area when not dragging
-  const header = document.querySelector("header[data-tauri-drag-region]") as HTMLElement | null;
-  const navBar = navBarRef.current;
-  const exclusionBottom = Math.max(
-    header?.getBoundingClientRect().bottom ?? 0,
-    navBar?.getBoundingClientRect().bottom  ?? 0
-  );
-  
-  console.log({
-    clientY: e.clientY,
-    headerBottom: header?.getBoundingClientRect().bottom ?? "no header",
-    navBarBottom: navBar?.getBoundingClientRect().bottom ?? "no navBar",
-    exclusionBottom: exclusionBottom
-  });
-  
-  if (!isDragging && e.clientY <= exclusionBottom) { cancelShowHandleTimer(); hideHandle(); return; }
+      // ── Active drag ────────────────────────────────────────────────────
+      const ds = dragState.current;
+      if (ds) {
+        const dx = Math.abs(e.clientX - ds.startX);
+        const dy = Math.abs(e.clientY - ds.startY);
 
-  const now = performance.now();
-  if (!isDragging && now - lastMoveTimeRef.current < MOUSEMOVE_THROTTLE) return;
-  lastMoveTimeRef.current = now;
+        if (!ds.thresholdMet) {
+          if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+            ds.thresholdMet       = true;
+            ds.active             = true;
+            isDraggingRef.current = true;
+            editorWrapRef.current?.classList.add("is-dragging-block");
+            if (insertRef.current) insertRef.current.style.display = "none";
+            if (highlightRef.current) highlightRef.current.style.display = "none";
+            dimDraggedBlock(ds.dragDom);
+            attachScrollListener();
 
-  // ── Active drag ────────────────────────────────────────────────────
-  const ds = dragState.current;
-  if (ds) {
-    const dx = Math.abs(e.clientX - ds.startX);
-    const dy = Math.abs(e.clientY - ds.startY);
+            if (ds.isListItem) ds.listBounds = getListBounds(ds.listParentPos);
 
-    if (!ds.thresholdMet) {
-      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
-        ds.thresholdMet       = true;
-        ds.active             = true;
-        isDraggingRef.current = true;
-        editorWrapRef.current?.classList.add("is-dragging-block");
-        if (insertRef.current) insertRef.current.style.display = "none";
-        if (highlightRef.current) highlightRef.current.style.display = "none";
-        dimDraggedBlock(ds.dragDom);
-        attachScrollListener();
+            initGhost(ds.dragDom);
+            moveGhost(ds.dragDom, e.clientY);
+          } else {
+            return;
+          }
+        }
 
-        if (ds.isListItem) ds.listBounds = getListBounds(ds.listParentPos);
-
-        initGhost(ds.dragDom);
+        if (!ds.active) return;
+        tickScroll(e.clientY);
         moveGhost(ds.dragDom, e.clientY);
-      } else {
+
+        // Detect list escape
+        if (ds.isListItem && !ds.escapedList && ds.listBounds) {
+          const escaped = e.clientY < ds.listBounds.top || e.clientY > ds.listBounds.bottom;
+          if (escaped) {
+            ds.escapedList  = true;
+            ds.cachedBlocks = null;
+          }
+        }
+
+        const blocks         = getBlocks();
+        const insertAfterPos = findInsertionPos(e.clientY, blocks, ds.nodePos);
+        ds.insertAfterPos    = insertAfterPos;
+        showIndicator(blocks, insertAfterPos, ds.nodePos);
         return;
       }
-    }
 
-    if (!ds.active) return;
-    tickScroll(e.clientY);
-    moveGhost(ds.dragDom, e.clientY);
+      // ── Suppress handle while scrolling ───────────────────────────────
+      if (isScrollingRef.current) return;
 
-    // Detect list escape
-    if (ds.isListItem && !ds.escapedList && ds.listBounds) {
-      const escaped = e.clientY < ds.listBounds.top || e.clientY > ds.listBounds.bottom;
-      if (escaped) {
-        ds.escapedList  = true;
-        ds.cachedBlocks = null;
+      // ── Keep handle alive if cursor is on grip or insert button ────────
+      // Must come before the overlay check — grip/insert live outside
+      // editorWrapRef so the elementFromPoint check would kill them.
+      const grip   = gripRef.current;
+      const insert = insertRef.current;
+      const overGrip   = grip   && (e.target === grip   || grip.contains(e.target as Node));
+      const overInsert = insert && (e.target === insert || insert.contains(e.target as Node));
+      if (overGrip || overInsert) return;
+
+      // ── Suppress handle when any overlay covers the editor ────────────
+      // If elementFromPoint at the cursor position returns something outside
+      // editorWrapRef, an overlay (modal, palette, graph) is on top — hide.
+      const editorEl = editorWrapRef.current;
+      if (!editorEl || !grip) return;
+
+      const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
+      const inGutter = e.clientX < editorEl.getBoundingClientRect().left;
+
+      // If any overlay sentinel is present in the DOM, the graph/palette/modal
+      // is open — suppress the handle entirely regardless of cursor position.
+      const overlayOpen = !!document.querySelector(
+        "[data-overlay-sentinel]"
+      );
+      if (overlayOpen) {
+        hideHandle();
+        return;
       }
+
+      if (!inGutter && !editorEl.contains(elementUnderCursor)) {
+        hideHandle();
+        return;
+      }
+
+      // ── Freeze loop while menu is open ─────────────────────────────────
+      if (menuOpenRef.current) return;
+
+      const editorRect = editorEl.getBoundingClientRect();
+      const gutterLeft = getEditorLeft() - 64;
+
+      const inZone = (
+        e.clientX >= gutterLeft        &&
+        e.clientX <= editorRect.right  &&
+        e.clientY >= editorRect.top    &&
+        e.clientY <= editorRect.bottom
+      );
+
+      if (!inZone) { hideHandle(); return; }
+
+      const target = resolveBlockFromPoint(e.clientX, e.clientY);
+      if (!target) { hideHandle(); return; }
+
+      hoveredBlockRef.current = {
+        dom:           target.dragDom,
+        pos:           target.nodePos,
+        isListItem:    target.isListItem,
+        listParentPos: target.listParentPos,
+      };
+      scheduleShowHandle(target.dragDom);
     }
-
-    const blocks         = getBlocks();
-    const insertAfterPos = findInsertionPos(e.clientY, blocks, ds.nodePos);
-    ds.insertAfterPos    = insertAfterPos;
-    showIndicator(blocks, insertAfterPos, ds.nodePos);
-    return;
-  }
-
-  // ── Suppress handle while scrolling ───────────────────────────────
-  if (isScrollingRef.current) return;
-
-  // ── Keep handle alive if cursor is on grip or insert button ────────
-  // Must come before the overlay check — grip/insert live outside
-  // editorWrapRef so the elementFromPoint check would kill them.
-  const grip   = gripRef.current;
-  const insert = insertRef.current;
-  const overGrip   = grip   && (e.target === grip   || grip.contains(e.target as Node));
-  const overInsert = insert && (e.target === insert || insert.contains(e.target as Node));
-  if (overGrip || overInsert) return;
-
-  // ── Suppress handle when any overlay covers the editor ────────────
-  // If elementFromPoint at the cursor position returns something outside
-  // editorWrapRef, an overlay (modal, palette, graph) is on top — hide.
-  const editorEl = editorWrapRef.current;
-  if (!editorEl || !grip) return;
-
-  const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
-  const inGutter = e.clientX < editorEl.getBoundingClientRect().left;
-
-  // If any overlay sentinel is present in the DOM, the graph/palette/modal
-  // is open — suppress the handle entirely regardless of cursor position.
-  const overlayOpen = !!document.querySelector(
-    "[data-overlay-sentinel]"
-  );
-  if (overlayOpen) {
-    hideHandle();
-    return;
-  }
-
-  if (!inGutter && !editorEl.contains(elementUnderCursor)) {
-    hideHandle();
-    return;
-  }
-
-  // ── Freeze loop while menu is open ─────────────────────────────────
-  if (menuOpenRef.current) return;
-
-  const editorRect = editorEl.getBoundingClientRect();
-  const gutterLeft = getEditorLeft() - 64;
-
-  // Compute scrollRect once for both checks
-  const scrollRect = scrollRef.current?.getBoundingClientRect();
-
-  const inZone = (
-    e.clientX >= gutterLeft           &&
-    e.clientX <= editorRect.right     &&
-    e.clientY >= (scrollRect?.top ?? editorRect.top) &&  // visible scroll top, not editorWrap top
-    e.clientY <= editorRect.bottom
-  );
-
-  if (!inZone) { hideHandle(); return; }
-
-  const target = resolveBlockFromPoint(e.clientX, e.clientY);
-  if (!target) { hideHandle(); return; }
-
-  // Reject blocks that have scrolled above the visible scroll viewport.
-  // elementsFromPoint finds them through the header chrome — we must
-  // discard them here or the handle appears in the breadcrumb/title area.
-  const blockRect   = target.dragDom.getBoundingClientRect();
-  const scrollTop   = scrollRect?.top ?? 0;
-  if (blockRect.bottom < scrollTop) { hideHandle(); return; }
-
-  hoveredBlockRef.current = {
-    dom:           target.dragDom,
-    pos:           target.nodePos,
-    isListItem:    target.isListItem,
-    listParentPos: target.listParentPos,
-  };
-  scheduleShowHandle(target.dragDom);
-}
 
     // ── onMouseDown ───────────────────────────────────────────────────────
     // ── onMouseDown ───────────────────────────────────────────────────────
