@@ -16,18 +16,27 @@ const CORNER_R      = 8;
 const HANDLE_R      = 5;
 const MIN_CORNER_R  = 5;
 
-const COL_BG          = "#1a1b26";
-const COL_BORDER      = "rgba(255,255,255,0.22)";
+// Static colors (don't depend on dark mode)
 const COL_BORDER_SEL  = "#7c3aed";
 const COL_BORDER_CON  = "#10b981";
-const COL_TEXT        = "rgba(226,232,240,0.88)";
-const COL_PLACEHOLDER = "rgba(148,163,184,0.35)";
 const COL_EDGE        = "rgba(148,163,184,0.45)";
 const COL_EDGE_DRAFT  = "rgba(124,58,237,0.7)";
 const COL_SEL_FILL    = "rgba(124,58,237,0.07)";
 const COL_SEL_BORDER  = "rgba(124,58,237,0.6)";
-const COL_GRID        = "rgba(255,255,255,0.04)";
-const COL_HANDLE_FILL = "rgba(255,255,255,0.88)";
+
+// ─── Dynamic colors based on dark mode ─────────────────────────────────────────
+
+function getColors() {
+  const dark = document.documentElement.classList.contains("dark");
+  return {
+    BG:          dark ? "#1a1b26" : "#f0f1f3",
+    BORDER:      dark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.12)",
+    TEXT:        dark ? "rgba(226,232,240,0.88)"  : "rgba(30,30,30,0.85)",
+    PLACEHOLDER: dark ? "rgba(148,163,184,0.35)"  : "rgba(100,100,100,0.35)",
+    GRID:        dark ? "rgba(255,255,255,0.04)"  : "rgba(0,0,0,0.06)",
+    HANDLE_FILL: dark ? "rgba(255,255,255,0.88)"  : "rgba(255,255,255,0.95)",
+  };
+}
 
 // ─── Text layout cache ────────────────────────────────────────────────────────
 // Keyed by `${nodeId}:${content}:${zoom.toFixed(2)}:${maxW.toFixed(0)}`
@@ -108,6 +117,7 @@ let gridCache: GridCache | null = null;
 
 function getGridCanvas(zoom: number, width: number, height: number): OffscreenCanvas {
   const spacing = 24 * zoom;
+  const colors = getColors();
 
   if (
     gridCache &&
@@ -125,7 +135,7 @@ function getGridCanvas(zoom: number, width: number, height: number): OffscreenCa
 
   if (spacing >= 6) {
     const dotR = Math.max(0.5, zoom * 0.8);
-    oct.fillStyle = COL_GRID;
+    oct.fillStyle = colors.GRID;
     for (let x = 0; x < width; x += spacing) {
       for (let y = 0; y < height; y += spacing) {
         oct.beginPath();
@@ -195,7 +205,9 @@ function drawBackground(
   width: number,
   height: number,
 ): void {
-  ctx.fillStyle = COL_BG;
+  const colors = getColors();
+  
+  ctx.fillStyle = colors.BG;
   ctx.fillRect(0, 0, width, height);
 
   const spacing = 24 * viewport.zoom;
@@ -269,6 +281,7 @@ function drawNode(
   isEditing: boolean,
   showHandles: boolean,
 ): void {
+  const colors = getColors();
   const { x: vx, y: vy, zoom } = viewport;
   const sx = node.x * zoom + vx;
   const sy = node.y * zoom + vy;
@@ -276,9 +289,9 @@ function drawNode(
   const sh = node.height * zoom;
   const r  = Math.max(MIN_CORNER_R, CORNER_R * zoom);
 
-  // ── Fill (no shadow — use border accent instead) ──
+  // ── Fill ──
   roundRect(ctx, sx, sy, sw, sh, r);
-  ctx.fillStyle = COL_BG;
+  ctx.fillStyle = colors.BG;
   ctx.fill();
 
   // ── Selection glow: drawn as a slightly larger rect behind the node ──
@@ -295,7 +308,7 @@ function drawNode(
 
   // ── Border ──
   roundRect(ctx, sx, sy, sw, sh, r);
-  ctx.strokeStyle = isConnecting ? COL_BORDER_CON : isSelected ? COL_BORDER_SEL : COL_BORDER;
+  ctx.strokeStyle = isConnecting ? COL_BORDER_CON : isSelected ? COL_BORDER_SEL : colors.BORDER;
   ctx.lineWidth   = isSelected || isConnecting ? 2 : 1;
   ctx.stroke();
 
@@ -304,12 +317,12 @@ function drawNode(
     if (!node.content) {
       const fontSize = FONT_SIZE * zoom;
       ctx.font      = `${fontSize}px ${FONT_FAMILY}`;
-      ctx.fillStyle = COL_PLACEHOLDER;
+      ctx.fillStyle = colors.PLACEHOLDER;
       ctx.fillText("Double-click to edit", sx + PAD_H * zoom, sy + PAD_V * zoom + fontSize);
     } else {
       const layout  = getTextLayout(ctx, node, zoom);
       ctx.font      = `${layout.fontSize}px ${FONT_FAMILY}`;
-      ctx.fillStyle = COL_TEXT;
+      ctx.fillStyle = colors.TEXT;
 
       const startX = sx + PAD_H * zoom;
       let   lineY  = sy + PAD_V * zoom + layout.fontSize;
@@ -331,7 +344,7 @@ function drawNode(
       [sx + sw / 2, sy + sh],
       [sx,          sy + sh / 2],
     ];
-    ctx.fillStyle   = COL_HANDLE_FILL;
+    ctx.fillStyle   = colors.HANDLE_FILL;
     ctx.strokeStyle = COL_BORDER_SEL;
     ctx.lineWidth   = 2;
     for (const [hx, hy] of handles) {

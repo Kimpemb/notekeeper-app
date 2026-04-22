@@ -34,6 +34,8 @@ interface ExportMenuProps {
 }
 
 function ExportMenu({ onExport, onClose, exporting }: ExportMenuProps) {
+  const dark = document.documentElement.classList.contains("dark");
+  
   return (
     <>
       {/* backdrop */}
@@ -48,8 +50,8 @@ function ExportMenu({ onExport, onClose, exporting }: ExportMenuProps) {
           right:           0,
           zIndex:          50,
           minWidth:        192,
-          backgroundColor: "var(--color-idemora-bg-secondary, #1e1f2e)",
-          border:          "1px solid rgba(255,255,255,0.1)",
+          backgroundColor: dark ? "#1e1f2e" : "#ffffff",
+          border:          `1px solid ${dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`,
           borderRadius:    10,
           boxShadow:       "0 8px 32px rgba(0,0,0,0.45)",
           overflow:        "hidden",
@@ -61,7 +63,7 @@ function ExportMenu({ onExport, onClose, exporting }: ExportMenuProps) {
             fontSize:    11,
             fontWeight:  600,
             letterSpacing: "0.08em",
-            color:       "rgba(148,163,184,0.5)",
+            color:       dark ? "rgba(148,163,184,0.5)" : "rgba(100,100,100,0.5)",
             padding:     "6px 14px 4px",
             userSelect:  "none",
           }}
@@ -88,16 +90,16 @@ function ExportMenu({ onExport, onClose, exporting }: ExportMenuProps) {
                 transition:      "background 0.1s",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)";
+                (e.currentTarget as HTMLElement).style.background = dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
               }}
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.background = "transparent";
               }}
             >
-              <span style={{ fontSize: 13, fontWeight: 500, color: "rgba(226,232,240,0.85)" }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: dark ? "rgba(226,232,240,0.85)" : "rgba(30,30,30,0.85)" }}>
                 {busy ? "Exporting…" : label}
               </span>
-              <span style={{ fontSize: 11, color: "rgba(148,163,184,0.45)", marginLeft: 12 }}>
+              <span style={{ fontSize: 11, color: dark ? "rgba(148,163,184,0.45)" : "rgba(100,100,100,0.45)", marginLeft: 12 }}>
                 {hint}
               </span>
             </button>
@@ -111,6 +113,8 @@ function ExportMenu({ onExport, onClose, exporting }: ExportMenuProps) {
 // ─── CanvasWorkspace ──────────────────────────────────────────────────────────
 
 export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
+  const dark = document.documentElement.classList.contains("dark");
+  
   const note       = useNoteStore((s) => s.notes.find((n) => n.id === noteId));
   const updateNote = useNoteStore((s) => s.updateNote);
 
@@ -222,7 +226,7 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
       {/* ── Title bar ──────────────────────────────────────────────────────── */}
       <div
         className="relative flex items-center justify-center px-3 shrink-0"
-        style={{ height: 44, borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+        style={{ height: 44, borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.08)"}` }}
       >
         {/* Left: Navigation */}
         <div className="absolute left-3 flex items-center gap-2">
@@ -283,7 +287,7 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
                 outline:    "none",
                 fontSize:   15,
                 fontWeight: 500,
-                color:      "rgba(226,232,240,0.85)",
+                color:      dark ? "rgba(226,232,240,0.85)" : "rgba(30,30,30,0.85)",
                 padding:    0,
                 fontFamily: "inherit",
                 textAlign:  "center",
@@ -298,7 +302,7 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
               style={{
                 fontSize:   15,
                 fontWeight: 500,
-                color:      `rgba(226,232,240,${labelOpacity})`,
+                color:      dark ? `rgba(226,232,240,${labelOpacity})` : `rgba(30,30,30,${labelOpacity})`,
                 cursor:     "default",
                 userSelect: "none",
                 transition: "color 0.2s ease",
@@ -353,14 +357,14 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
             bottom:        16,
             left:          "50%",
             transform:     "translateX(-50%)",
-            background:    "rgba(20,20,32,0.92)",
-            border:        "1px solid rgba(255,255,255,0.1)",
+            background:    dark ? "rgba(20,20,32,0.92)" : "rgba(240,240,245,0.92)",
+            border:        `1px solid ${dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`,
             borderRadius:  8,
             padding:       "7px 16px",
             fontSize:      12,
             color:         exportStatus === "done"
-              ? "rgba(134,239,172,0.9)"
-              : "rgba(226,232,240,0.7)",
+              ? (dark ? "rgba(134,239,172,0.9)" : "rgba(34,197,94,0.9)")
+              : (dark ? "rgba(226,232,240,0.7)" : "rgba(30,30,30,0.7)"),
             display:       "flex",
             alignItems:    "center",
             gap:           8,

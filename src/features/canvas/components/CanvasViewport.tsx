@@ -147,35 +147,37 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({ noteId, containe
     : null;
 
   const textareaStyle: React.CSSProperties | null = editingNode ? (() => {
-    const { x: vx, y: vy, zoom } = viewport;
-    const sx = editingNode.x * zoom + vx;
-    const sy = editingNode.y * zoom + vy;
-    const sw = editingNode.width  * zoom;
-    const sh = editingNode.height * zoom;
-    const borderW = 2;
-return {
-  position:   "absolute",
-  left:       sx,
-  top:        sy,
-  width:      sw,
-  minHeight:  sh,
-  padding:    `${PAD_V * zoom}px ${PAD_H * zoom}px`,
-  fontSize:   FONT_SIZE * zoom,
-  lineHeight: LINE_H,
-  fontFamily: "ui-sans-serif, system-ui, sans-serif",
-  color:      "rgba(226,232,240,0.88)",
-  background: "#1a1b26",
-  border:     `${borderW}px solid #7c3aed`,
-  borderRadius: Math.max(5, 8 * zoom),
-  boxShadow:  "0 0 0 3px rgba(124,58,237,0.15)",
-  boxSizing:  "border-box" as const,
-  resize:     "none" as const,
-  outline:    "none",
-  overflow:   "hidden",
-  zIndex:     10,
-  height:     "auto",
-};
-  })() : null;
+  const { x: vx, y: vy, zoom } = viewport;
+  const sx = editingNode.x * zoom + vx;
+  const sy = editingNode.y * zoom + vy;
+  const sw = editingNode.width  * zoom;
+  const sh = editingNode.height * zoom;
+  const borderW = 2;
+  const dark = document.documentElement.classList.contains("dark");
+  
+  return {
+    position:   "absolute",
+    left:       sx,
+    top:        sy,
+    width:      sw,
+    minHeight:  sh,
+    padding:    `${PAD_V * zoom}px ${PAD_H * zoom}px`,
+    fontSize:   FONT_SIZE * zoom,
+    lineHeight: LINE_H,
+    fontFamily: "ui-sans-serif, system-ui, sans-serif",
+    color:      dark ? "rgba(226,232,240,0.88)" : "rgba(30,30,30,0.85)",
+    background: dark ? "#1a1b26" : "#f0f1f3",
+    border:     `${borderW}px solid #7c3aed`,
+    borderRadius: Math.max(5, 8 * zoom),
+    boxShadow:  "0 0 0 3px rgba(124,58,237,0.15)",
+    boxSizing:  "border-box" as const,
+    resize:     "none" as const,
+    outline:    "none",
+    overflow:   "hidden",
+    zIndex:     10,
+    height:     "auto",
+  };
+})() : null;
 
   // ─── Handle pointerdown — detect connection handle clicks before engine ──────
   const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
