@@ -97,6 +97,26 @@ export function ResurfaceBar() {
       if (!candNote || !refNote) return;
       if (best.noteId === activeNoteId) return;
 
+      // ── NEW: skip if already linked in the referring note ──
+      const referringNote = noteMap.get(best.referringNoteId);
+      if (referringNote?.content) {
+        try {
+          const doc = JSON.parse(referringNote.content);
+          const ids: string[] = [];
+          function walk(nodes: any[]) {
+            for (const n of nodes) {
+              if (n.type === "noteLink" && n.attrs?.id) ids.push(n.attrs.id);
+              if (n.content) walk(n.content);
+            }
+          }
+          walk(doc.content ?? []);
+          if (ids.includes(best.noteId)) return;
+        } catch { /**/ }
+      }
+
+      // ── NEW: skip if suggesting the note to itself ──
+      if (best.noteId === best.referringNoteId) return;
+
       shownRef.current = true;
       setSuggestion({
         noteId: best.noteId,
