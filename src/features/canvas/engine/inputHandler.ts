@@ -304,6 +304,7 @@ export class InputHandler {
         node.x = start.x + ddx;
         node.y = start.y + ddy;
       }
+      this.callbacks.onInputStateChange(this.inputState);
     }
   }
 
