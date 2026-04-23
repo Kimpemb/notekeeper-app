@@ -65,6 +65,8 @@ export function NoteLinkPreview({
 
   const setActiveNote          = useNoteStore((s) => s.setActiveNote);
   const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
+  const replaceTab = useUIStore((s) => s.replaceTab);
+
 
   const headings = content ? extractHeadings(content) : [];
   const snippet  = extractSnippet(plaintext);
@@ -97,15 +99,17 @@ export function NoteLinkPreview({
   if (!pos) return null;
 
   function handleTitleClick() {
-    setActiveNote(noteId);
-    onClose();  // ← CLOSE PREVIEW IMMEDIATELY
-  }
+  setActiveNote(noteId);
+  replaceTab(noteId);   // ← add this
+  onClose();
+}
 
   function handleHeadingClick(headingText: string) {
-    setPendingScrollHeading(headingText);
-    setActiveNote(noteId);
-    onClose();  // ← CLOSE PREVIEW IMMEDIATELY
-  }
+  setPendingScrollHeading(headingText);
+  setActiveNote(noteId);
+  replaceTab(noteId);   // ← add this
+  onClose();
+}
 
   return createPortal(
     <div

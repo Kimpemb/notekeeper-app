@@ -14,6 +14,9 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
   const notes         = useNoteStore((s) => s.notes);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
   const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
+  const replaceTab = useUIStore((s) => s.replaceTab);
+  const openTab = useUIStore((s) => s.openTab);
+
 
   const note      = notes.find((n) => n.id === id);
   const liveTitle = note?.title ?? label;
@@ -69,12 +72,19 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
   }, []);
 
   function handleClick(e: React.MouseEvent) {
-    e.preventDefault(); e.stopPropagation();
-    if (exists) {
-      setPendingScrollHeading(null);
-      setActiveNote(id);
-    }
+  e.preventDefault(); e.stopPropagation();
+  if (!exists) return;
+  setPendingScrollHeading(null);
+
+  if (e.metaKey || e.ctrlKey) {
+    // Cmd/Ctrl+click → open in new tab
+    openTab(id);          // openTab already calls setActiveNote internally
+  } else {
+    // Normal click → navigate in current tab
+    setActiveNote(id);
+    replaceTab(id);
   }
+}
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault(); e.stopPropagation();
@@ -104,6 +114,7 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
     if (exists) {
       setPendingScrollHeading(null);
       setActiveNote(id);
+      replaceTab(id);
     }
   }
 

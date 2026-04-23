@@ -53,6 +53,8 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
   const refreshNote   = useNoteStore((s) => s.refreshNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
   const closeBacklinks = useUIStore((s) => s.closeBacklinks);
+  const replaceTab = useUIStore((s) => s.replaceTab);
+
 
   const activeNote = notes.find((n) => n.id === noteId);
 
@@ -142,7 +144,7 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
                 <SectionLabel label="Linked" count={backlinks.length} />
                 <div className="px-3 pb-2 space-y-1.5">
                   {backlinks.map((note) => (
-                    <BacklinkCard key={note.id} note={note} onNavigate={() => setActiveNote(note.id)} />
+                    <BacklinkCard key={note.id} note={note} onNavigate={() => { setActiveNote(note.id); replaceTab(note.id); }} />
                   ))}
                 </div>
               </div>
@@ -160,7 +162,7 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
                       mention={mention}
                       targetTitle={activeNote?.title ?? ""}
                       linking={linking === mention.note.id}
-                      onNavigate={() => setActiveNote(mention.note.id)}
+                      onNavigate={() => { setActiveNote(mention.note.id); replaceTab(mention.note.id); }}
                       onLinkIt={() => handleLinkIt(mention)}
                     />
                   ))}
