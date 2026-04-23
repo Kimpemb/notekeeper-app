@@ -3,6 +3,7 @@ import { CanvasEngine } from "../engine/engine";
 import type { Viewport } from "@/types/canvas";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { worldFromJSON } from "../engine/world";
+import { invalidateGridCache } from "../engine/renderer";
 
 const FONT_SIZE = 14;
 const PAD_H     = 10;
@@ -22,6 +23,21 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({ noteId, containe
   // Only these two pieces of React state exist — everything else lives in engine
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [viewport,      setViewport]      = useState<Viewport>({ x: 0, y: 0, zoom: 0.6 });
+  const [dark, setDark] = useState(() =>
+    document.documentElement.classList.contains("dark")
+  );
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setDark(document.documentElement.classList.contains("dark"));
+      invalidateGridCache();
+      engineRef.current?.resume();
+    });
+    observer.observe(document.documentElement, {
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   // Store hooks for content loading
   const loadNoteContent = useNoteStore((s) => s.loadNoteContent);
@@ -153,7 +169,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({ noteId, containe
   const sw = editingNode.width  * zoom;
   const sh = editingNode.height * zoom;
   const borderW = 2;
-  const dark = document.documentElement.classList.contains("dark");
   
   return {
     position:   "absolute",
@@ -166,7 +181,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({ noteId, containe
     lineHeight: LINE_H,
     fontFamily: "ui-sans-serif, system-ui, sans-serif",
     color:      dark ? "rgba(226,232,240,0.88)" : "rgba(30,30,30,0.85)",
-    background: dark ? "#1a1b26" : "#f0f1f3",
+    background: dark ? "#1e1e1e" : "#ffffff",
     border:     `${borderW}px solid #7c3aed`,
     borderRadius: Math.max(5, 8 * zoom),
     boxShadow:  "0 0 0 3px rgba(124,58,237,0.15)",

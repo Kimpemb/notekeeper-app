@@ -29,7 +29,7 @@ const COL_SEL_BORDER  = "rgba(124,58,237,0.6)";
 function getColors() {
   const dark = document.documentElement.classList.contains("dark");
   return {
-    BG:          dark ? "#1a1b26" : "#f0f1f3",
+    BG: dark ? "#1e1e1e" : "#ffffff",
     BORDER:      dark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.12)",
     TEXT:        dark ? "rgba(226,232,240,0.88)"  : "rgba(30,30,30,0.85)",
     PLACEHOLDER: dark ? "rgba(148,163,184,0.35)"  : "rgba(100,100,100,0.35)",
@@ -109,18 +109,25 @@ export function invalidateNodeLayout(nodeId: string): void {
 // hundreds of dots per frame.
 
 interface GridCache {
-  zoom:     number;
-  canvas:   OffscreenCanvas;
+  zoom:   number;
+  dark:   boolean;
+  canvas: OffscreenCanvas;
 }
 
 let gridCache: GridCache | null = null;
 
+export function invalidateGridCache(): void {
+  gridCache = null;
+}
+
 function getGridCanvas(zoom: number, width: number, height: number): OffscreenCanvas {
   const spacing = 24 * zoom;
   const colors = getColors();
+  const dark = document.documentElement.classList.contains("dark");
 
   if (
     gridCache &&
+    gridCache.dark === dark &&
     Math.abs(gridCache.zoom - zoom) < 0.001 &&
     gridCache.canvas.width  >= width &&
     gridCache.canvas.height >= height
@@ -145,7 +152,7 @@ function getGridCanvas(zoom: number, width: number, height: number): OffscreenCa
     }
   }
 
-  gridCache = { zoom, canvas: oc };
+  gridCache = { zoom, dark, canvas: oc };
   return oc;
 }
 

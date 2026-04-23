@@ -1,5 +1,5 @@
 // src/features/canvas/components/CanvasWorkspace.tsx
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useNoteStore }  from "@/features/notes/store/useNoteStore";
 import { useUIStore }    from "@/features/ui/store/useUIStore";
 import { useCanvasStore } from "../store/useCanvasStore";
@@ -113,7 +113,19 @@ function ExportMenu({ onExport, onClose, exporting }: ExportMenuProps) {
 // ─── CanvasWorkspace ──────────────────────────────────────────────────────────
 
 export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
-  const dark = document.documentElement.classList.contains("dark");
+  const [dark, setDark] = useState(() =>
+    document.documentElement.classList.contains("dark")
+  );
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, {
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
   
   const note       = useNoteStore((s) => s.notes.find((n) => n.id === noteId));
   const updateNote = useNoteStore((s) => s.updateNote);
