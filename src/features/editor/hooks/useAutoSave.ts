@@ -36,15 +36,8 @@ interface UseAutoSaveOptions {
   noteId:          string | null;
   isActiveTab:     boolean;
   onSaveComplete?: (content: string, noteId: string) => void;
-  // When the graph writes content directly to the DB (link injection),
-  // it dispatches idemora:content-updated and the editor reloads its
-  // in-memory state. suppressSave is set to true for that reload window
-  // so the debounce doesn't fire with stale content and overwrite the write.
   suppressSave?:   React.MutableRefObject<boolean>;
-  // Blocks autosave while content is being programmatically loaded (brief setContent flash)
   contentLoading?: React.MutableRefObject<boolean>;
-  // NEW: Blocks autosave until real content has been loaded at least once
-  contentFullyLoaded?: React.MutableRefObject<boolean>;
 }
 
 export function useAutoSave({
@@ -54,7 +47,6 @@ export function useAutoSave({
   onSaveComplete,
   suppressSave,
   contentLoading,
-  contentFullyLoaded,
 }: UseAutoSaveOptions): void {
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setSaveStatus = useUIStore((s) => s.setSaveStatus);
@@ -75,14 +67,9 @@ export function useAutoSave({
   }, []);
 
   // ── runEmbeddingPipeline ──────────────────────────────────────────────────
-  // Fully detached from the save path. Called via setTimeout so it never
-  // blocks the editor. Errors here must never surface to the user.
 
   const runEmbeddingPipeline = useCallback((savedNoteId: string, content: string) => {
     if (!useAIStore.getState().enabled) return;
-    // Delay long enough that the editor has fully settled and re-painted
-    // before any DB or network work begins. 2 s is imperceptible for indexing
-    // but keeps the post-save frame completely clean.
     setTimeout(async () => {
       try {
         await syncNoteBlocks(savedNoteId, content);
@@ -102,13 +89,13 @@ export function useAutoSave({
     }, 2000);
   }, []);
 
-  // ── runScheduledBackupIfDue (for "on_change" frequency) ───────────────────
+  // ── runScheduledBackupIfDue ───────────────────────────────────────────────
+
   const runScheduledBackupIfDue = useCallback(async () => {
     try {
       const { runScheduledBackupIfDue: backupFn } = await import("@/features/backup/lib/scheduler");
       await backupFn();
     } catch (err) {
-      // Silently fail — backup should never block the editor
       console.warn("[AutoSave] backup trigger failed:", err);
     }
   }, []);
@@ -118,15 +105,9 @@ export function useAutoSave({
   const save = useCallback(async () => {
     if (!editor || !noteId || !isDirty.current) return;
     if (!isActiveTabRef.current) return;
-    // Skip if the editor is in the middle of reloading externally-written
-    // content (e.g. graph link injection). The content is already correct in
-    // the DB; saving now would be a no-op at best and a regression at worst.
     if (suppressSave?.current) return;
-    // Skip if content is being programmatically loaded (brief setContent flash)
     if (contentLoading?.current) return;
-    // NEW: Skip if real content hasn't been loaded yet
-    if (contentFullyLoaded && !contentFullyLoaded.current) return;
-    
+
     clearTimers();
     isDirty.current = false;
     setSaveStatus("saving");
@@ -141,87 +122,80 @@ export function useAutoSave({
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
 
-      // Embedding is fire-and-forget — never awaited, never blocks the editor
       runEmbeddingPipeline(noteId, content);
-
-      // Trigger scheduled backup check (for "on_change" frequency)
       runScheduledBackupIfDue();
 
     } catch (err) {
       console.error("[AutoSave] failed:", err);
       setSaveStatus("error");
     }
-  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runScheduledBackupIfDue, suppressSave, contentLoading, contentFullyLoaded]);
+  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runScheduledBackupIfDue, suppressSave, contentLoading]);
 
   // ── scheduleSave ──────────────────────────────────────────────────────────
 
   const scheduleSave = useCallback(() => {
-    // Skip saves during programmatic content loading (brief setContent flash)
     if (contentLoading?.current) return;
-    // NEW: Skip saves until real content has been loaded at least once
-    if (contentFullyLoaded && !contentFullyLoaded.current) return;
-    
     isDirty.current = true;
     if (!isActiveTabRef.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(save, autosaveDelayRef.current);
     if (!hardCapTimer.current) hardCapTimer.current = setTimeout(save, HARD_CAP_MS);
-  }, [save, contentLoading, contentFullyLoaded]);
+  }, [save, contentLoading]);
+
+  // ── Ctrl/Cmd+S ────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== "s") return;
+      if (!isActiveTabRef.current) return;
+      e.preventDefault();
+      if (!editor || !noteId || editor.isDestroyed) return;
+      if (suppressSave?.current) return;
+      if (contentLoading?.current) return;
+      isDirty.current = true;
+      save();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [save, editor, noteId, suppressSave, contentLoading]);
 
   // ── Force-save listener ───────────────────────────────────────────────────
-  // SubPageNodeView dispatches "idemora:force-save" after updateAttributes so
-  // the new noteId/title attrs are flushed to DB before the graph editor
-  // (a separate TipTap instance) can load the note and read stale attrs.
 
   useEffect(() => {
     function handleForceSave() {
       if (!editor || !noteId || editor.isDestroyed) return;
       if (!isActiveTabRef.current) return;
       if (contentLoading?.current) return;
-      // NEW: Skip during content load
-      if (contentFullyLoaded && !contentFullyLoaded.current) return;
       isDirty.current = true;
       save();
     }
     window.addEventListener("idemora:force-save", handleForceSave);
     return () => window.removeEventListener("idemora:force-save", handleForceSave);
-  }, [editor, noteId, save, contentLoading, contentFullyLoaded]);
+  }, [editor, noteId, save, contentLoading]);
 
-  // ── PATCH: Wire editor TRANSACTION event instead of UPDATE ────────────────
-  // This is the critical fix: transaction gives us access to metadata,
-  // allowing us to ignore programmatic setContent() calls.
-  //
-  // The handler checks:
-  //   1. transaction.docChanged — ensures something actually changed
-  //   2. !transaction.getMeta("preventAutoSave") — ignores programmatic updates
-  
+  // ── Transaction handler ───────────────────────────────────────────────────
+
   useEffect(() => {
     if (!editor) return;
-    
+
     const handler = ({ transaction }: { transaction: any }) => {
-      // Only trigger on actual document changes
       if (!transaction.docChanged) return;
-      // Skip if this transaction is marked to prevent autosave
       if (transaction.getMeta("preventAutoSave")) return;
-      // Skip during programmatic content loading (brief setContent flash)
-      if (contentLoading?.current) return;
-      // NEW: Skip until real content has been loaded at least once
-      if (contentFullyLoaded && !contentFullyLoaded.current) return;
+      if (contentLoading?.current) {
+        // Paste arrived during programmatic load window — retry after it clears
+        setTimeout(() => {
+          if (!contentLoading?.current) scheduleSave();
+        }, 50);
+        return;
+      }
       scheduleSave();
     };
-    
+
     editor.on("transaction", handler);
-    
-    return () => {
-      editor.off("transaction", handler);
-    };
-  }, [editor, scheduleSave, contentLoading, contentFullyLoaded]);
+    return () => { editor.off("transaction", handler); };
+  }, [editor, scheduleSave, contentLoading]);
 
   // ── Flush on unmount ──────────────────────────────────────────────────────
-  // With key={noteId}, navigating away unmounts this editor immediately.
-  // We must save synchronously-ish here or the content will be lost.
-  // Embedding is intentionally skipped on unmount flush — the next mount
-  // will pick up any un-indexed changes via the scheduled save.
 
   useEffect(() => {
     return () => {
@@ -229,15 +203,13 @@ export function useAutoSave({
       if (isDirty.current && editor && noteId && !editor.isDestroyed) {
         if (suppressSave?.current) return;
         if (contentLoading?.current) return;
-        // NEW: Skip if real content hasn't been loaded yet
-        if (contentFullyLoaded && !contentFullyLoaded.current) return;
         const content = JSON.stringify(editor.getJSON());
-        // Never flush empty stub — content hasn't loaded yet
+        // Never flush empty stub
         if (content === '{"type":"doc","content":[]}') return;
         const plaintext = editor.getText();
         updateNote(noteId, { content, plaintext }).catch(console.error);
         runScheduledBackupIfDue();
       }
     };
-  }, [editor, noteId, updateNote, clearTimers, suppressSave, contentLoading, contentFullyLoaded, runScheduledBackupIfDue]);
+  }, [editor, noteId, updateNote, clearTimers, suppressSave, contentLoading, runScheduledBackupIfDue]);
 }

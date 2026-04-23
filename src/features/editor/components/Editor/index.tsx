@@ -63,11 +63,9 @@ import {
 
 interface BubblePos { top: number; left: number; }
 
-
-
 function LastEdited({ timestamp }: { timestamp: number }) {
   const [formatted, setFormatted] = useState<string>("");
-  
+
   useEffect(() => {
     const update = () => {
       const now = Date.now();
@@ -75,19 +73,19 @@ function LastEdited({ timestamp }: { timestamp: number }) {
       const minutes = Math.floor(diff / 60000);
       const hours = Math.floor(diff / 3600000);
       const days = Math.floor(diff / 86400000);
-      
+
       if (minutes < 1) setFormatted("Edited just now");
       else if (minutes < 60) setFormatted(`Edited ${minutes} minute${minutes === 1 ? "" : "s"} ago`);
       else if (hours < 24) setFormatted(`Edited ${hours} hour${hours === 1 ? "" : "s"} ago`);
       else if (days < 7) setFormatted(`Edited ${days} day${days === 1 ? "" : "s"} ago`);
       else setFormatted(new Date(timestamp).toLocaleDateString());
     };
-    
+
     update();
     const interval = setInterval(update, 60000);
     return () => clearInterval(interval);
   }, [timestamp]);
-  
+
   return (
     <div className="flex items-center gap-1.5 text-xs text-idemora-text-muted mb-4">
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="opacity-60">
@@ -118,8 +116,6 @@ interface EditorProps {
   onScrollChange?: (scrollTop: number) => void;
 }
 
-// Inject missing subPage blocks into TipTap JSON content.
-// Returns the new content string, or null if nothing changed.
 function reconcileSubPageBlocks(
   contentJson: string,
   children: { id: string; title: string }[]
@@ -160,20 +156,18 @@ function reconcileSubPageBlocks(
   return JSON.stringify(doc);
 }
 
-// ── Breadcrumb helpers ────────────────────────────────────────────────────────
-
-
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
-const note = useNoteStore(useCallback((s) => 
-  s.notes.find((n) => n.id === noteId) ?? s.trashedNotes.find((n) => n.id === noteId) ?? null
-, [noteId]));  const notes         = useNoteStore((s) => s.notes);
+  const note = useNoteStore(useCallback((s) =>
+    s.notes.find((n) => n.id === noteId) ?? s.trashedNotes.find((n) => n.id === noteId) ?? null
+  , [noteId]));
+  const notes         = useNoteStore((s) => s.notes);
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
 
   // Nav — pane 1
-  const goBack          = useNoteStore((s) => s.goBack);
-  const goForward       = useNoteStore((s) => s.goForward);
-  const pane1CanGoBack  = useNoteStore((s) => s.canGoBack());
+  const goBack            = useNoteStore((s) => s.goBack);
+  const goForward         = useNoteStore((s) => s.goForward);
+  const pane1CanGoBack    = useNoteStore((s) => s.canGoBack());
   const pane1CanGoForward = useNoteStore((s) => s.canGoForward());
 
   // Nav — pane 2
@@ -199,17 +193,12 @@ const note = useNoteStore(useCallback((s) =>
   const mySimilarOpen        = useUIStore((s) => paneId === 1 ? s.pane1SimilarOpen        : s.pane2SimilarOpen);
   const myVersionHistoryOpen = useUIStore((s) => paneId === 1 ? s.pane1VersionHistoryOpen : s.pane2VersionHistoryOpen);
 
-  // Use explicit open/close functions instead of toggle
-const openGraphForNote = useUIStore((s) => s.openGraphForNote);
-
-// Declare these FIRST
-const chatOpen1 = useUIStore((s) => s.chatOpen1);
-const chatOpen2 = useUIStore((s) => s.chatOpen2);
-const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
-const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
-
-// THEN use them
-const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
+  const openGraphForNote  = useUIStore((s) => s.openGraphForNote);
+  const chatOpen1         = useUIStore((s) => s.chatOpen1);
+  const chatOpen2         = useUIStore((s) => s.chatOpen2);
+  const rightPanelOpen    = useUIStore((s) => s.rightPanelOpen);
+  const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
+  const chatActive        = paneId === 1 ? chatOpen1 : chatOpen2;
 
   const pendingScrollHeading    = useUIStore((s) => s.pendingScrollHeading);
   const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
@@ -218,17 +207,16 @@ const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
 
   const spellCheck = useAppSettings((s) => s.settings.spellCheck);
 
-  const titleRef              = useRef<HTMLHeadingElement>(null);
-  const editorWrapRef         = useRef<HTMLDivElement>(null);
-  const editorTextColumnRef   = useRef<HTMLDivElement>(null);
-  const scrollRef             = useRef<HTMLDivElement>(null);
-  const lastSavedContent      = useRef<string | null>(note?.content ?? null);
-  const titleFocusedRef       = useRef(false);
-  const subPageCreatingRef    = useRef(false);
-  const suppressSave = useRef(false);
-  const contentLoadingRef = useRef(false); // Blocks autosave during programmatic load (brief setContent flash)
-  const contentFullyLoadedRef = useRef(false); // NEW: True once real content has been loaded at least once  
-  
+  const titleRef            = useRef<HTMLHeadingElement>(null);
+  const editorWrapRef       = useRef<HTMLDivElement>(null);
+  const editorTextColumnRef = useRef<HTMLDivElement>(null);
+  const scrollRef           = useRef<HTMLDivElement>(null);
+  const lastSavedContent    = useRef<string | null>(note?.content ?? null);
+  const titleFocusedRef     = useRef(false);
+  const subPageCreatingRef  = useRef(false);
+  const suppressSave        = useRef(false);
+  const contentLoadingRef   = useRef(false);
+
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const bubblePosRef                    = useRef<BubblePos | null>(null);
@@ -256,31 +244,36 @@ const chatActive = paneId === 1 ? chatOpen1 : chatOpen2;
   const [taskListToolbarPos, setTaskListToolbarPos] = useState<{ top: number; left: number } | null>(null);
 
   const loadNoteContent = useNoteStore((s) => s.loadNoteContent);
-const _contentLoadFired = useRef(false);
-if (!_contentLoadFired.current) {
-  _contentLoadFired.current = true;
-  const raw = note?.content;
-  const isEmpty = !raw || raw === "null" || raw === "" || raw === '{"type":"doc","content":[]}';
-  if (isEmpty) loadNoteContent(noteId);
-}
 
-const initialContent = (() => {
-  if (!note?.content || note.content === "null" || note.content === "") {
-    return { type: "doc", content: [] };
+  // Load content if empty/stub — only fires once per mount
+  const _contentLoadFired = useRef(false);
+  const isEmptyContent = !note?.content ||
+    note.content === "null" ||
+    note.content === "" ||
+    note.content === '{"type":"doc","content":[]}';
+
+  if (!_contentLoadFired.current && isEmptyContent) {
+    _contentLoadFired.current = true;
+    loadNoteContent(noteId);
   }
-  try {
-    return JSON.parse(note.content);
-  } catch {
-    return { type: "doc", content: [] };
-  }
-})();
+
+  const initialContent = (() => {
+    if (!note?.content || note.content === "null" || note.content === "") {
+      return { type: "doc", content: [] };
+    }
+    try {
+      return JSON.parse(note.content);
+    } catch {
+      return { type: "doc", content: [] };
+    }
+  })();
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
-      Color,        
-      TextStyle,    
-      MultiHighlight, 
+      Color,
+      TextStyle,
+      MultiHighlight,
       CodeBlock, Callout, CheckList, CheckItem, EditorTable, TableRow, TableHeader, TableCell,
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
@@ -288,8 +281,8 @@ const initialContent = (() => {
       OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, BlockIdExtension, BlockRefNode, DataviewNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
-      Extension.create({ name: "findReplacePlugin",      addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
-      Extension.create({ name: "searchHighlightPlugin",  addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
+      Extension.create({ name: "findReplacePlugin",     addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
+      Extension.create({ name: "searchHighlightPlugin", addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
     ],
     content: initialContent,
     autofocus: false,
@@ -452,70 +445,69 @@ const initialContent = (() => {
     return () => el.removeEventListener("scroll", handleScroll);
   }, [onScrollChange]);
 
+  // Reload editor content when the store updates it (e.g. after loadNoteContent resolves)
   useEffect(() => {
-  if (!editor || !note) return;
-  const incoming = note.content ?? null;
-  if (incoming === lastSavedContent.current) return;
+    if (!editor || !note) return;
+    const incoming = note.content ?? null;
+    if (incoming === lastSavedContent.current) return;
 
-  // Only bail on focus if we've already loaded real content once.
-  // Before that, a focused editor still has the empty stub and MUST be updated.
-  if (editor.isFocused && contentFullyLoadedRef.current) {
-    lastSavedContent.current = incoming;
-    return;
-  }
-
-  try {
-    const incomingNorm = JSON.stringify(JSON.parse(incoming ?? "null"));
-    const savedNorm    = JSON.stringify(JSON.parse(lastSavedContent.current ?? "null"));
-    if (incomingNorm === savedNorm) {
-      lastSavedContent.current = incoming;
-      return;
+    // Don't clobber user edits if editor is focused and already has real content
+    if (editor.isFocused) {
+      const current = JSON.stringify(editor.getJSON());
+      const isEmpty = current === '{"type":"doc","content":[{"type":"paragraph"}]}'
+        || current === '{"type":"doc","content":[]}';
+      if (!isEmpty) {
+        lastSavedContent.current = incoming;
+        return;
+      }
     }
-  } catch { /* malformed JSON — fall through */ }
-
-  lastSavedContent.current = incoming;
-  const timer = setTimeout(() => {
-    if (editor.isDestroyed) return;
-    // If editor is focused and content is already loaded, don't clobber user edits
-    if (editor.isFocused && contentFullyLoadedRef.current) return;
-
-    const { from, to } = editor.state.selection;
-
-    // Mark that we're programmatically loading content
-    contentLoadingRef.current = true;
-
-    // Load the content
-    editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
-
-    // Also mark the transaction to prevent autosave (belt and suspenders)
-    editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
-
-    // Mark that real content has now been loaded at least once
-    contentFullyLoadedRef.current = true;
-
-    // Clear the loading flag after the event loop
-    setTimeout(() => {
-      contentLoadingRef.current = false;
-    }, 0);
 
     try {
-      const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
-      if ($from.parent.isTextblock) {
-        editor.commands.setTextSelection({ from, to });
+      const incomingNorm = JSON.stringify(JSON.parse(incoming ?? "null"));
+      const savedNorm    = JSON.stringify(JSON.parse(lastSavedContent.current ?? "null"));
+      if (incomingNorm === savedNorm) {
+        lastSavedContent.current = incoming;
+        return;
       }
-    } catch { /**/ }
-    if (titleRef.current && !titleFocusedRef.current) {
-      const isUntitled = /^Untitled-\d+$/.test(note.title);
-      titleRef.current.textContent = isUntitled ? "" : note.title;
-    }
-  }, 0);
-  return () => clearTimeout(timer);
-}, [note?.content]);
+    } catch { /* malformed JSON — fall through */ }
 
-useEffect(() => {
-  if (!editor) return;
-  editor.setEditable(!note?.deleted_at);
-}, [editor, note?.deleted_at]);
+    lastSavedContent.current = incoming;
+    const timer = setTimeout(() => {
+      if (editor.isDestroyed) return;
+      // Re-check focus — don't overwrite if user started typing
+      if (editor.isFocused) {
+        const current = JSON.stringify(editor.getJSON());
+        const isEmpty = current === '{"type":"doc","content":[{"type":"paragraph"}]}'
+          || current === '{"type":"doc","content":[]}';
+        if (!isEmpty) return;
+      }
+
+      const { from, to } = editor.state.selection;
+
+      contentLoadingRef.current = true;
+      editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
+      editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
+      setTimeout(() => { contentLoadingRef.current = false; }, 0);
+
+      try {
+        const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
+        if ($from.parent.isTextblock) {
+          editor.commands.setTextSelection({ from, to });
+        }
+      } catch { /**/ }
+
+      if (titleRef.current && !titleFocusedRef.current) {
+        const isUntitled = /^Untitled-\d+$/.test(note.title);
+        titleRef.current.textContent = isUntitled ? "" : note.title;
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [note?.content]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!note?.deleted_at);
+  }, [editor, note?.deleted_at]);
 
   useEffect(() => {
     function handleContentUpdated(e: Event) {
@@ -529,12 +521,9 @@ useEffect(() => {
 
       suppressSave.current = true;
       lastSavedContent.current = freshContent;
-
       editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false });
 
-      requestAnimationFrame(() => {
-        suppressSave.current = false;
-      });
+      requestAnimationFrame(() => { suppressSave.current = false; });
     }
 
     window.addEventListener("idemora:content-updated", handleContentUpdated);
@@ -576,83 +565,77 @@ useEffect(() => {
   }, [noteId, pendingScrollHeading, isActiveTab]);
 
   useEffect(() => {
-  if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
-  const timer = setTimeout(() => {
-    const container = getScrollContainer(editor);
-    scrollToQuery(editor, pendingScrollQuery, container);
-    setTimeout(() => {
-      if (!editor.isDestroyed) {
-        scrollToQuery(editor, pendingScrollQuery, container);
-        setPendingScrollQuery(null);
-      }
-    }, 400);
-  }, 50);
-  return () => clearTimeout(timer);
-}, [noteId, pendingScrollQuery, isActiveTab]);
+    if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
+    const timer = setTimeout(() => {
+      const container = getScrollContainer(editor);
+      scrollToQuery(editor, pendingScrollQuery, container);
+      setTimeout(() => {
+        if (!editor.isDestroyed) {
+          scrollToQuery(editor, pendingScrollQuery, container);
+          setPendingScrollQuery(null);
+        }
+      }, 400);
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [noteId, pendingScrollQuery, isActiveTab]);
 
-// ADD THIS NEW useEffect:
+  useEffect(() => {
+    if (!editor || !isActiveTab) return;
+    function handleInsertLink(e: Event) {
+      const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
+      if (!editor) return;
 
+      const { doc } = editor.state;
+      const firstNode = doc.firstChild;
 
-useEffect(() => {
-  if (!editor || !isActiveTab) return;
-  function handleInsertLink(e: Event) {
-    const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
-    if (!editor) return;
+      const isLinksLine =
+        firstNode?.type.name === "paragraph" &&
+        firstNode.content.size > 0 &&
+        (() => {
+          let allLinks = true;
+          firstNode.forEach((child) => {
+            if (child.type.name !== "noteLink" && child.text?.trim() !== "") {
+              allLinks = false;
+            }
+          });
+          return allLinks;
+        })();
 
-    const { doc } = editor.state;
-    const firstNode = doc.firstChild;
-
-    const isLinksLine =
-      firstNode?.type.name === "paragraph" &&
-      firstNode.content.size > 0 &&
-      (() => {
-        let allLinks = true;
-        firstNode.forEach((child) => {
-          if (child.type.name !== "noteLink" && child.text?.trim() !== "") {
-            allLinks = false;
-          }
-        });
-        return allLinks;
-      })();
-
-    if (isLinksLine) {
-      const insertPos = firstNode!.nodeSize - 1;
-      editor!.chain().focus()
-        .insertContentAt(insertPos, [
-          { type: "text", text: " " },
-          { type: "noteLink", attrs: { id: linkedId, label: noteTitle } },
-        ])
-        .run();
-    } else {
-      editor!.chain().focus()
-        .insertContentAt(0, [
-          {
+      if (isLinksLine) {
+        const insertPos = firstNode!.nodeSize - 1;
+        editor!.chain().focus()
+          .insertContentAt(insertPos, [
+            { type: "text", text: " " },
+            { type: "noteLink", attrs: { id: linkedId, label: noteTitle } },
+          ])
+          .run();
+      } else {
+        editor!.chain().focus()
+          .insertContentAt(0, [{
             type: "paragraph",
             content: [{ type: "noteLink", attrs: { id: linkedId, label: noteTitle } }],
-          },
-        ])
-        .run();
+          }])
+          .run();
+      }
     }
-  }
-  window.addEventListener("idemora:insert-link", handleInsertLink);
-  return () => window.removeEventListener("idemora:insert-link", handleInsertLink);
-}, [editor, isActiveTab]);
+    window.addEventListener("idemora:insert-link", handleInsertLink);
+    return () => window.removeEventListener("idemora:insert-link", handleInsertLink);
+  }, [editor, isActiveTab]);
 
-const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
-  lastSavedContent.current = content;
-  if (!editor) return;
-  syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
-}, [editor]);
+  const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
+    lastSavedContent.current = content;
+    if (!editor) return;
+    syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
+  }, [editor]);
 
   useAutoSave({
-  editor,
-  noteId,
-  isActiveTab,
-  onSaveComplete,
-  suppressSave,
-  contentLoading: contentLoadingRef,
-  contentFullyLoaded: contentFullyLoadedRef,
-});
+    editor,
+    noteId,
+    isActiveTab,
+    onSaveComplete,
+    suppressSave,
+    contentLoading: contentLoadingRef,
+  });
 
   useEffect(() => {
     if (!slashOpen) return;
@@ -746,14 +729,12 @@ const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
   // ── Early return — all hooks must be above this line ─────────────────────
   if (!note) return null;
 
-  // Breadcrumb for this pane
-
-  const isUntitled        = /^Untitled-\d+$/.test(note.title);
+  const isUntitled = /^Untitled-\d+$/.test(note.title);
 
   function handleTitleFocus() { titleFocusedRef.current = true; }
   function handleTitleBlur() {
     titleFocusedRef.current = false;
-    if (!note) return;
+    if (!note || note.deleted_at) return;
     const title = titleRef.current?.textContent?.trim() ?? "";
     if (!title || title === note.title) return;
     updateNote(note.id, { title });
@@ -918,7 +899,7 @@ const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
     <div className="flex h-full w-full overflow-hidden">
       <div className="flex flex-col flex-1 h-full overflow-hidden">
 
-        {/* ── Editor nav bar: back/forward + breadcrumb + all editor buttons ── */}
+        {/* ── Editor nav bar ── */}
         <div className="flex items-center justify-between gap-2 px-3 h-9 shrink-0">
           <div className="flex items-center gap-1 min-w-0">
             <button
@@ -941,74 +922,67 @@ const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
                 <path d="M5 7h6M11 7L7.5 3.5M11 7L7.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
-
-          <Breadcrumb noteId={noteId} paneId={paneId} />
+            <Breadcrumb noteId={noteId} paneId={paneId} />
           </div>
 
-          {/* Editor toolbar - AI Chat (collapsible) + Local Graph (always visible) */}
-{showEditorButtons && (
-  <div className="flex items-center gap-1.5 shrink-0">
-    {/* AI Chat button - slides in/out */}
-    <div 
-      className={`flex items-center gap-1.5 transition-all duration-200 ease-in-out overflow-hidden ${
-        rightPanelOpen ? "w-auto opacity-100" : "w-0 opacity-0"
-      }`}
-    >
-      <button
-  onClick={() => {
-    const { openChat, closeChat } = useUIStore.getState();
-    if (chatActive) {
-      closeChat(paneId);
-      setRightPanelOpen(false);
-    } else {
-      openChat(paneId);
-      setRightPanelOpen(true);
-    }
-  }}
-  className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border ${
-    chatActive
-      ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
-      : "bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border"
-  }`}
->
-  <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
-    <path d="M2.5 2.5h9a1.5 1.5 0 011.5 1.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 011 10V4a1.5 1.5 0 011.5-1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-    <path d="M3.5 5h7M3.5 7h5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-  </svg>
-  AI Chat
-</button>
-    </div>
-
-    {/* Collapse/Expand toggle button */}
-    <button
-      onClick={() => setRightPanelOpen(!rightPanelOpen)}
-      className="w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border"
-    >
-      <svg
-        width="9" height="9" viewBox="0 0 9 9" fill="none"
-        className={`transition-transform duration-200 ${rightPanelOpen ? "" : "rotate-180"}`}
-      >
-        <path d="M3 2l3 2.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-    </button>
-
-    {/* Local Graph button - always visible */}
-    <button
-      onClick={() => openGraphForNote(noteId)}
-      className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border border-idemora-border"
-    >
-      <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
-        <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
-        <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
-        <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
-        <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
-        <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
-        <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-      </svg>
-      Local Graph
-    </button>
-  </div>
-)}
+          {showEditorButtons && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div
+                className={`flex items-center gap-1.5 transition-all duration-200 ease-in-out overflow-hidden ${
+                  rightPanelOpen ? "w-auto opacity-100" : "w-0 opacity-0"
+                }`}
+              >
+                <button
+                  onClick={() => {
+                    const { openChat, closeChat } = useUIStore.getState();
+                    if (chatActive) {
+                      closeChat(paneId);
+                      setRightPanelOpen(false);
+                    } else {
+                      openChat(paneId);
+                      setRightPanelOpen(true);
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border ${
+                    chatActive
+                      ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                      : "bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border"
+                  }`}
+                >
+                  <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                    <path d="M2.5 2.5h9a1.5 1.5 0 011.5 1.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 011 10V4a1.5 1.5 0 011.5-1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                    <path d="M3.5 5h7M3.5 7h5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+                  </svg>
+                  AI Chat
+                </button>
+              </div>
+              <button
+                onClick={() => setRightPanelOpen(!rightPanelOpen)}
+                className="w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border"
+              >
+                <svg
+                  width="9" height="9" viewBox="0 0 9 9" fill="none"
+                  className={`transition-transform duration-200 ${rightPanelOpen ? "" : "rotate-180"}`}
+                >
+                  <path d="M3 2l3 2.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                onClick={() => openGraphForNote(noteId)}
+                className="flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border border-idemora-border"
+              >
+                <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+                  <circle cx="2.5" cy="4" r="1.5" fill="currentColor"/>
+                  <circle cx="11.5" cy="4" r="1.5" fill="currentColor"/>
+                  <circle cx="2.5" cy="10" r="1.5" fill="currentColor"/>
+                  <circle cx="11.5" cy="10" r="1.5" fill="currentColor"/>
+                  <path d="M7 7L2.5 4M7 7l4.5-3M7 7l-4.5 3M7 7l4.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+                Local Graph
+              </button>
+            </div>
+          )}
         </div>
 
         {findReplaceOpen && editor && (
