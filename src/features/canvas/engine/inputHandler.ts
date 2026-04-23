@@ -56,6 +56,7 @@ export type InputCallbacks = {
   onInputStateChange: (state: InputState) => void;
   onHoverChange:      (id: string | null) => void;
   onCreateNode:       (screenX: number, screenY: number) => void;
+  onMarkDirty:        () => void;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -217,20 +218,15 @@ export class InputHandler {
     if (!pos) return;
     const vp = this.viewport();
 
-    // Throttle hover hit-test — only run at ~30fps when idle
+    // Fix 1: Kill hover during drag — only update hover when idle or connecting
     const now = performance.now();
-    if (
-      this.inputState.type === "idle" &&
-      now - this.lastHoverTime > HOVER_THROTTLE_MS
-    ) {
+    const shouldUpdateHover =
+      this.inputState.type === "idle"
+        ? now - this.lastHoverTime > HOVER_THROTTLE_MS
+        : this.inputState.type === "connecting"; // hover only needed for connect target, not drag/pan/select
+
+    if (shouldUpdateHover) {
       this.lastHoverTime = now;
-      const hit = hitTest(this.world, pos.x, pos.y, vp);
-      if (hit !== this.hoveredId) {
-        this.hoveredId = hit;
-        this.callbacks.onHoverChange(hit);
-      }
-    } else if (this.inputState.type !== "idle") {
-      // During active gestures always update hover (needed for connect target highlight)
       const hit = hitTest(this.world, pos.x, pos.y, vp);
       if (hit !== this.hoveredId) {
         this.hoveredId = hit;
@@ -256,11 +252,11 @@ export class InputHandler {
       return;
     }
 
+    // Fix 2: Snap to pointer on drag start, use onMarkDirty during drag
     // Node drag — check threshold
     if (this.pointerDownTarget && this.inputState.type === "idle") {
       const dx = e.clientX - this.pointerDownPos.x;
       const dy = e.clientY - this.pointerDownPos.y;
-      // Use squared distance — avoids sqrt
       if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) return;
 
       this.didCrossThreshold = true;
@@ -278,11 +274,8 @@ export class InputHandler {
         if (n) snapshot.set(nid, { x: n.x, y: n.y });
       }
 
-      const r = this.rect();
-      const downPos = r
-        ? { x: this.pointerDownPos.x - r.left, y: this.pointerDownPos.y - r.top }
-        : pos;
-      const origin = screenToWorld(downPos.x, downPos.y, vp);
+      // Use current pointer position as origin so node snaps to pointer immediately
+      const origin = screenToWorld(pos.x, pos.y, vp);
       this.setState({
         type: "dragging",
         nodeIds: idsToMove,
@@ -290,13 +283,19 @@ export class InputHandler {
         originY: origin.y,
         snapshot,
       });
+      // Apply first move immediately so there's no one-frame lag
+      for (const [nid] of snapshot) {
+        const node = this.world.nodes.get(nid);
+        if (node) { node.x = snapshot.get(nid)!.x; node.y = snapshot.get(nid)!.y; }
+      }
+      this.callbacks.onMarkDirty();
       return;
     }
 
     if (this.inputState.type === "dragging") {
-      const origin = screenToWorld(pos.x, pos.y, vp);
-      const ddx = origin.x - this.inputState.originX;
-      const ddy = origin.y - this.inputState.originY;
+      const current = screenToWorld(pos.x, pos.y, vp);
+      const ddx = current.x - this.inputState.originX;
+      const ddy = current.y - this.inputState.originY;
 
       for (const [nid, start] of this.inputState.snapshot) {
         const node = this.world.nodes.get(nid);
@@ -304,7 +303,7 @@ export class InputHandler {
         node.x = start.x + ddx;
         node.y = start.y + ddy;
       }
-      this.callbacks.onInputStateChange(this.inputState);
+      this.callbacks.onMarkDirty();
     }
   }
 

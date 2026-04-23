@@ -74,6 +74,7 @@ export class CanvasEngine {
       onConnected:        (_f, _t) => { this.markDirty(); this.scheduleWorldPersist(); },
       onInputStateChange: (_s) => { this.markDirty(); },
       onHoverChange:      (_id) => { this.markDirty(); },
+      onMarkDirty:        () => { this.markDirty(); },
       onCreateNode:       (sx, sy) => this.createNodeAtScreen(sx, sy),
     };
 
