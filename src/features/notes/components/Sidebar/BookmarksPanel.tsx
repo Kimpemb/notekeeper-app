@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { NoteBookmark, BookmarkGroup } from "@/types";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 
 interface ContextMenuPos { x: number; y: number; flip: boolean; }
 
@@ -33,6 +34,8 @@ export function BookmarksPanel() {
 
   const activeNoteId = useNoteStore((s) => s.activeNoteId);
   const activeNote = notes.find((n) => n.id === activeNoteId);
+  const replaceTab = useUIStore((s) => s.replaceTab);
+
   
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingName, setEditingName]       = useState("");
@@ -161,36 +164,41 @@ export function BookmarksPanel() {
 
   // ── render a single note bookmark row ─────────────────────────────────
   const renderNoteBookmark = (b: NoteBookmark, indent = false) => {
-    const title = b.label ?? noteTitle(b.noteId);
-    const noteExists = notes.some((n) => n.id === b.noteId);
-    return (
-      <div
-        key={b.id}
-        draggable
-        onDragStart={() => handleDragStart(b.id)}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={() => handleDrop(b.id)}
-        onContextMenu={(e) => handleContextMenu(e, b.id, "note")}
-        className={`
-          group flex items-center gap-2 px-3 py-1.5 cursor-pointer
-          hover:bg-black/6 dark:hover:bg-white/7 rounded-md mx-1
-          ${indent ? "pl-7" : ""}
-          ${draggingId === b.id ? "opacity-40" : ""}
-          ${!noteExists ? "opacity-50" : ""}
-        `}
-        onClick={() => noteExists && setActiveNote(b.noteId)}
-      >
-        <svg width="13" height="13" viewBox="0 0 11 11" fill="none"
-          className="text-idemora-text-faint shrink-0">
-          <path d="M2 1h7v9L5.5 7 2 10V1z"
-            stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-        </svg>
-        <span className="text-sm text-idemora-text-normal truncate flex-1">
-          {title}
-        </span>
-      </div>
-    );
-  };
+  const title = b.label ?? noteTitle(b.noteId);
+  const noteExists = notes.some((n) => n.id === b.noteId);
+  return (
+    <div
+      key={b.id}
+      draggable
+      onDragStart={() => handleDragStart(b.id)}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={() => handleDrop(b.id)}
+      onContextMenu={(e) => handleContextMenu(e, b.id, "note")}
+      className={`
+        group flex items-center gap-2 px-3 py-1.5 cursor-pointer
+        hover:bg-black/6 dark:hover:bg-white/7 rounded-md mx-1
+        ${indent ? "pl-7" : ""}
+        ${draggingId === b.id ? "opacity-40" : ""}
+        ${!noteExists ? "opacity-50" : ""}
+      `}
+      onClick={() => {
+        if (noteExists) {
+          setActiveNote(b.noteId);
+          replaceTab(b.noteId);
+        }
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 11 11" fill="none"
+        className="text-idemora-text-faint shrink-0">
+        <path d="M2 1h7v9L5.5 7 2 10V1z"
+          stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      </svg>
+      <span className="text-sm text-idemora-text-normal truncate flex-1">
+        {title}
+      </span>
+    </div>
+  );
+};
 
   // ── render a group ─────────────────────────────────────────────────────
   const renderGroup = (g: BookmarkGroup) => {
