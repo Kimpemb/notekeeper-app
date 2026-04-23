@@ -164,8 +164,9 @@ function reconcileSubPageBlocks(
 
 
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
-  const note = useNoteStore(useCallback((s) => s.notes.find((n) => n.id === noteId) ?? null, [noteId]));
-  const notes         = useNoteStore((s) => s.notes);
+const note = useNoteStore(useCallback((s) => 
+  s.notes.find((n) => n.id === noteId) ?? s.trashedNotes.find((n) => n.id === noteId) ?? null
+, [noteId]));  const notes         = useNoteStore((s) => s.notes);
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
 
@@ -510,6 +511,11 @@ const initialContent = (() => {
   }, 0);
   return () => clearTimeout(timer);
 }, [note?.content]);
+
+useEffect(() => {
+  if (!editor) return;
+  editor.setEditable(!note?.deleted_at);
+}, [editor, note?.deleted_at]);
 
   useEffect(() => {
     function handleContentUpdated(e: Event) {
