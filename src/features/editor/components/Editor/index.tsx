@@ -591,17 +591,52 @@ useEffect(() => {
   if (!editor || !isActiveTab) return;
   function handleInsertLink(e: Event) {
     const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
-    editor!.chain().focus().insertContent({ type: "noteLink", attrs: { id: linkedId, label: noteTitle } }).run();
+    if (!editor) return;
+
+    const { doc } = editor.state;
+    const firstNode = doc.firstChild;
+
+    const isLinksLine =
+      firstNode?.type.name === "paragraph" &&
+      firstNode.content.size > 0 &&
+      (() => {
+        let allLinks = true;
+        firstNode.forEach((child) => {
+          if (child.type.name !== "noteLink" && child.text?.trim() !== "") {
+            allLinks = false;
+          }
+        });
+        return allLinks;
+      })();
+
+    if (isLinksLine) {
+      const insertPos = firstNode!.nodeSize - 1;
+      editor!.chain().focus()
+        .insertContentAt(insertPos, [
+          { type: "text", text: " " },
+          { type: "noteLink", attrs: { id: linkedId, label: noteTitle } },
+        ])
+        .run();
+    } else {
+      editor!.chain().focus()
+        .insertContentAt(0, [
+          {
+            type: "paragraph",
+            content: [{ type: "noteLink", attrs: { id: linkedId, label: noteTitle } }],
+          },
+        ])
+        .run();
+    }
   }
   window.addEventListener("idemora:insert-link", handleInsertLink);
   return () => window.removeEventListener("idemora:insert-link", handleInsertLink);
 }, [editor, isActiveTab]);
 
-  const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
-    lastSavedContent.current = content;
-    if (!editor) return;
-    syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
-  }, [editor]);
+const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
+  lastSavedContent.current = content;
+  if (!editor) return;
+  syncBacklinks(savedNoteId, extractNoteLinkIds(editor)).catch(console.error);
+}, [editor]);
 
   useAutoSave({
   editor,
