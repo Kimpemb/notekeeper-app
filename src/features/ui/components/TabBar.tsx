@@ -70,10 +70,21 @@ export function TabBar() {
               `}
             >
               {/* Vertical Alignment Guard: Icon and Text */}
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 opacity-50">
-                <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
-                <path d="M3.5 4h5M3.5 6h5M3.5 8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-              </svg>
+              <span className="shrink-0 opacity-50">
+  {note?.is_canvas ? (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+      <circle cx="4" cy="4" r="1" fill="currentColor"/>
+      <circle cx="8" cy="4" r="1" fill="currentColor"/>
+      <path d="M3 8l2-2 2 1.5 2-2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ) : (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M3.5 4h5M3.5 6h5M3.5 8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  )}
+</span>
               
               <span className="flex-1 truncate">{title}</span>
 
