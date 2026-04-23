@@ -8,11 +8,11 @@ interface ContextMenuPos { x: number; y: number; flip: boolean; }
 
 // Folder with plus icon (matches NotesPanel new note icon style)
 const FolderPlusIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-    <path d="M2 5.5a1.5 1.5 0 011.5-1.5h3.5L9 6.5h5.5a1.5 1.5 0 011.5 1.5v5.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 012 13.5v-8z"
-      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-    <line x1="9" y1="9.5" x2="9" y2="12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    <line x1="7.5" y1="11" x2="10.5" y2="11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+    <path d="M2 6.5a2 2 0 012-2h4l2 2h6a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2v-9z"
+      stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+    <line x1="11" y1="10.5" x2="11" y2="14.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+    <line x1="9" y1="12.5" x2="13" y2="12.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
   </svg>
 );
 
@@ -35,8 +35,9 @@ export function BookmarksPanel() {
   const activeNoteId = useNoteStore((s) => s.activeNoteId);
   const activeNote = notes.find((n) => n.id === activeNoteId);
   const replaceTab = useUIStore((s) => s.replaceTab);
+  const activePaneId = useUIStore((s) => s.activePaneId);
+  const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
 
-  
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingName, setEditingName]       = useState("");
   const [newGroupName, setNewGroupName]     = useState("");
@@ -164,41 +165,45 @@ export function BookmarksPanel() {
 
   // ── render a single note bookmark row ─────────────────────────────────
   const renderNoteBookmark = (b: NoteBookmark, indent = false) => {
-  const title = b.label ?? noteTitle(b.noteId);
-  const noteExists = notes.some((n) => n.id === b.noteId);
-  return (
-    <div
-      key={b.id}
-      draggable
-      onDragStart={() => handleDragStart(b.id)}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={() => handleDrop(b.id)}
-      onContextMenu={(e) => handleContextMenu(e, b.id, "note")}
-      className={`
-        group flex items-center gap-2 px-3 py-1.5 cursor-pointer
-        hover:bg-black/6 dark:hover:bg-white/7 rounded-md mx-1
-        ${indent ? "pl-7" : ""}
-        ${draggingId === b.id ? "opacity-40" : ""}
-        ${!noteExists ? "opacity-50" : ""}
-      `}
-      onClick={() => {
-        if (noteExists) {
-          setActiveNote(b.noteId);
-          replaceTab(b.noteId);
-        }
-      }}
-    >
-      <svg width="13" height="13" viewBox="0 0 11 11" fill="none"
-        className="text-idemora-text-faint shrink-0">
-        <path d="M2 1h7v9L5.5 7 2 10V1z"
-          stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-      </svg>
-      <span className="text-sm text-idemora-text-normal truncate flex-1">
-        {title}
-      </span>
-    </div>
-  );
-};
+    const title = b.label ?? noteTitle(b.noteId);
+    const noteExists = notes.some((n) => n.id === b.noteId);
+    return (
+      <div
+        key={b.id}
+        draggable
+        onDragStart={() => handleDragStart(b.id)}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={() => handleDrop(b.id)}
+        onContextMenu={(e) => handleContextMenu(e, b.id, "note")}
+        className={`
+          group flex items-center gap-2 px-3 py-1.5 cursor-pointer
+          hover:bg-black/6 dark:hover:bg-white/7 rounded-md mx-1
+          ${indent ? "pl-7" : ""}
+          ${draggingId === b.id ? "opacity-40" : ""}
+          ${!noteExists ? "opacity-50" : ""}
+        `}
+        onClick={() => {
+          if (noteExists) {
+            if (activePaneId === 2) {
+              replacePane2Tab(b.noteId);
+            } else {
+              setActiveNote(b.noteId);
+              replaceTab(b.noteId);
+            }
+          }
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 11 11" fill="none"
+          className="text-idemora-text-faint shrink-0">
+          <path d="M2 1h7v9L5.5 7 2 10V1z"
+            stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+        </svg>
+        <span className="text-sm text-idemora-text-normal truncate flex-1">
+          {title}
+        </span>
+      </div>
+    );
+  };
 
   // ── render a group ─────────────────────────────────────────────────────
   const renderGroup = (g: BookmarkGroup) => {
@@ -260,30 +265,30 @@ export function BookmarksPanel() {
 
   const btnClass = "w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-black/6 dark:hover:bg-white/7 transition-colors duration-150";
 
-  // Expand all icon (chevrons pointing away - both up)
+  // Expand all icon
   const ExpandAllIcon = () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M4 6l4-4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M4 10l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+      <path d="M6 9l5-5 5 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6 13l5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 
-  // Collapse all icon (chevrons pointing toward - down and up)
+  // Collapse all icon
   const CollapseAllIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path d="M4 3.5l4 2.5 4-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M4 12.5l4-2.5 4 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
+    <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+      <path d="M6 9l5-5 5 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6 13l5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
 
   // ── empty state ────────────────────────────────────────────────────────
   if (bookmarks.length === 0 && !addingGroup) {
     return (
       <div className="flex flex-col h-full min-h-0 bg-idemora-bg-secondary">
-        <div className="flex items-center justify-center gap-1 px-2 pt-2 pb-2 shrink-0">
+        <div className="flex items-center justify-center gap-2 px-2 pt-0 pb-0 shrink-0">
           <button onClick={handleBookmarkActiveTab} title="Bookmark current note" className={btnClass}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M3 2h10v12l-5-3-5 3V2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+            <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+              <path d="M5 3h12v16l-6-3.5L5 19V3z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/>
             </svg>
           </button>
           <button onClick={() => setAddingGroup(true)} title="New group" className={btnClass}>
@@ -306,10 +311,10 @@ export function BookmarksPanel() {
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-idemora-bg-secondary">
-      <div className="flex items-center justify-center gap-1 px-2 pt-2 pb-2 shrink-0">
+      <div className="flex items-center justify-center gap-2 px-2 pt-0 pb-0 shrink-0">
         <button onClick={handleBookmarkActiveTab} title="Bookmark current note" className={btnClass}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M3 2h10v12l-5-3-5 3V2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+            <path d="M5 3h12v16l-6-3.5L5 19V3z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/>
           </svg>
         </button>
         <button onClick={() => setAddingGroup(true)} title="New group" className={btnClass}>
