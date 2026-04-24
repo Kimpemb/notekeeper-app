@@ -8,6 +8,7 @@ import {
   getSimilarityResults,
   type FeedbackEntry,
 } from "@/features/notes/similarity/similarityUtils";
+import { chunkDocument, type SourceType } from "@/features/ai/lib/search/chunker";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -169,12 +170,129 @@ async function rebuildFtsIndexIfNeeded(): Promise<void> {
   console.log("[FTS] complete, flag set");
 }
 
-// Fix the blocks_fts_update trigger typo (old.node_id → old.note_id) on any
-// DB that had the broken version installed by an intermediate bad migration.
-// Safe to run every startup — DROP IF EXISTS is a no-op if already correct,
-// and CREATE IF NOT EXISTS skips if already fixed. Done in code, not in
-// ALL_MIGRATIONS, because DROP TRIGGER inside the migration array causes the
-// same "no such table: notes" crash as DROP TABLE on FTS content tables.
+async function migrateNoteBlocksV3(): Promise<void> {
+  console.log("[RAG v3] migrateNoteBlocksV3: started");
+  const db = await getDb();
+
+  const alreadyDone = await getSetting("rag_v3_blocks_migrated");
+  if (alreadyDone === "1") {
+    console.log("[RAG v3] note_blocks already migrated, skipping");
+    return;
+  }
+
+  console.log("[RAG v3] migrating note_blocks to v3 schema");
+
+  // Step 1 — drop blocks_fts triggers
+  await db.execute(`DROP TRIGGER IF EXISTS blocks_fts_insert`);
+  await db.execute(`DROP TRIGGER IF EXISTS blocks_fts_update`);
+  await db.execute(`DROP TRIGGER IF EXISTS blocks_fts_delete`);
+
+  // Step 2 — drop blocks_fts virtual table
+  await db.execute(`DROP TABLE IF EXISTS blocks_fts`);
+
+  // Step 3 — drop note_blocks (cascades to embedding_jobs and embeddings via FK)
+  await db.execute(`DROP TABLE IF EXISTS note_blocks`);
+
+  // Step 4 — recreate note_blocks with v3 schema
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS note_blocks (
+      block_id         TEXT    NOT NULL PRIMARY KEY,
+      note_id          TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      block_type       TEXT    NOT NULL DEFAULT 'paragraph',
+      plaintext        TEXT    NOT NULL DEFAULT '',
+      chunk_heading    TEXT,
+      chunk_index      INTEGER NOT NULL DEFAULT 0,
+      source_type      TEXT    NOT NULL DEFAULT 'note',
+      block_created_at INTEGER NOT NULL,
+      block_updated_at INTEGER NOT NULL,
+      content_hash     TEXT
+    )
+  `);
+
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_blocks_note_id ON note_blocks(note_id)`
+  );
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_blocks_updated_at
+      ON note_blocks(block_updated_at DESC)`
+  );
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_blocks_source_type
+      ON note_blocks(source_type)`
+  );
+
+  // Step 5 — recreate blocks_fts with chunk_heading included
+  await db.execute(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
+      block_id      UNINDEXED,
+      note_id       UNINDEXED,
+      plaintext,
+      chunk_heading,
+      content='note_blocks',
+      content_rowid='rowid'
+    )
+  `);
+
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS blocks_fts_insert
+      AFTER INSERT ON note_blocks
+      BEGIN
+        INSERT INTO blocks_fts(rowid, block_id, note_id, plaintext, chunk_heading)
+        VALUES (
+          new.rowid, new.block_id, new.note_id, new.plaintext,
+          COALESCE(new.chunk_heading, '')
+        );
+      END
+  `);
+
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS blocks_fts_update
+      AFTER UPDATE ON note_blocks
+      BEGIN
+        INSERT INTO blocks_fts(blocks_fts, rowid, block_id, note_id, plaintext, chunk_heading)
+        VALUES (
+          'delete', old.rowid, old.block_id, old.note_id, old.plaintext,
+          COALESCE(old.chunk_heading, '')
+        );
+        INSERT INTO blocks_fts(rowid, block_id, note_id, plaintext, chunk_heading)
+        VALUES (
+          new.rowid, new.block_id, new.note_id, new.plaintext,
+          COALESCE(new.chunk_heading, '')
+        );
+      END
+  `);
+
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS blocks_fts_delete
+      AFTER DELETE ON note_blocks
+      BEGIN
+        INSERT INTO blocks_fts(blocks_fts, rowid, block_id, note_id, plaintext, chunk_heading)
+        VALUES (
+          'delete', old.rowid, old.block_id, old.note_id, old.plaintext,
+          COALESCE(old.chunk_heading, '')
+        );
+      END
+  `);
+
+  // Step 6 — recreate embeddings cascade delete trigger
+  await db.execute(`
+    CREATE TRIGGER IF NOT EXISTS embeddings_delete_on_block_delete
+      AFTER DELETE ON note_blocks
+      BEGIN
+        DELETE FROM embeddings WHERE block_id = OLD.block_id;
+      END
+  `);
+
+  // Step 7 — clear all embedding_jobs rows (old block_ids are now gone)
+  await db.execute(`DELETE FROM embedding_jobs`);
+
+  // Step 8 — clear embeddings table (old flat chunks are invalid)
+  await db.execute(`DELETE FROM embeddings`);
+
+  await setSetting("rag_v3_blocks_migrated", "1");
+  console.log("[RAG v3] note_blocks migration complete");
+}
+
 async function fixBlocksFtsUpdateTrigger(): Promise<void> {
   const db = await getDb();
   try {
@@ -182,10 +300,12 @@ async function fixBlocksFtsUpdateTrigger(): Promise<void> {
     await db.execute(`CREATE TRIGGER IF NOT EXISTS blocks_fts_update
       AFTER UPDATE ON note_blocks
       BEGIN
-        INSERT INTO blocks_fts(blocks_fts, rowid, block_id, note_id, plaintext)
-        VALUES ('delete', old.rowid, old.block_id, old.note_id, old.plaintext);
-        INSERT INTO blocks_fts(rowid, block_id, note_id, plaintext)
-        VALUES (new.rowid, new.block_id, new.note_id, new.plaintext);
+        INSERT INTO blocks_fts(blocks_fts, rowid, block_id, note_id, plaintext, chunk_heading)
+        VALUES ('delete', old.rowid, old.block_id, old.note_id, old.plaintext,
+          COALESCE(old.chunk_heading, ''));
+        INSERT INTO blocks_fts(rowid, block_id, note_id, plaintext, chunk_heading)
+        VALUES (new.rowid, new.block_id, new.note_id, new.plaintext,
+          COALESCE(new.chunk_heading, ''));
       END`);
   } catch (err) {
     console.warn("[initDb] blocks_fts_update trigger fix skipped:", err);
@@ -236,6 +356,7 @@ export async function initDb(): Promise<void> {
   // Defer everything else — run after first render
   setTimeout(async () => {
     await purgeTrashedNotes();
+    await migrateNoteBlocksV3();
     await fixBlocksFtsUpdateTrigger();
     await backfillNoteBlocks();
     await backfillBacklinks();
@@ -249,7 +370,6 @@ export async function initDb(): Promise<void> {
 
 // ─── Notes ────────────────────────────────────────────────────────────────────
 
-// Original — keep this, other functions inside queries.ts depend on it
 export async function getAllNotes(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
@@ -260,7 +380,6 @@ export async function getAllNotes(): Promise<Note[]> {
   );
 }
 
-// New lightweight version — used only by loadNotes in useNoteStore
 export async function getAllNotesMeta(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
@@ -277,7 +396,6 @@ export async function getNoteContent(id: string): Promise<{ content: string | nu
   );
   return rows[0] ?? { content: null, canvas_state: null };
 }
-
 
 export async function getNoteById(id: string): Promise<Note | null> {
   const db = await getDb();
@@ -312,8 +430,8 @@ export interface CreateNoteInput {
   frontmatter?: string | null;
   parent_id?: string | null;
   sort_order?: number;
-  is_canvas?: boolean;        // ← NEW
-  canvas_state?: string | null; // ← NEW
+  is_canvas?: boolean;
+  canvas_state?: string | null;
 }
 
 export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
@@ -341,8 +459,8 @@ export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
     updated_at: now(),
     deleted_at: null,
     sort_order,
-    is_canvas: input.is_canvas ?? false,      // ← NEW
-    canvas_state: input.canvas_state ?? null, // ← NEW
+    is_canvas: input.is_canvas ?? false,
+    canvas_state: input.canvas_state ?? null,
   };
 
   await db.execute(
@@ -366,8 +484,8 @@ export interface UpdateNoteInput {
   frontmatter?: string | null;
   parent_id?: string | null;
   sort_order?: number;
-  is_canvas?: boolean;        // ← NEW
-  canvas_state?: string | null; // ← NEW
+  is_canvas?: boolean;
+  canvas_state?: string | null;
 }
 
 export async function updateNote(id: string, input: UpdateNoteInput): Promise<void> {
@@ -383,9 +501,7 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
   if (input.frontmatter !== undefined) { fields.push(`frontmatter = $${idx++}`); values.push(input.frontmatter); }
   if (input.parent_id !== undefined)  { fields.push(`parent_id = $${idx++}`);  values.push(input.parent_id); }
   if (input.sort_order !== undefined) { fields.push(`sort_order = $${idx++}`); values.push(input.sort_order); }
-  if (input.canvas_state !== undefined) { fields.push(`canvas_state = $${idx++}`); values.push(input.canvas_state); } // ← NEW
-
-
+  if (input.canvas_state !== undefined) { fields.push(`canvas_state = $${idx++}`); values.push(input.canvas_state); }
 
   if (fields.length === 0) return;
 
@@ -582,11 +698,10 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
 
   const raw = query.trim();
   const isTagQuery = raw.startsWith("#");
-  const bare = isTagQuery ? raw.slice(1) : raw; // strip # only for matching, keep intent
+  const bare = isTagQuery ? raw.slice(1) : raw;
 
   if (!bare) return [];
 
-  // ── FTS5 sanitisation ──────────────────────────────────────────────────────
   const ftsQuery = bare
     .replace(/['"^():]/g, " ")
     .replace(/\*/g, " ")
@@ -602,7 +717,6 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
   const seen    = new Set<string>();
   const results: SearchResult[] = [];
 
-  // ── FTS5 (title + body only, never tags/frontmatter columns) ──────────────
   async function runFts() {
     if (!ftsMatch || results.length >= limit) return;
     try {
@@ -626,14 +740,13 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
       for (const row of ftsRows) {
         if (seen.has(row.id)) continue;
         const snippet = row._titleSnip?.trim() || row._bodySnip?.trim() || "";
-        if (!snippet) continue; // tags/frontmatter-only FTS hit — let LIKE steps handle it
+        if (!snippet) continue;
         seen.add(row.id);
         results.push({ ...row, snippet });
       }
     } catch { /* fall through */ }
   }
 
-  // ── Tag LIKE ───────────────────────────────────────────────────────────────
   async function runTagLike() {
     if (results.length >= limit) return;
     const tagRows = await db.select<{
@@ -661,7 +774,6 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     }
   }
 
-  // ── Frontmatter LIKE ───────────────────────────────────────────────────────
   async function runFrontmatterLike() {
     if (results.length >= limit) return;
     const fmRows = await db.select<{
@@ -695,7 +807,6 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     }
   }
 
-  // ── Title + body LIKE fallback ─────────────────────────────────────────────
   async function runBodyLike() {
     if (results.length >= limit) return;
     const likeRows = await db.select<{
@@ -725,7 +836,6 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     }
   }
 
-  // ── Run in priority order ──────────────────────────────────────────────────
   if (isTagQuery) {
     await runTagLike();
     await runFts();
@@ -740,8 +850,6 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
 
   return results.slice(0, limit);
 }
-
-
 
 // ─── Version History ──────────────────────────────────────────────────────────
 
@@ -789,7 +897,7 @@ export async function syncBacklinks(sourceId: string, targetIds: string[], sourc
       [sourceId, targetId]
     );
   }
-window.dispatchEvent(new CustomEvent("idemora:backlinks-updated", {
+  window.dispatchEvent(new CustomEvent("idemora:backlinks-updated", {
     detail: { source },
   }));
 }
@@ -812,7 +920,7 @@ export async function getAllBacklinks(): Promise<Backlink[]> {
   return db.select<Backlink[]>(`SELECT * FROM backlinks`);
 }
 
-// ─── Stale notes (not visited in N days) ─────────────────────────────────────
+// ─── Stale notes ──────────────────────────────────────────────────────────────
 
 export interface StaleNote extends Note {
   last_visit: number | null;
@@ -986,8 +1094,8 @@ function sanitizeNote(raw: Record<string, unknown>): Note {
   return { 
     id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, 
     created_at, updated_at, deleted_at: null, sort_order,
-    is_canvas: false,      // ← NEW
-    canvas_state: null,    // ← NEW
+    is_canvas: false,
+    canvas_state: null,
   };
 }
 
@@ -1004,12 +1112,6 @@ function topoSort(notes: Note[]): Note[] {
   for (const note of notes) visit(note);
   return result;
 }
-
-// ─── Extract noteLink IDs from TipTap JSON ───────────────────────────────────
-// Standalone version of editorUtils.extractNoteLinkIds that works without a
-// live TipTap editor instance. Used by import functions to rebuild backlinks
-// after inserting notes so the graph shows edges immediately without requiring
-// the user to open each note first.
 
 function extractNoteLinkIdsFromJson(contentJson: string): string[] {
   const ids: string[] = [];
@@ -1035,11 +1137,6 @@ export async function importNotes(json: string): Promise<number> {
   const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
   let imported = 0;
 
-  // Pass 1 — insert/update all notes first so every target_id exists in the
-  // notes table before we write any backlinks rows. Without this, foreign key
-  // constraints silently drop backlinks where the target note hasn't been
-  // inserted yet (e.g. bentancur → smoogio fails if smoogio comes later in
-  // the sorted list).
   for (const note of notes) {
     const rows = await db.select<{ id: string; deleted_at: number | null }[]>(
       `SELECT id, deleted_at FROM notes WHERE id = $1`, [note.id]
@@ -1063,7 +1160,6 @@ export async function importNotes(json: string): Promise<number> {
     imported++;
   }
 
-  // Pass 2 — now all notes exist, sync backlinks for every imported note.
   for (const note of notes) {
     await syncBacklinks(note.id, extractNoteLinkIdsFromJson(note.content ?? ""));
   }
@@ -1078,7 +1174,6 @@ export async function importNotesOverwrite(json: string): Promise<number> {
   const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
   let count = 0;
 
-  // Pass 1 — upsert all notes before writing any backlinks.
   for (const note of notes) {
     await db.execute(
       `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
@@ -1093,7 +1188,6 @@ export async function importNotesOverwrite(json: string): Promise<number> {
     count++;
   }
 
-  // Pass 2 — sync backlinks now that all notes exist.
   for (const note of notes) {
     await syncBacklinks(note.id, extractNoteLinkIdsFromJson(note.content ?? ""));
   }
@@ -1113,7 +1207,6 @@ export async function importNotesAsCopies(json: string): Promise<number> {
   let count = 0;
   const remappedContents = new Map<string, string>();
 
-  // Pass 1 — insert all notes and collect remapped content for pass 2.
   for (const note of notes) {
     const newId = idMap.get(note.id)!;
     const newParentId = note.parent_id ? (idMap.get(note.parent_id) ?? null) : null;
@@ -1133,7 +1226,6 @@ export async function importNotesAsCopies(json: string): Promise<number> {
     count++;
   }
 
-  // Pass 2 — sync backlinks now that all notes exist.
   for (const [newId, remappedContent] of remappedContents.entries()) {
     await syncBacklinks(newId, extractNoteLinkIdsFromJson(remappedContent ?? ""));
   }
@@ -1318,79 +1410,150 @@ export interface BlockSearchResult {
   plaintext: string;
 }
 
+// Expanded to match BlockIdExtension TARGET_TYPES
 const INDEXABLE_BLOCK_TYPES = new Set([
   "paragraph", "heading", "bulletList", "orderedList",
   "listItem", "taskItem", "codeBlock", "blockquote",
+  "toggle", "toggleSummary", "image", "attachment",
+  "callout", "subPage", "noteLink", "dataview",
 ]);
 
-function* walkIndexableBlocks(
-  node: { type: string; attrs?: Record<string, unknown>; content?: unknown[] },
-  depth = 0
-): Generator<{ blockId: string; blockType: string; plaintext: string }> {
-  if (!node.content) return;
-  for (const child of node.content as typeof node[]) {
-    const blockId = child.attrs?.blockId as string | undefined;
-    if (blockId && INDEXABLE_BLOCK_TYPES.has(child.type)) {
-      yield { blockId, blockType: child.type, plaintext: extractNodeText(child) };
-    }
-    if (child.content && depth < 3) {
-      yield* walkIndexableBlocks(child, depth + 1);
-    }
-  }
+// ─── Note title chunks ────────────────────────────────────────────────────────
+
+export async function upsertNoteTitleChunk(
+  noteId: string,
+  title: string,
+  sourceType: SourceType
+): Promise<void> {
+  if (!title.trim()) return;
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO note_title_chunks (note_id, title, source_type, updated_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT(note_id) DO UPDATE SET
+       title      = excluded.title,
+       source_type = excluded.source_type,
+       updated_at = excluded.updated_at`,
+    [noteId, title, sourceType, Date.now()]
+  );
 }
 
-function extractNodeText(node: { type: string; text?: string; content?: unknown[] }): string {
-  if (node.text) return node.text;
-  if (!node.content) return "";
-  return (node.content as typeof node[]).map(extractNodeText).join(" ").trim();
+// ─── Quota log helper ─────────────────────────────────────────────────────────
+
+export async function incrementEmbeddingQuota(
+  providerId: string,
+  modelId: string,
+  count: number = 1
+): Promise<void> {
+  const db = await getDb();
+  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  await db.execute(
+    `INSERT INTO embedding_quota_log (provider_id, model_id, requests, date)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT(provider_id, model_id, date) DO UPDATE SET
+       requests = embedding_quota_log.requests + excluded.requests`,
+    [providerId, modelId, count, date]
+  );
 }
+
+export async function getEmbeddingQuotaToday(
+  providerId: string,
+  modelId: string
+): Promise<number> {
+  const db = await getDb();
+  const date = new Date().toISOString().slice(0, 10);
+  const rows = await db.select<{ requests: number }[]>(
+    `SELECT requests FROM embedding_quota_log
+     WHERE provider_id = $1 AND model_id = $2 AND date = $3`,
+    [providerId, modelId, date]
+  );
+  return rows[0]?.requests ?? 0;
+}
+
+// ─── syncNoteBlocks — v3 rewrite ──────────────────────────────────────────────
+//
+// Replaces the old walkIndexableBlocks approach entirely.
+// Uses the heading-aware chunker, computes content_hash per chunk,
+// skips unchanged blocks (hash match), and enqueues only changed/new blocks.
+// A note with 40 blocks where 1 changed produces exactly 1 embedding job.
 
 export async function syncNoteBlocks(
   noteId: string,
-  contentJson: string
+  contentJson: string,
+  sourceType: SourceType = "note",
+  noteTitle?: string
 ): Promise<void> {
   const db = await getDb();
 
-  let doc: { type: string; attrs?: Record<string, unknown>; content?: unknown[] };
-  try { doc = JSON.parse(contentJson); } catch { return; }
-
-  const freshBlocks = [...walkIndexableBlocks(doc)];
-  const freshIds    = new Set(freshBlocks.map((b) => b.blockId));
-  const ts          = Date.now();
-
-  const existing = await db.select<{ block_id: string }[]>(
-    `SELECT block_id FROM note_blocks WHERE note_id = $1`, [noteId]
-  );
-
-  let emit: ((event: string, payload: unknown) => Promise<void>) | null = null;
-  try {
-    const mod = await import("@tauri-apps/api/event");
-    emit = mod.emit;
-  } catch { /**/ }
-
-  for (const block of freshBlocks) {
-    await db.execute(
-      `INSERT INTO note_blocks (block_id, note_id, block_type, plaintext, updated_at)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT(block_id) DO UPDATE SET
-        block_type = excluded.block_type,
-        plaintext  = excluded.plaintext,
-        updated_at = excluded.updated_at`,
-      [block.blockId, noteId, block.blockType, block.plaintext, ts]
-    );
+  // Upsert title chunk if title provided
+  if (noteTitle?.trim()) {
+    await upsertNoteTitleChunk(noteId, noteTitle, sourceType);
   }
 
+  // Run heading-aware chunker
+  const freshChunks = await chunkDocument(contentJson, sourceType);
+  const freshIds    = new Set(freshChunks.map((c) => c.blockId));
+
+  // Load existing hashes for this note
+  const existing = await db.select<{ block_id: string; content_hash: string | null }[]>(
+    `SELECT block_id, content_hash FROM note_blocks WHERE note_id = $1`,
+    [noteId]
+  );
+  const existingHashMap = new Map(existing.map((r) => [r.block_id, r.content_hash]));
+
+  const blocksToEmbed: { blockId: string; noteId: string }[] = [];
+
+  for (const chunk of freshChunks) {
+    const existingHash = existingHashMap.get(chunk.blockId);
+    const hashChanged  = existingHash !== chunk.contentHash;
+
+    await db.execute(
+      `INSERT INTO note_blocks
+         (block_id, note_id, block_type, plaintext, chunk_heading, chunk_index,
+          source_type, block_created_at, block_updated_at, content_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT(block_id) DO UPDATE SET
+         block_type       = excluded.block_type,
+         plaintext        = excluded.plaintext,
+         chunk_heading    = excluded.chunk_heading,
+         chunk_index      = excluded.chunk_index,
+         source_type      = excluded.source_type,
+         block_updated_at = CASE
+           WHEN note_blocks.content_hash != excluded.content_hash
+           THEN excluded.block_updated_at
+           ELSE note_blocks.block_updated_at
+         END,
+         content_hash     = excluded.content_hash`,
+      [
+        chunk.blockId,
+        noteId,
+        chunk.blockType,
+        chunk.plaintext,
+        chunk.chunkHeading,
+        chunk.chunkIndex,
+        chunk.sourceType,
+        chunk.blockCreatedAt,
+        chunk.blockUpdatedAt,
+        chunk.contentHash,
+      ]
+    );
+
+    // Only enqueue for re-embedding if content changed or block is new
+    if (hashChanged) {
+      blocksToEmbed.push({ blockId: chunk.blockId, noteId });
+    }
+  }
+
+  // Delete blocks that no longer exist in the document
   for (const { block_id } of existing) {
     if (!freshIds.has(block_id)) {
       await db.execute(`DELETE FROM note_blocks WHERE block_id = $1`, [block_id]);
     }
   }
 
-  if (emit && freshBlocks.length > 0) {
-    emit("blocks-updated", {
-      noteId,
-      blocks: freshBlocks.map((b) => ({ blockId: b.blockId, plaintext: b.plaintext })),
-    }).catch(() => {});
+  // Enqueue only changed/new blocks for embedding
+  if (blocksToEmbed.length > 0) {
+    await enqueueEmbeddingJobs(blocksToEmbed);
   }
 }
 
@@ -1432,8 +1595,8 @@ export async function searchBlocks(
 
 export async function backfillNoteBlocks(): Promise<void> {
   const db = await getDb();
-  const notes = await db.select<{ id: string; content: string }[]>(
-    `SELECT n.id, n.content FROM notes n
+  const notes = await db.select<{ id: string; content: string; title: string }[]>(
+    `SELECT n.id, n.content, n.title FROM notes n
      WHERE n.content IS NOT NULL
        AND n.deleted_at IS NULL
        AND NOT EXISTS (
@@ -1442,7 +1605,7 @@ export async function backfillNoteBlocks(): Promise<void> {
      LIMIT 100`
   );
   for (const note of notes) {
-    await syncNoteBlocks(note.id, note.content);
+    await syncNoteBlocks(note.id, note.content, "note", note.title);
   }
 }
 
@@ -1839,7 +2002,7 @@ export async function getSurroundingBlocks(
      FROM note_blocks
      WHERE note_id = $1
        AND plaintext != ''
-     ORDER BY rowid ASC`,
+     ORDER BY chunk_index ASC, rowid ASC`,
     [noteId]
   )
 
@@ -1854,7 +2017,7 @@ export async function getSurroundingBlocks(
   return allBlocks.slice(start, end + 1).map((b) => b.plaintext).filter(Boolean)
 }
 
-// ─── Phase 4: Rolling conversation summary ────────────────────────────────────
+// ─── Rolling conversation summary ────────────────────────────────────────────
 
 export interface ConversationSummaryRow {
   note_id:       string
@@ -1960,7 +2123,6 @@ export async function addNoteBookmark(
   groupId: string | null = null
 ): Promise<NoteBookmark> {
   const items = await loadBookmarks();
-  // prevent duplicates
   const existing = items.find(
     (b): b is NoteBookmark => b.kind === "note" && b.noteId === noteId
   );
@@ -1996,4 +2158,3 @@ export async function addBookmarkGroup(name: string): Promise<BookmarkGroup> {
   await saveBookmarks([...items, group]);
   return group;
 }
-

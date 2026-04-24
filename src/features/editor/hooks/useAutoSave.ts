@@ -25,9 +25,10 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import type { UpdateNoteInput } from "@/features/notes/db/queries";
-import { syncNoteBlocks, enqueueEmbeddingJobs } from "@/features/notes/db/queries";
+import { syncNoteBlocks } from "@/features/notes/db/queries";
 import { nudgeIndexer } from "@/features/ai/lib/indexer";
 import { useAIStore } from "@/features/ai/store/useAIStore";
+
 
 const HARD_CAP_MS = 30_000;
 
@@ -69,29 +70,6 @@ const updateNote    = useNoteStore((s) => s.updateNote);
     if (hardCapTimer.current)  { clearTimeout(hardCapTimer.current);  hardCapTimer.current  = null; }
   }, []);
 
-  // ── runEmbeddingPipeline ──────────────────────────────────────────────────
-
-  const runEmbeddingPipeline = useCallback((savedNoteId: string, content: string) => {
-    if (!useAIStore.getState().enabled) return;
-    setTimeout(async () => {
-      try {
-        await syncNoteBlocks(savedNoteId, content);
-        const { getDb } = await import("@/features/notes/db/client");
-        const db        = await getDb();
-        const blocks    = await db.select<{ block_id: string }[]>(
-          `SELECT block_id FROM note_blocks WHERE note_id = $1`,
-          [savedNoteId]
-        );
-        await enqueueEmbeddingJobs(
-          blocks.map((b) => ({ blockId: b.block_id, noteId: savedNoteId }))
-        );
-        nudgeIndexer();
-      } catch (err) {
-        console.warn("[AutoSave] embedding enqueue failed:", err);
-      }
-    }, 2000);
-  }, []);
-
   // ── runScheduledBackupIfDue ───────────────────────────────────────────────
 
   const runScheduledBackupIfDue = useCallback(async () => {
@@ -101,6 +79,22 @@ const updateNote    = useNoteStore((s) => s.updateNote);
     } catch (err) {
       console.warn("[AutoSave] backup trigger failed:", err);
     }
+  }, []);
+
+  // ── runEmbeddingPipeline ──────────────────────────────────────────────────
+  // syncNoteBlocks handles chunking, hash-based skip, and job enqueueing
+  // internally. Only changed blocks produce embedding jobs.
+
+  const runEmbeddingPipeline = useCallback((savedNoteId: string, content: string) => {
+    if (!useAIStore.getState().enabled) return;
+    setTimeout(async () => {
+      try {
+        await syncNoteBlocks(savedNoteId, content);
+        nudgeIndexer();
+      } catch (err) {
+        console.warn("[AutoSave] embedding enqueue failed:", err);
+      }
+    }, 2000);
   }, []);
 
   // ── save ──────────────────────────────────────────────────────────────────

@@ -236,4 +236,27 @@ export const ALL_MIGRATIONS: string[] = [
   `ALTER TABLE notes ADD COLUMN is_canvas INTEGER NOT NULL DEFAULT 0`,
 
   `ALTER TABLE notes ADD COLUMN canvas_state TEXT DEFAULT NULL`,
+
+  // ── RAG v3 — new tables (appended, safe on existing DBs) ─────────────────
+  // note_blocks v3 schema is rebuilt via migrateNoteBlocksV3() in initDb,
+  // not here, because it requires DROP + recreate with new columns.
+  // These two tables are genuinely new — no prior version exists.
+
+  `CREATE TABLE IF NOT EXISTS note_title_chunks (
+    note_id     TEXT    NOT NULL PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    title       TEXT    NOT NULL,
+    source_type TEXT    NOT NULL DEFAULT 'note',
+    updated_at  INTEGER NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS embedding_quota_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id TEXT    NOT NULL,
+    model_id    TEXT    NOT NULL,
+    requests    INTEGER NOT NULL DEFAULT 0,
+    date        TEXT    NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_quota_log_provider_date
+    ON embedding_quota_log(provider_id, date)`,
 ];
