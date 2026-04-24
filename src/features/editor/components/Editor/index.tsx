@@ -38,6 +38,8 @@ import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
 import { Breadcrumb } from "./Breadcrumb";
+import { enqueueNoteForIndexing } from "@/features/ai/lib/indexer"
+
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -247,15 +249,17 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   // Load content if empty/stub — only fires once per mount
   const _contentLoadFired = useRef(false);
-  const isEmptyContent = !note?.content ||
-    note.content === "null" ||
-    note.content === "" ||
-    note.content === '{"type":"doc","content":[]}';
+const isEmptyContent = !note?.content ||
+  note.content === "null" ||
+  note.content === "" ||
+  note.content === '{"type":"doc","content":[]}';
 
-  if (!_contentLoadFired.current && isEmptyContent) {
-    _contentLoadFired.current = true;
-    loadNoteContent(noteId);
-  }
+useEffect(() => {
+  if (_contentLoadFired.current) return;
+  if (!isEmptyContent) return;
+  _contentLoadFired.current = true;
+  loadNoteContent(noteId);
+}, [noteId, isEmptyContent]);
 
   const initialContent = (() => {
     if (!note?.content || note.content === "null" || note.content === "") {
@@ -397,6 +401,10 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
     if (!editor || !note?.content) return;
     syncBacklinks(noteId, extractNoteLinkIds(editor)).catch(console.error);
   }, [noteId]);
+
+  useEffect(() => {
+  enqueueNoteForIndexing(noteId).catch(console.warn)
+}, [noteId])
 
   useEffect(() => {
     if (!editor) return;

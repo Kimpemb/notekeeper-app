@@ -48,18 +48,21 @@ export function useAutoSave({
   suppressSave,
   contentLoading,
 }: UseAutoSaveOptions): void {
-  const updateNote    = useNoteStore((s) => s.updateNote);
+const updateNote    = useNoteStore((s) => s.updateNote);
   const setSaveStatus = useUIStore((s) => s.setSaveStatus);
   const autosaveDelay = useAppSettings((s) => s.settings.autosaveDelay);
+  const dbSettled     = useNoteStore((s) => s.dbSettled);
 
   const debounceTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hardCapTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDirty          = useRef(false);
   const isActiveTabRef   = useRef(isActiveTab);
   const autosaveDelayRef = useRef(autosaveDelay);
+  const dbSettledRef     = useRef(dbSettled);
 
   useEffect(() => { isActiveTabRef.current = isActiveTab; }, [isActiveTab]);
   useEffect(() => { autosaveDelayRef.current = autosaveDelay; }, [autosaveDelay]);
+  useEffect(() => { dbSettledRef.current = dbSettled; }, [dbSettled]);
 
   const clearTimers = useCallback(() => {
     if (debounceTimer.current) { clearTimeout(debounceTimer.current); debounceTimer.current = null; }
@@ -102,11 +105,12 @@ export function useAutoSave({
 
   // ── save ──────────────────────────────────────────────────────────────────
 
-  const save = useCallback(async () => {
+const save = useCallback(async () => {
     if (!editor || !noteId || !isDirty.current) return;
     if (!isActiveTabRef.current) return;
     if (suppressSave?.current) return;
     if (contentLoading?.current) return;
+    if (!dbSettledRef.current) return;
 
     clearTimers();
     isDirty.current = false;
@@ -117,9 +121,9 @@ export function useAutoSave({
       const plaintext = editor.getText();
       const update: UpdateNoteInput = { content, plaintext };
 
-      await updateNote(noteId, update);
       onSaveComplete?.(content, noteId);
-      setSaveStatus("saved");
+await updateNote(noteId, update);
+setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
 
       runEmbeddingPipeline(noteId, content);

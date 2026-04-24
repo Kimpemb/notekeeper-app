@@ -65,13 +65,24 @@ export async function runScheduledBackupIfDue(): Promise<void> {
 
     // ── Check if due ──────────────────────────────────────────────────────────
     const now     = Date.now();
+    
+    // FIXED: If never run before, lastAt will be null
     const lastMs  = lastAt ? new Date(lastAt).getTime() : 0;
     const elapsed = now - lastMs;
 
     let isDue = false;
+    
+    // FIXED: Reordered logic — on_change should check hash FIRST
     if (frequency === "on_change") {
-      isDue = hash !== lastHash;
+      // Only due if hash changed AND we've run at least once (lastHash exists)
+      if (lastHash && hash !== lastHash) {
+        isDue = true;
+      } else if (!lastHash) {
+        // First run ever — should backup
+        isDue = true;
+      }
     } else if (frequency === "daily") {
+      // If never run before, elapsed will be now - 0 = huge number, so it's due
       isDue = elapsed >= MS.day;
     } else if (frequency === "weekly") {
       isDue = elapsed >= MS.week;
@@ -120,23 +131,36 @@ export async function runScheduledBackupIfDue(): Promise<void> {
 
 export async function getSchedulerSettings() {
   const { getSetting } = await import("@/features/notes/db/queries");
+  const tgEnabled = await getSetting(SETTINGS.tgEnabled);
+  const tgToken   = await getSetting(SETTINGS.tgBotToken);
+  const tgChatId  = await getSetting(SETTINGS.tgChatId);
+  
   return {
-    enabled:   (await getSetting(SETTINGS.enabled))   ?? "false",
-    frequency: (await getSetting(SETTINGS.frequency)) ?? "daily",
-    folder:    (await getSetting(SETTINGS.folder))    ?? "",
-    lastAt:    (await getSetting(SETTINGS.lastAt))    ?? null,
+    enabled:    (await getSetting(SETTINGS.enabled))   ?? "false",
+    frequency:  (await getSetting(SETTINGS.frequency)) ?? "daily",
+    folder:     (await getSetting(SETTINGS.folder))    ?? "",
+    lastAt:     (await getSetting(SETTINGS.lastAt))    ?? null,
+    tgEnabled:  tgEnabled === "true",
+    tgToken:    tgToken ?? "",
+    tgChatId:   tgChatId ?? "",
   };
 }
 
 export async function saveSchedulerSettings(opts: {
-  enabled:   boolean;
-  frequency: string;
-  folder:    string;
-  password:  string;
+  enabled:    boolean;
+  frequency:  string;
+  folder:     string;
+  password:   string;
+  tgEnabled:  boolean;
+  tgToken:    string;
+  tgChatId:   string;
 }): Promise<void> {
   const { setSetting } = await import("@/features/notes/db/queries");
   await setSetting(SETTINGS.enabled,   opts.enabled ? "true" : "false");
   await setSetting(SETTINGS.frequency, opts.frequency);
   await setSetting(SETTINGS.folder,    opts.folder);
   await setSetting(SETTINGS.password,  opts.password);
+  await setSetting(SETTINGS.tgEnabled, opts.tgEnabled ? "true" : "false");
+  await setSetting(SETTINGS.tgBotToken, opts.tgToken);
+  await setSetting(SETTINGS.tgChatId,  opts.tgChatId);
 }

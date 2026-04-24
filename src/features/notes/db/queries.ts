@@ -212,7 +212,12 @@ async function fixNullTitles(): Promise<void> {
   }
 }
 
+let _dbInitialized = false;
+
 export async function initDb(): Promise<void> {
+  if (_dbInitialized) return;
+  _dbInitialized = true;
+
   const db = await getDb();
 
   for (const sql of ALL_MIGRATIONS) {
@@ -232,11 +237,11 @@ export async function initDb(): Promise<void> {
   setTimeout(async () => {
     await purgeTrashedNotes();
     await fixBlocksFtsUpdateTrigger();
-    await rebuildFtsIndexIfNeeded();
     await backfillNoteBlocks();
     await backfillBacklinks();
+    await rebuildFtsIndexIfNeeded();
     console.log("[initDb] Background maintenance complete");
-  }, 2000);
+  }, 5000);
 
   console.log("[initDb] Database initialized successfully");
 }
@@ -1426,22 +1431,33 @@ export async function searchBlocks(
 }
 
 export async function backfillNoteBlocks(): Promise<void> {
-  const notes = await getAllNotes();
+  const db = await getDb();
+  const notes = await db.select<{ id: string; content: string }[]>(
+    `SELECT n.id, n.content FROM notes n
+     WHERE n.content IS NOT NULL
+       AND n.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM note_blocks nb WHERE nb.note_id = n.id
+       )
+     LIMIT 100`
+  );
   for (const note of notes) {
-    if (!note.content) continue;
-    const db = await getDb();
-    const existing = await db.select<{ count: number }[]>(
-      `SELECT COUNT(*) as count FROM note_blocks WHERE note_id = $1`, [note.id]
-    );
-    if ((existing[0]?.count ?? 0) > 0) continue;
     await syncNoteBlocks(note.id, note.content);
   }
 }
 
 export async function backfillBacklinks(): Promise<void> {
-  const notes = await getAllNotes();
+  const db = await getDb();
+  const notes = await db.select<{ id: string; content: string }[]>(
+    `SELECT n.id, n.content FROM notes n
+     WHERE n.content IS NOT NULL
+       AND n.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM backlinks b WHERE b.source_id = n.id
+       )
+     LIMIT 100`
+  );
   for (const note of notes) {
-    if (!note.content) continue;
     await syncBacklinks(note.id, extractNoteLinkIdsFromJson(note.content));
   }
 }

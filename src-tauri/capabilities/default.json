@@ -20,8 +20,10 @@
     "dialog:default",
     "dialog:allow-save",
     "dialog:allow-open",
-    "updater:default",      
-    "updater:allow-check",    
-    "updater:allow-download-and-install"  
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "http:default",
+    "http:allow-fetch"
   ]
 }

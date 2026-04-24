@@ -37,6 +37,8 @@ import { OutlinePanel } from "@/features/editor/components/Editor/OutlinePanel";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
 import { CanvasWorkspace } from "@/features/canvas/components/CanvasWorkspace";
 import { MoveBlockModal } from "@/features/ui/components/MoveBlockModal";
+// PATCH: 1. Add import near the top with other modal imports
+import { AISetupModal } from "@/features/ai/components/AISetupModal";
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
@@ -56,6 +58,9 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [moveBlockOpen, setMoveBlockOpen] = useState(false);
+  // PATCH: 2. Add state variable near the other useState declarations
+  const [showAISetup, setShowAISetup] = useState(false);
+
   const moveBlockDetailRef = useRef<{
     nodeJson:         unknown;
     deleteFromSource: () => void;
@@ -67,6 +72,7 @@ export default function App() {
   const notes                  = useNoteStore((s) => s.notes);
   const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
   const setActive              = useNoteStore((s) => s.setActiveNote);
+  const setDbSettled           = useNoteStore((s) => s.setDbSettled);
 
   // UI store
   const activeSidebarPanel  = useUIStore((s) => s.activeSidebarPanel);
@@ -162,8 +168,11 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   }, [appWindow]);
 
   useEffect(() => {
+  let cancelled = false;
+
   initDb()
     .then(async () => {
+      if (cancelled) return;
       setDbReady(true);
       return Promise.all([
         useUIStore.getState().loadSettings(),
@@ -171,19 +180,54 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
         useAIStore.getState().loadAISettings(),
       ]);
     })
-    .then(() => loadNotes())
+    .then(() => { if (!cancelled) return loadNotes(); })
     .then(() => {
+      if (cancelled) return;
       setNotesLoaded(true);
+      setTimeout(() => { if (!cancelled) setDbSettled(); }, 6000);
       return runScheduledBackupIfDue();
     })
-    .catch((err) => setDbError(String(err)));
-}, [loadNotes]);
+    .catch((err) => { if (!cancelled) setDbError(String(err)); });
+
+  return () => { cancelled = true; };
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   useSampleNotes();
+
+useEffect(() => {
+  const unsub = useNoteStore.subscribe((state, prev) => {
+    if (prev.notes.length > 0 && state.notes.length === 0) {
+      console.error("[WIPE] notes array went to 0", new Error().stack);
+    } else if (prev.notes.length > 0 && state.notes.length < prev.notes.length) {
+      console.warn(`[SHRINK] notes dropped from ${prev.notes.length} to ${state.notes.length}`, new Error().stack);
+    }
+  });
+  return unsub;
+}, []);
+
+useEffect(() => {
+  if (!dbReady) console.error("[dbReady flipped false]", new Error().stack);
+}, [dbReady]);
+
+useEffect(() => {
+  if (!notesLoaded) console.error("[notesLoaded flipped false]", new Error().stack);
+}, [notesLoaded]);
 
   useEffect(() => {
     if (settingsLoaded && !settings.hasCompletedOnboarding) setShowOnboarding(true);
   }, [settingsLoaded, settings.hasCompletedOnboarding]);
+
+  // PATCH: 3. Add effect near the onboarding effect (after it, so it fires after)
+  useEffect(() => {
+  if (
+    settingsLoaded &&
+    settings.hasCompletedOnboarding &&
+    !settings.hasSeenAISetup
+  ) {
+    setShowAISetup(true);
+  }
+}, [settingsLoaded, settings.hasCompletedOnboarding, settings.hasSeenAISetup]);
 
   const handleOnboardingComplete = useCallback(() => {
     setShowOnboarding(false);
@@ -485,6 +529,8 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   return (
     <>
       <OnboardingModal isOpen={showOnboarding} onComplete={handleOnboardingComplete} />
+      {/* PATCH: 4. Mount the modal alongside <OnboardingModal> in the return */}
+      <AISetupModal isOpen={showAISetup} onClose={() => setShowAISetup(false)} />
 
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-idemora-bg-primary text-idemora-text-normal">
 

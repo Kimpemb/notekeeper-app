@@ -1,14 +1,36 @@
 // src/features/ui/components/SettingsModal.tsx
+//
+// Milestone 4 update: AI section restructured.
+// - ProfileSelector at top
+// - ProviderCards (Gemini first)
+// - ProcessingModelCard
+// - Embedding provider selector with DeepSeek data residency notice
+// - RPDBudgetBar
+// - Master AI toggle
+// Everything else unchanged.
 
 import { useEffect, useState, useRef } from "react";
-import { useUIStore } from "@/features/ui/store/useUIStore";
+import { useUIStore }     from "@/features/ui/store/useUIStore";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
-import { AISetupModal } from "@/features/ai/components/AISetupModal";
-import { useAIStore } from "@/features/ai/store/useAIStore";
-import { BackupModal } from "@/features/backup/components/BackupModal";
+import { useAIStore }     from "@/features/ai/store/useAIStore";
+import { BackupModal }    from "@/features/backup/components/BackupModal";
 import { SHORTCUT_GROUPS } from "@/lib/keybindings";
 import type { ShortcutGroup, Shortcut } from "@/lib/keybindings";
+
+// Milestone 4 components
+import { ProfileSelector }      from "@/features/ai/components/ProfileSelector";
+import { ProviderCard }         from "@/features/ai/components/ProviderCard";
+import { ProcessingModelCard }  from "@/features/ai/components/ProcessingModelCard";
+import { RPDBudgetBar }         from "@/features/ai/components/RPDBudgetBar";
+
+// DeepSeek data residency
+import {
+  DEEPSEEK_DATA_RESIDENCY_NOTICE,
+  DEEPSEEK_DATA_RESIDENCY_SETTING_KEY,
+} from "@/features/ai/lib/providers/deepseek";
+import { PROVIDER_META } from "@/features/ai/lib/provider";
+import type { EmbeddingProvider, ProviderName } from "@/features/ai/store/useAIStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +46,7 @@ export interface AppSettings {
   autoPurgeTrash: boolean;
   hasCompletedOnboarding: boolean;
   hasInsertedSampleNotes: boolean;
+  hasSeenAISetup: boolean;        // ← add this
 }
 
 const SETTINGS_KEY = "app_settings_v1";
@@ -40,6 +63,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoPurgeTrash: true,
   hasCompletedOnboarding: false,
   hasInsertedSampleNotes: false,
+  hasSeenAISetup: false,          
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -56,7 +80,7 @@ export async function saveAppSettings(settings: AppSettings): Promise<void> {
   await setSetting(SETTINGS_KEY, JSON.stringify(settings));
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -91,18 +115,21 @@ function Row({
 function Toggle({
   checked,
   onChange,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-        checked ? "bg-blue-500" : "bg-idemora-bg-primary"
-      }`}
+      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+        disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+      } ${checked ? "bg-blue-500" : "bg-idemora-bg-primary"}`}
     >
       <span
         className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
@@ -137,7 +164,120 @@ function Select<T extends string>({
   );
 }
 
-// ─── Sidebar nav tabs ─────────────────────────────────────────────────────────────
+// ─── Provider order for cards ─────────────────────────────────────────────────
+// Gemini first (recommended starting point), then the rest.
+
+const PROVIDER_CARD_ORDER: ProviderName[] = [
+  "gemini",
+  "claude",
+  "openai",
+  "deepseek",
+  "grok",
+];
+
+// ─── Embedding provider selector ──────────────────────────────────────────────
+
+function EmbeddingProviderSelector() {
+  const embeddingProvider     = useAIStore((s) => s.embeddingProvider);
+  const setEmbeddingProvider  = useAIStore((s) => s.setEmbeddingProvider);
+  const providers             = useAIStore((s) => s.providers);
+
+  const [showResidencyNotice, setShowResidencyNotice] = useState(false);
+  const [pendingProvider,     setPendingProvider]     = useState<EmbeddingProvider | null>(null);
+
+  // Only providers that support embedding AND have a valid key
+  const embeddingProviders: EmbeddingProvider[] = (["gemini", "openai", "deepseek"] as EmbeddingProvider[]).filter(
+    (p) => providers[p].keys.some((k) => k.valid)
+  );
+
+  async function handleSelect(p: EmbeddingProvider) {
+    if (p === embeddingProvider) return;
+
+    if (p === "deepseek") {
+      // Check if residency notice has been acknowledged
+      const acked = await getSetting(DEEPSEEK_DATA_RESIDENCY_SETTING_KEY);
+      if (!acked) {
+        setPendingProvider("deepseek");
+        setShowResidencyNotice(true);
+        return;
+      }
+    }
+
+    await setEmbeddingProvider(p);
+  }
+
+  async function handleResidencyAccept() {
+    await setSetting(DEEPSEEK_DATA_RESIDENCY_SETTING_KEY, "1");
+    setShowResidencyNotice(false);
+    if (pendingProvider) {
+      await setEmbeddingProvider(pendingProvider);
+      setPendingProvider(null);
+    }
+  }
+
+  function handleResidencyDecline() {
+    setShowResidencyNotice(false);
+    setPendingProvider(null);
+  }
+
+  if (embeddingProviders.length === 0) {
+    return (
+      <p className="text-xs text-idemora-text-muted">
+        Connect at least one provider above to configure embeddings.
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-3">
+        {embeddingProviders.map((p) => (
+          <button
+            key={p}
+            onClick={() => handleSelect(p)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+              embeddingProvider === p
+                ? "border-blue-500 bg-blue-500/10 text-blue-400"
+                : "border-idemora-border bg-idemora-bg-primary text-idemora-text-muted hover:border-blue-400/50"
+            }`}
+          >
+            {PROVIDER_META[p].label}
+          </button>
+        ))}
+      </div>
+
+      {/* DeepSeek data residency notice modal */}
+      {showResidencyNotice && (
+        <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/5 px-3 py-3 mb-3">
+          <p className="text-xs font-semibold text-yellow-500 mb-1.5">Data Residency Notice</p>
+          <p className="text-xs text-idemora-text-muted leading-relaxed mb-3">
+            {DEEPSEEK_DATA_RESIDENCY_NOTICE}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleResidencyAccept}
+              className="px-3 py-1.5 text-xs font-medium rounded-md bg-yellow-500/20 text-yellow-500 border border-yellow-500/40 hover:bg-yellow-500/30 transition-colors"
+            >
+              I understand, proceed
+            </button>
+            <button
+              onClick={handleResidencyDecline}
+              className="px-3 py-1.5 text-xs rounded-md border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-idemora-text-muted">
+        Active model: <span className="font-mono">{PROVIDER_META[embeddingProvider]?.embeddingModelId ?? "—"}</span>
+      </p>
+    </div>
+  );
+}
+
+// ─── Sidebar nav tabs ─────────────────────────────────────────────────────────
 
 type Section = "appearance" | "editor" | "keybindings" | "data" | "ai" | "backup";
 
@@ -206,13 +346,73 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-// ─── Keybindings reference ────────────────────────────────────────────────────────
+// ─── Keybindings reference ────────────────────────────────────────────────────
 
 function KeyChip({ children }: { children: React.ReactNode }) {
   return (
     <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-idemora-bg-primary text-idemora-text-muted border border-idemora-border leading-none">
       {children}
     </kbd>
+  );
+}
+
+// ─── AI section ───────────────────────────────────────────────────────────────
+
+function AISection() {
+  const enabled        = useAIStore((s) => s.enabled);
+  const setEnabled     = useAIStore((s) => s.setEnabled);
+  const hasAnyValidKey = useAIStore((s) => s.hasAnyValidKey);
+
+  return (
+    <div>
+      {/* 1. Profile selector */}
+      <SectionTitle>Profile</SectionTitle>
+      <ProfileSelector />
+
+      {/* 2. Provider cards — Gemini first */}
+      <SectionTitle>Providers</SectionTitle>
+      {PROVIDER_CARD_ORDER.map((p) => (
+        <ProviderCard key={p} provider={p} />
+      ))}
+
+      {/* 3. Processing model */}
+      <SectionTitle>Processing Model</SectionTitle>
+      <ProcessingModelCard />
+
+      {/* 4. Embedding provider */}
+      <SectionTitle>Embeddings</SectionTitle>
+      <EmbeddingProviderSelector />
+
+      {/* 5. RPD budget bar */}
+      <div className="mt-3">
+        <RPDBudgetBar />
+      </div>
+
+      {/* 6. Master toggle */}
+      <SectionTitle>Master Switch</SectionTitle>
+      <Row
+        label="Enable AI features"
+        description={
+          hasAnyValidKey()
+            ? "Turn AI chat, search, and indexing on or off"
+            : "Add and validate an API key above to enable AI"
+        }
+      >
+        <Toggle
+          checked={enabled}
+          onChange={(v) => setEnabled(v)}
+          disabled={!hasAnyValidKey()}
+        />
+      </Row>
+
+      {/* Info footer */}
+      <div className="mt-4 p-3 rounded-lg bg-idemora-bg-primary border border-idemora-border">
+        <p className="text-xs text-idemora-text-muted leading-relaxed">
+          API keys are stored locally in the app database. All calls go directly from
+          your device to the provider — never through Idemora's servers.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -224,8 +424,8 @@ export function SettingsModal() {
   const theme         = useUIStore((s) => s.theme);
   const setTheme      = useUIStore((s) => s.setTheme);
 
-  const settings     = useAppSettings((s) => s.settings);
-  const storeUpdate  = useAppSettings((s) => s.updateSetting);
+  const settings    = useAppSettings((s) => s.settings);
+  const storeUpdate = useAppSettings((s) => s.updateSetting);
 
   const [section, setSection] = useState<Section>("appearance");
   const [saved, setSaved]     = useState(false);
@@ -243,10 +443,7 @@ export function SettingsModal() {
   }
 
   const loadAISettings = useAIStore((s) => s.loadAISettings);
- 
-  useEffect(() => {
-    loadAISettings();
-  }, []);
+  useEffect(() => { loadAISettings(); }, []);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -296,7 +493,6 @@ export function SettingsModal() {
         </aside>
 
         <div className="flex-1 relative">
-          {/* Close button - fixed position relative to parent, never scrolls */}
           <button
             onClick={closeSettings}
             className="absolute top-3 right-3 z-10 w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-150"
@@ -306,7 +502,6 @@ export function SettingsModal() {
             </svg>
           </button>
 
-          {/* Scrollable content area - starts with pt-12 to avoid button overlap */}
           <div ref={contentRef} className="h-full overflow-y-auto pt-12 pb-6 px-6">
             {section === "appearance" && (
               <div>
@@ -320,21 +515,15 @@ export function SettingsModal() {
                     }}
                     options={[
                       { value: "light", label: "Light" },
-                      { value: "dark", label: "Dark" },
+                      { value: "dark",  label: "Dark"  },
                     ]}
                   />
                 </Row>
 
                 <SectionTitle>Onboarding</SectionTitle>
-                <Row 
-                  label="Show welcome tour" 
-                  description="View the onboarding guide again"
-                >
+                <Row label="Show welcome tour" description="View the onboarding guide again">
                   <button
-                    onClick={() => {
-                      updateSetting("hasCompletedOnboarding", false);
-                      closeSettings();
-                    }}
+                    onClick={() => { updateSetting("hasCompletedOnboarding", false); closeSettings(); }}
                     className="px-4 py-1.5 text-sm font-medium rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
                   >
                     Restart tour
@@ -348,8 +537,8 @@ export function SettingsModal() {
                     onChange={(v) => updateSetting("fontFamily", v)}
                     options={[
                       { value: "default", label: "Default (sans-serif)" },
-                      { value: "serif", label: "Serif" },
-                      { value: "mono", label: "Monospace" },
+                      { value: "serif",   label: "Serif"                },
+                      { value: "mono",    label: "Monospace"            },
                     ]}
                   />
                 </Row>
@@ -358,9 +547,9 @@ export function SettingsModal() {
                     value={settings.fontSize}
                     onChange={(v) => updateSetting("fontSize", v)}
                     options={[
-                      { value: "sm", label: "Small" },
+                      { value: "sm", label: "Small"  },
                       { value: "md", label: "Medium" },
-                      { value: "lg", label: "Large" },
+                      { value: "lg", label: "Large"  },
                     ]}
                   />
                 </Row>
@@ -369,9 +558,9 @@ export function SettingsModal() {
                     value={settings.lineHeight}
                     onChange={(v) => updateSetting("lineHeight", v)}
                     options={[
-                      { value: "compact", label: "Compact" },
-                      { value: "normal", label: "Normal" },
-                      { value: "relaxed", label: "Relaxed" },
+                      { value: "compact",  label: "Compact"  },
+                      { value: "normal",   label: "Normal"   },
+                      { value: "relaxed",  label: "Relaxed"  },
                     ]}
                   />
                 </Row>
@@ -382,16 +571,10 @@ export function SettingsModal() {
               <div>
                 <SectionTitle>Behaviour</SectionTitle>
                 <Row label="Spell check" description="Underline misspelled words in the editor">
-                  <Toggle
-                    checked={settings.spellCheck}
-                    onChange={(v) => updateSetting("spellCheck", v)}
-                  />
+                  <Toggle checked={settings.spellCheck} onChange={(v) => updateSetting("spellCheck", v)} />
                 </Row>
                 <Row label="Show word count" description="Display word and character count in the status bar">
-                  <Toggle
-                    checked={settings.showWordCount}
-                    onChange={(v) => updateSetting("showWordCount", v)}
-                  />
+                  <Toggle checked={settings.showWordCount} onChange={(v) => updateSetting("showWordCount", v)} />
                 </Row>
                 <SectionTitle>Autosave</SectionTitle>
                 <Row label="Autosave delay" description="How long after you stop typing before the note saves">
@@ -400,9 +583,9 @@ export function SettingsModal() {
                     onChange={(v) => updateSetting("autosaveDelay", Number(v))}
                     options={[
                       { value: "500",  label: "0.5 seconds" },
-                      { value: "1000", label: "1 second" },
-                      { value: "2000", label: "2 seconds" },
-                      { value: "5000", label: "5 seconds" },
+                      { value: "1000", label: "1 second"    },
+                      { value: "2000", label: "2 seconds"   },
+                      { value: "5000", label: "5 seconds"   },
                     ]}
                   />
                 </Row>
@@ -413,7 +596,7 @@ export function SettingsModal() {
                     onChange={(v) => updateSetting("defaultView", v)}
                     options={[
                       { value: "editor", label: "Single pane" },
-                      { value: "split",  label: "Split pane" },
+                      { value: "split",  label: "Split pane"  },
                     ]}
                   />
                 </Row>
@@ -451,14 +634,8 @@ export function SettingsModal() {
             {section === "data" && (
               <div>
                 <SectionTitle>Storage</SectionTitle>
-                <Row
-                  label="Auto-purge trash"
-                  description="Permanently delete trashed notes after 30 days"
-                >
-                  <Toggle
-                    checked={settings.autoPurgeTrash}
-                    onChange={(v) => updateSetting("autoPurgeTrash", v)}
-                  />
+                <Row label="Auto-purge trash" description="Permanently delete trashed notes after 30 days">
+                  <Toggle checked={settings.autoPurgeTrash} onChange={(v) => updateSetting("autoPurgeTrash", v)} />
                 </Row>
 
                 <SectionTitle>About</SectionTitle>
@@ -485,11 +662,9 @@ export function SettingsModal() {
                 </div>
               </div>
             )}
-            {section === "ai" && (
-              <div>
-                <AISetupModal />
-              </div>
-            )}
+
+            {section === "ai" && <AISection />}
+
             {section === "backup" && (
               <div>
                 <BackupModal />

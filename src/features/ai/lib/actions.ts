@@ -1,11 +1,14 @@
 // src/features/ai/lib/actions.ts
 //
 // The 3 core AI actions. Each takes a Note + allNotes for context building.
-// All calls go through callGemini() — no direct fetch calls here.
+// All calls route through the correct slot via client.ts:
+//   - summarizeNote  → promptProcessing  (background synthesis)
+//   - generateTags   → promptProcessing  (background classification)
+//   - explainNote    → promptPrimary     (user-facing output)
 // Results are persisted to ai_summaries / ai_tag_cache after each call.
 // Session memory (ai_history) is injected into prompts and written back.
 
-import { callGemini } from "@/features/ai/lib/client";
+import { promptPrimary, promptProcessing } from "@/features/ai/lib/client";
 import { buildAIContext, contextToString } from "@/features/ai/lib/buildContext";
 import {
   getAISummary,
@@ -40,8 +43,8 @@ export async function summarizeNote(note: Note, allNotes: Note[]): Promise<Summa
   const cached = await getAISummary(note.id, note.updated_at);
   if (cached) return { summary: cached, fromCache: true };
 
-  const ctx         = await buildAIContext(note, allNotes);
-  const contextText = contextToString(ctx);
+  const ctx          = await buildAIContext(note, allNotes);
+  const contextText  = contextToString(ctx);
   const historyBlock = await buildHistoryBlock(note.id);
 
   const prompt = `You are a helpful assistant that summarizes notes clearly and concisely.
@@ -62,7 +65,8 @@ ${contextText}
 
 Summary:`;
 
-  const summary = await callGemini(prompt);
+  // Background synthesis — processing slot
+  const summary = await promptProcessing(prompt);
 
   // ── Persist to DB ─────────────────────────────────────────────────────────
   await upsertAISummary(note.id, summary, note.updated_at);
@@ -107,12 +111,13 @@ ${contextText}
 
 Tags:`;
 
-  const raw = await callGemini(prompt);
+  // Background classification — processing slot
+  const raw = await promptProcessing(prompt);
 
   const tags = raw
     .split(",")
-    .map((t) => t.trim().toLowerCase().replace(/^#+/, "").replace(/\s+/g, "-"))
-    .filter((t) => t.length > 0 && t.length < 40)
+    .map((t: string) => t.trim().toLowerCase().replace(/^#+/, "").replace(/\s+/g, "-"))
+    .filter((t: string) => t.length > 0 && t.length < 40)
     .slice(0, 3);
 
   // ── Persist to DB ─────────────────────────────────────────────────────────
@@ -128,8 +133,8 @@ export interface ExplainResult {
 }
 
 export async function explainNote(note: Note, allNotes: Note[]): Promise<ExplainResult> {
-  const ctx         = await buildAIContext(note, allNotes);
-  const contextText = contextToString(ctx);
+  const ctx          = await buildAIContext(note, allNotes);
+  const contextText  = contextToString(ctx);
   const historyBlock = await buildHistoryBlock(note.id);
 
   const prompt = `You are a helpful assistant that explains notes in plain, accessible language.
@@ -143,7 +148,8 @@ ${contextText}
 
 Explanation:`;
 
-  const explanation = await callGemini(prompt);
+  // User-facing output — primary slot
+  const explanation = await promptPrimary(prompt);
 
   // ── Write to session memory ───────────────────────────────────────────────
   await appendAIHistory(note.id, "user", "Explain this note");

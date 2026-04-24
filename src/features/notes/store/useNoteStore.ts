@@ -61,6 +61,8 @@ interface NoteStore {
   visitedNoteIds: string[];
   isLoading: boolean;
   error: string | null;
+  dbSettled: boolean;
+  setDbSettled: () => void;
   
   // ─── Bookmarks ──────────────────────────────────────────────────────────────
   bookmarks: BookmarkItem[];
@@ -150,6 +152,8 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   visitedNoteIds: [],
   isLoading: false,
   error: null,
+  dbSettled: false,
+  setDbSettled: () => set({ dbSettled: true }),
 
   // ─── Bookmarks initial state ───────────────────────────────────────────────
   bookmarks: [],
