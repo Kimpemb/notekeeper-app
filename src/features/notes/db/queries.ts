@@ -1587,6 +1587,9 @@ export async function searchBlocks(
 }
 
 export async function backfillNoteBlocks(): Promise<void> {
+  const alreadyDone = await getSetting("v3_block_backfill_done");
+  if (alreadyDone === "1") return;
+
   const db = await getDb();
   const notes = await db.select<{ id: string; content: string; title: string }[]>(
     `SELECT n.id, n.content, n.title FROM notes n
@@ -1594,12 +1597,17 @@ export async function backfillNoteBlocks(): Promise<void> {
        AND n.deleted_at IS NULL
        AND NOT EXISTS (
          SELECT 1 FROM note_blocks nb WHERE nb.note_id = n.id
-       )
-     LIMIT 100`
+       )`
   );
+
+  console.log(`[backfill] ${notes.length} notes to chunk...`);
+
   for (const note of notes) {
     await syncNoteBlocks(note.id, note.content, "note", note.title);
   }
+
+  await setSetting("v3_block_backfill_done", "1");
+  console.log("[backfill] complete");
 }
 
 export async function backfillBacklinks(): Promise<void> {
