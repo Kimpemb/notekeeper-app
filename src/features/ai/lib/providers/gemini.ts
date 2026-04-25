@@ -144,14 +144,15 @@ export async function geminiChat(
  * @returns       Float32Array of the embedding vector (3072-dimensional)
  */
 export async function geminiEmbed(
-  apiKey: string,
-  text:   string,
+  apiKey:   string,
+  text:     string,
+  taskType: string = "RETRIEVAL_DOCUMENT",
 ): Promise<Float32Array> {
   const body: GeminiEmbedRequest = {
-    model:    `models/${GEMINI_EMBEDDING_MODEL}`,
-    content:  { parts: [{ text }] },
-    taskType: "RETRIEVAL_DOCUMENT",
-  };
+  model:    `models/${GEMINI_EMBEDDING_MODEL}`,
+  content:  { parts: [{ text }] },
+  taskType,   // ← was hardcoded "RETRIEVAL_DOCUMENT"
+}
 
   const res = await fetch(embedEndpoint(GEMINI_EMBEDDING_MODEL), {
     method:  "POST",

@@ -1,19 +1,28 @@
 // src/features/ai/components/ChatPanel.tsx
 //
-// "Chat with your notes" side panel — Milestone 5
-// Streaming, citations, confidence, related notes.
-// QuickSwitch pill in header + per-error-type inline states.
-// Keyword-only mode banner for free tier users (no valid key).
+// RAG v3 — Milestone 8
+// All v2 behaviour preserved. Additions:
+//   - Tier 1 "Found in your notes" result cards
+//   - Scope selector bar (dropdown + active pill)
+//   - Embedding progress indicator in header
+//   - RPD budget display in input footer
+//   - Citation numbers in assistant messages
+//   - medium-confidence gate on Related section
+//   - No-embedding fallback inline banner
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { streamChatWithNotes, type ChatMessage, type RelatedNote } from "@/features/ai/lib/chat";
+import { useEffect, useRef, useState, useCallback, type ReactElement } from "react";import {
+  streamChatWithNotes,
+  type ChatMessage,
+  type RelatedNote,
+  type Tier1ResultCard,
+} from "@/features/ai/lib/chat";
 import { clearAIHistory, clearConversationSummary } from "@/features/notes/db/queries";
-import { useNoteStore } from "@/features/notes/store/useNoteStore";
-import { useUIStore }   from "@/features/ui/store/useUIStore";
-import { useAIStore }   from "@/features/ai/store/useAIStore";
-import { isAIReady }    from "@/features/ai/lib/client";
+import { useNoteStore }  from "@/features/notes/store/useNoteStore";
+import { useUIStore }    from "@/features/ui/store/useUIStore";
+import { useAIStore }    from "@/features/ai/store/useAIStore";
+import { isAIReady }     from "@/features/ai/lib/client";
 import type { AICallError } from "@/features/ai/lib/client";
-import { QuickSwitch }  from "@/features/ai/components/QuickSwitch";
+import { QuickSwitch }   from "@/features/ai/components/QuickSwitch";
 
 interface Props {
   noteId: string;
@@ -24,9 +33,24 @@ interface MessageMeta {
   sourceTitles:   string[];
   sourceNoteIds:  string[];
   usedEmbeddings: boolean;
-  confidence:     "high" | "low";
+  confidence:     "high" | "medium" | "low";
   relatedNotes:   RelatedNote[];
+  tier1Results?:  Tier1ResultCard[];
 }
+
+// Scope options for the selector bar
+type ScopeOption =
+  | { type: "all";    label: "All content" }
+  | { type: "notes";  label: "Notes only" }
+  | { type: "vault";  label: "Vault entries only" }
+  | { type: "recent"; label: "Recent (30 days)" };
+
+const SCOPE_OPTIONS: ScopeOption[] = [
+  { type: "all",    label: "All content" },
+  { type: "notes",  label: "Notes only" },
+  { type: "vault",  label: "Vault entries only" },
+  { type: "recent", label: "Recent (30 days)" },
+];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -37,22 +61,39 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [loading, setLoading]         = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [callError, setCallError]     = useState<AICallError | null>(null);
+  const [activeScope, setActiveScope] = useState<ScopeOption["type"]>("all");
+  const [scopeOpen, setScopeOpen]     = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
+  const scopeRef       = useRef<HTMLDivElement>(null);
 
   const notes          = useNoteStore((s) => s.notes);
   const openTab        = useUIStore((s) => s.openTab);
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
   const closeChat      = useUIStore((s) => s.closeChat);
-  const aiEnabled      = useAIStore((s) => s.enabled);
-  const setProviderStatus = useAIStore((s) => s.setProviderStatus);
+  const setProviderStatus  = useAIStore((s) => s.setProviderStatus);
   const primarySlot    = useAIStore((s) => s.primarySlot);
+  const embeddingProvider  = useAIStore((s) => s.embeddingProvider);
+  const rpdBudget      = useAIStore((s) => s.rpdBudget);
 
-  // Free tier: AI is disabled or no valid key exists
-  const aiReady      = isAIReady();
-  const isFreeTier   = !aiEnabled || !aiReady;
-  const currentNote  = notes.find((n) => n.id === noteId);
+  const aiReady     = isAIReady();
+  const isFreeTier = !aiReady;
+  const currentNote = notes.find((n) => n.id === noteId);
+
+  // RPD budget for embedding provider
+  const embeddingBudget = rpdBudget[embeddingProvider];
+
+  // Close scope dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (scopeRef.current && !scopeRef.current.contains(e.target as Node)) {
+        setScopeOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -66,16 +107,28 @@ export function ChatPanel({ noteId, paneId }: Props) {
     setMessages([]);
     setMetaMap(new Map());
     setCallError(null);
+    setActiveScope("all");
   }, [noteId]);
+
+  // Build scope suffix to append to query
+  function buildScopePrefix(): string {
+    if (activeScope === "notes")  return "in my notes ";
+    if (activeScope === "vault")  return "in my vault entries ";
+    if (activeScope === "recent") return "from last 30 days ";
+    return "";
+  }
 
   const handleSend = useCallback(async () => {
     const q = input.trim();
     if (!q || loading || isFreeTier) return;
 
+    // Prepend scope signal so intentDetection / scoped parser picks it up
+    const scopedQuery = buildScopePrefix() + q;
+
     const userMsg: ChatMessage = {
       id:        crypto.randomUUID(),
       role:      "user",
-      content:   q,
+      content:   q,         // display the raw query
       createdAt: Date.now(),
     };
 
@@ -97,7 +150,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
     try {
       const meta = await streamChatWithNotes(
-        q,
+        scopedQuery,
         notes,
         noteId,
         currentNote,
@@ -116,16 +169,9 @@ export function ChatPanel({ noteId, paneId }: Props) {
           onError: (err: AICallError) => {
             errorHandled = true;
             setMessages((prev) => prev.filter((m) => m.id !== assistantId));
-
-            // Persist provider-level error status for Settings card
             if (err.code === "AUTH_FAILED" || err.code === "QUOTA_EXCEEDED") {
-              setProviderStatus(
-                primarySlot.provider,
-                "error",
-                err.message,
-              );
+              setProviderStatus(primarySlot.provider, "error", err.message);
             }
-
             setCallError(err);
             setStreamingId(null);
             setLoading(false);
@@ -140,31 +186,32 @@ export function ChatPanel({ noteId, paneId }: Props) {
           usedEmbeddings: meta.usedEmbeddings,
           confidence:     meta.confidence,
           relatedNotes:   meta.relatedNotes,
+          tier1Results:   meta.tier1Results,
         })
       );
     } catch (rawErr) {
       if (!errorHandled) {
         setMessages((prev) => prev.filter((m) => m.id !== assistantId));
-        // rawErr may or may not be an AICallError — cast defensively
         const err = rawErr as Partial<AICallError>;
         if (err?.code) {
           setCallError(rawErr as AICallError);
         } else {
-          // Shouldn't happen given client.ts normalises everything, but just in case
           setCallError({
-            code:     "UNKNOWN",
-            provider: primarySlot.provider,
-            model:    primarySlot.model,
-            message:  "Something went wrong. Please try again.",
+            code:      "UNKNOWN",
+            provider:  primarySlot.provider,
+            model:     primarySlot.model,
+            message:   "Something went wrong. Please try again.",
             retryable: false,
-            name:     "AICallError",
+            name:      "AICallError",
           } as AICallError);
         }
         setStreamingId(null);
         setLoading(false);
       }
     }
-  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot,
+      setProviderStatus, activeScope]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -188,6 +235,11 @@ export function ChatPanel({ noteId, paneId }: Props) {
     else openTab(id);
   }
 
+  const activeScopeLabel = SCOPE_OPTIONS.find((o) => o.type === activeScope)?.label ?? "All content";
+
+  // Whether any message has no embeddings (show fallback banner)
+  const hasNoEmbeddingMessage = [...metaMap.values()].some((m) => !m.usedEmbeddings);
+
   return (
     <div className="flex flex-col h-full w-72 shrink-0 border-l border-idemora-border bg-idemora-bg-primary">
 
@@ -202,10 +254,8 @@ export function ChatPanel({ noteId, paneId }: Props) {
             </svg>
           </div>
 
-          {/* QuickSwitch pill — only when AI is ready */}
           {!isFreeTier && <QuickSwitch />}
 
-          {/* Fallback label when free tier */}
           {isFreeTier && (
             <span className="text-sm font-semibold text-idemora-text-normal truncate">
               Ask your notes
@@ -216,6 +266,16 @@ export function ChatPanel({ noteId, paneId }: Props) {
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-600 tabular-nums shrink-0">
               {Math.floor(messages.length / 2)}
             </span>
+          )}
+
+          {/* Indexing dot — shown when embedding budget is actively being consumed */}
+          {!isFreeTier && embeddingBudget.used > 0 && embeddingBudget.used < embeddingBudget.ceiling && (
+            <div
+              className="flex items-center gap-1 shrink-0"
+              title={`Indexing — ${embeddingBudget.ceiling - embeddingBudget.used} requests remaining today`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+            </div>
           )}
         </div>
 
@@ -246,13 +306,27 @@ export function ChatPanel({ noteId, paneId }: Props) {
       {/* ── Body ── */}
       <div className="flex-1 overflow-y-auto">
 
-        {/* Free tier — keyword-only banner */}
         {isFreeTier ? (
           <FreeTierState />
         ) : messages.length === 0 && !callError ? (
           <EmptyState currentNoteTitle={currentNote?.title} />
         ) : (
           <div className="py-3 space-y-1">
+
+            {/* No-embedding fallback banner */}
+            {hasNoEmbeddingMessage && messages.length > 0 && (
+              <div className="mx-3 mb-1 px-3 py-2 rounded-lg bg-amber-50/40 border border-amber-100 flex items-start gap-2">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-amber-400 shrink-0 mt-0.5">
+                  <path d="M5.5 1L10 9.5H1L5.5 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                  <path d="M5.5 4.5v2M5.5 8v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+                <p className="text-[10px] text-amber-600 leading-relaxed">
+                  Running keyword search only — enable an embedding provider in{" "}
+                  <span className="font-medium">Settings → AI</span> for better results.
+                </p>
+              </div>
+            )}
+
             {messages.map((msg) => {
               const meta        = metaMap.get(msg.id);
               const isStreaming = msg.id === streamingId;
@@ -260,13 +334,15 @@ export function ChatPanel({ noteId, paneId }: Props) {
                 <div key={msg.id}>
                   <MessageBubble message={msg} isStreaming={isStreaming} />
                   {msg.role === "assistant" && meta && !isStreaming && (
-                    <MessageFooter meta={meta} onOpenNote={handleOpenNote} />
+                    <MessageFooter
+                      meta={meta}
+                      onOpenNote={handleOpenNote}
+                    />
                   )}
                 </div>
               );
             })}
 
-            {/* Per-error-type inline state cards */}
             {callError && (
               <div className="mx-3 mt-1">
                 <ErrorCard error={callError} onDismiss={() => setCallError(null)} />
@@ -278,10 +354,65 @@ export function ChatPanel({ noteId, paneId }: Props) {
         )}
       </div>
 
-      {/* ── Input ── */}
+      {/* ── Input area ── */}
       {!isFreeTier && (
-        <div className="shrink-0 border-t border-idemora-border p-3">
-          <div className="flex items-end gap-2">
+        <div className="shrink-0 border-t border-idemora-border">
+
+          {/* Scope selector bar */}
+          <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
+            <div className="relative" ref={scopeRef}>
+              <button
+                onClick={() => setScopeOpen((v) => !v)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-idemora-text-muted border border-idemora-border bg-idemora-bg-primary hover:text-violet-500 transition-colors duration-100"
+              >
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="shrink-0">
+                  <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/>
+                  <path d="M2.5 4.5h4M4.5 2.5v4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+                </svg>
+                {activeScope === "all" ? "Scope" : activeScopeLabel}
+                <svg width="7" height="7" viewBox="0 0 7 7" fill="none">
+                  <path d="M1.5 2.5l2 2 2-2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+
+              {scopeOpen && (
+                <div className="absolute bottom-full left-0 mb-1 w-44 rounded-lg border border-idemora-border bg-idemora-bg-primary shadow-lg z-50 py-1">
+                  {SCOPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.type}
+                      onClick={() => { setActiveScope(opt.type); setScopeOpen(false); }}
+                      className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors duration-75 ${
+                        activeScope === opt.type
+                          ? "text-violet-500 bg-violet-50/30"
+                          : "text-idemora-text-muted hover:text-idemora-text-normal"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Active scope pill */}
+            {activeScope !== "all" && (
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-600">
+                <span>{activeScopeLabel}</span>
+                <button
+                  onClick={() => setActiveScope("all")}
+                  className="hover:text-violet-800 transition-colors duration-75"
+                  aria-label="Clear scope"
+                >
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                    <path d="M1.5 1.5l5 5M6.5 1.5l-5 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Text input */}
+          <div className="flex items-end gap-2 px-3 pb-2">
             <textarea
               ref={inputRef}
               value={input}
@@ -314,17 +445,299 @@ export function ChatPanel({ noteId, paneId }: Props) {
               )}
             </button>
           </div>
-          <p className="text-[10px] text-idemora-text-muted mt-1.5 px-0.5">
-            Enter to send · Shift+Enter for new line
-          </p>
+
+          {/* Footer: hint + RPD budget */}
+          <div className="flex items-center justify-between px-3 pb-2.5">
+            <p className="text-[10px] text-idemora-text-muted">
+              Enter to send · Shift+Enter for new line
+            </p>
+            {embeddingBudget.used > 0 && (
+              <p className="text-[10px] text-idemora-text-muted tabular-nums">
+                {embeddingBudget.used}/{embeddingBudget.ceiling} req
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
+// ─── Message bubble ───────────────────────────────────────────────────────────
+// Citation numbers [1], [2] rendered as inline superscript spans.
+
+function MessageBubble({
+  message,
+  isStreaming,
+}: {
+  message:     ChatMessage;
+  isStreaming: boolean;
+}) {
+  const isUser = message.role === "user";
+
+  // Render [N] as styled superscripts in assistant messages
+  function renderWithCitations(text: string) {
+    const parts = text.split(/(\[\d+\])/g);
+    return parts.map((part, i) => {
+      const match = part.match(/^\[(\d+)\]$/);
+      if (match) {
+        return (
+          <sup
+            key={i}
+            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-violet-100 text-violet-600 text-[8px] font-bold mx-0.5 cursor-default"
+            title={`Source ${match[1]}`}
+          >
+            {match[1]}
+          </sup>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  }
+
+  return (
+    <div className={`px-4 py-1.5 ${isUser ? "flex justify-end" : ""}`}>
+      {isUser ? (
+        <div className="max-w-[85%] px-3 py-2 rounded-2xl rounded-tr-sm bg-violet-500 text-white text-sm leading-relaxed">
+          {message.content}
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                <path d="M4 1C2.34 1 1 2.19 1 3.65c0 .88.44 1.67 1.12 2.18L2 7l1.35-.65c.21.04.43.05.65.05C5.66 6.4 7 5.21 7 3.65S5.66 1 4 1z"
+                  fill="currentColor" className="text-violet-500"/>
+              </svg>
+            </div>
+            <span className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide">
+              Assistant
+            </span>
+          </div>
+
+          {isStreaming && message.content === "" && (
+            <div className="pl-5 flex items-center gap-1 py-1">
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
+                  style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }}
+                />
+              ))}
+            </div>
+          )}
+
+          {message.content !== "" && (
+            <div className="text-sm text-idemora-text-normal leading-relaxed whitespace-pre-wrap pl-5">
+              {renderWithCitations(message.content)}
+              {isStreaming && (
+                <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Message footer ───────────────────────────────────────────────────────────
+
+
+function MessageFooter({
+  meta,
+  onOpenNote,
+}: {
+  meta:       MessageMeta;
+  onOpenNote: (id: string) => void;
+}) {
+  // Tier 1 cards — shown when AI is disabled and tier1Results populated
+  if (meta.tier1Results && meta.tier1Results.length > 0) {
+    return (
+      <Tier1ResultCards
+        cards={meta.tier1Results}
+        onOpenNote={onOpenNote}
+      />
+    );
+  }
+
+  return (
+    <div className="px-4 pb-2 pl-9 space-y-1.5">
+
+      {/* Confidence label */}
+      {meta.confidence === "low" && (
+        <div className="flex items-center gap-1.5">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-amber-400 shrink-0">
+            <path d="M5 1L9 9H1L5 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+            <path d="M5 4v2M5 7.5v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+          </svg>
+          <p className="text-[10px] text-amber-500 leading-relaxed">
+            Limited matches — answer may be incomplete
+          </p>
+        </div>
+      )}
+
+      {meta.confidence === "medium" && (
+        <p className="text-[10px] text-idemora-text-muted">
+          Sourced from your notes
+        </p>
+      )}
+
+      {/* Source pills */}
+      {meta.sourceTitles.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {meta.sourceTitles.map((title, i) => (
+            <button
+              key={meta.sourceNoteIds[i]}
+              onClick={() => onOpenNote(meta.sourceNoteIds[i])}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-idemora-bg-primary text-idemora-text-muted hover:text-violet-400 transition-colors duration-100 max-w-[9rem]"
+              title={title}
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
+                <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+              </svg>
+              <span className="truncate">[{i + 1}] {title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Related notes — medium confidence gate */}
+      {meta.relatedNotes.length > 0 && meta.confidence !== "low" && (
+        <div className="pt-0.5">
+          <p className="text-[10px] text-idemora-text-muted mb-1">Related</p>
+          <div className="flex flex-wrap gap-1">
+            {meta.relatedNotes.map((note) => (
+              <button
+                key={note.noteId}
+                onClick={() => onOpenNote(note.noteId)}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-50/30 text-blue-500 hover:bg-blue-950/50 transition-colors duration-100 max-w-[9rem]"
+                title={note.title}
+              >
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                  <path d="M1 4h6M4 1l3 3-3 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="truncate">{note.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Search mode indicator */}
+      <p className="text-[10px] text-idemora-text-muted">
+        {meta.usedEmbeddings ? "✦ semantic search" : "◦ keyword search"}
+      </p>
+    </div>
+  );
+}
+
+// ─── Tier 1 result cards ──────────────────────────────────────────────────────
+
+const CONFIDENCE_COLORS: Record<Tier1ResultCard["confidence"], string> = {
+  strong:   "text-violet-500 bg-violet-50/40",
+  possible: "text-blue-500 bg-blue-50/30",
+  weak:     "text-idemora-text-muted bg-idemora-bg-primary",
+};
+
+const BLOCK_TYPE_ICONS: Record<string, ReactElement> = {
+  codeBlock: (
+    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+      <path d="M2.5 3L1 4.5l1.5 1.5M6.5 3L8 4.5 6.5 6M5 2l-1 5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  heading: (
+    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+      <path d="M1.5 2v5M7.5 2v5M1.5 4.5h6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+    </svg>
+  ),
+  callout: (
+    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+      <rect x="1" y="1" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1"/>
+      <path d="M4.5 3v2.5M4.5 6.5v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+    </svg>
+  ),
+  paragraph: (
+    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+      <path d="M1.5 3h6M1.5 5h6M1.5 7h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+    </svg>
+  ),
+};
+
+function Tier1ResultCards({
+  cards,
+  onOpenNote,
+}: {
+  cards:      Tier1ResultCard[];
+  onOpenNote: (id: string) => void;
+}) {
+  const shown    = cards.slice(0, 8);
+  const lowCount = shown.filter((c) => c.confidence !== "weak").length < 3;
+
+  return (
+    <div className="px-3 pb-3 space-y-2">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted px-0.5 pt-1">
+        Found in your notes
+      </p>
+
+      {shown.map((card, i) => (
+        <button
+          key={`${card.noteId}-${i}`}
+          onClick={() => onOpenNote(card.noteId)}
+          className="w-full text-left rounded-lg border border-idemora-border bg-idemora-bg-primary p-2.5 space-y-1 hover:border-violet-300 transition-colors duration-100 group"
+        >
+          {/* Title row */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[11px] font-semibold text-idemora-text-normal truncate group-hover:text-violet-500 transition-colors duration-100">
+                {card.noteTitle}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Source type tag */}
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium border border-idemora-border text-idemora-text-muted">
+                {card.sourceType === "vault_entry" ? "vault" : "note"}
+              </span>
+              {/* Confidence indicator */}
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${CONFIDENCE_COLORS[card.confidence]}`}>
+                {card.confidence === "strong" ? "strong" : card.confidence === "possible" ? "possible" : "weak"}
+              </span>
+            </div>
+          </div>
+
+          {/* Section heading */}
+          {card.chunkHeading && (
+            <p className="text-[10px] text-idemora-text-muted truncate">
+              § {card.chunkHeading}
+            </p>
+          )}
+
+          {/* Excerpt */}
+          <p className="text-[11px] text-idemora-text-normal leading-relaxed line-clamp-3">
+            {card.excerpt}
+          </p>
+
+          {/* Block type indicator */}
+          <div className="flex items-center gap-1 pt-0.5">
+            <span className="text-idemora-text-muted">
+              {BLOCK_TYPE_ICONS[card.blockType] ?? BLOCK_TYPE_ICONS.paragraph}
+            </span>
+            <span className="text-[9px] text-idemora-text-muted">{card.blockType}</span>
+          </div>
+        </button>
+      ))}
+
+      {lowCount && (
+        <p className="text-[10px] text-idemora-text-muted px-0.5">
+          Low match confidence — try rephrasing or narrowing your scope.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Error card ───────────────────────────────────────────────────────────────
-// Each error code gets its own copy and action. QuickSwitch is always embedded.
 
 function ErrorCard({
   error,
@@ -335,52 +748,52 @@ function ErrorCard({
 }) {
   const configs: Record<string, { title: string; body: string; showSwitch: boolean; showRetry: boolean }> = {
     NETWORK_ERROR: {
-      title:       "No connection",
-      body:        "Couldn't reach the provider. Check your internet and try again.",
-      showSwitch:  false,
-      showRetry:   false,
+      title:      "No connection",
+      body:       "Couldn't reach the provider. Check your internet and try again.",
+      showSwitch: false,
+      showRetry:  false,
     },
     AUTH_FAILED: {
-      title:       "Invalid API key",
-      body:        `Your ${error.provider} key was rejected. Switch to another provider or update the key in Settings → AI.`,
-      showSwitch:  true,
-      showRetry:   false,
+      title:      "Invalid API key",
+      body:       `Your ${error.provider} key was rejected. Switch to another provider or update the key in Settings → AI.`,
+      showSwitch: true,
+      showRetry:  false,
     },
     QUOTA_EXCEEDED: {
-      title:       "Quota exhausted",
-      body:        `You've hit your ${error.provider} limit. Switch providers or upgrade your plan.`,
-      showSwitch:  true,
-      showRetry:   false,
+      title:      "Quota exhausted",
+      body:       `You've hit your ${error.provider} limit. Switch providers or upgrade your plan.`,
+      showSwitch: true,
+      showRetry:  false,
     },
     RATE_LIMITED: {
-      title:       "Rate limited",
-      body:        `Too many requests to ${error.provider}. Wait a moment, or switch to another provider.`,
-      showSwitch:  true,
-      showRetry:   true,
+      title:      "Rate limited",
+      body:       `Too many requests to ${error.provider}. Wait a moment, or switch to another provider.`,
+      showSwitch: true,
+      showRetry:  true,
     },
     OVERLOADED: {
-      title:       "Provider overloaded",
-      body:        `${error.provider} is under heavy load right now. Try again or switch.`,
-      showSwitch:  true,
-      showRetry:   true,
+      title:      "Provider overloaded",
+      body:       `${error.provider} is under heavy load right now. Try again or switch.`,
+      showSwitch: true,
+      showRetry:  true,
     },
     NO_KEY: {
-      title:       "No API key",
-      body:        `No key is configured for ${error.provider}. Add one in Settings → AI, or switch provider.`,
-      showSwitch:  true,
-      showRetry:   false,
+      title:      "No API key",
+      body:       `No key is configured for ${error.provider}. Add one in Settings → AI, or switch provider.`,
+      showSwitch: true,
+      showRetry:  false,
     },
     NO_PROVIDER: {
-      title:       "No provider assigned",
-      body:        "The primary slot has no provider set. Configure it in Settings → AI.",
-      showSwitch:  false,
-      showRetry:   false,
+      title:      "No provider assigned",
+      body:       "The primary slot has no provider set. Configure it in Settings → AI.",
+      showSwitch: false,
+      showRetry:  false,
     },
     UNKNOWN: {
-      title:       "Something went wrong",
-      body:        error.message || "An unexpected error occurred. Please try again.",
-      showSwitch:  false,
-      showRetry:   true,
+      title:      "Something went wrong",
+      body:       error.message || "An unexpected error occurred. Please try again.",
+      showSwitch: false,
+      showRetry:  true,
     },
   };
 
@@ -388,7 +801,6 @@ function ErrorCard({
 
   return (
     <div className="rounded-lg border border-red-100 bg-red-50/40 p-3 space-y-2.5">
-      {/* Title row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0 mt-px">
@@ -397,32 +809,21 @@ function ErrorCard({
           </svg>
           <p className="text-xs font-semibold text-red-600">{cfg.title}</p>
         </div>
-        <button
-          onClick={onDismiss}
-          className="text-red-300 hover:text-red-500 transition-colors duration-75 shrink-0"
-        >
+        <button onClick={onDismiss} className="text-red-300 hover:text-red-500 transition-colors duration-75 shrink-0">
           <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
             <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
         </button>
       </div>
-
-      {/* Body */}
       <p className="text-[11px] text-red-500 leading-relaxed">{cfg.body}</p>
-
-      {/* QuickSwitch — embedded inline when switching makes sense */}
       {cfg.showSwitch && (
         <div className="pt-0.5">
           <p className="text-[10px] text-red-400 mb-1.5">Switch provider:</p>
           <QuickSwitch defaultOpen={false} />
         </div>
       )}
-
-      {/* Retry hint */}
-      {cfg.showRetry && (
-        <p className="text-[10px] text-red-400">
-          {error.retryable ? "Dismiss this and try again — it may resolve itself." : ""}
-        </p>
+      {cfg.showRetry && error.retryable && (
+        <p className="text-[10px] text-red-400">Dismiss this and try again — it may resolve itself.</p>
       )}
     </div>
   );
@@ -446,81 +847,10 @@ function FreeTierState() {
           You're on the free tier. Chat and semantic search require an API key.
         </p>
         <p className="text-xs text-idemora-text-muted leading-relaxed">
-          Similarity suggestions are disabled. Add a key in{" "}
+          Add a key in{" "}
           <span className="font-medium text-violet-500">Settings → AI</span> to unlock everything.
         </p>
       </div>
-    </div>
-  );
-}
-
-// ─── Message footer ───────────────────────────────────────────────────────────
-
-function MessageFooter({
-  meta,
-  onOpenNote,
-}: {
-  meta:       MessageMeta;
-  onOpenNote: (id: string) => void;
-}) {
-  return (
-    <div className="px-4 pb-2 pl-9 space-y-1.5">
-
-      {meta.confidence === "low" && (
-        <div className="flex items-center gap-1.5">
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-amber-400 shrink-0">
-            <path d="M5 1L9 9H1L5 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-            <path d="M5 4v2M5 7.5v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-          </svg>
-          <p className="text-[10px] text-amber-500 leading-relaxed">
-            Weakly grounded — answer may not reflect your notes accurately
-          </p>
-        </div>
-      )}
-
-      {meta.sourceTitles.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {meta.sourceTitles.map((title, i) => (
-            <button
-              key={meta.sourceNoteIds[i]}
-              onClick={() => onOpenNote(meta.sourceNoteIds[i])}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-idemora-bg-primary text-idemora-text-muted hover:text-violet-400 transition-colors duration-100 max-w-35"
-              title={title}
-            >
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
-                <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
-                <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-              </svg>
-              <span className="truncate">{title}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {meta.relatedNotes.length > 0 && (
-        <div className="pt-0.5">
-          <p className="text-[10px] text-idemora-text-muted mb-1">You also wrote about this in</p>
-          <div className="flex flex-wrap gap-1">
-            {meta.relatedNotes.map((note) => (
-              <button
-                key={note.noteId}
-                onClick={() => onOpenNote(note.noteId)}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-50/30 text-blue-500 hover:bg-blue-950/50 transition-colors duration-100 max-w-35"
-                title={note.title}
-              >
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
-                  <path d="M4 1v6M1 4h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                </svg>
-                <span className="truncate">{note.title}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="text-[10px] text-idemora-text-normal">
-        {meta.usedEmbeddings ? "✦ semantic search" : "◦ keyword search"}
-      </p>
     </div>
   );
 }
@@ -576,63 +906,6 @@ function SuggestionChip({ text }: { text: string }) {
   return (
     <div className="px-3 py-2 rounded-lg border border-idemora-border bg-idemora-bg-primary text-xs text-idemora-text-muted leading-relaxed cursor-default hover:text-violet-400 transition-colors duration-100">
       {text}
-    </div>
-  );
-}
-
-// ─── Message bubble ───────────────────────────────────────────────────────────
-
-function MessageBubble({
-  message,
-  isStreaming,
-}: {
-  message:     ChatMessage;
-  isStreaming: boolean;
-}) {
-  const isUser = message.role === "user";
-
-  return (
-    <div className={`px-4 py-1.5 ${isUser ? "flex justify-end" : ""}`}>
-      {isUser ? (
-        <div className="max-w-[85%] px-3 py-2 rounded-2xl rounded-tr-sm bg-violet-500 text-white text-sm leading-relaxed">
-          {message.content}
-        </div>
-      ) : (
-        <div className="space-y-1">
-          <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                <path d="M4 1C2.34 1 1 2.19 1 3.65c0 .88.44 1.67 1.12 2.18L2 7l1.35-.65c.21.04.43.05.65.05C5.66 6.4 7 5.21 7 3.65S5.66 1 4 1z"
-                  fill="currentColor" className="text-violet-500"/>
-              </svg>
-            </div>
-            <span className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide">
-              Assistant
-            </span>
-          </div>
-
-          {isStreaming && message.content === "" && (
-            <div className="pl-5 flex items-center gap-1 py-1">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
-                  style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }}
-                />
-              ))}
-            </div>
-          )}
-
-          {message.content !== "" && (
-            <div className="text-sm text-idemora-text-normal leading-relaxed whitespace-pre-wrap pl-5">
-              {message.content}
-              {isStreaming && (
-                <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
-              )}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

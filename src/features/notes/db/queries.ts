@@ -1410,13 +1410,6 @@ export interface BlockSearchResult {
   plaintext: string;
 }
 
-// Expanded to match BlockIdExtension TARGET_TYPES
-const INDEXABLE_BLOCK_TYPES = new Set([
-  "paragraph", "heading", "bulletList", "orderedList",
-  "listItem", "taskItem", "codeBlock", "blockquote",
-  "toggle", "toggleSummary", "image", "attachment",
-  "callout", "subPage", "noteLink", "dataview",
-]);
 
 // ─── Note title chunks ────────────────────────────────────────────────────────
 

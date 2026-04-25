@@ -28,7 +28,7 @@ export interface SemanticResult {
  */
 async function embedQuery(query: string): Promise<Float32Array | null> {
   try {
-    return await callEmbedding(query.slice(0, 2000))
+    return await callEmbedding(query.slice(0, 2000), "RETRIEVAL_QUERY")
   } catch {
     return null
   }

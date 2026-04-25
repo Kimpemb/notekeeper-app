@@ -284,14 +284,17 @@ export async function callProcessing(
  * Route an embedding request through the active embedding provider.
  * Use for all embedding calls — indexer, semantic search, similarity.
  */
-export async function callEmbedding(text: string): Promise<Float32Array> {
+export async function callEmbedding(
+  text:     string,
+  taskType: string = "RETRIEVAL_DOCUMENT",
+): Promise<Float32Array> {
   const { provider, apiKey } = resolveEmbeddingSlot();
   const model = "embedding"; // model string is internal to the provider impl
 
   const t0 = Date.now();
 
   try {
-    const vector = await callProviderEmbed(provider, apiKey, text);
+    const vector = await callProviderEmbed(provider, apiKey, text, taskType);
 
     logCallOk({
       slot:         "embedding",
