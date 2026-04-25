@@ -131,7 +131,7 @@ interface AIStore {
 
 const DEFAULT_PRIMARY_SLOT: ModelSlotConfig = {
   provider: "gemini",
-  model:    "gemini-2.5-pro",
+  model:    "gemini-2.5-flash",
   keyId:    null,
 };
 
@@ -159,7 +159,7 @@ function defaultProviders(): Record<ProviderName, ProviderState> {
 }
 
 const RPD_CEILINGS: Record<EmbeddingThroughput, number> = {
-  conservative: 800,
+  conservative: 1000,
   unlocked:     5000,
 };
 
@@ -186,14 +186,13 @@ function nextMidnightMs(): number {
 
 // Pro: Claude/OpenAI primary, Gemini Flash-Lite processing
 const PRO_PRESET: { primary: Omit<ModelSlotConfig, "keyId">; processing: Omit<ModelSlotConfig, "keyId"> } = {
-  primary:    { provider: "claude",   model: "claude-sonnet-4-6" },
-  processing: { provider: "gemini",   model: "gemini-2.0-flash-lite" },
+  primary:    { provider: "claude" as ProviderName,   model: "claude-sonnet-4-6" },
+  processing: { provider: "gemini" as ProviderName,   model: "gemini-2.0-flash-lite" },
 };
 
-// Budget: Gemini 2.5 Pro primary, Gemini Flash-Lite processing
 const BUDGET_PRESET: { primary: Omit<ModelSlotConfig, "keyId">; processing: Omit<ModelSlotConfig, "keyId"> } = {
-  primary:    { provider: "gemini",   model: "gemini-2.5-pro" },
-  processing: { provider: "gemini",   model: "gemini-2.0-flash-lite" },
+  primary:    { provider: "gemini" as ProviderName,   model: "gemini-2.5-flash" },
+  processing: { provider: "gemini" as ProviderName,   model: "gemini-2.0-flash-lite" },
 };
 
 // ─── Migration from v1 ────────────────────────────────────────────────────────
