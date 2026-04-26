@@ -110,20 +110,10 @@ async function isQuotaExceeded(provider: string): Promise<boolean> {
   return budget.used >= budget.ceiling
 }
 
-function msUntilMidnight(): number {
-  const d = new Date()
-  d.setHours(24, 0, 0, 0)
-  return Math.max(d.getTime() - Date.now(), 60_000) // minimum 1 minute
-}
-
-function pauseUntilMidnight(provider: string, reason: string): void {
+function pauseIndexer(reason: string): void {
   isPaused = true
-  const ms = msUntilMidnight()
-  console.info(`[indexer] ${reason} — pausing for ${Math.round(ms / 60_000)} minutes.`)
-  setTimeout(() => {
-    isPaused = false
-    useAIStore.getState().resetRPD(provider as ProviderName)
-  }, ms)
+  console.info(`[indexer] paused — ${reason}. Will resume when a key recovers or a new key is added.`)
+  emitStatus()
 }
 
 // ─── Core tick ────────────────────────────────────────────────────────────────
@@ -150,7 +140,7 @@ async function tick(): Promise<void> {
 
     // RPD budget check before claiming any jobs
     if (await isQuotaExceeded(provider)) {
-      pauseUntilMidnight(provider, `RPD ceiling reached`)
+      pauseIndexer(`RPD ceiling reached`)
       isRunning = false
       await emitStatus()
       return
@@ -198,7 +188,7 @@ async function tick(): Promise<void> {
         // immediately if we just hit the ceiling rather than burning
         // through the rest of the batch first.
         if (await isQuotaExceeded(provider)) {
-          pauseUntilMidnight(provider, `RPD ceiling reached mid-tick`)
+          pauseIndexer(`RPD ceiling reached mid-tick`)
           break
         }
 
@@ -210,7 +200,7 @@ async function tick(): Promise<void> {
 
         if (code === "QUOTA_EXCEEDED") {
           await markJobFailed(job.block_id, message, job.attempts, true)
-          pauseUntilMidnight(provider, `QUOTA_EXCEEDED from provider`)
+          pauseIndexer(`QUOTA_EXCEEDED from provider`)
           break
         }
 
