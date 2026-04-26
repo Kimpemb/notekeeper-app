@@ -259,4 +259,37 @@ export const ALL_MIGRATIONS: string[] = [
 
   `CREATE INDEX IF NOT EXISTS idx_quota_log_provider_date
     ON embedding_quota_log(provider_id, date)`,
+
+    // ── Slot Rotation & Quota Management ─────────────────────────────────────
+
+// Add key_id to embedding_quota_log and rebuild unique constraint
+`ALTER TABLE embedding_quota_log ADD COLUMN key_id TEXT NOT NULL DEFAULT ''`,
+
+`CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_log_unique
+  ON embedding_quota_log(provider_id, model_id, key_id, date)`,
+
+`CREATE TABLE IF NOT EXISTS exhaustion_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id     TEXT    NOT NULL,
+  model_id        TEXT    NOT NULL,
+  key_id          TEXT    NOT NULL,
+  slot            TEXT    NOT NULL,
+  reason          TEXT    NOT NULL,
+  exhausted_at    INTEGER NOT NULL,
+  last_checked_at INTEGER,
+  recovered_at    INTEGER
+)`,
+
+`CREATE TABLE IF NOT EXISTS exhaustion_log_archive (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id     TEXT    NOT NULL,
+  model_id        TEXT    NOT NULL,
+  key_id          TEXT    NOT NULL,
+  slot            TEXT    NOT NULL,
+  reason          TEXT    NOT NULL,
+  exhausted_at    INTEGER NOT NULL,
+  last_checked_at INTEGER,
+  recovered_at    INTEGER,
+  archived_at     INTEGER NOT NULL
+)`,
 ];

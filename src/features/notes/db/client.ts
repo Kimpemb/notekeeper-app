@@ -10,7 +10,7 @@ export async function getDb(): Promise<Database> {
     initPromise = (async () => {
       const instance = await Database.load("sqlite:idemora.db");
       await instance.execute(`PRAGMA journal_mode=WAL`);
-      await instance.execute(`PRAGMA synchronous=FULL`);
+      await instance.execute(`PRAGMA synchronous=NORMAL`);
       await instance.execute(`PRAGMA foreign_keys=ON`);
       await instance.execute(`PRAGMA busy_timeout=5000`);
       db = instance;

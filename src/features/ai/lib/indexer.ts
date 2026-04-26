@@ -24,6 +24,8 @@ import { callEmbedding, AICallError }     from "@/features/ai/lib/client"
 import { embeddingModelId }               from "@/features/ai/lib/provider"
 import { useAIStore }                     from "@/features/ai/store/useAIStore"
 import type { ProviderName }              from "@/features/ai/store/useAIStore"
+import { waitForDb } from "@/features/notes/db/queries"
+
 import {
   claimPendingJobs,
   markJobDone,
@@ -248,104 +250,45 @@ async function enqueueWithPriority(modelId: string, limit: number): Promise<numb
   const { getDb } = await import("@/features/notes/db/client")
   const db        = await getDb()
   const ts        = Date.now()
-  let   enqueued  = 0
 
-  // ── Tier 1: recently edited notes ─────────────────────────────────────────
-  const recentlyEdited = await db.select<{ id: string }[]>(
-    `SELECT id FROM notes
-     WHERE deleted_at IS NULL
-     ORDER BY updated_at DESC
-     LIMIT $1`,
-    [limit]
-  )
-
-  const tier1Ids = new Set(recentlyEdited.map((r) => r.id))
-
-  for (const { id } of recentlyEdited) {
-    const blocks = await db.select<{ block_id: string }[]>(
-      `SELECT nb.block_id
-       FROM note_blocks nb
-       LEFT JOIN embeddings e
-         ON e.block_id = nb.block_id
-        AND e.model_id = $1
-       WHERE nb.note_id   = $2
-         AND e.block_id IS NULL`,
-      [modelId, id]
-    )
-    for (const { block_id } of blocks) {
-      await db.execute(
-        `INSERT INTO embedding_jobs
-           (block_id, note_id, status, attempts, last_error, next_attempt_at, updated_at)
-         VALUES ($1, $2, 'pending', 0, NULL, 0, $3)
-         ON CONFLICT(block_id) DO NOTHING`,
-        [block_id, id, ts]
-      )
-      enqueued++
-    }
-  }
-
-  // ── Tier 2: recently visited notes (not already covered by tier 1) ─────────
-  const recentlyVisited = await db.select<{ note_id: string }[]>(
-    `SELECT note_id, MAX(visited_at) as last_visit
-     FROM note_visits
-     GROUP BY note_id
-     ORDER BY last_visit DESC
-     LIMIT $1`,
-    [limit]
-  )
-
-  for (const { note_id } of recentlyVisited) {
-    if (tier1Ids.has(note_id)) continue  // already handled in tier 1
-
-    const blocks = await db.select<{ block_id: string }[]>(
-      `SELECT nb.block_id
-       FROM note_blocks nb
-       LEFT JOIN embeddings e
-         ON e.block_id = nb.block_id
-        AND e.model_id = $1
-       WHERE nb.note_id   = $2
-         AND e.block_id IS NULL`,
-      [modelId, note_id]
-    )
-    for (const { block_id } of blocks) {
-      await db.execute(
-        `INSERT INTO embedding_jobs
-           (block_id, note_id, status, attempts, last_error, next_attempt_at, updated_at)
-         VALUES ($1, $2, 'pending', 0, NULL, 0, $3)
-         ON CONFLICT(block_id) DO NOTHING`,
-        [block_id, note_id, ts]
-      )
-      enqueued++
-    }
-  }
-
-  // ── Tier 3: all remaining unindexed blocks, oldest first ───────────────────
-  //
-  // This catches vault entries and any note not visited or recently edited.
-  // block_created_at ASC gives stable, predictable ordering.
-  const remaining = await db.select<{ block_id: string; note_id: string }[]>(
-    `SELECT nb.block_id, nb.note_id
+  await db.execute(
+    `INSERT INTO embedding_jobs
+       (block_id, note_id, status, attempts, last_error, next_attempt_at, updated_at)
+     SELECT nb.block_id, nb.note_id, 'pending', 0, NULL, 0, $1
      FROM note_blocks nb
      LEFT JOIN embeddings e
        ON e.block_id = nb.block_id
-      AND e.model_id = $1
+      AND e.model_id = $2
+     LEFT JOIN (
+       SELECT id, updated_at, 1 AS tier
+       FROM notes
+       WHERE deleted_at IS NULL
+       ORDER BY updated_at DESC
+       LIMIT $3
+     ) t1 ON t1.id = nb.note_id
+     LEFT JOIN (
+       SELECT note_id, MAX(visited_at) AS last_visit, 2 AS tier
+       FROM note_visits
+       GROUP BY note_id
+       ORDER BY last_visit DESC
+       LIMIT $3
+     ) t2 ON t2.note_id = nb.note_id
      WHERE e.block_id IS NULL
-     ORDER BY nb.block_created_at ASC`,
-    [modelId]
+     ORDER BY
+       CASE
+         WHEN t1.tier IS NOT NULL THEN 1
+         WHEN t2.tier IS NOT NULL THEN 2
+         ELSE 3
+       END,
+       nb.block_created_at ASC
+     ON CONFLICT(block_id) DO NOTHING`,
+    [ts, modelId, limit]
   )
 
-  for (const { block_id, note_id } of remaining) {
-    await db.execute(
-      `INSERT INTO embedding_jobs
-         (block_id, note_id, status, attempts, last_error, next_attempt_at, updated_at)
-       VALUES ($1, $2, 'pending', 0, NULL, 0, $3)
-       ON CONFLICT(block_id) DO NOTHING`,
-      [block_id, note_id, ts]
-    )
-    enqueued++
-  }
-
-  return enqueued
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(*) as count FROM embedding_jobs WHERE status = 'pending'`
+  )
+  return rows[0]?.count ?? 0
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -357,7 +300,8 @@ async function enqueueWithPriority(modelId: string, limit: number): Promise<numb
  *   - App restarts with a valid saved key
  */
 export async function startIndexer(): Promise<void> {
-  if (intervalHandle !== null) return
+  if (intervalHandle !== null) return;
+  await waitForDb();
 
   await resetStuckJobs()
 
@@ -395,36 +339,27 @@ export async function enqueueNoteForIndexing(noteId: string): Promise<void> {
     try {
       embedConfig = resolveEmbedConfig()
     } catch {
-      return  // no provider configured — fail silently
+      return
     }
 
     const { modelId } = embedConfig
     const { getDb }   = await import("@/features/notes/db/client")
     const db          = await getDb()
+    const ts          = Date.now()
 
-    const blocks = await db.select<{ block_id: string }[]>(
-      `SELECT nb.block_id
+    await db.execute(
+      `INSERT INTO embedding_jobs
+         (block_id, note_id, status, attempts, last_error, next_attempt_at, updated_at)
+       SELECT nb.block_id, nb.note_id, 'pending', 0, NULL, 0, $1
        FROM note_blocks nb
        LEFT JOIN embeddings e
          ON e.block_id = nb.block_id
-        AND e.model_id = $1
-       WHERE nb.note_id   = $2
-         AND e.block_id IS NULL`,
-      [modelId, noteId]
+        AND e.model_id = $2
+       WHERE nb.note_id  = $3
+         AND e.block_id IS NULL
+       ON CONFLICT(block_id) DO NOTHING`,
+      [ts, modelId, noteId]
     )
-
-    if (blocks.length === 0) return
-
-    const ts = Date.now()
-    for (const { block_id } of blocks) {
-      await db.execute(
-        `INSERT INTO embedding_jobs
-           (block_id, note_id, status, attempts, last_error, next_attempt_at, updated_at)
-         VALUES ($1, $2, 'pending', 0, NULL, 0, $3)
-         ON CONFLICT(block_id) DO NOTHING`,
-        [block_id, noteId, ts]
-      )
-    }
 
     nudgeIndexer()
   } catch (err) {
@@ -455,6 +390,12 @@ export function stopIndexer(): void {
  * Safe to call while a tick is already running — the isRunning guard
  * prevents double-processing.
  */
+let nudgeTimer: ReturnType<typeof setTimeout> | null = null
+
 export function nudgeIndexer(): void {
-  tick()
+  if (nudgeTimer) return
+  nudgeTimer = setTimeout(() => {
+    nudgeTimer = null
+    tick()
+  }, 500)
 }

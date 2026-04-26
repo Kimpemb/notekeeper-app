@@ -334,6 +334,16 @@ async function fixNullTitles(): Promise<void> {
 
 let _dbInitialized = false;
 
+let _dbReady: Promise<void> | null = null;
+let _dbReadyResolve: (() => void) | null = null;
+
+export function waitForDb(): Promise<void> {
+  if (!_dbReady) {
+    _dbReady = new Promise((res) => { _dbReadyResolve = res; });
+  }
+  return _dbReady;
+}
+
 export async function initDb(): Promise<void> {
   if (_dbInitialized) return;
   _dbInitialized = true;
@@ -361,7 +371,9 @@ export async function initDb(): Promise<void> {
     await backfillNoteBlocks();
     await backfillBacklinks();
     await rebuildFtsIndexIfNeeded();
+    await archiveOldExhaustionLogs();
     console.log("[initDb] Background maintenance complete");
+    _dbReadyResolve?.();
   }, 5000);
 
   console.log("[initDb] Database initialized successfully");
@@ -1436,29 +1448,31 @@ export async function upsertNoteTitleChunk(
 export async function incrementEmbeddingQuota(
   providerId: string,
   modelId: string,
+  keyId: string,
   count: number = 1
 ): Promise<void> {
   const db = await getDb();
-  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const date = new Date().toISOString().slice(0, 10); // UTC always
   await db.execute(
-    `INSERT INTO embedding_quota_log (provider_id, model_id, requests, date)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT(provider_id, model_id, date) DO UPDATE SET
+    `INSERT INTO embedding_quota_log (provider_id, model_id, key_id, requests, date)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT(provider_id, model_id, key_id, date) DO UPDATE SET
        requests = embedding_quota_log.requests + excluded.requests`,
-    [providerId, modelId, count, date]
+    [providerId, modelId, keyId, count, date]
   );
 }
 
 export async function getEmbeddingQuotaToday(
   providerId: string,
-  modelId: string
+  modelId: string,
+  keyId: string
 ): Promise<number> {
   const db = await getDb();
   const date = new Date().toISOString().slice(0, 10);
   const rows = await db.select<{ requests: number }[]>(
     `SELECT requests FROM embedding_quota_log
-     WHERE provider_id = $1 AND model_id = $2 AND date = $3`,
-    [providerId, modelId, date]
+     WHERE provider_id = $1 AND model_id = $2 AND key_id = $3 AND date = $4`,
+    [providerId, modelId, keyId, date]
   );
   return rows[0]?.requests ?? 0;
 }
@@ -1478,33 +1492,45 @@ export async function syncNoteBlocks(
 ): Promise<void> {
   const db = await getDb();
 
-  // Upsert title chunk if title provided
   if (noteTitle?.trim()) {
     await upsertNoteTitleChunk(noteId, noteTitle, sourceType);
   }
 
-  // Run heading-aware chunker
   const freshChunks = await chunkDocument(contentJson, sourceType);
   const freshIds    = new Set(freshChunks.map((c) => c.blockId));
 
-  // Load existing hashes for this note
   const existing = await db.select<{ block_id: string; content_hash: string | null }[]>(
     `SELECT block_id, content_hash FROM note_blocks WHERE note_id = $1`,
     [noteId]
   );
   const existingHashMap = new Map(existing.map((r) => [r.block_id, r.content_hash]));
 
-  const blocksToEmbed: { blockId: string; noteId: string }[] = [];
+  for (let i = 0; i < freshChunks.length; i += NOTES_BATCH_SIZE) {
+    const batch = freshChunks.slice(i, i + NOTES_BATCH_SIZE)
 
-  for (const chunk of freshChunks) {
-    const existingHash = existingHashMap.get(chunk.blockId);
-    const hashChanged  = existingHash !== chunk.contentHash;
+    const placeholders = batch.map((_, j) => {
+      const b = j * 10;
+      return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10})`;
+    }).join(", ")
+
+    const values = batch.flatMap((chunk) => [
+      chunk.blockId,
+      noteId,
+      chunk.blockType,
+      chunk.plaintext,
+      chunk.chunkHeading,
+      chunk.chunkIndex,
+      chunk.sourceType,
+      chunk.blockCreatedAt,
+      chunk.blockUpdatedAt,
+      chunk.contentHash,
+    ])
 
     await db.execute(
       `INSERT INTO note_blocks
          (block_id, note_id, block_type, plaintext, chunk_heading, chunk_index,
           source_type, block_created_at, block_updated_at, content_hash)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       VALUES ${placeholders}
        ON CONFLICT(block_id) DO UPDATE SET
          block_type       = excluded.block_type,
          plaintext        = excluded.plaintext,
@@ -1517,36 +1543,28 @@ export async function syncNoteBlocks(
            ELSE note_blocks.block_updated_at
          END,
          content_hash     = excluded.content_hash`,
-      [
-        chunk.blockId,
-        noteId,
-        chunk.blockType,
-        chunk.plaintext,
-        chunk.chunkHeading,
-        chunk.chunkIndex,
-        chunk.sourceType,
-        chunk.blockCreatedAt,
-        chunk.blockUpdatedAt,
-        chunk.contentHash,
-      ]
-    );
-
-    // Only enqueue for re-embedding if content changed or block is new
-    if (hashChanged) {
-      blocksToEmbed.push({ blockId: chunk.blockId, noteId });
-    }
+      values
+    )
   }
 
-  // Delete blocks that no longer exist in the document
-  for (const { block_id } of existing) {
-    if (!freshIds.has(block_id)) {
-      await db.execute(`DELETE FROM note_blocks WHERE block_id = $1`, [block_id]);
-    }
+  const deletedIds = existing
+    .map((r) => r.block_id)
+    .filter((id) => !freshIds.has(id));
+
+  if (deletedIds.length > 0) {
+    const placeholders = deletedIds.map((_, i) => `$${i + 1}`).join(", ")
+    await db.execute(
+      `DELETE FROM note_blocks WHERE block_id IN (${placeholders})`,
+      deletedIds
+    )
   }
 
-  // Enqueue only changed/new blocks for embedding
+  const blocksToEmbed = freshChunks
+    .filter((chunk) => existingHashMap.get(chunk.blockId) !== chunk.contentHash)
+    .map((chunk) => ({ blockId: chunk.blockId, noteId }));
+
   if (blocksToEmbed.length > 0) {
-    await enqueueEmbeddingJobs(blocksToEmbed);
+    await enqueueEmbeddingJobs(blocksToEmbed)
   }
 }
 
@@ -1843,6 +1861,9 @@ export interface EmbeddingJobRow {
   updated_at:      number
 }
 
+const NOTES_BATCH_SIZE = 99  // 99 × 10 params = 990, under SQLite 999 limit
+const JOBS_BATCH_SIZE  = 333 // 333 × 3 params = 999, at SQLite limit
+
 export async function enqueueEmbeddingJobs(
   blocks: { blockId: string; noteId: string }[]
 ): Promise<void> {
@@ -1850,11 +1871,20 @@ export async function enqueueEmbeddingJobs(
   const db = await getDb()
   const ts = Date.now()
 
-  for (const { blockId, noteId } of blocks) {
+  for (let i = 0; i < blocks.length; i += JOBS_BATCH_SIZE) {
+    const batch = blocks.slice(i, i + JOBS_BATCH_SIZE)
+
+    const placeholders = batch.map((_, j) => {
+      const b = j * 3;
+      return `($${b+1}, $${b+2}, 'pending', 0, NULL, 0, $${b+3})`;
+    }).join(", ")
+
+    const values = batch.flatMap(({ blockId, noteId }) => [blockId, noteId, ts])
+
     await db.execute(
       `INSERT INTO embedding_jobs
          (block_id, note_id, status, attempts, last_error, next_attempt_at, updated_at)
-       VALUES ($1, $2, 'pending', 0, NULL, 0, $3)
+       VALUES ${placeholders}
        ON CONFLICT(block_id) DO UPDATE SET
          status          = CASE
                              WHEN excluded.status = 'pending'
@@ -1865,8 +1895,8 @@ export async function enqueueEmbeddingJobs(
          attempts        = 0,
          last_error      = NULL,
          next_attempt_at = 0,
-         updated_at      = $3`,
-      [blockId, noteId, ts]
+         updated_at      = $${batch.length * 3}`,
+      values
     )
   }
 }
@@ -1887,14 +1917,13 @@ export async function claimPendingJobs(limit = 3): Promise<EmbeddingJobRow[]> {
 
   if (rows.length === 0) return []
 
-  for (const row of rows) {
-    await db.execute(
-      `UPDATE embedding_jobs
-       SET status = 'processing', updated_at = $1
-       WHERE block_id = $2 AND status = 'pending'`,
-      [now, row.block_id]
-    )
-  }
+  const placeholders = rows.map((_, i) => `$${i + 2}`).join(", ")
+  await db.execute(
+    `UPDATE embedding_jobs
+     SET status = 'processing', updated_at = $1
+     WHERE block_id IN (${placeholders}) AND status = 'pending'`,
+    [now, ...rows.map((r) => r.block_id)]
+  )
 
   return rows
 }
@@ -2158,4 +2187,98 @@ export async function addBookmarkGroup(name: string): Promise<BookmarkGroup> {
   };
   await saveBookmarks([...items, group]);
   return group;
+}
+
+export async function atomicQuotaIncrement(
+  providerId: string,
+  modelId: string,
+  keyId: string,
+  ceiling: number
+): Promise<'ok' | 'exhausted'> {
+  const db = await getDb();
+  const date = new Date().toISOString().slice(0, 10); // UTC always
+
+  await db.execute('BEGIN');
+  try {
+    const rows = await db.select<{ requests: number }[]>(
+      `SELECT requests FROM embedding_quota_log
+       WHERE provider_id = $1 AND model_id = $2 AND key_id = $3 AND date = $4`,
+      [providerId, modelId, keyId, date]
+    );
+    const current = rows[0]?.requests ?? 0;
+    if (current >= ceiling) {
+      await db.execute('ROLLBACK');
+      return 'exhausted';
+    }
+
+    await db.execute(
+      `INSERT INTO embedding_quota_log (provider_id, model_id, key_id, requests, date)
+       VALUES ($1, $2, $3, 1, $4)
+       ON CONFLICT(provider_id, model_id, key_id, date)
+       DO UPDATE SET requests = requests + 1`,
+      [providerId, modelId, keyId, date]
+    );
+    await db.execute('COMMIT');
+    return 'ok';
+  } catch (err) {
+    await db.execute('ROLLBACK');
+    throw err;
+  }
+}
+
+export async function logExhaustion(
+  providerId: string,
+  modelId: string,
+  keyId: string,
+  slot: string,
+  reason: string
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO exhaustion_log
+       (provider_id, model_id, key_id, slot, reason, exhausted_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [providerId, modelId, keyId, slot, reason, Date.now()]
+  );
+}
+
+export async function markRecovered(
+  providerId: string,
+  modelId: string,
+  keyId: string,
+  slot: string
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE exhaustion_log
+     SET recovered_at = $1
+     WHERE provider_id = $2
+       AND model_id = $3
+       AND key_id = $4
+       AND slot = $5
+       AND recovered_at IS NULL`,
+    [Date.now(), providerId, modelId, keyId, slot]
+  );
+}
+
+export async function archiveOldExhaustionLogs(): Promise<void> {
+  const db = await getDb();
+  const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  const archivedAt = Date.now();
+
+  await db.execute(
+    `INSERT INTO exhaustion_log_archive
+       (provider_id, model_id, key_id, slot, reason,
+        exhausted_at, last_checked_at, recovered_at, archived_at)
+     SELECT provider_id, model_id, key_id, slot, reason,
+            exhausted_at, last_checked_at, recovered_at, $1
+     FROM exhaustion_log
+     WHERE exhausted_at < $2`,
+    [archivedAt, cutoff]
+  );
+
+  await db.execute(
+    `DELETE FROM exhaustion_log WHERE exhausted_at < $1`,
+    [cutoff]
+  );
 }

@@ -60,55 +60,66 @@ export interface RPDBudget {
   resetAt:   number;      // Unix ms — next midnight local time
 }
 
+export interface RotationState {
+  provider: ProviderName;
+  model:    string;
+  keyId:    string | null;
+}
+
+export type RotationSlot = "primary" | "processing" | "embedding";
+
+
 // What gets persisted to SQLite
 interface PersistedSettings {
-  primarySlot:         ModelSlotConfig;
-  processingSlot:      ModelSlotConfig;
-  providers:           Record<ProviderName, { keys: StoredKey[]; activeKeyId: string | null }>;
-  embeddingProvider:   EmbeddingProvider;
-  embeddingThroughput: EmbeddingThroughput;
-  profile:             ProfileMode;
-  enabled:             boolean;
-  rpdBudget?:          Record<ProviderName, RPDBudget>;
+  primarySlot:          ModelSlotConfig;
+  processingSlot:       ModelSlotConfig;
+  providers:            Record<ProviderName, { keys: StoredKey[]; activeKeyId: string | null }>;
+  embeddingProvider:    EmbeddingProvider;
+  embeddingThroughput:  EmbeddingThroughput;
+  profile:              ProfileMode;
+  enabled:              boolean;
+  rpdBudget?:           Record<ProviderName, RPDBudget>;
+  providerRotationOrder?: ProviderName[];
 }
 
 // ─── Store interface ──────────────────────────────────────────────────────────
 
 interface AIStore {
   // ── Persisted ────────────────────────────────────────────────────────────
-  primarySlot:         ModelSlotConfig;
-  processingSlot:      ModelSlotConfig;
-  providers:           Record<ProviderName, ProviderState>;
-  embeddingProvider:   EmbeddingProvider;
-  embeddingThroughput: EmbeddingThroughput;
-  profile:             ProfileMode;
-  enabled:             boolean;
+  primarySlot:          ModelSlotConfig;
+  processingSlot:       ModelSlotConfig;
+  providers:            Record<ProviderName, ProviderState>;
+  embeddingProvider:    EmbeddingProvider;
+  embeddingThroughput:  EmbeddingThroughput;
+  profile:              ProfileMode;
+  enabled:              boolean;
+  providerRotationOrder: ProviderName[];
 
   // ── Runtime ──────────────────────────────────────────────────────────────
-  rpdBudget:  Record<ProviderName, RPDBudget>;
-  isLoading:  boolean;
+  rpdBudget:            Record<ProviderName, RPDBudget>;
+  isLoading:            boolean;
+
+  // Runtime rotation state — independent per slot, never persisted
+  primaryRotation:      RotationState;
+  processingRotation:   RotationState;
+  embeddingActiveKeyId: string | null;
 
   // ── Init ─────────────────────────────────────────────────────────────────
-  loadAISettings:  () => Promise<void>;
+  loadAISettings: () => Promise<void>;
 
   // ── Key management ────────────────────────────────────────────────────────
-  addKey:          (provider: ProviderName, label: string, key: string) => Promise<void>;
-  removeKey:       (provider: ProviderName, keyId: string) => Promise<void>;
-  setActiveKey:    (provider: ProviderName, keyId: string) => Promise<void>;
-  markKeyValid:    (provider: ProviderName, keyId: string, valid: boolean) => Promise<void>;
-  setProviderStatus: (
-    provider: ProviderName,
-    status: ConnectionStatus,
-    error?: string | null
-  ) => void;
+  addKey:            (provider: ProviderName, label: string, key: string) => Promise<void>;
+  removeKey:         (provider: ProviderName, keyId: string) => Promise<void>;
+  setActiveKey:      (provider: ProviderName, keyId: string) => Promise<void>;
+  markKeyValid:      (provider: ProviderName, keyId: string, valid: boolean) => Promise<void>;
+  setProviderStatus: (provider: ProviderName, status: ConnectionStatus, error?: string | null) => void;
 
   // ── Slot configuration ────────────────────────────────────────────────────
   setPrimarySlot:    (config: Partial<ModelSlotConfig>) => Promise<void>;
   setProcessingSlot: (config: Partial<ModelSlotConfig>) => Promise<void>;
 
   // ── Profile presets ───────────────────────────────────────────────────────
-  // Returns null if switch succeeds, or the provider name that is missing a key
-  switchProfile:   (mode: ProfileMode) => Promise<ProviderName | null>;
+  switchProfile: (mode: ProfileMode) => Promise<ProviderName | null>;
 
   // ── Embedding ─────────────────────────────────────────────────────────────
   setEmbeddingProvider:   (provider: EmbeddingProvider) => Promise<void>;
@@ -121,13 +132,28 @@ interface AIStore {
   // ── Master toggle ─────────────────────────────────────────────────────────
   setEnabled: (enabled: boolean) => Promise<void>;
 
-  // ── Selectors (convenience) ───────────────────────────────────────────────
-  getActiveKey:  (provider: ProviderName) => string | null;
-  hasValidKey:   (provider: ProviderName) => boolean;
-  hasAnyValidKey: () => boolean;
+  // ── Rotation — called by client.ts only ───────────────────────────────────
+  setRotationState:        (slot: RotationSlot, state: Partial<RotationState>) => void;
+  setEmbeddingActiveKey:   (keyId: string | null) => void;
+  setProviderRotationOrder: (order: ProviderName[]) => Promise<void>;
+
+  // ── Selectors ─────────────────────────────────────────────────────────────
+  getActiveKey:          (provider: ProviderName) => string | null;
+  getActiveKeyId:        (provider: ProviderName) => string | null;
+  getKeyById:            (provider: ProviderName, keyId: string) => string | null;
+  hasValidKey:           (provider: ProviderName) => boolean;
+  hasAnyValidKey:        () => boolean;
+  getRotationState:      (slot: RotationSlot) => RotationState;
+  getNextProvider:       (currentProvider: ProviderName, slot: RotationSlot) => ProviderName | null;
+  getNextKeyForProvider: (provider: ProviderName, exhaustedKeyIds: string[]) => string | null;
+  getNextModelForProvider: (provider: ProviderName, model: string, exhaustedModels: string[]) => string | null;
 }
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
+
+const DEFAULT_PROVIDER_ROTATION_ORDER: ProviderName[] = [
+  "gemini", "deepseek", "claude", "openai"
+];
 
 const DEFAULT_PRIMARY_SLOT: ModelSlotConfig = {
   provider: "gemini",
@@ -257,14 +283,15 @@ function toPersistedSettings(state: AIStore): PersistedSettings {
     };
   }
   return {
-    primarySlot:         state.primarySlot,
-    processingSlot:      state.processingSlot,
+    primarySlot:          state.primarySlot,
+    processingSlot:       state.processingSlot,
     providers,
-    embeddingProvider:   state.embeddingProvider,
-    embeddingThroughput: state.embeddingThroughput,
-    profile:             state.profile,
-    enabled:             state.enabled,
-    rpdBudget:           state.rpdBudget,
+    embeddingProvider:    state.embeddingProvider,
+    embeddingThroughput:  state.embeddingThroughput,
+    profile:              state.profile,
+    enabled:              state.enabled,
+    rpdBudget:            state.rpdBudget,
+    providerRotationOrder: state.providerRotationOrder,
   };
 }
 
@@ -285,6 +312,18 @@ export const useAIStore = create<AIStore>((set, get) => ({
   enabled:             false,
   rpdBudget:           defaultRPDBudget("conservative"),
   isLoading:           false,
+  providerRotationOrder: DEFAULT_PROVIDER_ROTATION_ORDER,
+  primaryRotation: {
+    provider: DEFAULT_PRIMARY_SLOT.provider,
+    model:    DEFAULT_PRIMARY_SLOT.model,
+    keyId:    DEFAULT_PRIMARY_SLOT.keyId,
+  },
+  processingRotation: {
+    provider: DEFAULT_PROCESSING_SLOT.provider,
+    model:    DEFAULT_PROCESSING_SLOT.model,
+    keyId:    DEFAULT_PROCESSING_SLOT.keyId,
+  },
+  embeddingActiveKeyId: null,
 
   // ── Load from SQLite ──────────────────────────────────────────────────────
   loadAISettings: async () => {
@@ -346,6 +385,19 @@ export const useAIStore = create<AIStore>((set, get) => ({
         profile:             parsed.profile              ?? "custom",
         enabled:             parsed.enabled              ?? false,
         rpdBudget,
+        providerRotationOrder: parsed.providerRotationOrder ?? DEFAULT_PROVIDER_ROTATION_ORDER,
+        // Rotation states always reset to configured slots on startup
+        primaryRotation: {
+          provider: parsed.primarySlot?.provider ?? DEFAULT_PRIMARY_SLOT.provider,
+          model:    parsed.primarySlot?.model    ?? DEFAULT_PRIMARY_SLOT.model,
+          keyId:    parsed.primarySlot?.keyId    ?? null,
+        },
+        processingRotation: {
+          provider: parsed.processingSlot?.provider ?? DEFAULT_PROCESSING_SLOT.provider,
+          model:    parsed.processingSlot?.model    ?? DEFAULT_PROCESSING_SLOT.model,
+          keyId:    parsed.processingSlot?.keyId    ?? null,
+        },
+        embeddingActiveKeyId: parsed.providers?.gemini?.activeKeyId ?? null,
       });
 
       // Start indexer if enabled and has a valid key
@@ -363,12 +415,15 @@ export const useAIStore = create<AIStore>((set, get) => ({
   // ── Key management ────────────────────────────────────────────────────────
 
   addKey: async (provider, label, key) => {
-  const keyId = crypto.randomUUID();
-  const newKey: StoredKey = { id: keyId, label, key, valid: false };
-  set((s) => {
-    // Only reset budget if this key string hasn't been used before
-    const keyIsNew = !s.providers[provider].keys.some((k) => k.key === key);
-    return {
+    // Duplicate check — block if key string already exists for this provider
+    const existing = get().providers[provider].keys;
+    if (existing.some((k) => k.key === key)) {
+      throw new Error(`This key is already added under label "${existing.find((k) => k.key === key)!.label}"`);
+    }
+
+    const keyId = crypto.randomUUID();
+    const newKey: StoredKey = { id: keyId, label, key, valid: false };
+    set((s) => ({
       providers: {
         ...s.providers,
         [provider]: {
@@ -377,18 +432,17 @@ export const useAIStore = create<AIStore>((set, get) => ({
           activeKeyId: s.providers[provider].activeKeyId ?? keyId,
         },
       },
-      rpdBudget: keyIsNew ? {
+      rpdBudget: {
         ...s.rpdBudget,
         [provider]: {
           used: 0,
           ceiling: s.rpdBudget[provider]?.ceiling ?? RPD_CEILINGS[s.embeddingThroughput],
           resetAt: nextMidnightMs(),
         },
-      } : s.rpdBudget,
-    };
-  });
-  await persist(get());
-},
+      },
+    }));
+    await persist(get());
+  },
 
   removeKey: async (provider, keyId) => {
     set((s) => {
@@ -588,6 +642,26 @@ export const useAIStore = create<AIStore>((set, get) => ({
     }
   },
 
+  // ── Rotation methods ──────────────────────────────────────────────────────
+
+  setRotationState: (slot, state) => {
+    if (slot === "primary") {
+      set((s) => ({ primaryRotation: { ...s.primaryRotation, ...state } }));
+    } else if (slot === "processing") {
+      set((s) => ({ processingRotation: { ...s.processingRotation, ...state } }));
+    }
+    // embedding slot uses embeddingActiveKeyId — handled separately
+  },
+
+  setEmbeddingActiveKey: (keyId) => {
+    set({ embeddingActiveKeyId: keyId });
+  },
+
+  setProviderRotationOrder: async (order) => {
+    set({ providerRotationOrder: order });
+    await persist(get());
+  },
+
   // ── Selectors ─────────────────────────────────────────────────────────────
 
   getActiveKey: (provider) => {
@@ -595,6 +669,14 @@ export const useAIStore = create<AIStore>((set, get) => ({
     const activeId = state.activeKeyId;
     if (!activeId) return null;
     return state.keys.find((k) => k.id === activeId)?.key ?? null;
+  },
+
+  getActiveKeyId: (provider) => {
+    return get().providers[provider].activeKeyId;
+  },
+
+  getKeyById: (provider, keyId) => {
+    return get().providers[provider].keys.find((k) => k.id === keyId)?.key ?? null;
   },
 
   hasValidKey: (provider) => {
@@ -605,5 +687,43 @@ export const useAIStore = create<AIStore>((set, get) => ({
     return Object.values(get().providers).some((p) =>
       p.keys.some((k) => k.valid)
     );
+  },
+
+  getRotationState: (slot) => {
+    const s = get();
+    if (slot === "primary")    return s.primaryRotation;
+    if (slot === "processing") return s.processingRotation;
+    // embedding slot
+    return {
+      provider: s.embeddingProvider as ProviderName,
+      model:    "gemini-embedding-001",
+      keyId:    s.embeddingActiveKeyId,
+    };
+  },
+
+  getNextProvider: (currentProvider, _slot) => {
+    const order = get().providerRotationOrder;
+    const idx   = order.indexOf(currentProvider);
+    if (idx === -1 || idx === order.length - 1) return null;
+    return order[idx + 1];
+  },
+
+  getNextKeyForProvider: (provider, exhaustedKeyIds) => {
+    const keys = get().providers[provider].keys;
+    const next = keys.find((k) => k.valid && !exhaustedKeyIds.includes(k.id));
+    return next?.id ?? null;
+  },
+
+  getNextModelForProvider: (provider, _currentModel, exhaustedModels) => {
+    // Model lists per provider — extend as new models are added
+    const MODEL_LISTS: Partial<Record<ProviderName, string[]>> = {
+      gemini:   ["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-2.5-pro"],
+      openai:   ["gpt-4o-mini", "gpt-4o"],
+      claude:   ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"],
+      deepseek: ["deepseek-chat", "deepseek-reasoner"],
+      grok:     ["grok-3-mini", "grok-3"],
+    };
+    const models = MODEL_LISTS[provider] ?? [];
+    return models.find((m) => !exhaustedModels.includes(m)) ?? null;
   },
 }));
