@@ -132,6 +132,9 @@ interface AIStore {
   // ── Master toggle ─────────────────────────────────────────────────────────
   setEnabled: (enabled: boolean) => Promise<void>;
 
+  switchEmbeddingKey: (keyId: string) => Promise<void>;
+
+
   // ── Rotation — called by client.ts only ───────────────────────────────────
   setRotationState:        (slot: RotationSlot, state: Partial<RotationState>) => void;
   setEmbeddingActiveKey:   (keyId: string | null) => void;
@@ -325,147 +328,207 @@ export const useAIStore = create<AIStore>((set, get) => ({
   },
   embeddingActiveKeyId: null,
 
-  // ── Load from SQLite ──────────────────────────────────────────────────────
-  loadAISettings: async () => {
-    set({ isLoading: true });
-    try {
-      // Try v2 first
-      let raw = await getSetting(AI_SETTINGS_KEY);
-      let parsed: Partial<PersistedSettings> | null = null;
+// ── Load from SQLite ──────────────────────────────────────────────────────
+loadAISettings: async () => {
+  set({ isLoading: true });
+  try {
+    // Try v2 first
+    let raw = await getSetting(AI_SETTINGS_KEY);
+    console.log("[loadAISettings] raw:", raw);
+    let parsed: Partial<PersistedSettings> | null = null;
 
-      if (raw) {
-        try { parsed = JSON.parse(raw) as PersistedSettings; }
-        catch { parsed = null; }
-      }
-
-      // Fall back to v1 migration
-      if (!parsed) {
-        const v1Raw = await getSetting(AI_SETTINGS_KEY_V1);
-        if (v1Raw) parsed = migrateV1(v1Raw);
-      }
-
-      if (!parsed) return;
-
-      // Rehydrate provider state — merge persisted keys into default runtime state
-      const providers = defaultProviders();
-      if (parsed.providers) {
-        for (const p of Object.keys(parsed.providers) as ProviderName[]) {
-          const persisted = parsed.providers[p];
-          providers[p] = {
-            ...DEFAULT_PROVIDER_STATE,
-            keys:         persisted.keys        ?? [],
-            activeKeyId:  persisted.activeKeyId ?? null,
-            connectionStatus: persisted.keys?.some((k) => k.valid) ? "connected" : "idle",
-          };
-        }
-      }
-
-      const throughput = parsed.embeddingThroughput ?? "conservative";
-      const now = Date.now();
-
-      // Restore persisted RPD budget, but reset any provider whose resetAt has passed
-      let rpdBudget = defaultRPDBudget(throughput);
-      if (parsed.rpdBudget) {
-        for (const p of Object.keys(parsed.rpdBudget) as ProviderName[]) {
-          const persisted = parsed.rpdBudget[p];
-          if (persisted) {
-            rpdBudget[p] = now >= persisted.resetAt
-              ? { used: 0, ceiling: RPD_CEILINGS[throughput], resetAt: nextMidnightMs() }
-              : { ...persisted, ceiling: RPD_CEILINGS[throughput] };
-          }
-        }
-      }
-
-      set({
-        primarySlot:         parsed.primarySlot         ?? DEFAULT_PRIMARY_SLOT,
-        processingSlot:      parsed.processingSlot       ?? DEFAULT_PROCESSING_SLOT,
-        providers,
-        embeddingProvider:   parsed.embeddingProvider    ?? "gemini",
-        embeddingThroughput: throughput,
-        profile:             parsed.profile              ?? "custom",
-        enabled:             parsed.enabled              ?? false,
-        rpdBudget,
-        providerRotationOrder: parsed.providerRotationOrder ?? DEFAULT_PROVIDER_ROTATION_ORDER,
-        // Rotation states always reset to configured slots on startup
-        primaryRotation: {
-          provider: parsed.primarySlot?.provider ?? DEFAULT_PRIMARY_SLOT.provider,
-          model:    parsed.primarySlot?.model    ?? DEFAULT_PRIMARY_SLOT.model,
-          keyId:    parsed.primarySlot?.keyId    ?? null,
-        },
-        processingRotation: {
-          provider: parsed.processingSlot?.provider ?? DEFAULT_PROCESSING_SLOT.provider,
-          model:    parsed.processingSlot?.model    ?? DEFAULT_PROCESSING_SLOT.model,
-          keyId:    parsed.processingSlot?.keyId    ?? null,
-        },
-        embeddingActiveKeyId: parsed.providers?.gemini?.activeKeyId ?? null,
-      });
-
-      // Start indexer if enabled and has a valid key
-      if (parsed.enabled && get().hasAnyValidKey() && !indexerStarted) {
-        indexerStarted = true;
-        await startIndexer();
-      }
-    } catch {
-      // silently ignore — store stays at defaults
-    } finally {
-      set({ isLoading: false });
+    if (raw) {
+      try { parsed = JSON.parse(raw) as PersistedSettings; }
+      catch { parsed = null; }
     }
-  },
+
+    // Fall back to v1 migration
+    if (!parsed) {
+      const v1Raw = await getSetting(AI_SETTINGS_KEY_V1);
+      if (v1Raw) parsed = migrateV1(v1Raw);
+    }
+
+    if (!parsed) return;
+
+    // Rehydrate provider state — merge persisted keys into default runtime state
+    const providers = defaultProviders();
+    if (parsed.providers) {
+      for (const p of Object.keys(parsed.providers) as ProviderName[]) {
+        const persisted = parsed.providers[p];
+        providers[p] = {
+          ...DEFAULT_PROVIDER_STATE,
+          keys:         persisted.keys        ?? [],
+          activeKeyId:  persisted.activeKeyId ?? null,
+          connectionStatus: persisted.keys?.some((k) => k.valid) ? "connected" : "idle",
+        };
+      }
+    }
+
+    const throughput = parsed.embeddingThroughput ?? "conservative";
+    const now = Date.now();
+
+    // Restore persisted RPD budget, but reset any provider whose resetAt has passed
+    let rpdBudget = defaultRPDBudget(throughput);
+    if (parsed.rpdBudget) {
+      for (const p of Object.keys(parsed.rpdBudget) as ProviderName[]) {
+        const persisted = parsed.rpdBudget[p];
+        if (persisted) {
+          rpdBudget[p] = now >= persisted.resetAt
+            ? { used: 0, ceiling: RPD_CEILINGS[throughput], resetAt: nextMidnightMs() }
+            : { ...persisted, ceiling: RPD_CEILINGS[throughput] };
+        }
+      }
+    }
+
+    // Resolve keyIds for rotation slots — fall back to provider's activeKeyId
+    // if slot was persisted before keyId tracking was added
+    const primaryProvider    = parsed.primarySlot?.provider    ?? DEFAULT_PRIMARY_SLOT.provider;
+    const processingProvider = parsed.processingSlot?.provider ?? DEFAULT_PROCESSING_SLOT.provider;
+    const embeddingProvider  = parsed.embeddingProvider ?? "gemini";
+
+    const primaryKeyId    = parsed.primarySlot?.keyId
+      ?? providers[primaryProvider].activeKeyId
+      ?? null;
+    const processingKeyId = parsed.processingSlot?.keyId
+      ?? providers[processingProvider].activeKeyId
+      ?? null;
+    const embeddingKeyId  = parsed.providers?.gemini?.activeKeyId
+      ?? providers[embeddingProvider as ProviderName].activeKeyId
+      ?? null;
+
+    set({
+      primarySlot:         parsed.primarySlot         ?? DEFAULT_PRIMARY_SLOT,
+      processingSlot:      parsed.processingSlot       ?? DEFAULT_PROCESSING_SLOT,
+      providers,
+      embeddingProvider:   embeddingProvider,
+      embeddingThroughput: throughput,
+      profile:             parsed.profile              ?? "custom",
+      enabled:             parsed.enabled              ?? false,
+      rpdBudget,
+      providerRotationOrder: parsed.providerRotationOrder ?? DEFAULT_PROVIDER_ROTATION_ORDER,
+      primaryRotation: {
+        provider: primaryProvider,
+        model:    parsed.primarySlot?.model ?? DEFAULT_PRIMARY_SLOT.model,
+        keyId:    primaryKeyId,
+      },
+      processingRotation: {
+        provider: processingProvider,
+        model:    parsed.processingSlot?.model ?? DEFAULT_PROCESSING_SLOT.model,
+        keyId:    processingKeyId,
+      },
+      embeddingActiveKeyId: embeddingKeyId,
+    });
+
+    // Start indexer if enabled and has a valid key
+    if (parsed.enabled && get().hasAnyValidKey() && !indexerStarted) {
+      indexerStarted = true;
+      await startIndexer();
+    }
+  } catch {
+    // silently ignore — store stays at defaults
+  } finally {
+    set({ isLoading: false });
+  }
+},
 
   // ── Key management ────────────────────────────────────────────────────────
 
   addKey: async (provider, label, key) => {
-    // Duplicate check — block if key string already exists for this provider
-    const existing = get().providers[provider].keys;
-    if (existing.some((k) => k.key === key)) {
-      throw new Error(`This key is already added under label "${existing.find((k) => k.key === key)!.label}"`);
+  // Duplicate check across ALL providers — not just the target provider
+  for (const p of Object.keys(get().providers) as ProviderName[]) {
+    const match = get().providers[p].keys.find((k) => k.key === key);
+    if (match) {
+      throw new Error(`This key is already added under label "${match.label}" for ${p}`);
     }
+  }
 
-    const keyId = crypto.randomUUID();
-    const newKey: StoredKey = { id: keyId, label, key, valid: false };
-    set((s) => ({
+  const keyId = crypto.randomUUID();
+  const newKey: StoredKey = { id: keyId, label, key, valid: false };
+  set((s) => ({
+    providers: {
+      ...s.providers,
+      [provider]: {
+        ...s.providers[provider],
+        keys: [...s.providers[provider].keys, newKey],
+        activeKeyId: s.providers[provider].activeKeyId ?? keyId,
+      },
+    },
+    rpdBudget: {
+      ...s.rpdBudget,
+      [provider]: {
+        used: 0,
+        ceiling: s.rpdBudget[provider]?.ceiling ?? RPD_CEILINGS[s.embeddingThroughput],
+        resetAt: nextMidnightMs(),
+      },
+    },
+  }));
+  await persist(get());
+
+  // If indexer is paused and this is a Gemini key, immediately attempt resume
+  if (provider === "gemini") {
+    const { resumeIndexerWithKey } = await import("@/features/ai/lib/indexer");
+    await resumeIndexerWithKey(keyId);
+  }
+},
+
+  removeKey: async (provider, keyId) => {
+  const state    = get()
+  const keys     = state.providers[provider].keys
+  const remaining = keys.filter((k) => k.id !== keyId)
+
+  // Last key for this provider — hard block for embedding (Gemini-only)
+  if (remaining.length === 0 && provider === "gemini") {
+    throw new Error(
+      "Gemini is required for embedding. Add another Gemini key before removing this one, or indexing will stop permanently."
+    )
+  }
+
+  // Check if key is active in any rotation slots
+  const isActiveEmbedding = state.embeddingActiveKeyId === keyId
+  const isActivePrimary   = state.primaryRotation.keyId === keyId
+  const isActiveProcessing = state.processingRotation.keyId === keyId
+
+  // Find next available key for this provider
+  const nextKey = remaining.find((k) => k.valid) ?? remaining[0] ?? null
+
+  set((s) => {
+    const newActiveKeyId = s.providers[provider].activeKeyId === keyId
+      ? (nextKey?.id ?? null)
+      : s.providers[provider].activeKeyId
+
+    return {
       providers: {
         ...s.providers,
         [provider]: {
           ...s.providers[provider],
-          keys: [...s.providers[provider].keys, newKey],
-          activeKeyId: s.providers[provider].activeKeyId ?? keyId,
+          keys: remaining,
+          activeKeyId: newActiveKeyId,
+          connectionStatus: remaining.length === 0 ? "idle" : s.providers[provider].connectionStatus,
+          connectionError:  remaining.length === 0 ? null  : s.providers[provider].connectionError,
         },
       },
-      rpdBudget: {
-        ...s.rpdBudget,
-        [provider]: {
-          used: 0,
-          ceiling: s.rpdBudget[provider]?.ceiling ?? RPD_CEILINGS[s.embeddingThroughput],
-          resetAt: nextMidnightMs(),
-        },
-      },
-    }));
-    await persist(get());
-  },
+      // Atomically switch rotation slots if they were using the deleted key
+      embeddingActiveKeyId: isActiveEmbedding ? (nextKey?.id ?? null) : s.embeddingActiveKeyId,
+      primaryRotation: isActivePrimary
+        ? { ...s.primaryRotation, keyId: nextKey?.id ?? null }
+        : s.primaryRotation,
+      processingRotation: isActiveProcessing
+        ? { ...s.processingRotation, keyId: nextKey?.id ?? null }
+        : s.processingRotation,
+    }
+  })
 
-  removeKey: async (provider, keyId) => {
-    set((s) => {
-      const remaining = s.providers[provider].keys.filter((k) => k.id !== keyId);
-      const activeKeyId =
-        s.providers[provider].activeKeyId === keyId
-          ? (remaining[0]?.id ?? null)
-          : s.providers[provider].activeKeyId;
-      return {
-        providers: {
-          ...s.providers,
-          [provider]: {
-            ...s.providers[provider],
-            keys: remaining,
-            activeKeyId,
-            connectionStatus: remaining.length === 0 ? "idle" : s.providers[provider].connectionStatus,
-            connectionError:  remaining.length === 0 ? null  : s.providers[provider].connectionError,
-          },
-        },
-      };
-    });
-    await persist(get());
-  },
+  console.log("[removeKey] before persist, keys:", get().providers[provider].keys.map(k => k.id))
+  await persist(get())
+  console.log("[removeKey] persist complete")
+
+  // If embedding slot just lost its key and no replacement, pause indexer
+  if (isActiveEmbedding && !nextKey) {
+    const { stopIndexer } = await import("@/features/ai/lib/indexer")
+    stopIndexer()
+    console.warn("[store] last embedding key removed — indexer stopped")
+  }
+},
 
   setActiveKey: async (provider, keyId) => {
     set((s) => ({
@@ -661,6 +724,21 @@ export const useAIStore = create<AIStore>((set, get) => ({
     set({ providerRotationOrder: order });
     await persist(get());
   },
+
+  switchEmbeddingKey: async (keyId: string) => {
+  const { manualSwitchEmbeddingKey } = await import("@/features/ai/lib/client")
+  const { getEmbeddingQuotaToday }   = await import("@/features/notes/db/queries")
+  const state = get()
+
+  const { wasExhausted } = await manualSwitchEmbeddingKey(keyId)
+
+  const count = await getEmbeddingQuotaToday(
+    state.embeddingProvider, "gemini-embedding-001", keyId
+  )
+  console.info(`[store] embedding key switched — today's count: ${count}, wasExhausted: ${wasExhausted}`)
+
+  await persist(get())
+},
 
   // ── Selectors ─────────────────────────────────────────────────────────────
 

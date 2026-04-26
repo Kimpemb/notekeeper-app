@@ -367,6 +367,31 @@ export async function enqueueNoteForIndexing(noteId: string): Promise<void> {
   }
 }
 
+export async function resumeIndexerWithKey(keyId: string): Promise<void> {
+  if (!isPaused) return
+
+  console.info(`[indexer] new key added — attempting resume with key ${keyId}`)
+
+  try {
+    const vector = await callEmbedding("test")
+    if (vector) {
+      isPaused = false
+      const { markRecovered } = await import("@/features/notes/db/queries")
+      const state = useAIStore.getState()
+      await markRecovered(state.embeddingProvider, "gemini-embedding-001", keyId, "embedding")
+      useAIStore.getState().setEmbeddingActiveKey(keyId)
+      console.info(`[indexer] resumed with new key ${keyId}`)
+      tick()
+    }
+  } catch {
+    // Test request failed — key is bad, stay paused
+    const { logExhaustion } = await import("@/features/notes/db/queries")
+    const state = useAIStore.getState()
+    await logExhaustion(state.embeddingProvider, "gemini-embedding-001", keyId, "embedding", "test_failed")
+    console.warn(`[indexer] new key ${keyId} test failed — staying paused`)
+  }
+}
+
 /**
  * Stop the indexer. Called when:
  *   - User disables AI
