@@ -10,7 +10,10 @@
 //   - medium-confidence gate on Related section
 //   - No-embedding fallback inline banner
 
-import { useEffect, useRef, useState, useCallback, type ReactElement } from "react";import {
+import { useEffect, useRef, useState, useCallback, type ReactElement } from "react";
+import { subscribeToIndexerStatus } from "@/features/ai/lib/indexer";
+import { onRecovery } from "@/features/ai/lib/client";
+import {
   streamChatWithNotes,
   type ChatMessage,
   type RelatedNote,
@@ -52,6 +55,82 @@ const SCOPE_OPTIONS: ScopeOption[] = [
   { type: "recent", label: "Recent (30 days)" },
 ];
 
+// ─── Toast system ─────────────────────────────────────────────────────────────
+
+interface Toast {
+  id:         string;
+  message:    string;
+  prominent:  boolean;
+}
+
+function useToasts() {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const addToast = useCallback((message: string, prominent = false) => {
+    const id = crypto.randomUUID();
+    setToasts((prev) => [...prev, { id, message, prominent }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, prominent ? 5000 : 3000);
+  }, []);
+
+  return { toasts, addToast };
+}
+
+function ToastContainer({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div className="fixed bottom-10 right-5 z-50 flex flex-col gap-2 pointer-events-none">
+      {toasts.map((toast) => (
+        <div
+          key={toast.id}
+          className={`px-3 py-2 rounded-lg shadow-lg border text-xs font-medium animate-fade-in
+            ${toast.prominent
+              ? "bg-violet-500 text-white border-violet-600"
+              : "bg-idemora-bg-primary text-idemora-text-normal border-idemora-border"
+            }`}
+        >
+          {toast.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Quota exhausted card ─────────────────────────────────────────────────────
+
+function QuotaExhaustedCard({ onRetry }: { onRetry: () => void }) {
+  const hasAnyValidKey = useAIStore((s) => s.hasAnyValidKey);
+
+  return (
+    <div className="mx-3 mt-2 rounded-lg border border-red-100 bg-red-50/40 p-3 space-y-2.5">
+      <div className="flex items-center gap-1.5">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0">
+          <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.2"/>
+          <path d="M5.5 3.5v2.5M5.5 7.5v.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+        </svg>
+        <p className="text-xs font-semibold text-red-600">All providers exhausted</p>
+      </div>
+      <p className="text-[11px] text-red-500 leading-relaxed">
+        Daily quota reached on all configured providers. Add a new key or wait for quota reset.
+      </p>
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          onClick={onRetry}
+          disabled={!hasAnyValidKey()}
+          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-600 border border-red-200 hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100"
+        >
+          Retry
+        </button>
+        <p className="text-[10px] text-red-400">
+          {hasAnyValidKey()
+            ? "A key is available — tap retry to try again."
+            : "Add a key in Settings → AI to continue."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChatPanel({ noteId, paneId }: Props) {
@@ -63,6 +142,11 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [callError, setCallError]     = useState<AICallError | null>(null);
   const [activeScope, setActiveScope] = useState<ScopeOption["type"]>("all");
   const [scopeOpen, setScopeOpen]     = useState(false);
+  const { toasts, addToast } = useToasts();
+  const [indexingPaused, setIndexingPaused] = useState(false);
+  const [allExhausted, setAllExhausted]     = useState(false);
+  const prevProviderRef = useRef<string | null>(null);
+  const prevModelRef    = useRef<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
@@ -83,6 +167,45 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
   // RPD budget for embedding provider
   const embeddingBudget = rpdBudget[embeddingProvider];
+
+  // Subscribe to indexer status for paused banner
+  useEffect(() => {
+    return subscribeToIndexerStatus((status) => {
+      setIndexingPaused(status.paused);
+    });
+  }, []);
+
+  // Subscribe to recovery events — dismiss exhausted card + toast
+  useEffect(() => {
+    return onRecovery(() => {
+      setAllExhausted(false);
+      addToast("Provider recovered — ready to chat", true);
+    });
+  }, [addToast]);
+
+  // Watch rotation state for toasts
+  const primaryRotation = useAIStore((s) => s.primaryRotation);
+  useEffect(() => {
+    if (prevProviderRef.current === null) {
+      prevProviderRef.current = primaryRotation.provider;
+      prevModelRef.current    = primaryRotation.model;
+      return;
+    }
+    if (primaryRotation.provider !== prevProviderRef.current) {
+      addToast(`Switched to ${primaryRotation.provider} — previous provider quota reached`, true);
+    } else if (primaryRotation.model !== prevModelRef.current) {
+      addToast(`Switched to ${primaryRotation.model}`);
+    }
+    prevProviderRef.current = primaryRotation.provider;
+    prevModelRef.current    = primaryRotation.model;
+  }, [primaryRotation, addToast]);
+
+  // Detect ALL_EXHAUSTED error
+  useEffect(() => {
+    if (callError?.code === "ALL_EXHAUSTED") {
+      setAllExhausted(true);
+    }
+  }, [callError]);
 
   // Close scope dropdown on outside click
   useEffect(() => {
@@ -303,6 +426,16 @@ export function ChatPanel({ noteId, paneId }: Props) {
         </div>
       </div>
 
+      {/* ── Indexing paused banner (after header) ── */}
+      {indexingPaused && (
+        <div className="mx-3 mt-2 px-3 py-1.5 rounded-lg bg-amber-50/40 border border-amber-100 flex items-center gap-2 shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+          <p className="text-[10px] text-amber-600">
+            Indexing paused — embedding quota reached
+          </p>
+        </div>
+      )}
+
       {/* ── Body ── */}
       <div className="flex-1 overflow-y-auto">
 
@@ -312,6 +445,11 @@ export function ChatPanel({ noteId, paneId }: Props) {
           <EmptyState currentNoteTitle={currentNote?.title} />
         ) : (
           <div className="py-3 space-y-1">
+
+            {/* Quota exhausted card */}
+            {allExhausted && (
+              <QuotaExhaustedCard onRetry={() => { setAllExhausted(false); handleSend(); }} />
+            )}
 
             {/* No-embedding fallback banner */}
             {hasNoEmbeddingMessage && messages.length > 0 && (
@@ -343,7 +481,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
               );
             })}
 
-            {callError && (
+            {callError && !allExhausted && (
               <div className="mx-3 mt-1">
                 <ErrorCard error={callError} onDismiss={() => setCallError(null)} />
               </div>
@@ -459,6 +597,8 @@ export function ChatPanel({ noteId, paneId }: Props) {
           </div>
         </div>
       )}
+
+      <ToastContainer toasts={toasts} />
     </div>
   );
 }

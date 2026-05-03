@@ -4,7 +4,7 @@
 // Shows: provider name, connection status, key manager, advanced model override.
 // One card per supported provider, ordered by the parent (Gemini first).
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAIStore }          from "@/features/ai/store/useAIStore";
 import { validateProviderKey } from "@/features/ai/lib/provider";
 import { PROVIDER_META }       from "@/features/ai/lib/provider";
@@ -34,12 +34,14 @@ function KeyRow({
   label,
   keyTail,
   isActive,
+  quota,
   onSetActive,
   onDelete,
 }: {
   label:       string;
   keyTail:     string;
   isActive:    boolean;
+  quota:       number | null;
   onSetActive: () => void;
   onDelete:    () => void;
 }) {
@@ -57,6 +59,11 @@ function KeyRow({
         />
         <span className="text-xs text-idemora-text-normal truncate">{label}</span>
         <span className="text-xs text-idemora-text-muted font-mono shrink-0">···{keyTail}</span>
+        {quota !== null && (
+          <span className="text-[10px] text-idemora-text-muted tabular-nums shrink-0">
+            {quota}/1000
+          </span>
+        )}
       </div>
       <button
         onClick={onDelete}
@@ -65,6 +72,51 @@ function KeyRow({
         Remove
       </button>
     </div>
+  );
+}
+
+// ─── Hook to fetch per-key quota ─────────────────────────────────────────────
+
+function useKeyQuota(provider: ProviderName, keyId: string): number | null {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (provider !== "gemini") return;
+    import("@/features/notes/db/queries").then(({ getEmbeddingQuotaToday }) => {
+      getEmbeddingQuotaToday("gemini", "gemini-embedding-001", keyId)
+        .then(setCount)
+        .catch(() => setCount(null));
+    });
+  }, [provider, keyId]);
+
+  return count;
+}
+
+// ─── Key row with quota (hooks can't be called in loops) ─────────────────────
+
+function KeyRowWithQuota({
+  provider,
+  k,
+  isActive,
+  onSetActive,
+  onDelete,
+}: {
+  provider:    ProviderName;
+  k:           { id: string; label: string; key: string };
+  isActive:    boolean;
+  onSetActive: () => void;
+  onDelete:    () => void;
+}) {
+  const quota = useKeyQuota(provider, k.id);
+  return (
+    <KeyRow
+      label={k.label}
+      keyTail={k.key.slice(-4)}
+      isActive={isActive}
+      quota={quota}
+      onSetActive={onSetActive}
+      onDelete={onDelete}
+    />
   );
 }
 
@@ -216,9 +268,11 @@ export function ProviderCard({ provider, showModelOverride = true }: ProviderCar
   const primarySlot    = useAIStore((s) => s.primarySlot);
   const setPrimarySlot = useAIStore((s) => s.setPrimarySlot);
 
-  const [addingKey,     setAddingKey]     = useState(false);
-  const [showAdvanced,  setShowAdvanced]  = useState(false);
-  const [modelOverride, setModelOverride] = useState("");
+  const [addingKey,        setAddingKey]        = useState(false);
+  const [showAdvanced,     setShowAdvanced]     = useState(false);
+  const [modelOverride,    setModelOverride]    = useState("");
+  const [deleteError,      setDeleteError]      = useState<string | null>(null);
+  const [confirmDeleteId,  setConfirmDeleteId]  = useState<string | null>(null);
 
   const pState   = providers[provider];
   const meta     = PROVIDER_META[provider];
@@ -257,15 +311,54 @@ export function ProviderCard({ provider, showModelOverride = true }: ProviderCar
       {hasKeys && (
         <div className="px-3 pb-1 border-t border-idemora-border">
           {pState.keys.map((k) => (
-            <KeyRow
+            <KeyRowWithQuota
               key={k.id}
-              label={k.label}
-              keyTail={k.key.slice(-4)}
+              provider={provider}
+              k={k}
               isActive={k.id === pState.activeKeyId}
               onSetActive={() => setActiveKey(provider, k.id)}
-              onDelete={() => removeKey(provider, k.id)}
+              onDelete={() => {
+                setConfirmDeleteId(k.id)
+                setDeleteError(null)
+              }}
             />
           ))}
+        </div>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {confirmDeleteId && (
+        <div className="mx-3 mb-2 px-3 py-2.5 rounded-lg border border-red-100 bg-red-50/40 space-y-2">
+          <p className="text-xs text-red-600 font-medium">Remove this key?</p>
+          <p className="text-[11px] text-red-500 leading-relaxed">
+            {provider === "gemini" && pState.keys.length === 1
+              ? "This is your only Gemini key. Removing it will stop indexing permanently."
+              : "This action cannot be undone."}
+          </p>
+          {deleteError && (
+            <p className="text-[11px] text-red-500">{deleteError}</p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  await removeKey(provider, confirmDeleteId)
+                  setConfirmDeleteId(null)
+                } catch (err) {
+                  setDeleteError(err instanceof Error ? err.message : "Could not remove key.")
+                }
+              }}
+              className="px-3 py-1.5 text-xs font-medium rounded-md bg-red-500 text-white hover:bg-red-600 transition-colors"
+            >
+              Remove
+            </button>
+            <button
+              onClick={() => { setConfirmDeleteId(null); setDeleteError(null); }}
+              className="px-3 py-1.5 text-xs rounded-md border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -329,6 +422,86 @@ export function ProviderCard({ provider, showModelOverride = true }: ProviderCar
                 </button>
               </div>
             </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Exhaustion history ───────────────────────────────────────────────────────
+
+interface ExhaustionEntry {
+  id: number;
+  provider_id: string;
+  model_id: string;
+  key_id: string;
+  slot: string;
+  reason: string;
+  exhausted_at: number;
+  recovered_at: number | null;
+}
+
+export function ExhaustionHistory() {
+  const [entries, setEntries] = useState<ExhaustionEntry[]>([]);
+  const [open, setOpen]       = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    import("@/features/notes/db/client").then(({ getDb }) =>
+      getDb().then((db) =>
+        db.select<ExhaustionEntry[]>(
+          `SELECT * FROM exhaustion_log ORDER BY exhausted_at DESC LIMIT 50`
+        ).then(setEntries).catch(() => setEntries([]))
+      )
+    );
+  }, [open]);
+
+  const fmt = (ms: number) =>
+    new Date(ms).toLocaleString(undefined, {
+      month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+
+  return (
+    <div className="mt-1 rounded-lg border border-idemora-border overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-idemora-text-muted hover:text-idemora-text-normal transition-colors"
+      >
+        <span>Exhaustion history</span>
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          className={`transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          <path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div className="border-t border-idemora-border divide-y divide-idemora-border">
+          {entries.length === 0 ? (
+            <p className="px-3 py-3 text-xs text-idemora-text-muted">No exhaustion events recorded.</p>
+          ) : (
+            entries.map((e) => (
+              <div key={e.id} className="px-3 py-2 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-idemora-text-normal truncate">
+                    {e.provider_id} · {e.model_id}
+                  </p>
+                  <p className="text-[10px] text-idemora-text-muted mt-0.5">
+                    {e.slot} · {e.reason} · {fmt(e.exhausted_at)}
+                  </p>
+                </div>
+                <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                  e.recovered_at
+                    ? "bg-green-500/10 text-green-500"
+                    : "bg-red-500/10 text-red-500"
+                }`}>
+                  {e.recovered_at ? "Recovered" : "Exhausted"}
+                </span>
+              </div>
+            ))
           )}
         </div>
       )}

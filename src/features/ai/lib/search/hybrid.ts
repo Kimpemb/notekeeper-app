@@ -116,6 +116,17 @@ interface FtsRow {
   rank:            number
 }
 
+const FTS_STOP_WORDS = new Set([
+  'a','an','the','is','are','was','were','be','been','being',
+  'have','has','had','do','does','did','will','would','could',
+  'should','may','might','shall','can','need','dare','ought',
+  'used','what','which','who','whom','whose','where','when',
+  'why','how','this','that','these','those','it','its','in',
+  'on','at','to','for','of','with','by','from','as','into',
+  'through','about','than','then','so','if','or','and','but',
+  'not','no','nor','yet','both','either','neither','each',
+])
+
 async function ftsPass(
   queries:  string[],
   scope:    ScopeFilter,
@@ -126,10 +137,21 @@ async function ftsPass(
   let   globalRank = 0
 
   for (const query of queries) {
-    const sanitized = query.trim().replace(/['"*^()]/g, " ").trim() + "*"
-    if (!sanitized.replace("*", "").trim()) continue
+    const sanitized = query
+  .trim()
+  .replace(/['"*^()?!.,;:\[\]]/g, " ")  // add \[\] to strip brackets
+  .trim()
+  .split(/\s+/)
+  .filter(Boolean)
+  .filter((word) => word.length > 2 && !FTS_STOP_WORDS.has(word.toLowerCase()))
+  .map((word) => `${word}*`)
+  .join(" OR ")
 
-    const scopeClause = buildScopeClause(scope, 3)
+    console.log('[fts] sanitized:', sanitized)
+
+    if (!sanitized) continue
+
+    const scopeClause = buildScopeClause(scope, 2)
 
     // Block-level FTS — plaintext + chunk_heading
     try {
@@ -150,8 +172,8 @@ async function ftsPass(
            AND n.deleted_at IS NULL
            ${scopeClause.sql}
          ORDER BY bf.rank
-         LIMIT $2`,
-        [sanitized, topK, ...scopeClause.params]
+         LIMIT ${topK}`,
+        [sanitized, ...scopeClause.params]
       )
 
       for (const row of rows) {
@@ -159,13 +181,15 @@ async function ftsPass(
           results.set(row.block_id, { row, rank: globalRank++ })
         }
       }
-    } catch { /* FTS errors non-fatal */ }
+    } catch (err) {
+      console.warn('[fts] block FTS error:', err)
+    }
 
     // Title-chunk FTS — searches note_title_chunks
     try {
       const titleRows = await db.select<{
-        note_id:   string
-        title:     string
+        note_id:    string
+        title:      string
         source_type: string
         updated_at: number
       }[]>(
@@ -178,24 +202,28 @@ async function ftsPass(
         [`%${query.replace(/['"*^()]/g, " ").trim()}%`, Math.floor(topK / 2)]
       )
 
-      for (const row of titleRows) {
-        const syntheticId = `title:${row.note_id}`
-        if (!results.has(syntheticId)) {
-          results.set(syntheticId, {
-            row: {
-              block_id:        syntheticId,
-              note_id:         row.note_id,
-              plaintext:       row.title,
-              chunk_heading:   null,
-              source_type:     row.source_type,
-              note_title:      row.title,
-              block_updated_at: row.updated_at,
-              rank:            0,
-            },
-            rank: globalRank++,
-          })
-        }
-      }
+      
+
+      for (const row of titleRows.filter(
+  (r) => r.title && !/^Untitled(-\d+)?$/i.test(r.title.trim())
+)) {
+  const syntheticId = `title:${row.note_id}`
+  if (!results.has(syntheticId)) {
+    results.set(syntheticId, {
+      row: {
+        block_id:         syntheticId,
+        note_id:          row.note_id,
+        plaintext:        row.title,
+        chunk_heading:    null,
+        source_type:      row.source_type,
+        note_title:       row.title,
+        block_updated_at: row.updated_at,
+        rank:             0,
+      },
+      rank: globalRank++,
+    })
+  }
+}
     } catch { /* non-fatal */ }
   }
 
@@ -435,10 +463,16 @@ export async function hybridSearch(
     vectorPass(query, scope, 20),
   ])
 
+  console.log(`[hybrid] query="${query.slice(0, 60)}"`)
+  console.log(`[hybrid] FTS hits: ${ftsResults.size}  vector hits: ${vectorResults.size}`)
+
   // ── RRF fusion ────────────────────────────────────────────────────────────
   const fused = rrfFuse(ftsResults, vectorResults)
 
-  if (fused.size === 0) return []
+  if (fused.size === 0) {
+    console.log('[hybrid] fused: 0 results — returning empty')
+    return []
+  }
 
   // ── Enrich any blocks only found via vector (no FTS row) ──────────────────
   await enrichMissingRows(fused)
@@ -448,6 +482,13 @@ export async function hybridSearch(
     .filter(([, v]) => v.row !== null)
     .sort((a, b) => b[1].score - a[1].score)
     .slice(0, topK * 2)
+
+  // ── DEBUG: log top RRF scores and note titles ─────────────────────────────
+  console.log('[hybrid] top RRF scores:',
+    sorted.slice(0, 5).map(([, v]) =>
+      `${v.score.toFixed(4)} "${v.row?.note_title?.slice(0, 30) ?? '?'}"`
+    )
+  )
 
   // ── Build rerank inputs ───────────────────────────────────────────────────
   const rerankInputs: RerankInput[] = sorted.map(([block_id, v]) => ({
@@ -463,6 +504,12 @@ export async function hybridSearch(
 
   // ── Apply reranker ────────────────────────────────────────────────────────
   const reranked = await rerank(rerankInputs, query, currentNoteId)
+
+  console.log('[hybrid] after rerank, top 5:',
+    reranked.slice(0, 5).map((r) =>
+      `score=${r.final_score.toFixed(4)} conf=${r.confidence} "${r.note_title.slice(0, 30)}"`
+    )
+  )
 
   // ── Map to HybridResult, take final topK ──────────────────────────────────
   return reranked.slice(0, topK).map((r) => ({

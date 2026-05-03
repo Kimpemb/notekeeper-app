@@ -2196,34 +2196,27 @@ export async function atomicQuotaIncrement(
   ceiling: number
 ): Promise<'ok' | 'exhausted'> {
   const db = await getDb();
-  const date = new Date().toISOString().slice(0, 10); // UTC always
+  const date = new Date().toISOString().slice(0, 10);
 
-  await db.execute('BEGIN');
-  try {
-    const rows = await db.select<{ requests: number }[]>(
-      `SELECT requests FROM embedding_quota_log
-       WHERE provider_id = $1 AND model_id = $2 AND key_id = $3 AND date = $4`,
-      [providerId, modelId, keyId, date]
-    );
-    const current = rows[0]?.requests ?? 0;
-    if (current >= ceiling) {
-      await db.execute('ROLLBACK');
-      return 'exhausted';
-    }
+  await db.execute(
+    `INSERT INTO embedding_quota_log (provider_id, model_id, key_id, requests, date)
+     VALUES ($1, $2, $3, 1, $4)
+     ON CONFLICT(provider_id, model_id, key_id, date) DO UPDATE
+       SET requests = CASE
+         WHEN embedding_quota_log.requests < $5
+         THEN embedding_quota_log.requests + 1
+         ELSE embedding_quota_log.requests
+       END`,
+    [providerId, modelId, keyId, date, ceiling]
+  );
 
-    await db.execute(
-      `INSERT INTO embedding_quota_log (provider_id, model_id, key_id, requests, date)
-       VALUES ($1, $2, $3, 1, $4)
-       ON CONFLICT(provider_id, model_id, key_id, date)
-       DO UPDATE SET requests = requests + 1`,
-      [providerId, modelId, keyId, date]
-    );
-    await db.execute('COMMIT');
-    return 'ok';
-  } catch (err) {
-    await db.execute('ROLLBACK');
-    throw err;
-  }
+  const rows = await db.select<{ requests: number }[]>(
+    `SELECT requests FROM embedding_quota_log
+     WHERE provider_id = $1 AND model_id = $2 AND key_id = $3 AND date = $4`,
+    [providerId, modelId, keyId, date]
+  );
+  const count = rows[0]?.requests ?? 0;
+  return count < ceiling ? 'ok' : 'exhausted';
 }
 
 export async function logExhaustion(

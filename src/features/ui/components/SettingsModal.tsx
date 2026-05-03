@@ -20,9 +20,10 @@ import type { ShortcutGroup, Shortcut } from "@/lib/keybindings";
 
 // Milestone 4 components
 import { ProfileSelector }      from "@/features/ai/components/ProfileSelector";
-import { ProviderCard }         from "@/features/ai/components/ProviderCard";
 import { ProcessingModelCard }  from "@/features/ai/components/ProcessingModelCard";
 import { RPDBudgetBar }         from "@/features/ai/components/RPDBudgetBar";
+import { ProviderCard, ExhaustionHistory } from "@/features/ai/components/ProviderCard";
+
 
 // DeepSeek data residency
 import {
@@ -388,7 +389,12 @@ function AISection() {
         <RPDBudgetBar />
       </div>
 
-      {/* 6. Master toggle */}
+      {/* 6. Exhaustion history */}
+      <div className="mt-3">
+        <ExhaustionHistory />
+      </div>
+
+      {/* 7. Master toggle */}
       <SectionTitle>Master Switch</SectionTitle>
       <Row
         label="Enable AI features"
@@ -441,9 +447,6 @@ export function SettingsModal() {
       setTimeout(() => setSaved(false), 1500);
     }, 400);
   }
-
-  const loadAISettings = useAIStore((s) => s.loadAISettings);
-  useEffect(() => { loadAISettings(); }, []);
 
   useEffect(() => {
     if (!settingsOpen) return;

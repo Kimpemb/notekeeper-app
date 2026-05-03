@@ -716,8 +716,34 @@ loadAISettings: async () => {
     // embedding slot uses embeddingActiveKeyId — handled separately
   },
 
+  // ── setEmbeddingActiveKey ─────────────────────────────────────────────────
+  //
+  // FIX: Previously this only updated the runtime embeddingActiveKeyId field,
+  // which is never persisted. On restart, loadAISettings would re-derive the
+  // embedding key from providers[embeddingProvider].activeKeyId, reverting to
+  // the old (possibly exhausted) key.
+  //
+  // Now we also update providers[embeddingProvider].activeKeyId in the same
+  // set() call and persist immediately. loadAISettings already reads
+  // providers.gemini.activeKeyId as the source of truth for embeddingKeyId,
+  // so this is enough for the new key to survive a restart with no schema
+  // changes required.
+
   setEmbeddingActiveKey: (keyId) => {
-    set({ embeddingActiveKeyId: keyId });
+    set((s) => {
+      const provider = s.embeddingProvider as ProviderName;
+      return {
+        embeddingActiveKeyId: keyId,
+        providers: {
+          ...s.providers,
+          [provider]: {
+            ...s.providers[provider],
+            activeKeyId: keyId,
+          },
+        },
+      };
+    });
+    persist(get());
   },
 
   setProviderRotationOrder: async (order) => {

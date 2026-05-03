@@ -374,6 +374,27 @@ function resolveEmbeddingSlot(): {
   return { provider, apiKey, keyId };
 }
 
+// ─── Slot persist helper ──────────────────────────────────────────────────────
+//
+// Called after every rotation step to keep primarySlot / processingSlot in
+// sync with primaryRotation / processingRotation. Without this the slot keyId
+// survives in persisted settings pointing at the old key, so a restart reverts
+// to the exhausted key even though rotation already moved past it.
+
+async function persistSlotKeyId(
+  slot:     "primary" | "processing",
+  provider: ProviderName,
+  model:    string,
+  keyId:    string,
+): Promise<void> {
+  const store = useAIStore.getState();
+  if (slot === "primary") {
+    await store.setPrimarySlot({ provider, model, keyId });
+  } else {
+    await store.setProcessingSlot({ provider, model, keyId });
+  }
+}
+
 // ─── Rotation waterfall — chat/processing slots ───────────────────────────────
 //
 // Called when RPD is hit on a chat or processing slot.
@@ -382,7 +403,9 @@ function resolveEmbeddingSlot(): {
 // Step 3 — next provider in rotation order
 // Step 4 — all exhausted → throw ALL_EXHAUSTED
 //
-// All steps write to exhaustion_log and update rotation state atomically.
+// After each step, persistSlotKeyId() is called so the persisted slot stays in
+// sync with the live rotation state. This prevents a restart from reverting to
+// the exhausted key/provider.
 
 async function rotateSlot(
   slot:     "primary" | "processing",
@@ -406,6 +429,8 @@ async function rotateSlot(
 
   if (nextModel) {
     store.setRotationState(slot, { provider, model: nextModel, keyId });
+    await persistSlotKeyId(slot, provider, nextModel, keyId);
+    console.info(`[rotate:${slot}] step1 — model ${model} → ${nextModel} (key ${keyId})`);
     return {
       provider,
       model:   nextModel,
@@ -423,9 +448,11 @@ async function rotateSlot(
 
   if (nextKeyId) {
     // Reset model rotation for the new key
-    const firstModel = store.getNextModelForProvider(provider, "", []);
+    const firstModel  = store.getNextModelForProvider(provider, "", []);
     const targetModel = firstModel ?? model;
     store.setRotationState(slot, { provider, model: targetModel, keyId: nextKeyId });
+    await persistSlotKeyId(slot, provider, targetModel, nextKeyId);
+    console.info(`[rotate:${slot}] step2 — key ${keyId} → ${nextKeyId} (${provider})`);
     return {
       provider,
       model:   targetModel,
@@ -440,13 +467,15 @@ async function rotateSlot(
   if (nextProvider) {
     const nextProviderKeyId = store.getNextKeyForProvider(nextProvider, []);
     if (nextProviderKeyId) {
-      const firstModel = store.getNextModelForProvider(nextProvider, "", []);
+      const firstModel  = store.getNextModelForProvider(nextProvider, "", []);
       const targetModel = firstModel ?? model;
       store.setRotationState(slot, {
         provider: nextProvider,
         model:    targetModel,
         keyId:    nextProviderKeyId,
       });
+      await persistSlotKeyId(slot, nextProvider, targetModel, nextProviderKeyId);
+      console.info(`[rotate:${slot}] step3 — provider ${provider} → ${nextProvider}`);
       return {
         provider: nextProvider,
         model:    targetModel,
@@ -457,6 +486,7 @@ async function rotateSlot(
   }
 
   // Step 4 — all exhausted
+  console.warn(`[rotate:${slot}] step4 — all providers exhausted`);
   return null;
 }
 
@@ -464,6 +494,8 @@ async function rotateSlot(
 //
 // Embedding model never changes — only key rotates.
 // On RPD: write exhaustion, find next Gemini key, switch or pause indexer.
+// setEmbeddingActiveKey now also updates providers[embeddingProvider].activeKeyId
+// and persists, so the new key survives a restart.
 
 async function rotateEmbeddingKey(
   provider: EmbeddingProvider,
@@ -481,7 +513,9 @@ async function rotateEmbeddingKey(
   const nextKeyId = store.getNextKeyForProvider(provider as ProviderName, exhaustedKeyIds);
 
   if (nextKeyId) {
+    // setEmbeddingActiveKey now persists via providers[provider].activeKeyId
     store.setEmbeddingActiveKey(nextKeyId);
+    console.info(`[rotate:embedding] key ${keyId} → ${nextKeyId}`);
     return {
       keyId:   nextKeyId,
       apiKey:  store.getKeyById(provider as ProviderName, nextKeyId)!,
@@ -489,6 +523,7 @@ async function rotateEmbeddingKey(
   }
 
   // No keys available — indexer will be paused by callEmbedding caller
+  console.warn(`[rotate:embedding] all embedding keys exhausted`);
   return null;
 }
 

@@ -171,30 +171,30 @@ function computeBoost(
     boost += BOOST_VAULT_ENTRY
   }
 
+  // 9. Penalise untitled notes — likely empty or placeholder
+  if (/^Untitled(-\d+)?$/i.test(result.note_title.trim())) {
+    boost -= 0.30
+  }
+
   // Additive cap
   return Math.min(boost, BOOST_CAP)
 }
 
 // ─── Confidence calibration ───────────────────────────────────────────────────
 
-export function calibrateConfidence(
-  results: RerankResult[]
-): ConfidenceLevel {
+export function calibrateConfidence(results: RerankResult[]): ConfidenceLevel {
   if (results.length === 0) return "low"
 
   const topScore = results[0].rrf_score
 
-  // High: top score > 0.15 AND at least 2 results from different notes above 0.08
-  const aboveThresholdHigh = results.filter((r) => r.rrf_score > 0.011)
-const uniqueNotesHigh = new Set(aboveThresholdHigh.map((r) => r.note_id))
-if (topScore > 0.014 && uniqueNotesHigh.size >= 2) {
-  return "high"
-}
+  // High: top result clearly above noise + multiple corroborating results
+  const aboveHigh = results.filter((r) => r.rrf_score > 0.013)
+  const uniqueHigh = new Set(aboveHigh.map((r) => r.note_id))
+  if (topScore > 0.015 && uniqueHigh.size >= 2) return "high"
 
-const aboveThresholdMedium = results.filter((r) => r.rrf_score > 0.006)
-if (topScore > 0.011 || aboveThresholdMedium.length >= 3) {
-  return "medium"
-}
+  // Medium: something meaningfully retrieved
+  const aboveMedium = results.filter((r) => r.rrf_score > 0.010)
+  if (topScore > 0.013 || aboveMedium.length >= 3) return "medium"
 
   return "low"
 }
