@@ -40,25 +40,28 @@ export interface HybridResult {
   boost_applied:   number
   confidence:      import("@/features/ai/lib/search/rerank").ConfidenceLevel
   matched_by:      ("semantic" | "keyword")[]
-  expanded_context?: string   // populated by expandContext()
+  expanded_context?: string
 }
 
 export interface HybridSearchOptions {
   topK?:          number
   currentNoteId?: string
   scope?:         ScopeFilter
-  queryVariants?: string[]    // from queryExpansion.ts — searched in parallel
+  queryVariants?: string[]
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isUntitledNote(title: string): boolean {
+  return /^Untitled(-\d+)?$/i.test(title.trim())
 }
 
 // ─── Scope WHERE clause builder ───────────────────────────────────────────────
-//
-// Builds a SQL fragment and parameter list for the scope pre-filter.
-// Applied identically to both FTS5 and vector passes.
 
 interface ScopeClause {
-  sql:    string      // e.g. " AND nb.source_type = $3 AND nb.block_updated_at > $4"
-  params: unknown[]   // values to append to the query params
-  offset: number      // next param index after these
+  sql:    string
+  params: unknown[]
+  offset: number
 }
 
 function buildScopeClause(scope: ScopeFilter, startIdx: number): ScopeClause {
@@ -87,7 +90,6 @@ function buildScopeClause(scope: ScopeFilter, startIdx: number): ScopeClause {
   }
 
   if (scope.folder) {
-    // folder is matched against note title prefix (parent folder naming convention)
     parts.push(`n.title LIKE $${idx++}`)
     params.push(`${scope.folder}%`)
   }
@@ -104,16 +106,19 @@ function buildScopeClause(scope: ScopeFilter, startIdx: number): ScopeClause {
 //
 // Returns top-20 candidates with BM25 rank.
 // All query variants are searched and results merged + deduplicated.
+//
+// FIX: untitled notes excluded from block FTS unless note_id === currentNoteId.
+// Title-chunk FTS already excluded untitled. Now both passes are consistent.
 
 interface FtsRow {
-  block_id:        string
-  note_id:         string
-  plaintext:       string
-  chunk_heading:   string | null
-  source_type:     string
-  note_title:      string
+  block_id:         string
+  note_id:          string
+  plaintext:        string
+  chunk_heading:    string | null
+  source_type:      string
+  note_title:       string
   block_updated_at: number
-  rank:            number
+  rank:             number
 }
 
 const FTS_STOP_WORDS = new Set([
@@ -128,9 +133,10 @@ const FTS_STOP_WORDS = new Set([
 ])
 
 async function ftsPass(
-  queries:  string[],
-  scope:    ScopeFilter,
-  topK:     number,
+  queries:        string[],
+  scope:          ScopeFilter,
+  topK:           number,
+  currentNoteId?: string,
 ): Promise<Map<string, { row: FtsRow; rank: number }>> {
   const db      = await getDb()
   const results = new Map<string, { row: FtsRow; rank: number }>()
@@ -138,22 +144,25 @@ async function ftsPass(
 
   for (const query of queries) {
     const sanitized = query
-  .trim()
-  .replace(/['"*^()?!.,;:\[\]]/g, " ")  // add \[\] to strip brackets
-  .trim()
-  .split(/\s+/)
-  .filter(Boolean)
-  .filter((word) => word.length > 2 && !FTS_STOP_WORDS.has(word.toLowerCase()))
-  .map((word) => `${word}*`)
-  .join(" OR ")
+      .trim()
+      .replace(/['"*^()?!.,;:\[\]]/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter((word) => word.length > 2 && !FTS_STOP_WORDS.has(word.toLowerCase()))
+      .map((word) => `${word}*`)
+      .join(" OR ")
 
     console.log('[fts] sanitized:', sanitized)
 
     if (!sanitized) continue
 
-    const scopeClause = buildScopeClause(scope, 2)
+    // $1 = sanitized query, $2 = currentNoteId (for untitled exclusion)
+    // scope clause params start at $3
+    const scopeClause = buildScopeClause(scope, 3)
 
     // Block-level FTS — plaintext + chunk_heading
+    // FIX: exclude untitled notes unless they are the currently open note.
     try {
       const rows = await db.select<FtsRow[]>(
         `SELECT
@@ -170,10 +179,11 @@ async function ftsPass(
          JOIN notes n        ON n.id        = bf.note_id
          WHERE blocks_fts MATCH $1
            AND n.deleted_at IS NULL
+           AND (n.id = $2 OR n.title NOT LIKE 'Untitled%')
            ${scopeClause.sql}
          ORDER BY bf.rank
          LIMIT ${topK}`,
-        [sanitized, ...scopeClause.params]
+        [sanitized, currentNoteId ?? "", ...scopeClause.params]
       )
 
       for (const row of rows) {
@@ -185,13 +195,13 @@ async function ftsPass(
       console.warn('[fts] block FTS error:', err)
     }
 
-    // Title-chunk FTS — searches note_title_chunks
+    // Title-chunk FTS — untitled already excluded here
     try {
       const titleRows = await db.select<{
-        note_id:    string
-        title:      string
+        note_id:     string
+        title:       string
         source_type: string
-        updated_at: number
+        updated_at:  number
       }[]>(
         `SELECT ntc.note_id, ntc.title, ntc.source_type, ntc.updated_at
          FROM note_title_chunks ntc
@@ -202,28 +212,26 @@ async function ftsPass(
         [`%${query.replace(/['"*^()]/g, " ").trim()}%`, Math.floor(topK / 2)]
       )
 
-      
-
       for (const row of titleRows.filter(
-  (r) => r.title && !/^Untitled(-\d+)?$/i.test(r.title.trim())
-)) {
-  const syntheticId = `title:${row.note_id}`
-  if (!results.has(syntheticId)) {
-    results.set(syntheticId, {
-      row: {
-        block_id:         syntheticId,
-        note_id:          row.note_id,
-        plaintext:        row.title,
-        chunk_heading:    null,
-        source_type:      row.source_type,
-        note_title:       row.title,
-        block_updated_at: row.updated_at,
-        rank:             0,
-      },
-      rank: globalRank++,
-    })
-  }
-}
+        (r) => r.title && !isUntitledNote(r.title)
+      )) {
+        const syntheticId = `title:${row.note_id}`
+        if (!results.has(syntheticId)) {
+          results.set(syntheticId, {
+            row: {
+              block_id:         syntheticId,
+              note_id:          row.note_id,
+              plaintext:        row.title,
+              chunk_heading:    null,
+              source_type:      row.source_type,
+              note_title:       row.title,
+              block_updated_at: row.updated_at,
+              rank:             0,
+            },
+            rank: globalRank++,
+          })
+        }
+      }
     } catch { /* non-fatal */ }
   }
 
@@ -235,11 +243,16 @@ async function ftsPass(
 // Embeds the primary query (not variants — one embedding call per search),
 // scores against all embeddings for active model_id.
 // Skipped gracefully if no embeddings exist or embedding call fails.
+//
+// FIX: untitled notes excluded unless note_id === currentNoteId.
+// When scope filters are active, exclusion uses the metaMap already being built.
+// When no scope filters are active, a lightweight title lookup is performed.
 
 async function vectorPass(
-  query:  string,
-  scope:  ScopeFilter,
-  topK:   number,
+  query:         string,
+  scope:         ScopeFilter,
+  topK:          number,
+  currentNoteId?: string,
 ): Promise<Map<string, { note_id: string; rank: number }>> {
   const results = new Map<string, { note_id: string; rank: number }>()
 
@@ -247,11 +260,12 @@ async function vectorPass(
     const semanticResults = await semanticSearch(query, topK)
     if (semanticResults.length === 0) return results
 
-    // Apply scope filter post-retrieval if needed
-    // (semantic search returns block_id + note_id — we filter by note metadata)
     let filtered = semanticResults
+    const hasScopeFilters = !!(
+      scope.sourceType || scope.dateRange || scope.tag || scope.noteTitle
+    )
 
-    if (scope.sourceType || scope.dateRange || scope.tag || scope.noteTitle) {
+    if (hasScopeFilters) {
       const db       = await getDb()
       const blockIds = semanticResults.map((r) => r.block_id)
       const bPhs     = blockIds.map((_, i) => `$${i + 1}`).join(", ")
@@ -286,8 +300,38 @@ async function vectorPass(
         if (scope.dateRange  && meta.updated_at < scope.dateRange.after) return false
         if (scope.tag        && (!meta.tags || !meta.tags.includes(scope.tag))) return false
         if (scope.noteTitle  && !meta.title.toLowerCase().includes(scope.noteTitle.toLowerCase())) return false
+        // FIX: exclude untitled notes — metaMap already loaded, no extra query needed
+        if (isUntitledNote(meta.title) && meta.note_id !== currentNoteId) return false
         return true
       })
+    } else {
+      // No scope filters active — run a lightweight title lookup for untitled exclusion
+      const db       = await getDb()
+      const blockIds = filtered.map((r) => r.block_id)
+
+      if (blockIds.length > 0) {
+        const phs      = blockIds.map((_, i) => `$${i + 1}`).join(", ")
+        const titleRows = await db.select<{
+          block_id: string
+          title:    string
+          note_id:  string
+        }[]>(
+          `SELECT nb.block_id, n.title, n.id AS note_id
+           FROM note_blocks nb
+           JOIN notes n ON n.id = nb.note_id
+           WHERE nb.block_id IN (${phs})`,
+          blockIds
+        )
+        const titleMap = new Map(titleRows.map((r) => [r.block_id, r]))
+
+        // FIX: exclude untitled notes unless they are the current note
+        filtered = filtered.filter((r) => {
+          const t = titleMap.get(r.block_id)
+          if (!t) return true
+          if (isUntitledNote(t.title) && t.note_id !== currentNoteId) return false
+          return true
+        })
+      }
     }
 
     filtered.forEach((result, rank) => {
@@ -311,9 +355,8 @@ function rrfFuse(
     matchedBy: Set<"semantic" | "keyword">
   }>()
 
-  // FTS contributions
   for (const [block_id, { row, rank }] of ftsResults) {
-    const prev = scores.get(block_id)
+    const prev         = scores.get(block_id)
     const contribution = 1 / (RRF_K + rank + 1)
     if (prev) {
       prev.score += contribution
@@ -328,9 +371,8 @@ function rrfFuse(
     }
   }
 
-  // Vector contributions
   for (const [block_id, { note_id, rank }] of vectorResults) {
-    const prev       = scores.get(block_id)
+    const prev         = scores.get(block_id)
     const contribution = 1 / (RRF_K + rank + 1)
     if (prev) {
       prev.score += contribution
@@ -349,9 +391,6 @@ function rrfFuse(
 }
 
 // ─── Block metadata enrichment ────────────────────────────────────────────────
-//
-// For blocks that came from the vector pass only (no FTS row),
-// we need to fetch plaintext, chunk_heading, source_type, note_title.
 
 async function enrichMissingRows(
   scores: Map<string, { score: number; row: FtsRow | null; note_id: string; matchedBy: Set<"semantic" | "keyword"> }>
@@ -387,10 +426,6 @@ async function enrichMissingRows(
 }
 
 // ─── Context expansion ────────────────────────────────────────────────────────
-//
-// For each top result, fetch 2 surrounding blocks.
-// Prepend chunk_heading to the expanded context.
-// Cap total context at 12,000 chars — trim from bottom of ranked list.
 
 const MAX_CONTEXT_CHARS = 12_000
 
@@ -399,7 +434,6 @@ export async function expandContext(results: HybridResult[]): Promise<HybridResu
   const expanded: HybridResult[] = []
 
   for (const result of results) {
-    // Skip title synthetic blocks for expansion
     if (result.block_id.startsWith("title:")) {
       expanded.push(result)
       continue
@@ -415,12 +449,10 @@ export async function expandContext(results: HybridResult[]): Promise<HybridResu
         : result.plaintext)
 
       if (totalChars + context.length > MAX_CONTEXT_CHARS) {
-        // Budget exhausted — include original plaintext only if it fits
         if (totalChars + result.plaintext.length <= MAX_CONTEXT_CHARS) {
           totalChars += result.plaintext.length
           expanded.push(result)
         }
-        // else skip this result entirely
         continue
       }
 
@@ -436,11 +468,6 @@ export async function expandContext(results: HybridResult[]): Promise<HybridResu
 
 // ─── Main search function ─────────────────────────────────────────────────────
 
-/**
- * Hybrid search: FTS5 + vector + RRF + rerank.
- * Pass scope to apply pre-filters. Pass queryVariants for parallel FTS expansion.
- * Pass currentNoteId to enable current-note and backlink boosts.
- */
 export async function hybridSearch(
   query:   string,
   topK:    number = 8,
@@ -450,23 +477,20 @@ export async function hybridSearch(
 
   const {
     currentNoteId,
-    scope        = {},
+    scope         = {},
     queryVariants = [query],
   } = options
 
-  // Ensure original query is always included
   const allQueries = [query, ...queryVariants.filter((v) => v !== query)]
 
-  // ── Run FTS and vector passes in parallel ─────────────────────────────────
   const [ftsResults, vectorResults] = await Promise.all([
-    ftsPass(allQueries, scope, 20),
-    vectorPass(query, scope, 20),
+    ftsPass(allQueries, scope, 20, currentNoteId),
+    vectorPass(query, scope, 20, currentNoteId),
   ])
 
   console.log(`[hybrid] query="${query.slice(0, 60)}"`)
   console.log(`[hybrid] FTS hits: ${ftsResults.size}  vector hits: ${vectorResults.size}`)
 
-  // ── RRF fusion ────────────────────────────────────────────────────────────
   const fused = rrfFuse(ftsResults, vectorResults)
 
   if (fused.size === 0) {
@@ -474,35 +498,30 @@ export async function hybridSearch(
     return []
   }
 
-  // ── Enrich any blocks only found via vector (no FTS row) ──────────────────
   await enrichMissingRows(fused)
 
-  // ── Sort by RRF score, take 2× topK before reranking ─────────────────────
   const sorted = [...fused.entries()]
     .filter(([, v]) => v.row !== null)
     .sort((a, b) => b[1].score - a[1].score)
     .slice(0, topK * 2)
 
-  // ── DEBUG: log top RRF scores and note titles ─────────────────────────────
   console.log('[hybrid] top RRF scores:',
     sorted.slice(0, 5).map(([, v]) =>
       `${v.score.toFixed(4)} "${v.row?.note_title?.slice(0, 30) ?? '?'}"`
     )
   )
 
-  // ── Build rerank inputs ───────────────────────────────────────────────────
   const rerankInputs: RerankInput[] = sorted.map(([block_id, v]) => ({
     block_id,
-    note_id:         v.note_id,
-    note_title:      v.row!.note_title,
-    plaintext:       v.row!.plaintext,
-    chunk_heading:   v.row!.chunk_heading ?? null,
-    source_type:     v.row!.source_type,
-    rrf_score:       v.score,
+    note_id:          v.note_id,
+    note_title:       v.row!.note_title,
+    plaintext:        v.row!.plaintext,
+    chunk_heading:    v.row!.chunk_heading ?? null,
+    source_type:      v.row!.source_type,
+    rrf_score:        v.score,
     block_updated_at: v.row!.block_updated_at,
   }))
 
-  // ── Apply reranker ────────────────────────────────────────────────────────
   const reranked = await rerank(rerankInputs, query, currentNoteId)
 
   console.log('[hybrid] after rerank, top 5:',
@@ -511,7 +530,6 @@ export async function hybridSearch(
     )
   )
 
-  // ── Map to HybridResult, take final topK ──────────────────────────────────
   return reranked.slice(0, topK).map((r) => ({
     block_id:      r.block_id,
     note_id:       r.note_id,

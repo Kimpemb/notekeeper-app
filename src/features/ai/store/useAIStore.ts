@@ -175,13 +175,14 @@ const DEFAULT_PROVIDER_ROTATION_ORDER: ProviderName[] = [
 // complexity for zero practical benefit — users who care about quality should
 // pin chat to Claude/DeepSeek and leave Gemini for embedding + processing.
 //
-// Update this list when new models with higher RPD limits are released.
+// On RPD exhaustion, try models in this order — most generous RPD limit first.
+// All confirmed available on Gemini v1beta API (May 2026).
+// Update this list when new models are released.
 
 export const GEMINI_RPD_PRIORITY: string[] = [
-  "gemini-3.1-flash-lite",
-  "gemini-3-flash",
   "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
 ];
 
 const DEFAULT_PRIMARY_SLOT: ModelSlotConfig = {
@@ -376,6 +377,20 @@ loadAISettings: async () => {
     }
 
     if (!parsed) return;
+
+    // Migrate invalid model strings from before May 2026 API changes
+    const INVALID_MODELS = new Set([
+      "gemini-3.1-flash-lite",
+      "gemini-3-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash-lite-preview-04-17",
+    ])
+    if (parsed.primarySlot?.model && INVALID_MODELS.has(parsed.primarySlot.model)) {
+      parsed.primarySlot.model = "gemini-2.5-flash"
+    }
+    if (parsed.processingSlot?.model && INVALID_MODELS.has(parsed.processingSlot.model)) {
+      parsed.processingSlot.model = "gemini-2.0-flash-lite"
+    }
 
     // Rehydrate provider state — merge persisted keys into default runtime state
     const providers = defaultProviders();

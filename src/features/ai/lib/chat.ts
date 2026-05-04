@@ -34,7 +34,7 @@ import {
   callPrimary,
   promptPrimary,
   promptProcessing,
-  ProcessingExhaustedError,  // ← NEW: import sentinel error
+  ProcessingExhaustedError,
   type ProviderMessage,
   type AICallError,
   isAIReady,
@@ -80,7 +80,7 @@ export interface ChatResult {
   usedEmbeddings: boolean
   confidence:     "high" | "medium" | "low"
   relatedNotes:   RelatedNote[]
-  tier1Results?:  Tier1ResultCard[]   // populated when AI disabled
+  tier1Results?:  Tier1ResultCard[]
 }
 
 export interface StreamingChatOptions {
@@ -91,7 +91,7 @@ export interface StreamingChatOptions {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MAX_CONTEXT_CHARS    = 12_000
+const MAX_CONTEXT_CHARS           = 12_000
 const MEDIUM_CONFIDENCE_THRESHOLD = 0.08
 
 // ─── Rolling session memory ───────────────────────────────────────────────────
@@ -145,21 +145,13 @@ Summary:`
       (currentRow?.message_count ?? 0) + droppedContent.split("\n").length
     )
   } catch (err) {
-    // ProcessingExhaustedError is expected when processing slot is exhausted.
-    // This is best-effort — swallow silently either way.
     if (!(err instanceof ProcessingExhaustedError)) {
-      // Log unexpected errors in dev but never block the caller.
       console.debug("[updateRollingSummary] non-exhaustion error:", err)
     }
   }
 }
 
 // ─── Inventory awareness ──────────────────────────────────────────────────────
-//
-// When query matches inventory intent, skip hybrid search entirely.
-// Build note inventory summary via processing model and inject as context.
-// If processing slot is exhausted, fall back to a static inventory block
-// without the AI-generated summary paragraph.
 
 async function buildInventoryContext(): Promise<string> {
   const notes  = await getAllNotesMeta()
@@ -182,15 +174,12 @@ async function buildInventoryContext(): Promise<string> {
 
   const tagList = [...allTags].slice(0, 30).join(", ") || "none"
 
-  // Static inventory block — always available regardless of processing slot.
   const staticBlock = `[VAULT INVENTORY]
 Total notes: ${active.length}
 Recently edited:
 ${recentTitles}
 Tags: ${tagList}`
 
-  // Try to enrich with a processing-model summary.
-  // If processing slot is exhausted, skip the summary and return the static block.
   try {
     const prompt = `You have access to ${active.length} notes in the user's vault.
 
@@ -205,17 +194,15 @@ Summarize what topics and areas are covered in this vault in 2-3 sentences.`
     return `${staticBlock}\n\n${summary}`
   } catch (err) {
     if (err instanceof ProcessingExhaustedError) {
-      // Heuristic fallback: return static inventory without AI summary.
       console.info("[buildInventoryContext] processing exhausted — returning static inventory")
       return staticBlock
     }
-    // Any other error: also return static block, don't surface to user.
     console.debug("[buildInventoryContext] summary failed:", err)
     return staticBlock
   }
 }
 
-// ─── Context assembly ──────────────────────────────────────────────────────────
+// ─── Context assembly ─────────────────────────────────────────────────────────
 
 function buildExcerptBlock(results: HybridResult[]): string {
   const chunks: string[] = []
@@ -235,6 +222,33 @@ function buildExcerptBlock(results: HybridResult[]): string {
   return chunks.join("\n\n")
 }
 
+// ─── Citation filtering ───────────────────────────────────────────────────────
+//
+// After the model responds, parse which [N] markers actually appear in the
+// text and filter sourceTitles/sourceNoteIds to only those indices.
+// If the model cited nothing, fall back to returning all sources.
+
+function extractCitedIndices(text: string): Set<number> {
+  const cited = new Set<number>()
+  for (const match of text.matchAll(/\[(\d+)\]/g)) {
+    cited.add(parseInt(match[1]) - 1) // convert to 0-indexed
+  }
+  return cited
+}
+
+function filterSourcesByCitations(
+  titles:  string[],
+  noteIds: string[],
+  cited:   Set<number>,
+): { titles: string[]; noteIds: string[] } {
+  // If model cited nothing (no [N] markers at all), return all sources as fallback
+  if (cited.size === 0) return { titles, noteIds }
+  return {
+    titles:  titles.filter((_, i) => cited.has(i)),
+    noteIds: noteIds.filter((_, i) => cited.has(i)),
+  }
+}
+
 // ─── Cross-note connection pass ───────────────────────────────────────────────
 
 async function findRelatedNotes(
@@ -243,11 +257,12 @@ async function findRelatedNotes(
   currentNoteId: string | undefined,
   confidence:    "high" | "medium" | "low",
 ): Promise<RelatedNote[]> {
-  // Only run cross-note pass for medium+ confidence results
   if (confidence === "low") return []
 
   try {
-    const query   = answerText.slice(0, 500)
+    // FIX: strip [N] citation markers and truncate before passing to FTS.
+    // Raw answer text contains [1], [2] etc. which break FTS5 MATCH syntax.
+    const query = answerText.replace(/\[\d+\]/g, "").slice(0, 300)
     if (!query.trim()) return []
 
     const results = await hybridSearch(query, 5, { currentNoteId })
@@ -307,13 +322,9 @@ async function runPipeline(
   query:        string,
   currentNote?: Note,
 ): Promise<PipelineResult> {
-  // ── 1. Intent detection ──────────────────────────────────────────────────
   const { intent, scope, cleanQuery } = detectIntent(query)
 
-  // ── 2. Inventory branch — skip retrieval ─────────────────────────────────
   if (intent === "inventory") {
-    // buildInventoryContext handles ProcessingExhaustedError internally —
-    // falls back to static inventory block, never throws.
     const inventoryContext = await buildInventoryContext()
     return {
       excerptBlock:   inventoryContext,
@@ -326,13 +337,10 @@ async function runPipeline(
     }
   }
 
-  // ── 3. Query expansion ────────────────────────────────────────────────────
-  const queryVariants = [cleanQuery]  // query expansion disabled — RPM fix
+  const queryVariants = [cleanQuery]
 
-  // ── 4. Top-k by intent ────────────────────────────────────────────────────
   const topK = intent === "exploration" ? 12 : 8
 
-  // ── 5. Hybrid retrieval ───────────────────────────────────────────────────
   let results: HybridResult[] = []
   let usedEmbeddings = false
 
@@ -345,12 +353,10 @@ async function runPipeline(
     usedEmbeddings = results.some((r) => r.matched_by.includes("semantic"))
   } catch { /* retrieval failure — empty results */ }
 
-  // ── 6. Context expansion ──────────────────────────────────────────────────
   if (results.length > 0) {
     results = await expandContext(results)
   }
 
-  // ── 7. Build source lists ─────────────────────────────────────────────────
   const sourceTitles:  string[] = []
   const sourceNoteIds: string[] = []
   const seenNoteIds = new Set<string>()
@@ -363,10 +369,7 @@ async function runPipeline(
     }
   }
 
-  // ── 8. Confidence from top result ─────────────────────────────────────────
-  const confidence = results[0]?.confidence ?? "low"
-
-  // ── 9. Build excerpt block and tier 1 cards ───────────────────────────────
+  const confidence   = results[0]?.confidence ?? "low"
   const excerptBlock = buildExcerptBlock(results)
   const tier1Cards   = buildTier1Cards(results)
 
@@ -384,14 +387,14 @@ async function runPipeline(
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
 function buildPrompt(
-  query:         string,
-  pipeline:      PipelineResult,
-  historyBlock:  string,
-  currentNote?:  Note,
+  query:        string,
+  pipeline:     PipelineResult,
+  historyBlock: string,
+  currentNote?: Note,
 ): string {
   const currentNoteBlock = currentNote
-  ? `\nContext — currently open note:\nTitle: ${currentNote.title}\n${(currentNote.plaintext ?? "").slice(0, 1500)}`
-  : ""
+    ? `\nContext — currently open note:\nTitle: ${currentNote.title}\n${(currentNote.plaintext ?? "").slice(0, 1500)}`
+    : ""
 
   const excerptSection = pipeline.inventoryMode
     ? pipeline.excerptBlock
@@ -418,7 +421,7 @@ Answer:`
 
 export async function streamChatWithNotes(
   query:       string,
-  _allNotes:    Note[],
+  _allNotes:   Note[],
   noteId:      string,
   currentNote: Note | undefined,
   streaming:   StreamingChatOptions
@@ -428,7 +431,6 @@ export async function streamChatWithNotes(
     const pipeline   = await runPipeline(query, currentNote)
     const tier1Cards = pipeline.tier1Cards
 
-    // Deliver structured result set — no AI call
     const summary = tier1Cards.length > 0
       ? `Found ${tier1Cards.length} relevant section${tier1Cards.length > 1 ? "s" : ""} in your notes.`
       : "No matching content found in your notes."
@@ -466,8 +468,6 @@ export async function streamChatWithNotes(
     await appendAIHistory(noteId, "user",      query)
     await appendAIHistory(noteId, "assistant", assembled)
 
-    // Update rolling summary asynchronously — ProcessingExhaustedError is
-    // handled inside updateRollingSummary; it never propagates here.
     const history = await getAIHistory(noteId)
     if (history.length >= 6) {
       const existingRow  = await getConversationSummary(noteId)
@@ -492,9 +492,17 @@ export async function streamChatWithNotes(
     pipeline.confidence,
   )
 
+  // FIX: filter sources to only notes the model actually cited with [N] markers.
+  const cited = extractCitedIndices(assembled)
+  const { titles, noteIds } = filterSourcesByCitations(
+    pipeline.sourceTitles,
+    pipeline.sourceNoteIds,
+    cited,
+  )
+
   return {
-    sourceTitles:   pipeline.sourceTitles,
-    sourceNoteIds:  pipeline.sourceNoteIds,
+    sourceTitles:   titles,
+    sourceNoteIds:  noteIds,
     usedEmbeddings: pipeline.usedEmbeddings,
     confidence:     pipeline.confidence,
     relatedNotes,
@@ -505,7 +513,7 @@ export async function streamChatWithNotes(
 
 export async function chatWithNotes(
   query:        string,
-  _allNotes:     Note[],
+  _allNotes:    Note[],
   noteId:       string,
   currentNote?: Note
 ): Promise<ChatResult> {
@@ -514,8 +522,8 @@ export async function chatWithNotes(
     runPipeline(query, currentNote),
   ])
 
-  const prompt  = buildPrompt(query, pipeline, historyBlock, currentNote)
-  const answer  = await promptPrimary(prompt)
+  const prompt = buildPrompt(query, pipeline, historyBlock, currentNote)
+  const answer = await promptPrimary(prompt)
 
   await appendAIHistory(noteId, "user",      query)
   await appendAIHistory(noteId, "assistant", answer)
@@ -528,10 +536,18 @@ export async function chatWithNotes(
     pipeline.confidence,
   )
 
+  // FIX: filter sources to only notes the model actually cited with [N] markers.
+  const cited = extractCitedIndices(answer)
+  const { titles, noteIds } = filterSourcesByCitations(
+    pipeline.sourceTitles,
+    pipeline.sourceNoteIds,
+    cited,
+  )
+
   return {
     answer,
-    sourceTitles:   pipeline.sourceTitles,
-    sourceNoteIds:  pipeline.sourceNoteIds,
+    sourceTitles:   titles,
+    sourceNoteIds:  noteIds,
     usedEmbeddings: pipeline.usedEmbeddings,
     confidence:     pipeline.confidence,
     relatedNotes,
