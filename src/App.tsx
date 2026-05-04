@@ -39,6 +39,8 @@ import { CanvasWorkspace } from "@/features/canvas/components/CanvasWorkspace";
 import { MoveBlockModal } from "@/features/ui/components/MoveBlockModal";
 // PATCH: 1. Add import near the top with other modal imports
 import { AISetupModal } from "@/features/ai/components/AISetupModal";
+import { setDev429Simulation } from "@/features/ai/lib/client"
+
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "F5") e.preventDefault();
@@ -217,6 +219,11 @@ useEffect(() => {
   useEffect(() => {
     if (settingsLoaded && !settings.hasCompletedOnboarding) setShowOnboarding(true);
   }, [settingsLoaded, settings.hasCompletedOnboarding]);
+
+useEffect(() => {
+  // PATCH: Add dev testing hook
+  (window as any).__aiTest = { setDev429Simulation }
+}, [])
 
   // PATCH: 3. Add effect near the onboarding effect (after it, so it fires after)
   useEffect(() => {
@@ -781,3 +788,4 @@ useEffect(() => {
     </>
   );
 }
+

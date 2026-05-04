@@ -32,10 +32,13 @@ export type EmbeddingProvider = "gemini" | "openai" | "deepseek";
 
 // A single stored API key entry for a provider
 export interface StoredKey {
-  id:     string;         // uuid — stable identifier
-  label:  string;         // user-visible label e.g. "Personal", "Work"
-  key:    string;         // the raw API key
-  valid:  boolean;        // last validation result
+  id:         string;         // uuid — stable identifier
+  label:      string;         // user-visible label e.g. "Personal", "Work"
+  key:        string;         // the raw API key
+  valid:      boolean;        // last validation result
+  projectTag: string | null;  // Google Cloud project name — normalised lowercase on save
+                              // null = untagged. Only meaningful for Gemini keys.
+                              // Keys from the same project share the same daily quota pool.
 }
 
 // The independently configured slot for primary or processing model
@@ -108,7 +111,7 @@ interface AIStore {
   loadAISettings: () => Promise<void>;
 
   // ── Key management ────────────────────────────────────────────────────────
-  addKey:            (provider: ProviderName, label: string, key: string) => Promise<void>;
+  addKey:            (provider: ProviderName, label: string, key: string, projectTag?: string | null) => Promise<void>;
   removeKey:         (provider: ProviderName, keyId: string) => Promise<void>;
   setActiveKey:      (provider: ProviderName, keyId: string) => Promise<void>;
   markKeyValid:      (provider: ProviderName, keyId: string, valid: boolean) => Promise<void>;
@@ -148,7 +151,7 @@ interface AIStore {
   hasAnyValidKey:        () => boolean;
   getRotationState:      (slot: RotationSlot) => RotationState;
   getNextProvider:       (currentProvider: ProviderName, slot: RotationSlot) => ProviderName | null;
-  getNextKeyForProvider: (provider: ProviderName, exhaustedKeyIds: string[]) => string | null;
+  getNextKeyForProvider: (provider: ProviderName, exhaustedKeyIds: string[], exhaustedProjectTags?: string[]) => string | null;
   getNextModelForProvider: (provider: ProviderName, model: string, exhaustedModels: string[]) => string | null;
 }
 
@@ -156,6 +159,29 @@ interface AIStore {
 
 const DEFAULT_PROVIDER_ROTATION_ORDER: ProviderName[] = [
   "gemini", "deepseek", "claude", "openai"
+];
+
+// ─── Gemini RPD model priority ─────────────────────────────────────────────────
+//
+// On RPD exhaustion, try models in this order — most generous RPD limit first.
+// Based on free/Tier-1 observed limits (May 2026):
+//   gemini-3.1-flash-lite : 500 RPD  ← by far the most headroom
+//   gemini-3-flash        :  20 RPD
+//   gemini-2.5-flash      :  20 RPD
+//   gemini-2.5-flash-lite :  20 RPD
+//   (gemini-2.5-pro / gemini-2.0-flash-lite = 0 RPD on free tier — excluded)
+//
+// This table is hardcoded intentionally. User-configurable ordering adds UI
+// complexity for zero practical benefit — users who care about quality should
+// pin chat to Claude/DeepSeek and leave Gemini for embedding + processing.
+//
+// Update this list when new models with higher RPD limits are released.
+
+export const GEMINI_RPD_PRIORITY: string[] = [
+  "gemini-3.1-flash-lite",
+  "gemini-3-flash",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
 ];
 
 const DEFAULT_PRIMARY_SLOT: ModelSlotConfig = {
@@ -243,10 +269,11 @@ function migrateV1(raw: string): Partial<PersistedSettings> | null {
 
     const keyId = crypto.randomUUID();
     const storedKey: StoredKey = {
-      id:    keyId,
-      label: "Imported",
-      key:   v1.apiKey,
-      valid: true,
+      id:         keyId,
+      label:      "Imported",
+      key:        v1.apiKey,
+      valid:      true,
+      projectTag: null,
     };
 
     const providers = defaultProviders();
@@ -433,7 +460,7 @@ loadAISettings: async () => {
 
   // ── Key management ────────────────────────────────────────────────────────
 
-  addKey: async (provider, label, key) => {
+  addKey: async (provider, label, key, projectTag?: string | null) => {
   // Duplicate check across ALL providers — not just the target provider
   for (const p of Object.keys(get().providers) as ProviderName[]) {
     const match = get().providers[p].keys.find((k) => k.key === key);
@@ -442,8 +469,11 @@ loadAISettings: async () => {
     }
   }
 
+  // Normalise projectTag — lowercase + trim, null if empty
+  const normalisedTag = projectTag?.trim().toLowerCase() || null;
+
   const keyId = crypto.randomUUID();
-  const newKey: StoredKey = { id: keyId, label, key, valid: false };
+  const newKey: StoredKey = { id: keyId, label, key, valid: false, projectTag: normalisedTag };
   set((s) => ({
     providers: {
       ...s.providers,
@@ -812,16 +842,29 @@ loadAISettings: async () => {
     return order[idx + 1];
   },
 
-  getNextKeyForProvider: (provider, exhaustedKeyIds) => {
+  getNextKeyForProvider: (provider, exhaustedKeyIds, exhaustedProjectTags = []) => {
     const keys = get().providers[provider].keys;
-    const next = keys.find((k) => k.valid && !exhaustedKeyIds.includes(k.id));
+    const next = keys.find((k) => {
+      if (!k.valid) return false;
+      if (exhaustedKeyIds.includes(k.id)) return false;
+      // Skip untagged keys during same-provider rotation — we can't confirm
+      // they're from a different project, so attempting them on RPD is risky.
+      // They remain eligible as the initial key for a fresh provider (caller
+      // passes exhaustedProjectTags=[] in that case).
+      if (exhaustedProjectTags.length > 0 && k.projectTag === null) return false;
+      // Skip keys whose project is already exhausted
+      if (k.projectTag !== null && exhaustedProjectTags.includes(k.projectTag)) return false;
+      return true;
+    });
     return next?.id ?? null;
   },
 
   getNextModelForProvider: (provider, _currentModel, exhaustedModels) => {
     // Model lists per provider — extend as new models are added
+    // For Gemini, use GEMINI_RPD_PRIORITY order — most generous RPD limit first.
+    // For other providers, keep cheapest/fastest model first as fallback.
     const MODEL_LISTS: Partial<Record<ProviderName, string[]>> = {
-      gemini:   ["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-2.5-pro"],
+      gemini:   GEMINI_RPD_PRIORITY,
       openai:   ["gpt-4o-mini", "gpt-4o"],
       claude:   ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"],
       deepseek: ["deepseek-chat", "deepseek-reasoner"],

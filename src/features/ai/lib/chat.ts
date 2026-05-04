@@ -34,6 +34,7 @@ import {
   callPrimary,
   promptPrimary,
   promptProcessing,
+  ProcessingExhaustedError,  // ← NEW: import sentinel error
   type ProviderMessage,
   type AICallError,
   isAIReady,
@@ -143,54 +144,74 @@ Summary:`
       summary.trim(),
       (currentRow?.message_count ?? 0) + droppedContent.split("\n").length
     )
-  } catch { /* best-effort, never blocks */ }
+  } catch (err) {
+    // ProcessingExhaustedError is expected when processing slot is exhausted.
+    // This is best-effort — swallow silently either way.
+    if (!(err instanceof ProcessingExhaustedError)) {
+      // Log unexpected errors in dev but never block the caller.
+      console.debug("[updateRollingSummary] non-exhaustion error:", err)
+    }
+  }
 }
 
 // ─── Inventory awareness ──────────────────────────────────────────────────────
 //
 // When query matches inventory intent, skip hybrid search entirely.
 // Build note inventory summary via processing model and inject as context.
+// If processing slot is exhausted, fall back to a static inventory block
+// without the AI-generated summary paragraph.
 
 async function buildInventoryContext(): Promise<string> {
+  const notes  = await getAllNotesMeta()
+  const active = notes.filter((n) => !n.deleted_at)
+
+  const recentTitles = active
+    .sort((a, b) => b.updated_at - a.updated_at)
+    .slice(0, 10)
+    .map((n) => `- ${n.title} (${new Date(n.updated_at).toLocaleDateString()})`)
+    .join("\n")
+
+  const allTags = new Set<string>()
+  for (const note of active) {
+    if (!note.tags) continue
+    try {
+      const tags: string[] = JSON.parse(note.tags)
+      tags.forEach((t) => allTags.add(t))
+    } catch { /* skip malformed */ }
+  }
+
+  const tagList = [...allTags].slice(0, 30).join(", ") || "none"
+
+  // Static inventory block — always available regardless of processing slot.
+  const staticBlock = `[VAULT INVENTORY]
+Total notes: ${active.length}
+Recently edited:
+${recentTitles}
+Tags: ${tagList}`
+
+  // Try to enrich with a processing-model summary.
+  // If processing slot is exhausted, skip the summary and return the static block.
   try {
-    const notes = await getAllNotesMeta()
-    const active = notes.filter((n) => !n.deleted_at)
-
-    const recentTitles = active
-      .sort((a, b) => b.updated_at - a.updated_at)
-      .slice(0, 10)
-      .map((n) => `- ${n.title} (${new Date(n.updated_at).toLocaleDateString()})`)
-      .join("\n")
-
-    const allTags = new Set<string>()
-    for (const note of active) {
-      if (!note.tags) continue
-      try {
-        const tags: string[] = JSON.parse(note.tags)
-        tags.forEach((t) => allTags.add(t))
-      } catch { /* skip malformed */ }
-    }
-
     const prompt = `You have access to ${active.length} notes in the user's vault.
 
 Recently edited notes:
 ${recentTitles}
 
-Tags in vault: ${[...allTags].slice(0, 30).join(", ") || "none"}
+Tags in vault: ${tagList}
 
 Summarize what topics and areas are covered in this vault in 2-3 sentences.`
 
     const summary = await promptProcessing(prompt)
-
-    return `[VAULT INVENTORY]
-Total notes: ${active.length}
-Recently edited:
-${recentTitles}
-Tags: ${[...allTags].slice(0, 30).join(", ") || "none"}
-
-${summary}`
-  } catch {
-    return "(Could not load vault inventory.)"
+    return `${staticBlock}\n\n${summary}`
+  } catch (err) {
+    if (err instanceof ProcessingExhaustedError) {
+      // Heuristic fallback: return static inventory without AI summary.
+      console.info("[buildInventoryContext] processing exhausted — returning static inventory")
+      return staticBlock
+    }
+    // Any other error: also return static block, don't surface to user.
+    console.debug("[buildInventoryContext] summary failed:", err)
+    return staticBlock
   }
 }
 
@@ -291,6 +312,8 @@ async function runPipeline(
 
   // ── 2. Inventory branch — skip retrieval ─────────────────────────────────
   if (intent === "inventory") {
+    // buildInventoryContext handles ProcessingExhaustedError internally —
+    // falls back to static inventory block, never throws.
     const inventoryContext = await buildInventoryContext()
     return {
       excerptBlock:   inventoryContext,
@@ -443,7 +466,8 @@ export async function streamChatWithNotes(
     await appendAIHistory(noteId, "user",      query)
     await appendAIHistory(noteId, "assistant", assembled)
 
-    // Update rolling summary asynchronously
+    // Update rolling summary asynchronously — ProcessingExhaustedError is
+    // handled inside updateRollingSummary; it never propagates here.
     const history = await getAIHistory(noteId)
     if (history.length >= 6) {
       const existingRow  = await getConversationSummary(noteId)

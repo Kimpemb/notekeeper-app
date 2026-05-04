@@ -135,7 +135,10 @@ export function heuristicExpand(
 const EXPANSION_TIMEOUT_MS = 1500
 
 async function llmExpand(query: string): Promise<string[] | null> {
-  const { promptProcessing } = await import("@/features/ai/lib/client")
+  const {
+    promptProcessing,
+    ProcessingExhaustedError,    // ← NEW: import sentinel
+  } = await import("@/features/ai/lib/client")
 
   const prompt = `Rewrite this search query into 2-3 alternative phrasings that capture the same intent using different vocabulary. Return ONLY the phrasings, one per line, no numbering, no explanation.
 
@@ -156,8 +159,15 @@ Query: ${query}`
       .slice(0, 3)
 
     return lines.length > 0 ? lines : null
-  } catch {
-    return null  // timeout or model error — fall back to heuristic
+  } catch (err) {
+    // ProcessingExhaustedError — processing slot is fully exhausted.
+    // Fall back to heuristic immediately; don't log as an error.
+    if (err instanceof ProcessingExhaustedError) {
+      console.info("[queryExpansion] processing slot exhausted — using heuristic fallback")
+      return null
+    }
+    // Timeout or any other model error — also fall back to heuristic.
+    return null
   }
 }
 
@@ -167,6 +177,7 @@ Query: ${query}`
  * Expand a query into 2-3 variants for parallel retrieval.
  * Tries the processing model first (1.5s timeout), falls back to heuristic.
  * Always returns the original query as the first element.
+ * Never throws — heuristic fallback is always available.
  */
 export async function expandQuery(
   query:   string,

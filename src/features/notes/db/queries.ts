@@ -366,6 +366,7 @@ export async function initDb(): Promise<void> {
   // Defer everything else — run after first render
   setTimeout(async () => {
     await purgeTrashedNotes();
+    await clearStaleExhaustionEntries();
     await migrateNoteBlocksV3();
     await fixBlocksFtsUpdateTrigger();
     await backfillNoteBlocks();
@@ -1629,6 +1630,9 @@ export async function backfillNoteBlocks(): Promise<void> {
 }
 
 export async function backfillBacklinks(): Promise<void> {
+  const alreadyDone = await getSetting("v3_backlinks_backfill_done");
+  if (alreadyDone === "1") return;
+
   const db = await getDb();
   const notes = await db.select<{ id: string; content: string }[]>(
     `SELECT n.id, n.content FROM notes n
@@ -1636,12 +1640,12 @@ export async function backfillBacklinks(): Promise<void> {
        AND n.deleted_at IS NULL
        AND NOT EXISTS (
          SELECT 1 FROM backlinks b WHERE b.source_id = n.id
-       )
-     LIMIT 100`
+       )`
   );
   for (const note of notes) {
     await syncBacklinks(note.id, extractNoteLinkIdsFromJson(note.content));
   }
+  await setSetting("v3_backlinks_backfill_done", "1");
 }
 
 export interface AISummaryRow {
@@ -2220,18 +2224,19 @@ export async function atomicQuotaIncrement(
 }
 
 export async function logExhaustion(
-  providerId: string,
-  modelId: string,
-  keyId: string,
-  slot: string,
-  reason: string
+  providerId:  string,
+  modelId:     string,
+  keyId:       string,
+  slot:        string,
+  reason:      string,
+  projectTag?: string | null,
 ): Promise<void> {
   const db = await getDb();
   await db.execute(
     `INSERT INTO exhaustion_log
-       (provider_id, model_id, key_id, slot, reason, exhausted_at)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [providerId, modelId, keyId, slot, reason, Date.now()]
+       (provider_id, model_id, key_id, slot, reason, exhausted_at, project_tag)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [providerId, modelId, keyId, slot, reason, Date.now(), projectTag ?? null]
   );
 }
 
@@ -2273,5 +2278,24 @@ export async function archiveOldExhaustionLogs(): Promise<void> {
   await db.execute(
     `DELETE FROM exhaustion_log WHERE exhausted_at < $1`,
     [cutoff]
+  );
+}
+
+// ─── Startup exhaustion cleanup ───────────────────────────────────────────────
+//
+// Clears RPD exhaustion entries from previous UTC dates on startup.
+// Quota resets at midnight Pacific — any entry from a previous UTC date is
+// guaranteed stale. Don't rely on the background checker for day-old entries.
+
+export async function clearStaleExhaustionEntries(): Promise<void> {
+  const db = await getDb();
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  // exhausted_at is Unix ms — convert to UTC date string for comparison
+  await db.execute(
+    `UPDATE exhaustion_log
+     SET recovered_at = $1
+     WHERE recovered_at IS NULL
+       AND date(exhausted_at / 1000, 'unixepoch') < $2`,
+    [Date.now(), todayUtc]
   );
 }

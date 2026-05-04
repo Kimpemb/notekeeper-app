@@ -35,6 +35,8 @@ import {
   logExhaustion,
   markRecovered,
 } from "@/features/notes/db/queries";
+// Note: clearStaleExhaustionEntries is called from initDb() in queries.ts directly,
+// not from client.ts. No import needed here.
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -123,10 +125,11 @@ export function setDev429Simulation(enabled: boolean): void {
 // every call.
 
 interface ExhaustedEntry {
-  provider: ProviderName;
-  model:    string;
-  keyId:    string;
-  slot:     string;
+  provider:   ProviderName;
+  model:      string;
+  keyId:      string;
+  slot:       string;
+  projectTag: string | null;  // from StoredKey.projectTag at time of exhaustion
 }
 
 const exhaustedEntries: ExhaustedEntry[] = [];
@@ -138,9 +141,15 @@ function isExhausted(provider: ProviderName, model: string, keyId: string, slot:
   );
 }
 
-function markExhausted(provider: ProviderName, model: string, keyId: string, slot: string): void {
+function markExhausted(
+  provider:   ProviderName,
+  model:      string,
+  keyId:      string,
+  slot:       string,
+  projectTag: string | null = null,
+): void {
   if (!isExhausted(provider, model, keyId, slot)) {
-    exhaustedEntries.push({ provider, model, keyId, slot });
+    exhaustedEntries.push({ provider, model, keyId, slot, projectTag });
   }
 }
 
@@ -150,6 +159,20 @@ function clearExhausted(provider: ProviderName, model: string, keyId: string, sl
            e.keyId === keyId && e.slot === slot
   );
   if (idx !== -1) exhaustedEntries.splice(idx, 1);
+}
+
+// Returns all exhausted projectTags for a given provider+slot combination.
+// Used by getNextKeyForProvider to skip same-project keys on RPD rotation.
+function getExhaustedProjectTags(provider: ProviderName, slot: string): string[] {
+  return exhaustedEntries
+    .filter((e) => e.provider === provider && e.slot === slot && e.projectTag !== null)
+    .map((e) => e.projectTag as string);
+}
+
+// Helper: resolve projectTag from store for a given provider+keyId
+function getProjectTag(provider: ProviderName, keyId: string): string | null {
+  const keys = useAIStore.getState().providers[provider]?.keys ?? [];
+  return keys.find((k) => k.id === keyId)?.projectTag ?? null;
 }
 
 // ─── Background checker ───────────────────────────────────────────────────────
@@ -417,8 +440,12 @@ async function rotateSlot(
   const logSlot = slot;
 
   // Write exhaustion for current model/key
-  await logExhaustion(provider, model, keyId, logSlot, "rpd");
-  markExhausted(provider, model, keyId, logSlot);
+// Resolve projectTag from store for exhaustion tracking
+  const projectTag = getProjectTag(provider, keyId);
+
+  // Write exhaustion for current model/key
+  await logExhaustion(provider, model, keyId, logSlot, "rpd", projectTag);
+  markExhausted(provider, model, keyId, logSlot, projectTag);
 
   // Step 1 — next model, same provider, same key
   const nextModel = store.getNextModelForProvider(provider, model,
@@ -440,11 +467,14 @@ async function rotateSlot(
   }
 
   // Step 2 — same provider, next key
+// Step 2 — same provider, next key from a different project
   const exhaustedKeyIds = exhaustedEntries
     .filter((e) => e.provider === provider && e.slot === logSlot)
     .map((e) => e.keyId);
 
-  const nextKeyId = store.getNextKeyForProvider(provider, exhaustedKeyIds);
+  const exhaustedProjectTags = getExhaustedProjectTags(provider, logSlot);
+
+  const nextKeyId = store.getNextKeyForProvider(provider, exhaustedKeyIds, exhaustedProjectTags);
 
   if (nextKeyId) {
     // Reset model rotation for the new key
@@ -503,14 +533,22 @@ async function rotateEmbeddingKey(
 ): Promise<{ apiKey: string; keyId: string } | null> {
   const store = useAIStore.getState();
 
-  await logExhaustion(provider, "gemini-embedding-001", keyId, "embedding", "rpd");
-  markExhausted(provider as ProviderName, "gemini-embedding-001", keyId, "embedding");
+const projectTag = getProjectTag(provider as ProviderName, keyId);
+
+  await logExhaustion(provider, "gemini-embedding-001", keyId, "embedding", "rpd", projectTag);
+  markExhausted(provider as ProviderName, "gemini-embedding-001", keyId, "embedding", projectTag);
 
   const exhaustedKeyIds = exhaustedEntries
     .filter((e) => e.provider === provider && e.slot === "embedding")
     .map((e) => e.keyId);
 
-  const nextKeyId = store.getNextKeyForProvider(provider as ProviderName, exhaustedKeyIds);
+  const exhaustedProjectTags = getExhaustedProjectTags(provider as ProviderName, "embedding");
+
+  const nextKeyId = store.getNextKeyForProvider(
+    provider as ProviderName,
+    exhaustedKeyIds,
+    exhaustedProjectTags,
+  );
 
   if (nextKeyId) {
     // setEmbeddingActiveKey now persists via providers[provider].activeKeyId
@@ -625,11 +663,30 @@ export async function callPrimary(
   return dispatchChat("primary", "primary", messages, system);
 }
 
+// Sentinel thrown by callProcessing when all processing providers are exhausted.
+// Callers (chat.ts queryExpansion) catch this to trigger heuristic fallback
+// rather than blocking the user-facing response.
+export class ProcessingExhaustedError extends Error {
+  constructor() {
+    super("Processing slot exhausted — heuristic fallback required");
+    this.name = "ProcessingExhaustedError";
+  }
+}
+
 export async function callProcessing(
   messages: ProviderMessage[],
   system?:  string,
 ): Promise<ProviderChatResult> {
-  return dispatchChat("processing", "processing", messages, system);
+  try {
+    return await dispatchChat("processing", "processing", messages, system);
+  } catch (err) {
+    // ALL_EXHAUSTED on the processing slot must never block chat.
+    // Re-throw as ProcessingExhaustedError so callers can fall back to heuristics.
+    if (err instanceof AICallError && err.code === "ALL_EXHAUSTED") {
+      throw new ProcessingExhaustedError();
+    }
+    throw err;
+  }
 }
 
 // ─── Embedding call with rotation ────────────────────────────────────────────
