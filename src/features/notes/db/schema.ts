@@ -294,5 +294,4 @@ export const ALL_MIGRATIONS: string[] = [
 )`,
 
   `ALTER TABLE notes ADD COLUMN vault_watched_folder TEXT`,
-
 ];

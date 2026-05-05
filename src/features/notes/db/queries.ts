@@ -408,7 +408,7 @@ export async function getAllNotes(): Promise<Note[]> {
   return db.select<Note[]>(
     `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
             created_at, updated_at, deleted_at, sort_order,
-            is_canvas, canvas_state
+            is_canvas, canvas_state, vault_watched_folder
      FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
 }
@@ -417,7 +417,8 @@ export async function getAllNotesMeta(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
     `SELECT id, title, plaintext, tags, frontmatter, parent_id, sync_id,
-            created_at, updated_at, deleted_at, sort_order, is_canvas
+            created_at, updated_at, deleted_at, sort_order,
+            is_canvas, vault_watched_folder
      FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
 }
@@ -519,6 +520,7 @@ export interface UpdateNoteInput {
   sort_order?: number;
   is_canvas?: boolean;
   canvas_state?: string | null;
+  vault_watched_folder?: string | null;
 }
 
 export async function updateNote(id: string, input: UpdateNoteInput): Promise<void> {
@@ -526,26 +528,22 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
   const fields: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
-
-  if (input.title !== undefined)      { fields.push(`title = $${idx++}`);      values.push(input.title); }
-  if (input.content !== undefined)    { fields.push(`content = $${idx++}`);    values.push(input.content); }
-  if (input.plaintext !== undefined)  { fields.push(`plaintext = $${idx++}`);  values.push(input.plaintext); }
-  if (input.tags !== undefined)       { fields.push(`tags = $${idx++}`);       values.push(input.tags); }
-  if (input.frontmatter !== undefined) { fields.push(`frontmatter = $${idx++}`); values.push(input.frontmatter); }
-  if (input.parent_id !== undefined)  { fields.push(`parent_id = $${idx++}`);  values.push(input.parent_id); }
-  if (input.sort_order !== undefined) { fields.push(`sort_order = $${idx++}`); values.push(input.sort_order); }
-  if (input.canvas_state !== undefined) { fields.push(`canvas_state = $${idx++}`); values.push(input.canvas_state); }
-
+  if (input.title !== undefined)                { fields.push(`title = $${idx++}`);                values.push(input.title); }
+  if (input.content !== undefined)              { fields.push(`content = $${idx++}`);              values.push(input.content); }
+  if (input.plaintext !== undefined)            { fields.push(`plaintext = $${idx++}`);            values.push(input.plaintext); }
+  if (input.tags !== undefined)                 { fields.push(`tags = $${idx++}`);                 values.push(input.tags); }
+  if (input.frontmatter !== undefined)          { fields.push(`frontmatter = $${idx++}`);          values.push(input.frontmatter); }
+  if (input.parent_id !== undefined)            { fields.push(`parent_id = $${idx++}`);            values.push(input.parent_id); }
+  if (input.sort_order !== undefined)           { fields.push(`sort_order = $${idx++}`);           values.push(input.sort_order); }
+  if (input.canvas_state !== undefined)         { fields.push(`canvas_state = $${idx++}`);         values.push(input.canvas_state); }
+  if (input.vault_watched_folder !== undefined) { fields.push(`vault_watched_folder = $${idx++}`); values.push(input.vault_watched_folder); }
   if (fields.length === 0) return;
-
   const isContentEdit = input.content !== undefined || input.plaintext !== undefined;
   if (isContentEdit) {
     fields.push(`updated_at = $${idx++}`);
     values.push(now());
   }
-
   values.push(id);
-
   await db.execute(
     `UPDATE notes SET ${fields.join(", ")} WHERE id = $${idx}`,
     values

@@ -22,6 +22,7 @@ type ContextItemId =
   | "rename"
   | "pin"
   | "bookmark"
+  | "vault-folder"
   | "move"
   | "trash";
 
@@ -172,6 +173,10 @@ export function NoteTreeItem({
   const [moveOpen, setMoveOpen]       = useState(false);
   const [focusedItem, setFocusedItem] = useState<ContextItemId>("new-sub-note");
   
+  // ─── Vault folder state ───────────────────────────────────────────────────
+    const [vaultFolderPath, setVaultFolderPath] = useState<string | null>(null)
+
+  
   // ─── Group picker state ───────────────────────────────────────────────────
   const [showGroupPicker, setShowGroupPicker] = useState(false);
   const [pendingBookmarkNoteId, setPendingBookmarkNoteId] = useState<string | null>(null);
@@ -206,6 +211,10 @@ export function NoteTreeItem({
   };
 
   const note        = notes.find((n) => n.id === noteId);
+  // ─── Sync vault folder path from note data ────────────────────────────────
+  useEffect(() => {
+    setVaultFolderPath(note?.vault_watched_folder ?? null)
+  }, [note?.vault_watched_folder])
   const children    = sortNotes(notes.filter((n) => n.parent_id === noteId));
   const isActive    = activeNoteId === noteId;
   const isExpanded  = expandedNodes.has(noteId);
@@ -214,7 +223,7 @@ export function NoteTreeItem({
   const isFocused   = focusedNoteId === noteId;
 
   const navItems: ContextItemId[] = isRoot
-    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "pin", "bookmark", "move", "trash"]
+    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "pin", "bookmark", "vault-folder", "move", "trash"]
     : ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "bookmark", "move", "trash"];
 
   useEffect(() => {
@@ -292,6 +301,35 @@ export function NoteTreeItem({
           setPendingBookmarkNoteId(noteId);
           setPendingBookmarkTitle(note?.title ?? "Untitled");
           setShowGroupPicker(true);
+        }
+        break;
+      case "vault-folder":
+        setContextMenu(null)
+        if (vaultFolderPath) {
+          // Clear the folder
+          import("@/features/vault/lib/watchedFolderService").then(({ stopWatch }) => {
+            stopWatch(`project:${noteId}`).catch(console.error)
+          })
+          import("@/features/notes/db/queries").then(({ setSetting }) => {
+            setSetting(`vault.project_folder.${noteId}`, "").catch(console.error)
+          })
+          updateNote(noteId, { vault_watched_folder: null }).catch(console.error)
+          setVaultFolderPath(null)
+        } else {
+          // Set a new folder
+          import("@tauri-apps/plugin-dialog").then(({ open }) => {
+            open({ directory: true, multiple: false, title: "Select Watched Folder for this Project" })
+              .then(async (selected) => {
+                if (!selected || typeof selected !== "string") return
+                const { startWatch } = await import("@/features/vault/lib/watchedFolderService")
+                const { setSetting } = await import("@/features/notes/db/queries")
+                await startWatch(selected, `project:${noteId}`, noteId)
+                await setSetting(`vault.project_folder.${noteId}`, selected)
+                await updateNote(noteId, { vault_watched_folder: selected })
+                setVaultFolderPath(selected)
+              })
+              .catch(console.error)
+          })
         }
         break;
       case "move":
@@ -450,6 +488,13 @@ export function NoteTreeItem({
                 </svg>
               </span>
             )}
+            {vaultFolderPath && (
+              <span className="shrink-0 opacity-60 ml-0.5" title={vaultFolderPath}>
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                  <path d="M1 3a1 1 0 011-1h2l1 1.5h4a1 1 0 011 1V8a1 1 0 01-1 1H2a1 1 0 01-1-1V3z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" fill="currentColor" fillOpacity="0.15"/>
+                </svg>
+              </span>
+            )}
           </span>
         )}
         {!renaming && (
@@ -493,6 +538,15 @@ export function NoteTreeItem({
             onHover={() => setFocusedItem("bookmark")} 
             onClick={() => triggerItem("bookmark")} 
           />
+          {isRoot && (
+            <CtxItem
+              label={vaultFolderPath ? "Clear watched folder" : "Set watched folder"}
+              id="vault-folder"
+              focused={focusedItem === "vault-folder"}
+              onHover={() => setFocusedItem("vault-folder")}
+              onClick={() => triggerItem("vault-folder")}
+            />
+          )}
           <div className="my-1 border-t border-idemora-border" />
           <CtxItem label="Move"                id="move"                 focused={focusedItem === "move"}                 onHover={() => setFocusedItem("move")}                 onClick={() => triggerItem("move")} suffix="›" />
           <div className="my-1 border-t border-idemora-border" />
