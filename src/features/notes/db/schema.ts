@@ -294,4 +294,18 @@ export const ALL_MIGRATIONS: string[] = [
 )`,
 
   `ALTER TABLE notes ADD COLUMN vault_watched_folder TEXT`,
+
+  `CREATE TABLE IF NOT EXISTS ingested_files (
+  id           TEXT    PRIMARY KEY,
+  content_hash TEXT    NOT NULL,
+  simhash      TEXT    NOT NULL,
+  file_path    TEXT    NOT NULL,
+  ingested_at  INTEGER NOT NULL
+)`,
+
+`CREATE INDEX IF NOT EXISTS idx_ingested_files_hash
+  ON ingested_files(content_hash)`,
+
+`CREATE INDEX IF NOT EXISTS idx_ingested_files_ingested_at
+  ON ingested_files(ingested_at)`,
 ];

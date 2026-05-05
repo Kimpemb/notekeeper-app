@@ -37,7 +37,15 @@ import { OutlinePanel } from "@/features/editor/components/Editor/OutlinePanel";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
 import { CanvasWorkspace } from "@/features/canvas/components/CanvasWorkspace";
 import { MoveBlockModal } from "@/features/ui/components/MoveBlockModal";
-// PATCH: 1. Add import near the top with other modal imports
+// PATCH 1: Add vault duplicate imports
+import { VaultDuplicateModal } from '@/features/ui/components/VaultDuplicateModal'
+import {
+  handleFileDetected,
+  registerDuplicatePromptHandler,
+  onDuplicateAction,
+} from '@/features/vault/lib/pipeline'
+import type { DuplicatePromptPayload } from '@/features/vault/lib/pipeline'
+import type { VaultFileDetectedEvent } from '@/features/vault/lib/watchedFolderService'
 import { AISetupModal } from "@/features/ai/components/AISetupModal";
 import { setDev429Simulation } from "@/features/ai/lib/client"
 
@@ -60,8 +68,11 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [moveBlockOpen, setMoveBlockOpen] = useState(false);
-  // PATCH: 2. Add state variable near the other useState declarations
   const [showAISetup, setShowAISetup] = useState(false);
+  // PATCH 2: Add vault duplicate state
+  const [vaultDuplicateOpen, setVaultDuplicateOpen] = useState(false)
+  const [vaultDuplicatePayload, setVaultDuplicatePayload] =
+    useState<DuplicatePromptPayload | null>(null)
 
   const moveBlockDetailRef = useRef<{
     nodeJson:         unknown;
@@ -221,11 +232,10 @@ useEffect(() => {
   }, [settingsLoaded, settings.hasCompletedOnboarding]);
 
 useEffect(() => {
-  // PATCH: Add dev testing hook
+  // Add dev testing hook
   (window as any).__aiTest = { setDev429Simulation }
 }, [])
 
-  // PATCH: 3. Add effect near the onboarding effect (after it, so it fires after)
   useEffect(() => {
   if (
     settingsLoaded &&
@@ -279,6 +289,23 @@ useEffect(() => {
     window.addEventListener("idemora:move-block", handle);
     return () => window.removeEventListener("idemora:move-block", handle);
   }, []);
+
+  // PATCH 3: Add vault duplicate effect after the move-block listener
+  useEffect(() => {
+    // Register the duplicate prompt handler once
+    registerDuplicatePromptHandler((payload) => {
+      setVaultDuplicatePayload(payload)
+      setVaultDuplicateOpen(true)
+    })
+
+    // Listen for vault:file-detected dispatched from initDb
+    function handleVaultEvent(e: Event) {
+      const event = (e as CustomEvent<VaultFileDetectedEvent>).detail
+      handleFileDetected(event).catch(console.error)
+    }
+    window.addEventListener('vault:file-detected', handleVaultEvent)
+    return () => window.removeEventListener('vault:file-detected', handleVaultEvent)
+  }, [])
 
   useEffect(() => {
     const noteId = useUIStore.getState().activeTabNoteId();
@@ -536,8 +563,18 @@ useEffect(() => {
   return (
     <>
       <OnboardingModal isOpen={showOnboarding} onComplete={handleOnboardingComplete} />
-      {/* PATCH: 4. Mount the modal alongside <OnboardingModal> in the return */}
       <AISetupModal isOpen={showAISetup} onClose={() => setShowAISetup(false)} />
+      <VaultDuplicateModal
+        open={vaultDuplicateOpen}
+        payload={vaultDuplicatePayload}
+        onAction={async (action) => {
+          setVaultDuplicateOpen(false)
+          if (vaultDuplicatePayload) {
+            await onDuplicateAction(action, vaultDuplicatePayload)
+          }
+          setVaultDuplicatePayload(null)
+        }}
+      />
 
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-idemora-bg-primary text-idemora-text-normal">
 
@@ -788,4 +825,3 @@ useEffect(() => {
     </>
   );
 }
-

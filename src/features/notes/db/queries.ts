@@ -2317,3 +2317,58 @@ export async function clearStaleExhaustionEntries(): Promise<void> {
     [Date.now(), todayUtc]
   );
 }
+
+// ── Vault — ingested_files ────────────────────────────────────────────────────
+
+export interface IngestedFile {
+  id: string
+  content_hash: string
+  simhash: string
+  file_path: string
+  ingested_at: number
+}
+
+export async function getIngestedFileByHash(
+  contentHash: string
+): Promise<IngestedFile | null> {
+  const db = await getDb()
+  const rows = await db.select<IngestedFile[]>(
+    `SELECT id, content_hash, simhash, file_path, ingested_at
+     FROM ingested_files WHERE content_hash = $1 LIMIT 1`,
+    [contentHash]
+  )
+  return rows[0] ?? null
+}
+
+export async function getRecentIngestedFiles(
+  windowDays: number
+): Promise<IngestedFile[]> {
+  const db = await getDb()
+  const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000
+  return db.select<IngestedFile[]>(
+    `SELECT id, content_hash, simhash, file_path, ingested_at
+     FROM ingested_files WHERE ingested_at > $1`,
+    [cutoff]
+  )
+}
+
+export async function insertIngestedFile(
+  file: Omit<IngestedFile, 'id'>
+): Promise<void> {
+  const db = await getDb()
+  await db.execute(
+    `INSERT INTO ingested_files (id, content_hash, simhash, file_path, ingested_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [uuid(), file.content_hash, file.simhash, file.file_path, file.ingested_at]
+  )
+}
+
+export async function deleteIngestedFileByHash(
+  contentHash: string
+): Promise<void> {
+  const db = await getDb()
+  await db.execute(
+    `DELETE FROM ingested_files WHERE content_hash = $1`,
+    [contentHash]
+  )
+}
