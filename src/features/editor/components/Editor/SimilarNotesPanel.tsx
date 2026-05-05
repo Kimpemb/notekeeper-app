@@ -31,7 +31,10 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
   const setActiveNote    = useNoteStore((s) => s.setActiveNote);
   const closeSimilar     = useUIStore((s) => s.closeSimilar);
   const aiEnabled        = useAIStore((s) => s.enabled);
-  const connectionStatus = useAIStore((s) => s.connectionStatus);
+  const connectionStatus = useAIStore((s) =>
+  Object.values(s.providers).some((p) => p.connectionStatus === "connected")
+    ? "connected" : "idle"
+);
 
   const isAIAvailable = aiEnabled && connectionStatus === "connected";
 

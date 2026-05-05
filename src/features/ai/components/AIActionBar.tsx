@@ -201,7 +201,10 @@ interface AIActionBarProps {
 
 export function AIActionBar({ note }: AIActionBarProps) {
   const enabled          = useAIStore((s) => s.enabled);
-  const connectionStatus = useAIStore((s) => s.connectionStatus);
+  const connectionStatus = useAIStore((s) =>
+  Object.values(s.providers).some((p) => p.connectionStatus === "connected")
+    ? "connected" : "idle"
+);
   const updateNote       = useNoteStore((s) => s.updateNote);
   const allNotes         = useNoteStore((s) => s.notes);
 

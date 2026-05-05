@@ -229,26 +229,26 @@ Example: 3 | Both discuss football players and their legacy.
 - If none are related, return the single word: NONE`;
 
   try {
-    const { callGemini } = await import("../../../features/ai/lib/client");
-    const raw = await callGemini(prompt);
+    const { promptPrimary } = await import("../../../features/ai/lib/client");
+const raw = await promptPrimary(prompt);
 
-    if (raw.trim().toUpperCase() === "NONE") return [];
+if (raw.trim().toUpperCase() === "NONE") return [];
 
-    return raw
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => /^\d+\s*\|/.test(line))
-      .map((line) => {
-        const pipeIdx = line.indexOf("|");
-        const numStr  = line.slice(0, pipeIdx).trim();
-        const reason  = line.slice(pipeIdx + 1).trim();
-        const index   = parseInt(numStr, 10) - 1; // convert to 0-based
-        const note    = candidates[index];
-        if (!note || !reason) return null;
-        return { noteId: note.id, title: note.title, reason };
-      })
-      .filter((r): r is AISmiliarityResult => r !== null)
-      .slice(0, 3);
+return raw
+  .split("\n")
+  .map((line: string) => line.trim())
+  .filter((line: string) => /^\d+\s*\|/.test(line))
+  .map((line: string) => {
+    const pipeIdx = line.indexOf("|");
+    const numStr  = line.slice(0, pipeIdx).trim();
+    const reason  = line.slice(pipeIdx + 1).trim();
+    const index   = parseInt(numStr, 10) - 1;
+    const note    = candidates[index];
+    if (!note || !reason) return null;
+    return { noteId: note.id, title: note.title, reason };
+  })
+  .filter((r: AISmiliarityResult | null): r is AISmiliarityResult => r !== null)
+  .slice(0, 3);
   } catch {
     return [];
   }

@@ -106,7 +106,7 @@ function AutoBackupFlow({ onBack }: { onBack: () => void }) {
     setMessage(null);
     try {
       const { saveSchedulerSettings } = await import("@/features/backup/lib/scheduler");
-      await saveSchedulerSettings({ enabled, frequency, folder, password });
+      await saveSchedulerSettings({ enabled, frequency, folder, password, tgEnabled: false, tgToken: "", tgChatId: "" });
       setStatus("success");
       setMessage(enabled ? "Auto-backup enabled." : "Auto-backup disabled.");
       setPassword("");
