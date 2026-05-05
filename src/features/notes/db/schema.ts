@@ -292,4 +292,7 @@ export const ALL_MIGRATIONS: string[] = [
   recovered_at    INTEGER,
   archived_at     INTEGER NOT NULL
 )`,
+
+  `ALTER TABLE notes ADD COLUMN vault_watched_folder TEXT`,
+
 ];

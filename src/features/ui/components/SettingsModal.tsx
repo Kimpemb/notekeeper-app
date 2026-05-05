@@ -24,7 +24,6 @@ import { ProcessingModelCard }  from "@/features/ai/components/ProcessingModelCa
 import { RPDBudgetBar }         from "@/features/ai/components/RPDBudgetBar";
 import { ProviderCard, ExhaustionHistory } from "@/features/ai/components/ProviderCard";
 
-
 // DeepSeek data residency
 import {
   DEEPSEEK_DATA_RESIDENCY_NOTICE,
@@ -47,7 +46,7 @@ export interface AppSettings {
   autoPurgeTrash: boolean;
   hasCompletedOnboarding: boolean;
   hasInsertedSampleNotes: boolean;
-  hasSeenAISetup: boolean;        // ← add this
+  hasSeenAISetup: boolean;
 }
 
 const SETTINGS_KEY = "app_settings_v1";
@@ -280,7 +279,7 @@ function EmbeddingProviderSelector() {
 
 // ─── Sidebar nav tabs ─────────────────────────────────────────────────────────
 
-type Section = "appearance" | "editor" | "keybindings" | "data" | "ai" | "backup";
+type Section = "appearance" | "editor" | "keybindings" | "data" | "vault" | "ai" | "backup";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -324,6 +323,17 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
+    id: "vault",
+    label: "Vault",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <rect x="2" y="3" width="10" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+        <circle cx="7" cy="7.5" r="1.2" stroke="currentColor" strokeWidth="1.1" />
+        <path d="M7 1.5v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     id: "ai",
     label: "AI",
     icon: (
@@ -355,6 +365,94 @@ function KeyChip({ children }: { children: React.ReactNode }) {
       {children}
     </kbd>
   );
+}
+
+// ─── Vault section ───────────────────────────────────────────────────────────────
+
+function VaultSection() {
+  const [globalInboxPath, setGlobalInboxPath] = useState<string>("")
+  const [picking, setPicking] = useState(false)
+
+  useEffect(() => {
+    getSetting("vault.global_inbox_path").then((v) => {
+      if (v) setGlobalInboxPath(v)
+    })
+  }, [])
+
+  async function handlePickFolder() {
+    setPicking(true)
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog")
+      const selected = await open({ directory: true, multiple: false, title: "Select Global Inbox Folder" })
+      if (!selected || typeof selected !== "string") return
+
+      await setSetting("vault.global_inbox_path", selected)
+      setGlobalInboxPath(selected)
+
+      const { startWatch } = await import("@/features/vault/lib/watchedFolderService")
+      await startWatch(selected, "global")
+    } catch (e) {
+      console.error("[vault] folder pick failed:", e)
+    } finally {
+      setPicking(false)
+    }
+  }
+
+  async function handleClearFolder() {
+    await setSetting("vault.global_inbox_path", "")
+    setGlobalInboxPath("")
+    const { stopWatch } = await import("@/features/vault/lib/watchedFolderService")
+    await stopWatch("global")
+  }
+
+  return (
+    <div>
+      <SectionTitle>Global Inbox</SectionTitle>
+      <Row
+        label="Watched folder"
+        description="Files saved here are automatically ingested into Context Vault"
+      >
+        <div className="flex items-center gap-2">
+          {globalInboxPath ? (
+            <>
+              <span className="text-xs font-mono text-idemora-text-muted max-w-[160px] truncate" title={globalInboxPath}>
+                {globalInboxPath.split(/[/\\]/).pop()}
+              </span>
+              <button
+                onClick={handleClearFolder}
+                className="px-2.5 py-1.5 text-xs rounded-md border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal transition-colors"
+              >
+                Clear
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handlePickFolder}
+              disabled={picking}
+              className="px-3 py-1.5 text-sm font-medium rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 disabled:opacity-50"
+            >
+              {picking ? "Selecting…" : "Set folder"}
+            </button>
+          )}
+        </div>
+      </Row>
+
+      {globalInboxPath && (
+        <div className="mt-2 p-3 rounded-lg bg-idemora-bg-primary border border-idemora-border">
+          <p className="text-xs text-idemora-text-muted leading-relaxed font-mono break-all">
+            {globalInboxPath}
+          </p>
+        </div>
+      )}
+
+      <div className="mt-4 p-3 rounded-lg bg-idemora-bg-primary border border-idemora-border">
+        <p className="text-xs text-idemora-text-muted leading-relaxed">
+          Drop exported conversations here from Claude.ai, ChatGPT, or Gemini.
+          Idemora picks them up within seconds and adds them to your vault.
+        </p>
+      </div>
+    </div>
+  )
 }
 
 // ─── AI section ───────────────────────────────────────────────────────────────
@@ -665,6 +763,8 @@ export function SettingsModal() {
                 </div>
               </div>
             )}
+
+            {section === "vault" && <VaultSection />}
 
             {section === "ai" && <AISection />}
 

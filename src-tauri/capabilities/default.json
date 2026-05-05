@@ -24,6 +24,7 @@
     "updater:allow-check",
     "updater:allow-download-and-install",
     "http:default",
-    "http:allow-fetch"
+    "http:allow-fetch",
+    "fs:default"
   ]
 }

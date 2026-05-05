@@ -15,6 +15,7 @@ export interface Note {
   sort_order: number;
   is_canvas: boolean;       // ← NEW
   canvas_state: string | null; // ← NEW
+  vault_watched_folder?: string | null;
 }
 
 export interface NoteVersion {

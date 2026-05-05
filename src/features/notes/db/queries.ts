@@ -375,6 +375,26 @@ export async function initDb(): Promise<void> {
     await archiveOldExhaustionLogs();
     console.log("[initDb] Background maintenance complete");
     _dbReadyResolve?.();
+    // Vault watcher reattach — runs after DB is fully settled.
+    // Import is lazy so vault code is never loaded on DBs without vault data.
+    try {
+      const db = await getDb()
+      const { reattachAllWatchers } = await import(
+        '@/features/vault/lib/watchedFolderService'
+      )
+      await reattachAllWatchers(db, (event) => {
+        // Route vault:file-detected to the vault ingestion pipeline.
+        // In Milestone 1.3 this dispatches to the duplicate check.
+        // For now: log only — pipeline not yet implemented.
+        console.log('[vault:file-detected]', event)
+        window.dispatchEvent(
+          new CustomEvent('vault:file-detected', { detail: event })
+        )
+      })
+    } catch (err) {
+      // Never let vault startup failure block the main app.
+      console.warn('[vault:reattach] startup error (non-fatal):', err)
+    }
   }, 5000);
 
   console.log("[initDb] Database initialized successfully");
