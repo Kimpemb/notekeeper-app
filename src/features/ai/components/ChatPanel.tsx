@@ -247,6 +247,45 @@ useEffect(() => {
   clearSession(paneId)
 }, [noteId]);
 
+// M5: Reactive subscription — watch note store for linked note lifecycle events
+  useEffect(() => {
+    if (!session?.linkedNoteId) return
+
+    return useNoteStore.subscribe((state) => {
+      const linkedId = useChatSessionStore.getState().getSession(paneId).linkedNoteId
+      if (!linkedId) return
+
+      const { markLinkedNoteTrashed, markLinkedNoteDeleted, markLinkedNoteRestored, setLinkedNoteTitle } =
+        useChatSessionStore.getState()
+
+      // Check in active notes
+      const activeNote = state.notes.find((n) => n.id === linkedId)
+      if (activeNote) {
+        // Restored from trash
+        if (session.linkedNoteTrashed) {
+          markLinkedNoteRestored(paneId, activeNote.title)
+        }
+        // Title changed
+        if (activeNote.title !== session.linkedNoteTitle) {
+          setLinkedNoteTitle(paneId, activeNote.title)
+        }
+        return
+      }
+
+      // Check in trashed notes
+      const trashedNote = state.trashedNotes?.find((n) => n.id === linkedId)
+      if (trashedNote) {
+        markLinkedNoteTrashed(paneId)
+        return
+      }
+
+      // Not in active or trashed — permanently deleted
+      if (!session.linkedNoteDeleted) {
+        markLinkedNoteDeleted(paneId)
+      }
+    })
+  }, [paneId, session?.linkedNoteId, session?.linkedNoteTrashed, session?.linkedNoteDeleted, session?.linkedNoteTitle])
+
   // Build scope suffix to append to query
   function buildScopePrefix(): string {
     if (activeScope === "notes")  return "in my notes ";
