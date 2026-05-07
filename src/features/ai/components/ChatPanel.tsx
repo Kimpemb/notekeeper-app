@@ -26,6 +26,8 @@ import { useAIStore }    from "@/features/ai/store/useAIStore";
 import { isAIReady }     from "@/features/ai/lib/client";
 import type { AICallError } from "@/features/ai/lib/client";
 import { QuickSwitch }   from "@/features/ai/components/QuickSwitch";
+import { SaveNoteDialog }        from "@/features/ai/components/SaveNoteDialog"
+import { useChatSessionStore }   from "@/features/ai/store/useChatSessionStore"
 
 interface Props {
   noteId: string;
@@ -147,6 +149,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [allExhausted, setAllExhausted]     = useState(false);
   const prevProviderRef = useRef<string | null>(null);
   const prevModelRef    = useRef<string | null>(null);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
@@ -167,6 +170,12 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
   // RPD budget for embedding provider
   const embeddingBudget = rpdBudget[embeddingProvider];
+
+  const session        = useChatSessionStore((s) => s.sessions[paneId])
+  const setLinkedNote  = useChatSessionStore((s) => s.setLinkedNote)
+  const stampSavedAt   = useChatSessionStore((s) => s.stampSavedAt)
+  const clearSession   = useChatSessionStore((s) => s.clearSession)
+
 
   // Subscribe to indexer status for paused banner
   useEffect(() => {
@@ -232,6 +241,11 @@ export function ChatPanel({ noteId, paneId }: Props) {
     setCallError(null);
     setActiveScope("all");
   }, [noteId]);
+
+  // M2: Clear session state when noteId changes to prevent stale linked note indicator
+useEffect(() => {
+  clearSession(paneId)
+}, [noteId]);
 
   // Build scope suffix to append to query
   function buildScopePrefix(): string {
@@ -403,6 +417,60 @@ export function ChatPanel({ noteId, paneId }: Props) {
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+
+          {/* Save to Note button — shown when there are messages */}
+          {messages.length > 0 && !isFreeTier && (
+            <button
+              onClick={() => setSaveDialogOpen(true)}
+              title="Save to Note"
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-idemora-text-muted border border-idemora-border hover:text-violet-500 hover:border-violet-300 transition-colors duration-100"
+            >
+              <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
+                  stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Save
+            </button>
+          )}
+
+          {/* Linked note indicator — shown when session is linked */}
+          {session?.linkedNoteId && !session?.linkedNoteDeleted && (
+            <button
+              onClick={() => {
+                if (session?.linkedNoteId) {
+                  if (paneId === 2) openTabInPane2(session.linkedNoteId)
+                  else openTab(session.linkedNoteId)
+                }
+              }}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-violet-500 border border-violet-200 hover:bg-violet-50/30 transition-colors duration-100 max-w-[8rem]"
+              title={`Saved to ${session?.linkedNoteTitle ?? "note"}`}
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
+                <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+              </svg>
+              <span className="truncate">{session?.linkedNoteTitle ?? "Saved"}</span>
+              <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0">
+                <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
+                  stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+
+          {/* Trashed indicator */}
+          {session?.linkedNoteTrashed && (
+            <span className="text-[10px] text-amber-500 px-1.5">
+              Linked note in trash
+            </span>
+          )}
+
+          {/* Permanently deleted indicator */}
+          {session?.linkedNoteDeleted && (
+            <span className="text-[10px] text-idemora-text-muted px-1.5">
+              Note deleted — next save creates new
+            </span>
+          )}
+
           {messages.length > 0 && (
             <button
               onClick={handleClear}
@@ -596,6 +664,18 @@ export function ChatPanel({ noteId, paneId }: Props) {
             )}
           </div>
         </div>
+      )}
+
+      {saveDialogOpen && (
+        <SaveNoteDialog
+          paneId={paneId}
+          messages={messages}
+          onClose={() => setSaveDialogOpen(false)}
+          onSaveSuccess={(noteId, noteTitle) => {
+            setLinkedNote(paneId, noteId, noteTitle)
+            stampSavedAt(paneId)
+          }}
+        />
       )}
 
       <ToastContainer toasts={toasts} />
