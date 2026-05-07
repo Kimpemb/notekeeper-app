@@ -31,6 +31,16 @@ import { formatCleanSession, formatCleanResponse, estimateTokens, getLengthBand 
 import { useChatSessionStore }            from "@/features/ai/store/useChatSessionStore"
 import type { TranscriptMessage }         from "@/features/ai/lib/save/transcript"
 import type { ChatMessage }               from "@/features/ai/lib/chat"
+import { generateJSON } from "@tiptap/core"
+import StarterKit from "@tiptap/starter-kit"
+import { marked } from "marked"
+import {
+  CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
+  EditorTable, TableRow, TableHeader, TableCell, ImageExtension, AttachmentExtension,
+  BlockIdExtension, BlockRefNode, DataviewNode, Color, TextStyle, MultiHighlight,
+} from "@/features/editor/components/Editor/extensions"
+import { SubPageNode } from "@/features/editor/components/Editor/SubPageNode"
+import { NoteLink }    from "@/features/editor/components/Editor/NoteLink"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,22 +61,31 @@ function toTranscript(messages: ChatMessage[]): TranscriptMessage[] {
   return messages.map((m) => ({ role: m.role, content: m.content }))
 }
 
-// Minimal ProseMirror doc wrapping plain markdown text as a single code-like
-// paragraph. The editor's markdown import path will handle rendering.
-// We store as a plain paragraph block — the editor renders plaintext natively.
+const PARSE_EXTENSIONS = [
+  StarterKit.configure({ codeBlock: false }),
+  Color, TextStyle, MultiHighlight,
+  CodeBlock, Callout, CheckList, CheckItem,
+  EditorTable, TableRow, TableHeader, TableCell,
+  Toggle, ToggleSummary, ToggleBody,
+  ImageExtension, AttachmentExtension,
+  BlockIdExtension, BlockRefNode, DataviewNode,
+  SubPageNode,
+  NoteLink.configure({ onNavigate: () => {} }),
+]
+
 function markdownToContent(md: string): { content: string; plaintext: string } {
-  // Store as a single paragraph containing the raw markdown text.
-  // The note's plaintext field gets the same string (used for FTS + RAG).
-  const doc = {
-    type: "doc",
-    content: [
-      {
-        type: "paragraph",
-        content: [{ type: "text", text: md }],
-      },
-    ],
+  try {
+    const html = marked.parse(md) as string
+    const doc  = generateJSON(html, PARSE_EXTENSIONS)
+    return { content: JSON.stringify(doc), plaintext: md }
+  } catch (err) {
+    console.warn("[markdownToContent] parse failed:", err)
+    const doc = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: md }] }],
+    }
+    return { content: JSON.stringify(doc), plaintext: md }
   }
-  return { content: JSON.stringify(doc), plaintext: md }
 }
 
 // ─── Parent picker (reused search+list pattern from MoveNoteModal) ────────────
@@ -258,6 +277,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
             await saveManualVersion(session.linkedNoteId!)
             await updateNote(session.linkedNoteId, { content, plaintext })
             onSaveSuccess(session.linkedNoteId, linkedNote.title)
+            useChatSessionStore.getState().stampSavedAt(paneId)
             onClose()
             return
           }
@@ -278,6 +298,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
         }))
 
         onSaveSuccess(savedNote.id, savedNote.title)
+        useChatSessionStore.getState().stampSavedAt(paneId)
 
       } else {
         // Append to current note under ## Chat — YYYY-MM-DD heading
@@ -325,6 +346,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
         })
 
         onSaveSuccess(currentNoteId, currentNote?.title ?? "")
+        useChatSessionStore.getState().stampSavedAt(paneId)
       }
 
       onClose()
@@ -336,7 +358,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
   }, [
     saving, messages, format, destination, parentId, noteName, selectedMessage,
     currentNoteId, currentNote, notes, createNote, updateNote,
-    onSaveSuccess, onClose,
+    onSaveSuccess, onClose, paneId,
   ])
 
   // ── Keyboard ────────────────────────────────────────────────────────────────
@@ -505,6 +527,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
                       await saveManualVersion(session.linkedNoteId!)
                       await updateNote(session.linkedNoteId!, conflictPending)
                       onSaveSuccess(session.linkedNoteId!, linkedNote.title)
+                      useChatSessionStore.getState().stampSavedAt(paneId)
                     }
                     setConflictPending(null)
                     onClose()
@@ -534,6 +557,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
                       detail: { noteId: savedNote.id }
                     }))
                     onSaveSuccess(savedNote.id, savedNote.title)
+                    useChatSessionStore.getState().stampSavedAt(paneId)
                     setConflictPending(null)
                     onClose()
                   }}
