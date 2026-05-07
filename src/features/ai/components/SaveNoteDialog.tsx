@@ -26,8 +26,10 @@ import {
   formatRawTranscript,
   wrapForAppend,
 } from "@/features/ai/lib/save/transcript"
-import type { TranscriptMessage } from "@/features/ai/lib/save/transcript"
-import type { ChatMessage }        from "@/features/ai/lib/chat"
+import { getNoteById, saveManualVersion } from "@/features/notes/db/queries"
+import { useChatSessionStore }            from "@/features/ai/store/useChatSessionStore"
+import type { TranscriptMessage }         from "@/features/ai/lib/save/transcript"
+import type { ChatMessage }               from "@/features/ai/lib/chat"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -180,6 +182,10 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Pro
   const [showParentPicker, setShowParentPicker] = useState(false)
   const [saving, setSaving]               = useState(false)
   const [error, setError]                 = useState<string | null>(null)
+  const [conflictPending, setConflictPending] = useState<{
+    content: string
+    plaintext: string
+  } | null>(null)
 
   // Show parent picker when no note is open
   useEffect(() => {
@@ -211,18 +217,44 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Pro
       const { content, plaintext } = markdownToContent(markdown)
 
       if (destination === "subnote") {
-        // Create child note under parentId (defaults to current note)
+        const session = useChatSessionStore.getState().getSession(paneId)
+
+        // Re-save path — linked note already exists
+        if (session.linkedNoteId) {
+          const linkedNote = await getNoteById(session.linkedNoteId)
+
+          if (linkedNote) {
+            const lastSavedAt  = session.lastSavedAt ?? 0
+            const noteUpdatedAt = linkedNote.updated_at
+
+            // Conflict — note was manually edited after last save
+            if (noteUpdatedAt > lastSavedAt) {
+              setConflictPending({ content, plaintext })
+              setSaving(false)
+              return
+            }
+
+            // Silent overwrite — save version first, then update
+            await saveManualVersion(session.linkedNoteId!)
+            await updateNote(session.linkedNoteId, { content, plaintext })
+            onSaveSuccess(session.linkedNoteId, linkedNote.title)
+            onClose()
+            return
+          }
+        }
+
+        // First save — create new sub-note
         const resolvedParentId = parentId ?? null
         const savedNote = await createNote({
-        title:     noteName.trim() || generateNoteName(transcript),
-        content,
-        plaintext,
-        parent_id: resolvedParentId,
+          title:     noteName.trim() || generateNoteName(transcript),
+          content,
+          plaintext,
+          parent_id: resolvedParentId,
         })
 
         // Insert inline SubPageNode into the editor
         window.dispatchEvent(new CustomEvent("idemora:insert-subpage", {
-        detail: { noteId: savedNote.id }
+          detail: { noteId: savedNote.id }
         }))
 
         onSaveSuccess(savedNote.id, savedNote.title)
@@ -422,6 +454,62 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Pro
               />
             </div>
           </div>
+
+          {/* Conflict dialog */}
+          {conflictPending && (
+            <div className="space-y-2 p-3 rounded-lg border border-amber-200 bg-amber-50/40">
+              <p className="text-xs font-semibold text-amber-700">
+                This note has been edited since it was last saved from chat.
+              </p>
+              <div className="flex flex-col gap-1.5 pt-1">
+                <button
+                  onClick={async () => {
+                    setSaving(true)
+                    const session = useChatSessionStore.getState().getSession(paneId)
+                    const linkedNote = await getNoteById(session.linkedNoteId!)
+                    if (linkedNote) {
+                      await saveManualVersion(session.linkedNoteId!)
+                      await updateNote(session.linkedNoteId!, conflictPending)
+                      onSaveSuccess(session.linkedNoteId!, linkedNote.title)
+                    }
+                    setConflictPending(null)
+                    onClose()
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors duration-75"
+                >
+                  Save from chat — overwrite manual edits (version history preserved)
+                </button>
+                <button
+                  onClick={() => setConflictPending(null)}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium border border-idemora-border text-idemora-text-normal hover:bg-idemora-bg-primary transition-colors duration-75"
+                >
+                  Keep manual edits — cancel save
+                </button>
+                <button
+                  onClick={async () => {
+                    setSaving(true)
+                    const session = useChatSessionStore.getState().getSession(paneId)
+                    const resolvedParentId = session.linkedNoteId
+                    const savedNote = await createNote({
+                      title:     noteName.trim() || generateNoteName(toTranscript(messages)),
+                      content:   conflictPending.content,
+                      plaintext: conflictPending.plaintext,
+                      parent_id: resolvedParentId,
+                    })
+                    window.dispatchEvent(new CustomEvent("idemora:insert-subpage", {
+                      detail: { noteId: savedNote.id }
+                    }))
+                    onSaveSuccess(savedNote.id, savedNote.title)
+                    setConflictPending(null)
+                    onClose()
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium border border-idemora-border text-idemora-text-normal hover:bg-idemora-bg-primary transition-colors duration-75"
+                >
+                  Save as new sub-note — keep both
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Error */}
           {error && (
