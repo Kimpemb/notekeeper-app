@@ -13,8 +13,9 @@ export interface Note {
   updated_at: number;
   deleted_at: number | null;
   sort_order: number;
-  is_canvas: boolean;       // ← NEW
-  canvas_state: string | null; // ← NEW
+  is_canvas: boolean;
+  canvas_state: string | null;
+  rag_excluded: number; // 0 = included, 1 = excluded from RAG index
 }
 
 export interface NoteVersion {

@@ -260,36 +260,54 @@ export const ALL_MIGRATIONS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_quota_log_provider_date
     ON embedding_quota_log(provider_id, date)`,
 
-    // ── Slot Rotation & Quota Management ─────────────────────────────────────
+  // ── Slot Rotation & Quota Management ─────────────────────────────────────
 
-// Add key_id to embedding_quota_log and rebuild unique constraint
-`ALTER TABLE embedding_quota_log ADD COLUMN key_id TEXT NOT NULL DEFAULT ''`,
+  // Add key_id to embedding_quota_log and rebuild unique constraint
+  `ALTER TABLE embedding_quota_log ADD COLUMN key_id TEXT NOT NULL DEFAULT ''`,
 
-`CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_log_unique
-  ON embedding_quota_log(provider_id, model_id, key_id, date)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_log_unique
+    ON embedding_quota_log(provider_id, model_id, key_id, date)`,
 
-`CREATE TABLE IF NOT EXISTS exhaustion_log (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  provider_id     TEXT    NOT NULL,
-  model_id        TEXT    NOT NULL,
-  key_id          TEXT    NOT NULL,
-  slot            TEXT    NOT NULL,
-  reason          TEXT    NOT NULL,
-  exhausted_at    INTEGER NOT NULL,
-  last_checked_at INTEGER,
-  recovered_at    INTEGER
-)`,
+  `CREATE TABLE IF NOT EXISTS exhaustion_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id     TEXT    NOT NULL,
+    model_id        TEXT    NOT NULL,
+    key_id          TEXT    NOT NULL,
+    slot            TEXT    NOT NULL,
+    reason          TEXT    NOT NULL,
+    exhausted_at    INTEGER NOT NULL,
+    last_checked_at INTEGER,
+    recovered_at    INTEGER
+  )`,
 
-`CREATE TABLE IF NOT EXISTS exhaustion_log_archive (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  provider_id     TEXT    NOT NULL,
-  model_id        TEXT    NOT NULL,
-  key_id          TEXT    NOT NULL,
-  slot            TEXT    NOT NULL,
-  reason          TEXT    NOT NULL,
-  exhausted_at    INTEGER NOT NULL,
-  last_checked_at INTEGER,
-  recovered_at    INTEGER,
-  archived_at     INTEGER NOT NULL
-)`,
+  `CREATE TABLE IF NOT EXISTS exhaustion_log_archive (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id     TEXT    NOT NULL,
+    model_id        TEXT    NOT NULL,
+    key_id          TEXT    NOT NULL,
+    slot            TEXT    NOT NULL,
+    reason          TEXT    NOT NULL,
+    exhausted_at    INTEGER NOT NULL,
+    last_checked_at INTEGER,
+    recovered_at    INTEGER,
+    archived_at     INTEGER NOT NULL
+  )`,
+
+  // ── Phase 3 — RAG Exclusion & Breadcrumbs (M10) ──────────────────────────
+
+  // M10a — rag_excluded flag on notes
+  // Notes with rag_excluded = 1 are skipped during embedding and excluded
+  // from FTS/vector retrieval. Their titles remain discoverable via
+  // note_title_chunks.
+  `ALTER TABLE notes ADD COLUMN rag_excluded INTEGER NOT NULL DEFAULT 0`,
+
+  // M10b — breadcrumb on note_title_chunks
+  // Full hierarchical path of the note (e.g. "Project / Docs / Spec").
+  // Computed at index time and stored alongside the title.
+  `ALTER TABLE note_title_chunks ADD COLUMN breadcrumb TEXT`,
+
+  // M10c — breadcrumb on embeddings
+  // Same path, stored per-embedding so the model receives provenance
+  // context alongside every retrieved chunk.
+  `ALTER TABLE embeddings ADD COLUMN breadcrumb TEXT`,
 ];

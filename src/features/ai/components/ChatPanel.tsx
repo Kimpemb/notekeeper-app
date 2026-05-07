@@ -1,14 +1,6 @@
 // src/features/ai/components/ChatPanel.tsx
 //
-// RAG v3 — Milestone 8
-// All v2 behaviour preserved. Additions:
-//   - Tier 1 "Found in your notes" result cards
-//   - Scope selector bar (dropdown + active pill)
-//   - Embedding progress indicator in header
-//   - RPD budget display in input footer
-//   - Citation numbers in assistant messages
-//   - medium-confidence gate on Related section
-//   - No-embedding fallback inline banner
+// RAG v3 — Milestone 8 + Phase 3 (M14 scope, save flow)
 
 import { useEffect, useRef, useState, useCallback, type ReactElement } from "react";
 import { subscribeToIndexerStatus } from "@/features/ai/lib/indexer";
@@ -19,15 +11,15 @@ import {
   type RelatedNote,
   type Tier1ResultCard,
 } from "@/features/ai/lib/chat";
-import { clearAIHistory, clearConversationSummary } from "@/features/notes/db/queries";
-import { useNoteStore }  from "@/features/notes/store/useNoteStore";
-import { useUIStore }    from "@/features/ui/store/useUIStore";
-import { useAIStore }    from "@/features/ai/store/useAIStore";
-import { isAIReady }     from "@/features/ai/lib/client";
-import type { AICallError } from "@/features/ai/lib/client";
-import { QuickSwitch }   from "@/features/ai/components/QuickSwitch";
-import { SaveNoteDialog }        from "@/features/ai/components/SaveNoteDialog"
-import { useChatSessionStore }   from "@/features/ai/store/useChatSessionStore"
+import { clearAIHistory, clearConversationSummary, getAllDescendants } from "@/features/notes/db/queries";
+import { useNoteStore }        from "@/features/notes/store/useNoteStore";
+import { useUIStore }          from "@/features/ui/store/useUIStore";
+import { useAIStore }          from "@/features/ai/store/useAIStore";
+import { isAIReady }           from "@/features/ai/lib/client";
+import type { AICallError }    from "@/features/ai/lib/client";
+import { QuickSwitch }         from "@/features/ai/components/QuickSwitch";
+import { SaveNoteDialog }      from "@/features/ai/components/SaveNoteDialog";
+import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore";
 
 interface Props {
   noteId: string;
@@ -43,26 +35,12 @@ interface MessageMeta {
   tier1Results?:  Tier1ResultCard[];
 }
 
-// Scope options for the selector bar
-type ScopeOption =
-  | { type: "all";    label: "All content" }
-  | { type: "notes";  label: "Notes only" }
-  | { type: "vault";  label: "Vault entries only" }
-  | { type: "recent"; label: "Recent (30 days)" };
-
-const SCOPE_OPTIONS: ScopeOption[] = [
-  { type: "all",    label: "All content" },
-  { type: "notes",  label: "Notes only" },
-  { type: "vault",  label: "Vault entries only" },
-  { type: "recent", label: "Recent (30 days)" },
-];
-
 // ─── Toast system ─────────────────────────────────────────────────────────────
 
 interface Toast {
-  id:         string;
-  message:    string;
-  prominent:  boolean;
+  id:        string;
+  message:   string;
+  prominent: boolean;
 }
 
 function useToasts() {
@@ -85,11 +63,11 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`px-3 py-2 rounded-lg shadow-lg border text-xs font-medium animate-fade-in
-            ${toast.prominent
+          className={`px-3 py-2 rounded-lg shadow-lg border text-xs font-medium animate-fade-in ${
+            toast.prominent
               ? "bg-violet-500 text-white border-violet-600"
               : "bg-idemora-bg-primary text-idemora-text-normal border-idemora-border"
-            }`}
+          }`}
         >
           {toast.message}
         </div>
@@ -102,7 +80,6 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
 
 function QuotaExhaustedCard({ onRetry }: { onRetry: () => void }) {
   const hasAnyValidKey = useAIStore((s) => s.hasAnyValidKey);
-
   return (
     <div className="mx-3 mt-2 rounded-lg border border-red-100 bg-red-50/40 p-3 space-y-2.5">
       <div className="flex items-center gap-1.5">
@@ -136,59 +113,63 @@ function QuotaExhaustedCard({ onRetry }: { onRetry: () => void }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChatPanel({ noteId, paneId }: Props) {
-  const [messages, setMessages]       = useState<ChatMessage[]>([]);
-  const [metaMap, setMetaMap]         = useState<Map<string, MessageMeta>>(new Map());
-  const [input, setInput]             = useState("");
-  const [loading, setLoading]         = useState(false);
+  const [messages, setMessages]     = useState<ChatMessage[]>([]);
+  const [metaMap, setMetaMap]       = useState<Map<string, MessageMeta>>(new Map());
+  const [input, setInput]           = useState("");
+  const [loading, setLoading]       = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
-  const [callError, setCallError]     = useState<AICallError | null>(null);
-  const [activeScope, setActiveScope] = useState<ScopeOption["type"]>("all");
-  const [scopeOpen, setScopeOpen]     = useState(false);
-  const { toasts, addToast } = useToasts();
+  const [callError, setCallError]   = useState<AICallError | null>(null);
   const [indexingPaused, setIndexingPaused] = useState(false);
   const [allExhausted, setAllExhausted]     = useState(false);
-  const prevProviderRef = useRef<string | null>(null);
-  const prevModelRef    = useRef<string | null>(null);
-  const [saveDialogOpen, setSaveDialogOpen]     = useState(false)
-  const [selectedMessage, setSelectedMessage]   = useState<{
-    user:      { role: "user" | "assistant"; content: string }
-    assistant: { role: "user" | "assistant"; content: string }
-  } | null>(null)
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<{
+    user:      { role: "user" | "assistant"; content: string };
+    assistant: { role: "user" | "assistant"; content: string };
+  } | null>(null);
+
+  const { toasts, addToast } = useToasts();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
-  const scopeRef       = useRef<HTMLDivElement>(null);
+  const prevProviderRef = useRef<string | null>(null);
+  const prevModelRef    = useRef<string | null>(null);
+
+  // Use a ref to always have current ragScope / session inside handleSend
+  // without needing them in the useCallback dep array
+  const ragScopeRef    = useRef<"all" | "note">("all");
+  const linkedNoteRef  = useRef<string | null>(null);
 
   const notes          = useNoteStore((s) => s.notes);
   const openTab        = useUIStore((s) => s.openTab);
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
   const closeChat      = useUIStore((s) => s.closeChat);
-  const setProviderStatus  = useAIStore((s) => s.setProviderStatus);
+  const setProviderStatus = useAIStore((s) => s.setProviderStatus);
   const primarySlot    = useAIStore((s) => s.primarySlot);
-  const embeddingProvider  = useAIStore((s) => s.embeddingProvider);
+  const embeddingProvider = useAIStore((s) => s.embeddingProvider);
   const rpdBudget      = useAIStore((s) => s.rpdBudget);
 
-  const aiReady     = isAIReady();
+  const aiReady    = isAIReady();
   const isFreeTier = !aiReady;
   const currentNote = notes.find((n) => n.id === noteId);
-
-  // RPD budget for embedding provider
   const embeddingBudget = rpdBudget[embeddingProvider];
 
-  const session        = useChatSessionStore((s) => s.sessions[paneId])
-  const setLinkedNote  = useChatSessionStore((s) => s.setLinkedNote)
-  const stampSavedAt   = useChatSessionStore((s) => s.stampSavedAt)
-  const clearSession   = useChatSessionStore((s) => s.clearSession)
+  const session           = useChatSessionStore((s) => s.sessions[paneId]);
+  const setLinkedNote     = useChatSessionStore((s) => s.setLinkedNote);
+  const stampSavedAt      = useChatSessionStore((s) => s.stampSavedAt);
+  const clearSession      = useChatSessionStore((s) => s.clearSession);
+  const setRagScope       = useChatSessionStore((s) => s.setRagScope);
+  const ragScope          = session.ragScope;
 
+  // Keep refs in sync so handleSend always reads current values
+  useEffect(() => { ragScopeRef.current   = ragScope; },            [ragScope]);
+  useEffect(() => { linkedNoteRef.current = session.linkedNoteId; }, [session.linkedNoteId]);
 
-  // Subscribe to indexer status for paused banner
+  // ── Effects ────────────────────────────────────────────────────────────────
+
   useEffect(() => {
-    return subscribeToIndexerStatus((status) => {
-      setIndexingPaused(status.paused);
-    });
+    return subscribeToIndexerStatus((status) => setIndexingPaused(status.paused));
   }, []);
 
-  // Subscribe to recovery events — dismiss exhausted card + toast
   useEffect(() => {
     return onRecovery(() => {
       setAllExhausted(false);
@@ -196,7 +177,6 @@ export function ChatPanel({ noteId, paneId }: Props) {
     });
   }, [addToast]);
 
-  // Watch rotation state for toasts
   const primaryRotation = useAIStore((s) => s.primaryRotation);
   useEffect(() => {
     if (prevProviderRef.current === null) {
@@ -213,23 +193,9 @@ export function ChatPanel({ noteId, paneId }: Props) {
     prevModelRef.current    = primaryRotation.model;
   }, [primaryRotation, addToast]);
 
-  // Detect ALL_EXHAUSTED error
   useEffect(() => {
-    if (callError?.code === "ALL_EXHAUSTED") {
-      setAllExhausted(true);
-    }
+    if (callError?.code === "ALL_EXHAUSTED") setAllExhausted(true);
   }, [callError]);
-
-  // Close scope dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (scopeRef.current && !scopeRef.current.contains(e.target as Node)) {
-        setScopeOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -243,81 +209,50 @@ export function ChatPanel({ noteId, paneId }: Props) {
     setMessages([]);
     setMetaMap(new Map());
     setCallError(null);
-    setActiveScope("all");
+    clearSession(paneId);
   }, [noteId]);
 
-  // M2: Clear session state when noteId changes to prevent stale linked note indicator
-useEffect(() => {
-  clearSession(paneId)
-}, [noteId]);
-
-// M5: Reactive subscription — watch note store for linked note lifecycle events
+  // M5: Reactive subscription — watch note store for linked note lifecycle events
   useEffect(() => {
-    if (!session?.linkedNoteId) return
-
+    if (!session?.linkedNoteId) return;
     return useNoteStore.subscribe((state) => {
-      const linkedId = useChatSessionStore.getState().getSession(paneId).linkedNoteId
-      if (!linkedId) return
-
+      const linkedId = useChatSessionStore.getState().getSession(paneId).linkedNoteId;
+      if (!linkedId) return;
       const { markLinkedNoteTrashed, markLinkedNoteDeleted, markLinkedNoteRestored, setLinkedNoteTitle } =
-        useChatSessionStore.getState()
-
-      // Check in active notes
-      const activeNote = state.notes.find((n) => n.id === linkedId)
+        useChatSessionStore.getState();
+      const activeNote = state.notes.find((n) => n.id === linkedId);
       if (activeNote) {
-        // Restored from trash
-        if (session.linkedNoteTrashed) {
-          markLinkedNoteRestored(paneId, activeNote.title)
-        }
-        // Title changed
-        if (activeNote.title !== session.linkedNoteTitle) {
-          setLinkedNoteTitle(paneId, activeNote.title)
-        }
-        return
+        if (session.linkedNoteTrashed) markLinkedNoteRestored(paneId, activeNote.title);
+        if (activeNote.title !== session.linkedNoteTitle) setLinkedNoteTitle(paneId, activeNote.title);
+        return;
       }
+      const trashedNote = state.trashedNotes?.find((n) => n.id === linkedId);
+      if (trashedNote) { markLinkedNoteTrashed(paneId); return; }
+      if (!session.linkedNoteDeleted) markLinkedNoteDeleted(paneId);
+    });
+  }, [paneId, session?.linkedNoteId, session?.linkedNoteTrashed, session?.linkedNoteDeleted, session?.linkedNoteTitle]);
 
-      // Check in trashed notes
-      const trashedNote = state.trashedNotes?.find((n) => n.id === linkedId)
-      if (trashedNote) {
-        markLinkedNoteTrashed(paneId)
-        return
-      }
+  // ── Scope resolution ───────────────────────────────────────────────────────
 
-      // Not in active or trashed — permanently deleted
-      if (!session.linkedNoteDeleted) {
-        markLinkedNoteDeleted(paneId)
-      }
-    })
-  }, [paneId, session?.linkedNoteId, session?.linkedNoteTrashed, session?.linkedNoteDeleted, session?.linkedNoteTitle])
-
-  // Build scope suffix to append to query
-  function buildScopePrefix(): string {
-    if (activeScope === "notes")  return "in my notes ";
-    if (activeScope === "vault")  return "in my vault entries ";
-    if (activeScope === "recent") return "from last 30 days ";
-    return "";
+  async function resolveScopeNoteIds(): Promise<string[] | undefined> {
+    // Read from refs — always current even inside stale closures
+    if (ragScopeRef.current === "all" || !linkedNoteRef.current) return undefined;
+    const descendants = await getAllDescendants(linkedNoteRef.current);
+    return [linkedNoteRef.current, ...descendants.map((d: { id: string }) => d.id)];
   }
+
+  // ── Send ───────────────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async () => {
     const q = input.trim();
     if (!q || loading || isFreeTier) return;
 
-    // Prepend scope signal so intentDetection / scoped parser picks it up
-    const scopedQuery = buildScopePrefix() + q;
-
     const userMsg: ChatMessage = {
-      id:        crypto.randomUUID(),
-      role:      "user",
-      content:   q,         // display the raw query
-      createdAt: Date.now(),
+      id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
     };
-
     const assistantId = crypto.randomUUID();
     const assistantMsg: ChatMessage = {
-      id:        assistantId,
-      role:      "assistant",
-      content:   "",
-      createdAt: Date.now(),
+      id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
     };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -329,17 +264,18 @@ useEffect(() => {
     let errorHandled = false;
 
     try {
+      const scopeNoteIds = await resolveScopeNoteIds();
+
       const meta = await streamChatWithNotes(
-        scopedQuery,
+        q,
         notes,
         noteId,
         currentNote,
+        scopeNoteIds,
         {
           onChunk: (token) => {
             setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, content: m.content + token } : m
-              )
+              prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
             );
           },
           onDone: () => {
@@ -373,41 +309,28 @@ useEffect(() => {
       if (!errorHandled) {
         setMessages((prev) => prev.filter((m) => m.id !== assistantId));
         const err = rawErr as Partial<AICallError>;
-        if (err?.code) {
-          setCallError(rawErr as AICallError);
-        } else {
-          setCallError({
-            code:      "UNKNOWN",
-            provider:  primarySlot.provider,
-            model:     primarySlot.model,
-            message:   "Something went wrong. Please try again.",
-            retryable: false,
-            name:      "AICallError",
-          } as AICallError);
-        }
+        setCallError(err?.code ? (rawErr as AICallError) : {
+          code: "UNKNOWN", provider: primarySlot.provider, model: primarySlot.model,
+          message: "Something went wrong. Please try again.", retryable: false, name: "AICallError",
+        } as AICallError);
         setStreamingId(null);
         setLoading(false);
       }
     }
+  // resolveScopeNoteIds uses refs so doesn't need to be a dep
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot,
-      setProviderStatus, activeScope]);
+  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }
 
   async function handleClear() {
     setMessages([]);
     setMetaMap(new Map());
     setCallError(null);
-    await Promise.all([
-      clearAIHistory(noteId),
-      clearConversationSummary(noteId),
-    ]);
+    clearSession(paneId);
+    await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)]);
   }
 
   function handleOpenNote(id: string) {
@@ -415,150 +338,144 @@ useEffect(() => {
     else openTab(id);
   }
 
-  const activeScopeLabel = SCOPE_OPTIONS.find((o) => o.type === activeScope)?.label ?? "All content";
+  function handleScopeToggle() {
+    if (ragScope === "note") {
+      setRagScope(paneId, "all");
+    } else if (session.linkedNoteId) {
+      setRagScope(paneId, "note");
+    }
+    // if ragScope === "all" and no linkedNoteId, do nothing (button is dimmed)
+  }
 
-  // Whether any message has no embeddings (show fallback banner)
   const hasNoEmbeddingMessage = [...metaMap.values()].some((m) => !m.usedEmbeddings);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full w-72 shrink-0 border-l border-idemora-border bg-idemora-bg-primary">
 
       {/* ── Header ── */}
-<div className="flex flex-col border-b border-idemora-border shrink-0">
+      <div className="flex flex-col border-b border-idemora-border shrink-0">
 
-  {/* Row 1 — identity + close */}
-  <div className="flex items-center justify-between px-3 pt-3 pb-2">
-    <div className="flex items-center gap-2 min-w-0">
-      <div className="w-5 h-5 rounded-md bg-violet-50 flex items-center justify-center shrink-0">
-        <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-violet-500">
-          <path d="M6.5 1C3.46 1 1 3.19 1 5.9c0 1.5.7 2.85 1.82 3.78L2.5 12l2.3-1.1c.54.15 1.1.23 1.7.23 3.04 0 5.5-2.19 5.5-4.9S9.54 1 6.5 1z"
-            stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-          <path d="M4 5.5h5M4 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-        </svg>
+        {/* Row 1 — identity + close */}
+        <div className="flex items-center justify-between px-3 pt-3 pb-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-5 h-5 rounded-md bg-violet-50 flex items-center justify-center shrink-0">
+              <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-violet-500">
+                <path d="M6.5 1C3.46 1 1 3.19 1 5.9c0 1.5.7 2.85 1.82 3.78L2.5 12l2.3-1.1c.54.15 1.1.23 1.7.23 3.04 0 5.5-2.19 5.5-4.9S9.54 1 6.5 1z"
+                  stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                <path d="M4 5.5h5M4 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              </svg>
+            </div>
+            {!isFreeTier && <QuickSwitch />}
+            {isFreeTier && (
+              <span className="text-sm font-semibold text-idemora-text-normal truncate">
+                Ask your notes
+              </span>
+            )}
+            {messages.length > 0 && !isFreeTier && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-600 tabular-nums shrink-0">
+                {Math.floor(messages.length / 2)}
+              </span>
+            )}
+            {!isFreeTier && embeddingBudget.used > 0 && embeddingBudget.used < embeddingBudget.ceiling && (
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse shrink-0"
+                title={`Indexing — ${embeddingBudget.ceiling - embeddingBudget.used} requests remaining today`}
+              />
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {messages.length > 0 && (
+              <button
+                onClick={handleClear}
+                title="Clear conversation"
+                className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M1.5 2.5h7M3 2.5V1.5h4v1M3.5 4.5v3M6.5 4.5v3M2 2.5l.5 6h5l.5-6"
+                    stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={() => closeChat(paneId)}
+              className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+            >
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2 — save + linked note indicator */}
+        {(messages.length > 0 || session?.linkedNoteId || session?.linkedNoteTrashed || session?.linkedNoteDeleted) && (
+          <div className="flex items-center gap-1.5 px-3 pb-2.5 flex-wrap">
+            {messages.length > 0 && !isFreeTier && (
+              <button
+                onClick={() => setSaveDialogOpen(true)}
+                title="Save to Note"
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-idemora-text-muted border border-idemora-border hover:text-violet-500 hover:border-violet-300 transition-colors duration-100 shrink-0"
+              >
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                  <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
+                    stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Save
+              </button>
+            )}
+            {session?.linkedNoteId && !session?.linkedNoteDeleted && (
+              <button
+                onClick={() => {
+                  if (session.linkedNoteId) {
+                    if (paneId === 2) openTabInPane2(session.linkedNoteId);
+                    else openTab(session.linkedNoteId);
+                  }
+                }}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-violet-500 border border-violet-200 hover:bg-violet-50/30 transition-colors duration-100 min-w-0"
+                title={`Saved to ${session.linkedNoteTitle ?? "note"}`}
+              >
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                  <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
+                  <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+                </svg>
+                <span className="truncate max-w-[6rem]">{session.linkedNoteTitle ?? "Saved"}</span>
+                <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0">
+                  <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
+                    stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
+            {session?.linkedNoteTrashed && (
+              <span className="text-[10px] text-amber-500 shrink-0">Linked note in trash</span>
+            )}
+            {session?.linkedNoteDeleted && (
+              <span className="text-[10px] text-idemora-text-muted shrink-0">Note deleted — next save creates new</span>
+            )}
+          </div>
+        )}
       </div>
 
-      {!isFreeTier && <QuickSwitch />}
-      {isFreeTier && (
-        <span className="text-sm font-semibold text-idemora-text-normal truncate">
-          Ask your notes
-        </span>
-      )}
-
-      {messages.length > 0 && !isFreeTier && (
-        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-600 tabular-nums shrink-0">
-          {Math.floor(messages.length / 2)}
-        </span>
-      )}
-
-      {!isFreeTier && embeddingBudget.used > 0 && embeddingBudget.used < embeddingBudget.ceiling && (
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse shrink-0"
-          title={`Indexing — ${embeddingBudget.ceiling - embeddingBudget.used} requests remaining today`}
-        />
-      )}
-    </div>
-
-    <div className="flex items-center gap-1 shrink-0">
-      {messages.length > 0 && (
-        <button
-          onClick={handleClear}
-          title="Clear conversation"
-          className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M1.5 2.5h7M3 2.5V1.5h4v1M3.5 4.5v3M6.5 4.5v3M2 2.5l.5 6h5l.5-6"
-              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-      )}
-      <button
-        onClick={() => closeChat(paneId)}
-        className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
-      >
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-          <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-        </svg>
-      </button>
-    </div>
-  </div>
-
-  {/* Row 2 — save + linked note indicator (only when relevant) */}
-  {(messages.length > 0 || session?.linkedNoteId || session?.linkedNoteTrashed || session?.linkedNoteDeleted) && (
-    <div className="flex items-center gap-2 px-3 pb-2.5">
-      {messages.length > 0 && !isFreeTier && (
-        <button
-          onClick={() => setSaveDialogOpen(true)}
-          title="Save to Note"
-          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-idemora-text-muted border border-idemora-border hover:text-violet-500 hover:border-violet-300 transition-colors duration-100 shrink-0"
-        >
-          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-            <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
-              stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Save
-        </button>
-      )}
-
-      {session?.linkedNoteId && !session?.linkedNoteDeleted && (
-        <button
-          onClick={() => {
-            if (session?.linkedNoteId) {
-              if (paneId === 2) openTabInPane2(session.linkedNoteId)
-              else openTab(session.linkedNoteId)
-            }
-          }}
-          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-violet-500 border border-violet-200 hover:bg-violet-50/30 transition-colors duration-100 min-w-0"
-          title={`Saved to ${session?.linkedNoteTitle ?? "note"}`}
-        >
-          <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
-            <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
-            <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-          </svg>
-          <span className="truncate">{session?.linkedNoteTitle ?? "Saved"}</span>
-          <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0">
-            <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
-              stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-      )}
-
-      {session?.linkedNoteTrashed && (
-        <span className="text-[10px] text-amber-500">Linked note in trash</span>
-      )}
-
-      {session?.linkedNoteDeleted && (
-        <span className="text-[10px] text-idemora-text-muted">Note deleted — next save creates new</span>
-      )}
-    </div>
-  )}
-</div>
-
-      {/* ── Indexing paused banner (after header) ── */}
+      {/* ── Indexing paused banner ── */}
       {indexingPaused && (
         <div className="mx-3 mt-2 px-3 py-1.5 rounded-lg bg-amber-50/40 border border-amber-100 flex items-center gap-2 shrink-0">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-          <p className="text-[10px] text-amber-600">
-            Indexing paused — embedding quota reached
-          </p>
+          <p className="text-[10px] text-amber-600">Indexing paused — embedding quota reached</p>
         </div>
       )}
 
       {/* ── Body ── */}
       <div className="flex-1 overflow-y-auto">
-
         {isFreeTier ? (
           <FreeTierState />
         ) : messages.length === 0 && !callError ? (
           <EmptyState currentNoteTitle={currentNote?.title} />
         ) : (
           <div className="py-3 space-y-1">
-
-            {/* Quota exhausted card */}
             {allExhausted && (
               <QuotaExhaustedCard onRetry={() => { setAllExhausted(false); handleSend(); }} />
             )}
-
-            {/* No-embedding fallback banner */}
             {hasNoEmbeddingMessage && messages.length > 0 && (
               <div className="mx-3 mb-1 px-3 py-2 rounded-lg bg-amber-50/40 border border-amber-100 flex items-start gap-2">
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-amber-400 shrink-0 mt-0.5">
@@ -571,32 +488,27 @@ useEffect(() => {
                 </p>
               </div>
             )}
-
             {messages.map((msg, idx) => {
               const meta        = metaMap.get(msg.id);
               const isStreaming = msg.id === streamingId;
               const isLatest    = idx === messages.length - 1;
               const prevMsg     = idx > 0 ? messages[idx - 1] : null;
-
               return (
                 <div key={msg.id} className="group/msg relative">
                   <MessageBubble message={msg} isStreaming={isStreaming} />
                   {msg.role === "assistant" && meta && !isStreaming && (
-                    <MessageFooter
-                      meta={meta}
-                      onOpenNote={handleOpenNote}
-                    />
+                    <MessageFooter meta={meta} onOpenNote={handleOpenNote} />
                   )}
                   {msg.role === "assistant" && !isStreaming && !isFreeTier && (
                     <div className={`px-4 pb-1 ${isLatest ? "flex" : "hidden group-hover/msg:flex"}`}>
                       <button
                         onClick={() => {
-                          const userMsg = prevMsg?.role === "user" ? prevMsg : null
+                          const userMsg = prevMsg?.role === "user" ? prevMsg : null;
                           setSelectedMessage(userMsg ? {
                             user:      { role: "user",      content: userMsg.content },
                             assistant: { role: "assistant", content: msg.content },
-                          } : null)
-                          setSaveDialogOpen(true)
+                          } : null);
+                          setSaveDialogOpen(true);
                         }}
                         className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-500 border border-transparent hover:border-violet-200 transition-colors duration-100"
                       >
@@ -611,13 +523,11 @@ useEffect(() => {
                 </div>
               );
             })}
-
             {callError && !allExhausted && (
               <div className="mx-3 mt-1">
                 <ErrorCard error={callError} onDismiss={() => setCallError(null)} />
               </div>
             )}
-
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -627,60 +537,37 @@ useEffect(() => {
       {!isFreeTier && (
         <div className="shrink-0 border-t border-idemora-border">
 
-          {/* Scope selector bar */}
-          <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
-            <div className="relative" ref={scopeRef}>
-              <button
-                onClick={() => setScopeOpen((v) => !v)}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-idemora-text-muted border border-idemora-border bg-idemora-bg-primary hover:text-violet-500 transition-colors duration-100"
-              >
-                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="shrink-0">
-                  <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/>
-                  <path d="M2.5 4.5h4M4.5 2.5v4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-                </svg>
-                {activeScope === "all" ? "Scope" : activeScopeLabel}
-                <svg width="7" height="7" viewBox="0 0 7 7" fill="none">
-                  <path d="M1.5 2.5l2 2 2-2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-
-              {scopeOpen && (
-                <div className="absolute bottom-full left-0 mb-1 w-44 rounded-lg border border-idemora-border bg-idemora-bg-primary shadow-lg z-50 py-1">
-                  {SCOPE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.type}
-                      onClick={() => { setActiveScope(opt.type); setScopeOpen(false); }}
-                      className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors duration-75 ${
-                        activeScope === opt.type
-                          ? "text-violet-500 bg-violet-50/30"
-                          : "text-idemora-text-muted hover:text-idemora-text-normal"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Active scope pill */}
-            {activeScope !== "all" && (
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-600">
-                <span>{activeScopeLabel}</span>
-                <button
-                  onClick={() => setActiveScope("all")}
-                  className="hover:text-violet-800 transition-colors duration-75"
-                  aria-label="Clear scope"
-                >
-                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                    <path d="M1.5 1.5l5 5M6.5 1.5l-5 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                  </svg>
-                </button>
-              </div>
-            )}
+          {/* Scope toggle — sits just above the textarea */}
+          <div className="flex items-center px-3 pt-2.5 pb-1">
+            <button
+              onClick={handleScopeToggle}
+              disabled={ragScope === "all" && !session.linkedNoteId}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium border transition-colors duration-100 ${
+                ragScope === "note"
+                  ? "text-violet-500 border-violet-300 bg-violet-50/30 hover:bg-violet-100/40"
+                  : session.linkedNoteId
+                    ? "text-idemora-text-muted border-idemora-border hover:text-violet-500 hover:border-violet-300"
+                    : "text-idemora-text-muted border-idemora-border opacity-40 cursor-not-allowed"
+              }`}
+              title={
+                ragScope === "note"
+                  ? "Searching this note and sub-notes — click to search all notes"
+                  : session.linkedNoteId
+                    ? "Searching all notes — click to scope to this note and sub-notes"
+                    : "Save a chat first to enable scoping"
+              }
+            >
+              <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="shrink-0">
+                <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/>
+                <path d="M4.5 2.5v4M2.5 4.5h4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+              </svg>
+              {ragScope === "note" && session.linkedNoteTitle
+                ? `Scoped: ${session.linkedNoteTitle.slice(0, 18)}${session.linkedNoteTitle.length > 18 ? "…" : ""}`
+                : "All notes"}
+            </button>
           </div>
 
-          {/* Text input */}
+          {/* Textarea + send */}
           <div className="flex items-end gap-2 px-3 pb-2">
             <textarea
               ref={inputRef}
@@ -715,7 +602,7 @@ useEffect(() => {
             </button>
           </div>
 
-          {/* Footer: hint + RPD budget */}
+          {/* Footer hint + RPD budget */}
           <div className="flex items-center justify-between px-3 pb-2.5">
             <p className="text-[10px] text-idemora-text-muted">
               Enter to send · Shift+Enter for new line
@@ -729,15 +616,21 @@ useEffect(() => {
         </div>
       )}
 
+      {/* ── Save dialog ── */}
       {saveDialogOpen && (
         <SaveNoteDialog
           paneId={paneId}
           messages={messages}
           selectedMessage={selectedMessage ?? undefined}
-          onClose={() => { setSaveDialogOpen(false); setSelectedMessage(null) }}
-          onSaveSuccess={(noteId, noteTitle) => {
-            setLinkedNote(paneId, noteId, noteTitle)
-            stampSavedAt(paneId)
+          onClose={() => { setSaveDialogOpen(false); setSelectedMessage(null); }}
+          onSaveSuccess={(savedNoteId, savedNoteTitle) => {
+            const isFirstSave = !session.linkedNoteId;
+            setLinkedNote(paneId, savedNoteId, savedNoteTitle);
+            stampSavedAt(paneId);
+            if (isFirstSave) {
+              setRagScope(paneId, "note");
+              addToast("Search scoped to this note and sub-notes — change anytime above");
+            }
           }}
         />
       )}
@@ -748,18 +641,10 @@ useEffect(() => {
 }
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
-// Citation numbers [1], [2] rendered as inline superscript spans.
 
-function MessageBubble({
-  message,
-  isStreaming,
-}: {
-  message:     ChatMessage;
-  isStreaming: boolean;
-}) {
+function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStreaming: boolean }) {
   const isUser = message.role === "user";
 
-  // Render [N] as styled superscripts in assistant messages
   function renderWithCitations(text: string) {
     const parts = text.split(/(\[\d+\])/g);
     return parts.map((part, i) => {
@@ -798,19 +683,14 @@ function MessageBubble({
               Assistant
             </span>
           </div>
-
           {isStreaming && message.content === "" && (
             <div className="pl-5 flex items-center gap-1 py-1">
               {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
-                  style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }}
-                />
+                <span key={i} className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
+                  style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }} />
               ))}
             </div>
           )}
-
           {message.content !== "" && (
             <div className="text-sm text-idemora-text-normal leading-relaxed whitespace-pre-wrap pl-5">
               {renderWithCitations(message.content)}
@@ -827,47 +707,24 @@ function MessageBubble({
 
 // ─── Message footer ───────────────────────────────────────────────────────────
 
-
-function MessageFooter({
-  meta,
-  onOpenNote,
-}: {
-  meta:       MessageMeta;
-  onOpenNote: (id: string) => void;
-}) {
-  // Tier 1 cards — shown when AI is disabled and tier1Results populated
+function MessageFooter({ meta, onOpenNote }: { meta: MessageMeta; onOpenNote: (id: string) => void }) {
   if (meta.tier1Results && meta.tier1Results.length > 0) {
-    return (
-      <Tier1ResultCards
-        cards={meta.tier1Results}
-        onOpenNote={onOpenNote}
-      />
-    );
+    return <Tier1ResultCards cards={meta.tier1Results} onOpenNote={onOpenNote} />;
   }
-
   return (
     <div className="px-4 pb-2 pl-9 space-y-1.5">
-
-      {/* Confidence label */}
       {meta.confidence === "low" && (
         <div className="flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-amber-400 shrink-0">
             <path d="M5 1L9 9H1L5 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M5 4v2M5 7.5v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           </svg>
-          <p className="text-[10px] text-amber-500 leading-relaxed">
-            Limited matches — answer may be incomplete
-          </p>
+          <p className="text-[10px] text-amber-500 leading-relaxed">Limited matches — answer may be incomplete</p>
         </div>
       )}
-
       {meta.confidence === "medium" && (
-        <p className="text-[10px] text-idemora-text-muted">
-          Sourced from your notes
-        </p>
+        <p className="text-[10px] text-idemora-text-muted">Sourced from your notes</p>
       )}
-
-      {/* Source pills */}
       {meta.sourceTitles.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {meta.sourceTitles.map((title, i) => (
@@ -886,8 +743,6 @@ function MessageFooter({
           ))}
         </div>
       )}
-
-      {/* Related notes — medium confidence gate */}
       {meta.relatedNotes.length > 0 && meta.confidence !== "low" && (
         <div className="pt-0.5">
           <p className="text-[10px] text-idemora-text-muted mb-1">Related</p>
@@ -908,8 +763,6 @@ function MessageFooter({
           </div>
         </div>
       )}
-
-      {/* Search mode indicator */}
       <p className="text-[10px] text-idemora-text-muted">
         {meta.usedEmbeddings ? "✦ semantic search" : "◦ keyword search"}
       </p>
@@ -949,60 +802,37 @@ const BLOCK_TYPE_ICONS: Record<string, ReactElement> = {
   ),
 };
 
-function Tier1ResultCards({
-  cards,
-  onOpenNote,
-}: {
-  cards:      Tier1ResultCard[];
-  onOpenNote: (id: string) => void;
-}) {
+function Tier1ResultCards({ cards, onOpenNote }: { cards: Tier1ResultCard[]; onOpenNote: (id: string) => void }) {
   const shown    = cards.slice(0, 8);
   const lowCount = shown.filter((c) => c.confidence !== "weak").length < 3;
-
   return (
     <div className="px-3 pb-3 space-y-2">
       <p className="text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted px-0.5 pt-1">
         Found in your notes
       </p>
-
       {shown.map((card, i) => (
         <button
           key={`${card.noteId}-${i}`}
           onClick={() => onOpenNote(card.noteId)}
           className="w-full text-left rounded-lg border border-idemora-border bg-idemora-bg-primary p-2.5 space-y-1 hover:border-violet-300 transition-colors duration-100 group"
         >
-          {/* Title row */}
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[11px] font-semibold text-idemora-text-normal truncate group-hover:text-violet-500 transition-colors duration-100">
-                {card.noteTitle}
-              </span>
-            </div>
+            <span className="text-[11px] font-semibold text-idemora-text-normal truncate group-hover:text-violet-500 transition-colors duration-100">
+              {card.noteTitle}
+            </span>
             <div className="flex items-center gap-1 shrink-0">
-              {/* Source type tag */}
               <span className="px-1.5 py-0.5 rounded text-[9px] font-medium border border-idemora-border text-idemora-text-muted">
                 {card.sourceType === "vault_entry" ? "vault" : "note"}
               </span>
-              {/* Confidence indicator */}
               <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${CONFIDENCE_COLORS[card.confidence]}`}>
-                {card.confidence === "strong" ? "strong" : card.confidence === "possible" ? "possible" : "weak"}
+                {card.confidence}
               </span>
             </div>
           </div>
-
-          {/* Section heading */}
           {card.chunkHeading && (
-            <p className="text-[10px] text-idemora-text-muted truncate">
-              § {card.chunkHeading}
-            </p>
+            <p className="text-[10px] text-idemora-text-muted truncate">§ {card.chunkHeading}</p>
           )}
-
-          {/* Excerpt */}
-          <p className="text-[11px] text-idemora-text-normal leading-relaxed line-clamp-3">
-            {card.excerpt}
-          </p>
-
-          {/* Block type indicator */}
+          <p className="text-[11px] text-idemora-text-normal leading-relaxed line-clamp-3">{card.excerpt}</p>
           <div className="flex items-center gap-1 pt-0.5">
             <span className="text-idemora-text-muted">
               {BLOCK_TYPE_ICONS[card.blockType] ?? BLOCK_TYPE_ICONS.paragraph}
@@ -1011,7 +841,6 @@ function Tier1ResultCards({
           </div>
         </button>
       ))}
-
       {lowCount && (
         <p className="text-[10px] text-idemora-text-muted px-0.5">
           Low match confidence — try rephrasing or narrowing your scope.
@@ -1023,66 +852,18 @@ function Tier1ResultCards({
 
 // ─── Error card ───────────────────────────────────────────────────────────────
 
-function ErrorCard({
-  error,
-  onDismiss,
-}: {
-  error:     AICallError;
-  onDismiss: () => void;
-}) {
+function ErrorCard({ error, onDismiss }: { error: AICallError; onDismiss: () => void }) {
   const configs: Record<string, { title: string; body: string; showSwitch: boolean; showRetry: boolean }> = {
-    NETWORK_ERROR: {
-      title:      "No connection",
-      body:       "Couldn't reach the provider. Check your internet and try again.",
-      showSwitch: false,
-      showRetry:  false,
-    },
-    AUTH_FAILED: {
-      title:      "Invalid API key",
-      body:       `Your ${error.provider} key was rejected. Switch to another provider or update the key in Settings → AI.`,
-      showSwitch: true,
-      showRetry:  false,
-    },
-    QUOTA_EXCEEDED: {
-      title:      "Quota exhausted",
-      body:       `You've hit your ${error.provider} limit. Switch providers or upgrade your plan.`,
-      showSwitch: true,
-      showRetry:  false,
-    },
-    RATE_LIMITED: {
-      title:      "Rate limited",
-      body:       `Too many requests to ${error.provider}. Wait a moment, or switch to another provider.`,
-      showSwitch: true,
-      showRetry:  true,
-    },
-    OVERLOADED: {
-      title:      "Provider overloaded",
-      body:       `${error.provider} is under heavy load right now. Try again or switch.`,
-      showSwitch: true,
-      showRetry:  true,
-    },
-    NO_KEY: {
-      title:      "No API key",
-      body:       `No key is configured for ${error.provider}. Add one in Settings → AI, or switch provider.`,
-      showSwitch: true,
-      showRetry:  false,
-    },
-    NO_PROVIDER: {
-      title:      "No provider assigned",
-      body:       "The primary slot has no provider set. Configure it in Settings → AI.",
-      showSwitch: false,
-      showRetry:  false,
-    },
-    UNKNOWN: {
-      title:      "Something went wrong",
-      body:       error.message || "An unexpected error occurred. Please try again.",
-      showSwitch: false,
-      showRetry:  true,
-    },
+    NETWORK_ERROR: { title: "No connection",        body: "Couldn't reach the provider. Check your internet and try again.", showSwitch: false, showRetry: false },
+    AUTH_FAILED:   { title: "Invalid API key",      body: `Your ${error.provider} key was rejected. Switch to another provider or update the key in Settings → AI.`, showSwitch: true, showRetry: false },
+    QUOTA_EXCEEDED:{ title: "Quota exhausted",      body: `You've hit your ${error.provider} limit. Switch providers or upgrade your plan.`, showSwitch: true, showRetry: false },
+    RATE_LIMITED:  { title: "Rate limited",         body: `Too many requests to ${error.provider}. Wait a moment, or switch to another provider.`, showSwitch: true, showRetry: true },
+    OVERLOADED:    { title: "Provider overloaded",  body: `${error.provider} is under heavy load right now. Try again or switch.`, showSwitch: true, showRetry: true },
+    NO_KEY:        { title: "No API key",           body: `No key is configured for ${error.provider}. Add one in Settings → AI, or switch provider.`, showSwitch: true, showRetry: false },
+    NO_PROVIDER:   { title: "No provider assigned", body: "The primary slot has no provider set. Configure it in Settings → AI.", showSwitch: false, showRetry: false },
+    UNKNOWN:       { title: "Something went wrong", body: error.message || "An unexpected error occurred. Please try again.", showSwitch: false, showRetry: true },
   };
-
   const cfg = configs[error.code] ?? configs.UNKNOWN;
-
   return (
     <div className="rounded-lg border border-red-100 bg-red-50/40 p-3 space-y-2.5">
       <div className="flex items-start justify-between gap-2">
@@ -1131,8 +912,7 @@ function FreeTierState() {
           You're on the free tier. Chat and semantic search require an API key.
         </p>
         <p className="text-xs text-idemora-text-muted leading-relaxed">
-          Add a key in{" "}
-          <span className="font-medium text-violet-500">Settings → AI</span> to unlock everything.
+          Add a key in <span className="font-medium text-violet-500">Settings → AI</span> to unlock everything.
         </p>
       </div>
     </div>
@@ -1145,11 +925,8 @@ function EmptyState({ currentNoteTitle }: { currentNoteTitle?: string }) {
   const suggestions = [
     "What do I know about this topic?",
     "Summarize the key themes across my notes",
-    currentNoteTitle
-      ? "How does this relate to my other notes?"
-      : "What connections exist between my notes?",
+    currentNoteTitle ? "How does this relate to my other notes?" : "What connections exist between my notes?",
   ];
-
   return (
     <div className="flex flex-col gap-4 px-4 py-6">
       <div className="flex flex-col items-center gap-3 text-center py-4">
@@ -1167,16 +944,12 @@ function EmptyState({ currentNoteTitle }: { currentNoteTitle?: string }) {
           </p>
         </div>
       </div>
-
       <div className="space-y-1.5">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted px-0.5">
           Try asking
         </p>
-        {suggestions.map((s, i) => (
-          <SuggestionChip key={i} text={s} />
-        ))}
+        {suggestions.map((s, i) => <SuggestionChip key={i} text={s} />)}
       </div>
-
       <div className="p-2.5 rounded-lg bg-idemora-bg-primary border border-idemora-border">
         <p className="text-[10px] text-idemora-text-muted leading-relaxed">
           💡 Use <span className="font-medium text-idemora-text-muted">Summarize</span> on your notes first — it builds context that makes answers much richer.

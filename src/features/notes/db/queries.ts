@@ -51,6 +51,83 @@ async function deleteNoteAssets(content: string): Promise<void> {
   await Promise.allSettled(paths.map((p) => deleteImage(p)));
 }
 
+// ─── Breadcrumb computation (M11) ────────────────────────────────────────────
+//
+// Walks the parent_id chain up to the root and returns a /-separated string
+// of note titles. MAX_DEPTH guards against infinite loops on corrupted chains.
+//
+// Example: "Idemora / Documentation / Design Spec / Context Vault Spec v4.0"
+
+const BREADCRUMB_MAX_DEPTH = 20;
+const BREADCRUMB_SEP       = " / ";
+
+export async function computeBreadcrumb(noteId: string): Promise<string> {
+  const db    = await getDb();
+  const parts: string[] = [];
+  let   current         = noteId;
+
+  for (let depth = 0; depth < BREADCRUMB_MAX_DEPTH; depth++) {
+    const rows = await db.select<{ id: string; title: string; parent_id: string | null }[]>(
+      `SELECT id, title, parent_id FROM notes WHERE id = $1`,
+      [current]
+    );
+    if (rows.length === 0) break;
+
+    const row = rows[0];
+    parts.unshift(row.title);
+
+    if (row.parent_id === null) break;
+    current = row.parent_id;
+  }
+
+  return parts.join(BREADCRUMB_SEP);
+}
+
+// Recomputes breadcrumbs for a note and all its descendants.
+// Called on note move and note rename.
+// If descendant count exceeds BREADCRUMB_RECOMPUTE_WARN, logs a warning
+// (progress indicator wiring is a UI concern — flag at implementation time).
+
+const BREADCRUMB_RECOMPUTE_WARN = 50;
+
+async function recomputeBreadcrumbsForSubtree(noteId: string): Promise<void> {
+  const descendants = await getAllDescendants(noteId);
+  const allIds      = [noteId, ...descendants.map(d => d.id)];
+
+  if (allIds.length > BREADCRUMB_RECOMPUTE_WARN) {
+    console.warn(
+      `[breadcrumb] Recomputing for ${allIds.length} notes — consider adding a progress indicator.`
+    );
+  }
+
+  for (const id of allIds) {
+    const breadcrumb = await computeBreadcrumb(id);
+
+    // Update note_title_chunks breadcrumb
+    await upsertBreadcrumbOnTitleChunk(id, breadcrumb);
+
+    // Update embeddings breadcrumb
+    await upsertBreadcrumbOnEmbeddings(id, breadcrumb);
+  }
+}
+
+
+async function upsertBreadcrumbOnTitleChunk(noteId: string, breadcrumb: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE note_title_chunks SET breadcrumb = $1 WHERE note_id = $2`,
+    [breadcrumb, noteId]
+  );
+}
+
+async function upsertBreadcrumbOnEmbeddings(noteId: string, breadcrumb: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE embeddings SET breadcrumb = $1 WHERE note_id = $2`,
+    [breadcrumb, noteId]
+  );
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 // ─── FTS index rebuild ────────────────────────────────────────────────────────
@@ -388,7 +465,7 @@ export async function getAllNotes(): Promise<Note[]> {
   return db.select<Note[]>(
     `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
             created_at, updated_at, deleted_at, sort_order,
-            is_canvas, canvas_state
+            is_canvas, canvas_state, COALESCE(rag_excluded, 0) AS rag_excluded
      FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
 }
@@ -397,7 +474,8 @@ export async function getAllNotesMeta(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
     `SELECT id, title, plaintext, tags, frontmatter, parent_id, sync_id,
-            created_at, updated_at, deleted_at, sort_order, is_canvas
+            created_at, updated_at, deleted_at, sort_order, is_canvas,
+            COALESCE(rag_excluded, 0) AS rag_excluded
      FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
 }
@@ -413,8 +491,10 @@ export async function getNoteContent(id: string): Promise<{ content: string | nu
 export async function getNoteById(id: string): Promise<Note | null> {
   const db = await getDb();
   const rows = await db.select<Note[]>(
-    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
-    FROM notes WHERE id = $1`, 
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
+            created_at, updated_at, deleted_at, sort_order,
+            COALESCE(rag_excluded, 0) AS rag_excluded
+     FROM notes WHERE id = $1`, 
     [id]
   );
   return rows[0] ?? null;
@@ -424,13 +504,17 @@ export async function getNotesByParent(parentId: string | null): Promise<Note[]>
   const db = await getDb();
   if (parentId === null) {
     return db.select<Note[]>(
-      `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
-      FROM notes WHERE parent_id IS NULL AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
+      `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
+              created_at, updated_at, deleted_at, sort_order,
+              COALESCE(rag_excluded, 0) AS rag_excluded
+       FROM notes WHERE parent_id IS NULL AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
     );
   }
   return db.select<Note[]>(
-    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
-    FROM notes WHERE parent_id = $1 AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`,
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
+            created_at, updated_at, deleted_at, sort_order,
+            COALESCE(rag_excluded, 0) AS rag_excluded
+     FROM notes WHERE parent_id = $1 AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`,
     [parentId]
   );
 }
@@ -474,17 +558,22 @@ export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
     sort_order,
     is_canvas: input.is_canvas ?? false,
     canvas_state: input.canvas_state ?? null,
+    rag_excluded: 0,
   };
 
   await db.execute(
     `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id,
                         sync_id, created_at, updated_at, deleted_at, sort_order,
-                        is_canvas, canvas_state)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                        is_canvas, canvas_state, rag_excluded)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
     [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
      note.parent_id, note.sync_id, note.created_at, note.updated_at, null, note.sort_order,
-     note.is_canvas ? 1 : 0, note.canvas_state]
+     note.is_canvas ? 1 : 0, note.canvas_state, 0]
   );
+
+  // M11 — write initial breadcrumb for the new note
+  const breadcrumb = await computeBreadcrumb(note.id);
+  await upsertNoteTitleChunkWithBreadcrumb(note.id, note.title, "note", breadcrumb);
 
   return note;
 }
@@ -530,6 +619,18 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
     `UPDATE notes SET ${fields.join(", ")} WHERE id = $${idx}`,
     values
   );
+
+  // M11 — if the title changed, recompute breadcrumbs for this note and all
+  // descendants (their breadcrumbs embed the ancestor title in the path).
+  if (input.title !== undefined) {
+    // Update this note's title chunk breadcrumb
+    const breadcrumb = await computeBreadcrumb(id);
+    await upsertBreadcrumbOnTitleChunk(id, breadcrumb);
+    await upsertBreadcrumbOnEmbeddings(id, breadcrumb);
+
+    // Recompute descendants — their paths include this note's title
+    await recomputeBreadcrumbsForSubtree(id);
+  }
 }
 
 export async function bulkUpdateSortOrder(updates: { id: string; sort_order: number }[]): Promise<void> {
@@ -544,7 +645,7 @@ export async function bulkUpdateSortOrder(updates: { id: string; sort_order: num
 
 export async function deleteNote(id: string): Promise<void> {
   const descendants = await getAllDescendants(id);
-  const allIds = [...descendants.reverse(), id];
+  const allIds = [...descendants.map(d => d.id).reverse(), id];
   const db = await getDb();
   for (const noteId of allIds) {
     const note = await getNoteById(noteId);
@@ -556,7 +657,7 @@ export async function deleteNote(id: string): Promise<void> {
 
 export async function trashNote(id: string): Promise<void> {
   const descendants = await getAllDescendants(id);
-  const allIds = [id, ...descendants];
+  const allIds = [id, ...descendants.map(d => d.id)];
   const db = await getDb();
   const trashedAt = now();
   for (const noteId of allIds) {
@@ -570,7 +671,7 @@ export async function trashNote(id: string): Promise<void> {
 export async function restoreNote(id: string): Promise<void> {
   const db = await getDb();
   const descendants = await getAllDescendants(id);
-  const allIds = [id, ...descendants];
+  const allIds = [id, ...descendants.map(d => d.id)];
   for (const noteId of allIds) {
     await db.execute(
       `UPDATE notes SET deleted_at = NULL WHERE id = $1`,
@@ -586,8 +687,10 @@ export async function permanentlyDeleteNote(id: string): Promise<void> {
 export async function getTrashedNotes(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
-    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
-    FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
+            created_at, updated_at, deleted_at, sort_order,
+            COALESCE(rag_excluded, 0) AS rag_excluded
+     FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`
   );
 }
 
@@ -605,8 +708,10 @@ export async function purgeTrashedNotes(): Promise<void> {
   const db = await getDb();
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const expired = await db.select<Note[]>(
-    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
-    FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
+            created_at, updated_at, deleted_at, sort_order,
+            COALESCE(rag_excluded, 0) AS rag_excluded
+     FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
     [thirtyDaysAgo]
   );
   await Promise.allSettled(
@@ -618,27 +723,67 @@ export async function purgeTrashedNotes(): Promise<void> {
   );
 }
 
-async function getAllDescendants(id: string): Promise<string[]> {
+export async function getAllDescendants(id: string): Promise<{ id: string }[]> {
   const db = await getDb();
   const children = await db.select<{ id: string }[]>(
     `SELECT id FROM notes WHERE parent_id = $1`, [id]
   );
-  const ids: string[] = [];
+  const rows: { id: string }[] = [];
   for (const child of children) {
-    ids.push(child.id);
-    ids.push(...await getAllDescendants(child.id));
+    rows.push(child);
+    rows.push(...await getAllDescendants(child.id));
   }
-  return ids;
+  return rows;
 }
 
 export async function moveNote(id: string, newParentId: string | null): Promise<void> {
   if (newParentId !== null) {
     const descendants = await getAllDescendants(id);
-    if (descendants.includes(newParentId) || newParentId === id) {
+    if (descendants.map(d => d.id).includes(newParentId) || newParentId === id) {
       throw new Error("Cannot move a note into one of its own descendants.");
     }
   }
   await updateNote(id, { parent_id: newParentId });
+
+  // M11 — recompute breadcrumbs for the moved note and all its descendants.
+  // parent_id change means the full path has changed for the entire subtree.
+  await recomputeBreadcrumbsForSubtree(id);
+}
+
+// ─── RAG Exclusion (M13) ─────────────────────────────────────────────────────
+//
+// Sets rag_excluded on a note. When excluding (value = 1):
+//   - Clears all existing embeddings for the note (they will not be re-created)
+//   - Removes pending embedding jobs for the note's blocks
+// When re-including (value = 0):
+//   - Embeddings will be recreated on the next syncNoteBlocks call
+//   - Enqueues blocks for embedding immediately
+
+export async function setRagExcluded(noteId: string, excluded: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE notes SET rag_excluded = $1 WHERE id = $2`,
+    [excluded ? 1 : 0, noteId]
+  );
+
+  if (excluded) {
+    // Clear embeddings so they are not retrieved
+    await db.execute(`DELETE FROM embeddings WHERE note_id = $1`, [noteId]);
+    // Remove pending jobs — no point processing them
+    await db.execute(
+      `DELETE FROM embedding_jobs WHERE note_id = $1`,
+      [noteId]
+    );
+  } else {
+    // Re-including — enqueue all blocks for re-embedding
+    const blocks = await db.select<{ block_id: string }[]>(
+      `SELECT block_id FROM note_blocks WHERE note_id = $1`,
+      [noteId]
+    );
+    if (blocks.length > 0) {
+      await enqueueEmbeddingJobs(blocks.map((b) => ({ blockId: b.block_id, noteId })));
+    }
+  }
 }
 
 // ─── Tags ─────────────────────────────────────────────────────────────────────
@@ -918,7 +1063,9 @@ export async function syncBacklinks(sourceId: string, targetIds: string[], sourc
 export async function getBacklinksForNote(targetId: string): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(
-    `SELECT n.id, n.title, n.content, n.plaintext, n.tags, n.frontmatter, n.parent_id, n.sync_id, n.created_at, n.updated_at, n.deleted_at, n.sort_order
+    `SELECT n.id, n.title, n.content, n.plaintext, n.tags, n.frontmatter, n.parent_id, n.sync_id,
+            n.created_at, n.updated_at, n.deleted_at, n.sort_order,
+            COALESCE(n.rag_excluded, 0) AS rag_excluded
     FROM notes n
     JOIN backlinks b ON b.source_id = n.id
     WHERE b.target_id = $1
@@ -944,7 +1091,10 @@ export async function getStaleNotes(dayThreshold: number, limit = 5): Promise<St
   const cutoff = Date.now() - dayThreshold * 24 * 60 * 60 * 1000;
 
   return db.select<StaleNote[]>(
-    `SELECT n.id, n.title, n.content, n.plaintext, n.tags, n.frontmatter, n.parent_id, n.sync_id, n.created_at, n.updated_at, n.deleted_at, n.sort_order, v.last_visit
+    `SELECT n.id, n.title, n.content, n.plaintext, n.tags, n.frontmatter, n.parent_id, n.sync_id,
+            n.created_at, n.updated_at, n.deleted_at, n.sort_order,
+            COALESCE(n.rag_excluded, 0) AS rag_excluded,
+            v.last_visit
     FROM notes n
     LEFT JOIN (
       SELECT note_id, MAX(visited_at) AS last_visit
@@ -984,8 +1134,10 @@ export async function getUnlinkedMentions(
   const linkedIds = new Set(linked.map((r) => r.source_id));
 
   const allNotes = await db.select<Note[]>(
-    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order 
-    FROM notes WHERE deleted_at IS NULL AND id != $1`,
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
+            created_at, updated_at, deleted_at, sort_order,
+            COALESCE(rag_excluded, 0) AS rag_excluded
+     FROM notes WHERE deleted_at IS NULL AND id != $1`,
     [targetId]
   );
 
@@ -1109,6 +1261,7 @@ function sanitizeNote(raw: Record<string, unknown>): Note {
     created_at, updated_at, deleted_at: null, sort_order,
     is_canvas: false,
     canvas_state: null,
+    rag_excluded: 0,
   };
 }
 
@@ -1444,6 +1597,27 @@ export async function upsertNoteTitleChunk(
   );
 }
 
+// M11 variant — writes breadcrumb alongside title chunk
+async function upsertNoteTitleChunkWithBreadcrumb(
+  noteId: string,
+  title: string,
+  sourceType: SourceType,
+  breadcrumb: string
+): Promise<void> {
+  if (!title.trim()) return;
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO note_title_chunks (note_id, title, source_type, updated_at, breadcrumb)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT(note_id) DO UPDATE SET
+       title       = excluded.title,
+       source_type = excluded.source_type,
+       updated_at  = excluded.updated_at,
+       breadcrumb  = excluded.breadcrumb`,
+    [noteId, title, sourceType, Date.now(), breadcrumb]
+  );
+}
+
 // ─── Quota log helper ─────────────────────────────────────────────────────────
 
 export async function incrementEmbeddingQuota(
@@ -1484,6 +1658,10 @@ export async function getEmbeddingQuotaToday(
 // Uses the heading-aware chunker, computes content_hash per chunk,
 // skips unchanged blocks (hash match), and enqueues only changed/new blocks.
 // A note with 40 blocks where 1 changed produces exactly 1 embedding job.
+//
+// M12 — skips notes with rag_excluded = 1.
+// Excluded notes: no blocks written, no jobs enqueued, no title chunk written.
+// Existing blocks and embeddings for excluded notes are removed by setRagExcluded.
 
 export async function syncNoteBlocks(
   noteId: string,
@@ -1493,8 +1671,20 @@ export async function syncNoteBlocks(
 ): Promise<void> {
   const db = await getDb();
 
+  // M12 — bail early if this note is excluded from RAG
+  const excludedRows = await db.select<{ rag_excluded: number }[]>(
+    `SELECT COALESCE(rag_excluded, 0) AS rag_excluded FROM notes WHERE id = $1`,
+    [noteId]
+  );
+  if (excludedRows[0]?.rag_excluded === 1) {
+    console.log(`[syncNoteBlocks] skipping excluded note ${noteId}`);
+    return;
+  }
+
   if (noteTitle?.trim()) {
-    await upsertNoteTitleChunk(noteId, noteTitle, sourceType);
+    // M11 — compute breadcrumb and write it with the title chunk
+    const breadcrumb = await computeBreadcrumb(noteId);
+    await upsertNoteTitleChunkWithBreadcrumb(noteId, noteTitle, sourceType, breadcrumb);
   }
 
   const freshChunks = await chunkDocument(contentJson, sourceType);
@@ -1803,20 +1993,22 @@ export interface EmbeddingWithVector {
 }
 
 export async function upsertEmbedding(
-  blockId:  string,
-  noteId:   string,
-  modelId:  string,
-  vector:   Float32Array
+  blockId:    string,
+  noteId:     string,
+  modelId:    string,
+  vector:     Float32Array,
+  breadcrumb?: string
 ): Promise<void> {
   const db   = await getDb()
   const blob = vectorToBlob(vector)
   await db.execute(
-    `INSERT INTO embeddings (block_id, note_id, model_id, vector, updated_at)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO embeddings (block_id, note_id, model_id, vector, updated_at, breadcrumb)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT(block_id, model_id) DO UPDATE SET
        vector     = excluded.vector,
-       updated_at = excluded.updated_at`,
-    [blockId, noteId, modelId, blob, Date.now()]
+       updated_at = excluded.updated_at,
+       breadcrumb = excluded.breadcrumb`,
+    [blockId, noteId, modelId, blob, Date.now(), breadcrumb ?? null]
   )
 }
 
@@ -2297,5 +2489,22 @@ export async function clearStaleExhaustionEntries(): Promise<void> {
      WHERE recovered_at IS NULL
        AND date(exhausted_at / 1000, 'unixepoch') < $2`,
     [Date.now(), todayUtc]
+  );
+}
+
+// ─── RAG-excluded notes (for .env view) ──────────────────────────────────────
+//
+// Returns all non-deleted notes that have rag_excluded = 1.
+// Used by the .env sidebar panel (Phase 4).
+
+export async function getRagExcludedNotes(): Promise<Note[]> {
+  const db = await getDb();
+  return db.select<Note[]>(
+    `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
+            created_at, updated_at, deleted_at, sort_order,
+            COALESCE(rag_excluded, 0) AS rag_excluded
+     FROM notes
+     WHERE rag_excluded = 1
+       AND deleted_at IS NULL`
   );
 }

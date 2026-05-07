@@ -28,6 +28,11 @@ const RRF_K = 60
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface ExcludedTitleMatch {
+  note_id:    string
+  note_title: string
+}
+
 export interface HybridResult {
   block_id:        string
   note_id:         string
@@ -48,6 +53,12 @@ export interface HybridSearchOptions {
   currentNoteId?: string
   scope?:         ScopeFilter
   queryVariants?: string[]
+  noteIds?:       string[]
+}
+
+export interface HybridSearchResult {
+  results:              HybridResult[]
+  excludedTitleMatches: ExcludedTitleMatch[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,25 +84,26 @@ function buildScopeClause(scope: ScopeFilter, startIdx: number): ScopeClause {
     parts.push(`nb.source_type = $${idx++}`)
     params.push(scope.sourceType)
   }
-
   if (scope.dateRange) {
     parts.push(`nb.block_updated_at >= $${idx++}`)
     params.push(scope.dateRange.after)
   }
-
   if (scope.tag) {
     parts.push(`n.tags LIKE $${idx++}`)
     params.push(`%${scope.tag}%`)
   }
-
   if (scope.noteTitle) {
     parts.push(`n.title LIKE $${idx++}`)
     params.push(`%${scope.noteTitle}%`)
   }
-
   if (scope.folder) {
     parts.push(`n.title LIKE $${idx++}`)
     params.push(`${scope.folder}%`)
+  }
+  if (scope.noteIds && scope.noteIds.length > 0) {
+    const placeholders = scope.noteIds.map(() => `$${idx++}`).join(", ")
+    parts.push(`n.id IN (${placeholders})`)
+    params.push(...scope.noteIds)
   }
 
   const sql = parts.length > 0 ? " AND " + parts.join(" AND ") : ""
@@ -137,10 +149,12 @@ async function ftsPass(
   scope:          ScopeFilter,
   topK:           number,
   currentNoteId?: string,
+  excludedTitleMatches?: Map<string, string>,
 ): Promise<Map<string, { row: FtsRow; rank: number }>> {
   const db      = await getDb()
   const results = new Map<string, { row: FtsRow; rank: number }>()
   let   globalRank = 0
+  const _excludedMap = excludedTitleMatches ?? new Map<string, string>()
 
   for (const query of queries) {
     const sanitized = query
@@ -180,6 +194,7 @@ async function ftsPass(
          WHERE blocks_fts MATCH $1
            AND n.deleted_at IS NULL
            AND (n.id = $2 OR n.title NOT LIKE 'Untitled%')
+           AND COALESCE(n.rag_excluded, 0) = 0
            ${scopeClause.sql}
          ORDER BY bf.rank
          LIMIT ${topK}`,
@@ -208,6 +223,7 @@ async function ftsPass(
          JOIN notes n ON n.id = ntc.note_id
          WHERE ntc.title LIKE $1
            AND n.deleted_at IS NULL
+           AND COALESCE(n.rag_excluded, 0) = 0
          LIMIT $2`,
         [`%${query.replace(/['"*^()]/g, " ").trim()}%`, Math.floor(topK / 2)]
       )
@@ -230,6 +246,28 @@ async function ftsPass(
             },
             rank: globalRank++,
           })
+        }
+      }
+    } catch { /* non-fatal */ }
+
+    // Excluded title discovery — fetch rag_excluded notes whose title matches
+    try {
+      const excludedRows = await db.select<{
+        note_id: string
+        title:   string
+      }[]>(
+        `SELECT ntc.note_id, ntc.title
+         FROM note_title_chunks ntc
+         JOIN notes n ON n.id = ntc.note_id
+         WHERE ntc.title LIKE $1
+           AND n.deleted_at IS NULL
+           AND COALESCE(n.rag_excluded, 0) = 1
+         LIMIT 3`,
+        [`%${query.replace(/['"*^()]/g, " ").trim()}%`]
+      )
+      for (const row of excludedRows) {
+        if (!isUntitledNote(row.title)) {
+          _excludedMap.set(row.note_id, row.title)
         }
       }
     } catch { /* non-fatal */ }
@@ -277,6 +315,7 @@ async function vectorPass(
         tags:        string | null
         updated_at:  number
         title:       string
+        rag_excluded: number | null
       }[]>(
         `SELECT
            nb.block_id,
@@ -284,7 +323,8 @@ async function vectorPass(
            nb.source_type,
            n.tags,
            n.updated_at,
-           n.title
+           n.title,
+           n.rag_excluded
          FROM note_blocks nb
          JOIN notes n ON n.id = nb.note_id
          WHERE nb.block_id IN (${bPhs})`,
@@ -300,8 +340,8 @@ async function vectorPass(
         if (scope.dateRange  && meta.updated_at < scope.dateRange.after) return false
         if (scope.tag        && (!meta.tags || !meta.tags.includes(scope.tag))) return false
         if (scope.noteTitle  && !meta.title.toLowerCase().includes(scope.noteTitle.toLowerCase())) return false
-        // FIX: exclude untitled notes — metaMap already loaded, no extra query needed
         if (isUntitledNote(meta.title) && meta.note_id !== currentNoteId) return false
+        if (meta.rag_excluded === 1) return false
         return true
       })
     } else {
@@ -315,8 +355,10 @@ async function vectorPass(
           block_id: string
           title:    string
           note_id:  string
+          rag_excluded: number
         }[]>(
           `SELECT nb.block_id, n.title, n.id AS note_id
+          , COALESCE(n.rag_excluded, 0) AS rag_excluded
            FROM note_blocks nb
            JOIN notes n ON n.id = nb.note_id
            WHERE nb.block_id IN (${phs})`,
@@ -329,6 +371,7 @@ async function vectorPass(
           const t = titleMap.get(r.block_id)
           if (!t) return true
           if (isUntitledNote(t.title) && t.note_id !== currentNoteId) return false
+          if (t.rag_excluded === 1) return false
           return true
         })
       }
@@ -472,20 +515,24 @@ export async function hybridSearch(
   query:   string,
   topK:    number = 8,
   options: HybridSearchOptions = {}
-): Promise<HybridResult[]> {
-  if (!query.trim()) return []
+): Promise<HybridSearchResult> {
+  if (!query.trim()) return { results: [], excludedTitleMatches: [] }
 
   const {
     currentNoteId,
     scope         = {},
     queryVariants = [query],
+    noteIds,
   } = options
 
+  // Merge noteIds into scope if provided
+  const resolvedScope = noteIds?.length ? { ...scope, noteIds } : scope
   const allQueries = [query, ...queryVariants.filter((v) => v !== query)]
+  const excludedTitleMatches = new Map<string, string>()
 
   const [ftsResults, vectorResults] = await Promise.all([
-    ftsPass(allQueries, scope, 20, currentNoteId),
-    vectorPass(query, scope, 20, currentNoteId),
+    ftsPass(allQueries, resolvedScope, 20, currentNoteId, excludedTitleMatches),
+    vectorPass(query, resolvedScope, 20, currentNoteId),
   ])
 
   console.log(`[hybrid] query="${query.slice(0, 60)}"`)
@@ -493,9 +540,16 @@ export async function hybridSearch(
 
   const fused = rrfFuse(ftsResults, vectorResults)
 
+  const excludedList: ExcludedTitleMatch[] = [...excludedTitleMatches.entries()].map(
+    ([note_id, note_title]) => ({ note_id, note_title })
+  )
+
+  // Scope filtering is now handled by the noteIds in resolveScope
+  // No additional filtering needed here since ftsPass and vectorPass already respect scope.noteIds
+
   if (fused.size === 0) {
     console.log('[hybrid] fused: 0 results — returning empty')
-    return []
+    return { results: [], excludedTitleMatches: [] }
   }
 
   await enrichMissingRows(fused)
@@ -530,7 +584,7 @@ export async function hybridSearch(
     )
   )
 
-  return reranked.slice(0, topK).map((r) => ({
+  const results = reranked.slice(0, topK).map((r) => ({
     block_id:      r.block_id,
     note_id:       r.note_id,
     note_title:    r.note_title,
@@ -543,4 +597,6 @@ export async function hybridSearch(
     confidence:    r.confidence,
     matched_by:    [...(fused.get(r.block_id)?.matchedBy ?? new Set<"semantic" | "keyword">())],
   }))
+
+  return { results, excludedTitleMatches: excludedList }
 }

@@ -23,6 +23,7 @@ type ContextItemId =
   | "pin"
   | "bookmark"
   | "move"
+  | "rag-exclude"
   | "trash";
 
 interface Props {
@@ -145,6 +146,7 @@ export function NoteTreeItem({
   const pinNote      = useNoteStore((s) => s.pinNote);
   const unpinNote    = useNoteStore((s) => s.unpinNote);
   const isPinned     = useNoteStore((s) => s.isPinned(noteId));
+  const setRagExcluded = useNoteStore((s) => s.setRagExcluded);
   
   // ─── Bookmark actions ──────────────────────────────────────────────────────
   const isBookmarked     = useNoteStore((s) => s.isBookmarked(noteId));
@@ -206,6 +208,7 @@ export function NoteTreeItem({
   };
 
   const note        = notes.find((n) => n.id === noteId);
+  const isRagExcluded  = note?.rag_excluded === 1;
   const children    = sortNotes(notes.filter((n) => n.parent_id === noteId));
   const isActive    = activeNoteId === noteId;
   const isExpanded  = expandedNodes.has(noteId);
@@ -214,8 +217,8 @@ export function NoteTreeItem({
   const isFocused   = focusedNoteId === noteId;
 
   const navItems: ContextItemId[] = isRoot
-    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "pin", "bookmark", "move", "trash"]
-    : ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "bookmark", "move", "trash"];
+    ? ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "pin", "bookmark", "rag-exclude", "move", "trash"]
+    : ["new-sub-note", "open-in-new-tab", "open-in-split", "open-in-local-graph", "rename", "bookmark", "rag-exclude", "move", "trash"];
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -301,6 +304,10 @@ export function NoteTreeItem({
       case "trash":
         setContextMenu(null);
         setConfirmOpen(true);
+        break;
+      case "rag-exclude":
+        setContextMenu(null);
+        setRagExcluded(noteId, !isRagExcluded).catch(console.error);
         break;
     }
   }
@@ -450,6 +457,14 @@ export function NoteTreeItem({
                 </svg>
               </span>
             )}
+            {isRagExcluded && (
+              <span className="shrink-0 opacity-40 ml-1" title="Excluded from search">
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                  <rect x="2" y="4" width="6" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                  <path d="M3.5 4V3a1.5 1.5 0 013 0v1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                </svg>
+              </span>
+            )}
           </span>
         )}
         {!renaming && (
@@ -492,6 +507,14 @@ export function NoteTreeItem({
             focused={focusedItem === "bookmark"} 
             onHover={() => setFocusedItem("bookmark")} 
             onClick={() => triggerItem("bookmark")} 
+          />
+          <div className="my-1 border-t border-idemora-border" />
+          <CtxItem
+            label={isRagExcluded ? "Include in search" : "Exclude from search"}
+            id="rag-exclude"
+            focused={focusedItem === "rag-exclude"}
+            onHover={() => setFocusedItem("rag-exclude")}
+            onClick={() => triggerItem("rag-exclude")}
           />
           <div className="my-1 border-t border-idemora-border" />
           <CtxItem label="Move"                id="move"                 focused={focusedItem === "move"}                 onHover={() => setFocusedItem("move")}                 onClick={() => triggerItem("move")} suffix="›" />

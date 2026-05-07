@@ -22,6 +22,7 @@ import {
   addNoteBookmark,
   removeBookmark,
   addBookmarkGroup,
+  setRagExcluded as dbSetRagExcluded,
   type CreateNoteInput,
   type UpdateNoteInput,
 } from "@/features/notes/db/queries";
@@ -116,6 +117,7 @@ interface NoteStore {
   reorderBookmarks: (draggedId: string, targetId: string) => Promise<void>;
   isBookmarked: (noteId: string) => boolean;
   getBookmarkForNote: (noteId: string) => NoteBookmark | null;
+  setRagExcluded: (noteId: string, excluded: boolean) => Promise<void>;
 }
 
 function nextUntitledName(notes: Note[]): string {
@@ -555,4 +557,13 @@ loadNoteContent: async (id: string) => {
     (get().bookmarks.find(
       (b): b is NoteBookmark => b.kind === "note" && b.noteId === noteId
     ) ?? null),
+
+  setRagExcluded: async (noteId, excluded) => {
+    await dbSetRagExcluded(noteId, excluded);
+    set((state) => ({
+      notes: state.notes.map((n) =>
+        n.id === noteId ? { ...n, rag_excluded: excluded ? 1 : 0 } : n
+      ),
+    }));
+  },
 }));

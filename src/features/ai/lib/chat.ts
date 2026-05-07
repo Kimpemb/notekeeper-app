@@ -28,6 +28,7 @@ import {
   hybridSearch,
   expandContext,
   type HybridResult,
+  type ExcludedTitleMatch,
 } from "@/features/ai/lib/search/hybrid"
 import { detectIntent }    from "@/features/ai/lib/search/intentDetection"
 import {
@@ -74,13 +75,14 @@ export interface Tier1ResultCard {
 }
 
 export interface ChatResult {
-  answer:         string
-  sourceTitles:   string[]
-  sourceNoteIds:  string[]
-  usedEmbeddings: boolean
-  confidence:     "high" | "medium" | "low"
-  relatedNotes:   RelatedNote[]
-  tier1Results?:  Tier1ResultCard[]
+  answer:               string
+  sourceTitles:         string[]
+  sourceNoteIds:        string[]
+  usedEmbeddings:       boolean
+  confidence:           "high" | "medium" | "low"
+  relatedNotes:         RelatedNote[]
+  tier1Results?:        Tier1ResultCard[]
+  excludedNoteNotices?: ExcludedTitleMatch[]
 }
 
 export interface StreamingChatOptions {
@@ -265,7 +267,7 @@ async function findRelatedNotes(
     const query = answerText.replace(/\[\d+\]/g, "").slice(0, 300)
     if (!query.trim()) return []
 
-    const results = await hybridSearch(query, 5, { currentNoteId })
+    const { results } = await hybridSearch(query, 5, { currentNoteId })
     const seen    = new Set<string>()
     const related: RelatedNote[] = []
 
@@ -309,48 +311,54 @@ function buildTier1Cards(results: HybridResult[]): Tier1ResultCard[] {
 // ─── Main pipeline ────────────────────────────────────────────────────────────
 
 interface PipelineResult {
-  excerptBlock:   string
-  sourceTitles:   string[]
-  sourceNoteIds:  string[]
-  usedEmbeddings: boolean
-  confidence:     "high" | "medium" | "low"
-  tier1Cards:     Tier1ResultCard[]
-  inventoryMode:  boolean
+  excerptBlock:         string
+  sourceTitles:         string[]
+  sourceNoteIds:        string[]
+  usedEmbeddings:       boolean
+  confidence:           "high" | "medium" | "low"
+  tier1Cards:           Tier1ResultCard[]
+  inventoryMode:        boolean
+  excludedNoteNotices:  ExcludedTitleMatch[]
 }
 
 async function runPipeline(
-  query:        string,
-  currentNote?: Note,
+  query:         string,
+  currentNote?:  Note,
+  scopeNoteIds?: string[],
 ): Promise<PipelineResult> {
   const { intent, scope, cleanQuery } = detectIntent(query)
 
   if (intent === "inventory") {
     const inventoryContext = await buildInventoryContext()
     return {
-      excerptBlock:   inventoryContext,
-      sourceTitles:   [],
-      sourceNoteIds:  [],
-      usedEmbeddings: false,
-      confidence:     "high",
-      tier1Cards:     [],
-      inventoryMode:  true,
+      excerptBlock:        inventoryContext,
+      sourceTitles:        [],
+      sourceNoteIds:       [],
+      usedEmbeddings:      false,
+      confidence:          "high",
+      tier1Cards:          [],
+      inventoryMode:       true,
+      excludedNoteNotices: [],
     }
   }
 
   const queryVariants = [cleanQuery]
-
   const topK = intent === "exploration" ? 12 : 8
 
   let results: HybridResult[] = []
   let usedEmbeddings = false
+  let excludedNoteNotices: ExcludedTitleMatch[] = []
 
   try {
-    results = await hybridSearch(cleanQuery, topK, {
+    const searchResult = await hybridSearch(cleanQuery, topK, {
       currentNoteId: currentNote?.id,
       scope,
       queryVariants,
+      noteIds: scopeNoteIds,
     })
-    usedEmbeddings = results.some((r) => r.matched_by.includes("semantic"))
+    results             = searchResult.results
+    usedEmbeddings      = results.some((r) => r.matched_by.includes("semantic"))
+    excludedNoteNotices = searchResult.excludedTitleMatches
   } catch { /* retrieval failure — empty results */ }
 
   if (results.length > 0) {
@@ -381,6 +389,7 @@ async function runPipeline(
     confidence,
     tier1Cards,
     inventoryMode: false,
+    excludedNoteNotices,
   }
 }
 
@@ -420,15 +429,16 @@ Answer:`
 // ─── Streaming chat (primary path) ───────────────────────────────────────────
 
 export async function streamChatWithNotes(
-  query:       string,
-  _allNotes:   Note[],
-  noteId:      string,
-  currentNote: Note | undefined,
-  streaming:   StreamingChatOptions
+  query:        string,
+  _allNotes:    Note[],
+  noteId:       string,
+  currentNote:  Note | undefined,
+  scopeNoteIds: string[] | undefined,
+  streaming:    StreamingChatOptions
 ): Promise<Omit<ChatResult, "answer">> {
   // Tier 1 — no AI key configured
   if (!isAIReady()) {
-    const pipeline   = await runPipeline(query, currentNote)
+    const pipeline   = await runPipeline(query, currentNote, scopeNoteIds)
     const tier1Cards = pipeline.tier1Cards
 
     const summary = tier1Cards.length > 0
@@ -439,19 +449,20 @@ export async function streamChatWithNotes(
     streaming.onDone?.()
 
     return {
-      sourceTitles:   pipeline.sourceTitles,
-      sourceNoteIds:  pipeline.sourceNoteIds,
-      usedEmbeddings: pipeline.usedEmbeddings,
-      confidence:     pipeline.confidence,
-      relatedNotes:   [],
-      tier1Results:   tier1Cards,
+      sourceTitles:        pipeline.sourceTitles,
+      sourceNoteIds:       pipeline.sourceNoteIds,
+      usedEmbeddings:      pipeline.usedEmbeddings,
+      confidence:          pipeline.confidence,
+      relatedNotes:        [],
+      tier1Results:        tier1Cards,
+      excludedNoteNotices: pipeline.excludedNoteNotices,
     }
   }
 
   // Tier 2 — full AI pipeline
   const [historyBlock, pipeline] = await Promise.all([
     buildHistoryBlock(noteId),
-    runPipeline(query, currentNote),
+    runPipeline(query, currentNote, scopeNoteIds),
   ])
 
   const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote)
@@ -501,11 +512,12 @@ export async function streamChatWithNotes(
   )
 
   return {
-    sourceTitles:   titles,
-    sourceNoteIds:  noteIds,
-    usedEmbeddings: pipeline.usedEmbeddings,
-    confidence:     pipeline.confidence,
+    sourceTitles:        titles,
+    sourceNoteIds:       noteIds,
+    usedEmbeddings:      pipeline.usedEmbeddings,
+    confidence:          pipeline.confidence,
     relatedNotes,
+    excludedNoteNotices: pipeline.excludedNoteNotices,
   }
 }
 
@@ -515,11 +527,12 @@ export async function chatWithNotes(
   query:        string,
   _allNotes:    Note[],
   noteId:       string,
-  currentNote?: Note
+  currentNote?: Note,
+  scopeNoteIds?: string[]
 ): Promise<ChatResult> {
   const [historyBlock, pipeline] = await Promise.all([
     buildHistoryBlock(noteId),
-    runPipeline(query, currentNote),
+    runPipeline(query, currentNote, scopeNoteIds),
   ])
 
   const prompt = buildPrompt(query, pipeline, historyBlock, currentNote)
@@ -546,11 +559,12 @@ export async function chatWithNotes(
 
   return {
     answer,
-    sourceTitles:   titles,
-    sourceNoteIds:  noteIds,
-    usedEmbeddings: pipeline.usedEmbeddings,
-    confidence:     pipeline.confidence,
+    sourceTitles:        titles,
+    sourceNoteIds:       noteIds,
+    usedEmbeddings:      pipeline.usedEmbeddings,
+    confidence:          pipeline.confidence,
     relatedNotes,
-    tier1Results:   pipeline.tier1Cards,
+    tier1Results:        pipeline.tier1Cards,
+    excludedNoteNotices: pipeline.excludedNoteNotices,
   }
 }

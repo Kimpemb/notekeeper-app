@@ -11,18 +11,12 @@ import { create } from "zustand"
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ChatSession {
-  /** ID of the note this chat is linked to. null = unlinked. */
   linkedNoteId:   string | null
-  /** Title at the time of last save — used for the indicator label.
-   *  Kept in sync reactively in M5 via Zustand subscription. */
   linkedNoteTitle: string | null
-  /** Unix ms timestamp of the last successful save. Used for conflict
-   *  detection in M4: compare against notes.updated_at. */
   lastSavedAt:    number | null
-  /** Whether the linked note has been trashed since the last save. */
   linkedNoteTrashed: boolean
-  /** Whether the linked note has been permanently deleted. */
   linkedNoteDeleted: boolean
+  ragScope: "all" | "note"
 }
 
 interface ChatSessionStore {
@@ -42,8 +36,12 @@ interface ChatSessionStore {
   markLinkedNoteDeleted:  (pane: 1 | 2) => void
   markLinkedNoteRestored: (pane: 1 | 2, title: string) => void
 
-  // Called by "New conversation" button — resets everything for the pane
+
+// Called by "New conversation" button — resets everything for the pane
   clearSession: (pane: 1 | 2) => void
+
+  // M14 — set RAG scope for the pane
+  setRagScope: (pane: 1 | 2, scope: "all" | "note") => void
 
   // Selectors
   getSession:       (pane: 1 | 2) => ChatSession
@@ -60,6 +58,7 @@ function emptySession(): ChatSession {
     lastSavedAt:       null,
     linkedNoteTrashed: false,
     linkedNoteDeleted: false,
+    ragScope:          "all",
   }
 }
 
@@ -138,6 +137,14 @@ export const useChatSessionStore = create<ChatSessionStore>((set, get) => ({
   clearSession: (pane) =>
     set((s) => ({
       sessions: { ...s.sessions, [pane]: emptySession() },
+    })),
+
+  setRagScope: (pane, scope) =>
+    set((s) => ({
+      sessions: {
+        ...s.sessions,
+        [pane]: { ...s.sessions[pane], ragScope: scope },
+      },
     })),
 
   getSession:      (pane) => get().sessions[pane],
