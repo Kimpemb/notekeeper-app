@@ -29,18 +29,9 @@ import {
 import { getNoteById, saveManualVersion }          from "@/features/notes/db/queries"
 import { formatCleanSession, formatCleanResponse, estimateTokens, getLengthBand } from "@/features/ai/lib/save/cleanMarkdown"
 import { useChatSessionStore }            from "@/features/ai/store/useChatSessionStore"
+import { markdownToContent } from "@/features/ai/lib/save/parseMarkdown"
 import type { TranscriptMessage }         from "@/features/ai/lib/save/transcript"
 import type { ChatMessage }               from "@/features/ai/lib/chat"
-import { generateJSON } from "@tiptap/core"
-import StarterKit from "@tiptap/starter-kit"
-import { marked } from "marked"
-import {
-  CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
-  EditorTable, TableRow, TableHeader, TableCell, ImageExtension, AttachmentExtension,
-  BlockIdExtension, BlockRefNode, DataviewNode, Color, TextStyle, MultiHighlight,
-} from "@/features/editor/components/Editor/extensions"
-import { SubPageNode } from "@/features/editor/components/Editor/SubPageNode"
-import { NoteLink }    from "@/features/editor/components/Editor/NoteLink"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,33 +50,6 @@ interface Props {
 
 function toTranscript(messages: ChatMessage[]): TranscriptMessage[] {
   return messages.map((m) => ({ role: m.role, content: m.content }))
-}
-
-const PARSE_EXTENSIONS = [
-  StarterKit.configure({ codeBlock: false }),
-  Color, TextStyle, MultiHighlight,
-  CodeBlock, Callout, CheckList, CheckItem,
-  EditorTable, TableRow, TableHeader, TableCell,
-  Toggle, ToggleSummary, ToggleBody,
-  ImageExtension, AttachmentExtension,
-  BlockIdExtension, BlockRefNode, DataviewNode,
-  SubPageNode,
-  NoteLink.configure({ onNavigate: () => {} }),
-]
-
-function markdownToContent(md: string): { content: string; plaintext: string } {
-  try {
-    const html = marked.parse(md) as string
-    const doc  = generateJSON(html, PARSE_EXTENSIONS)
-    return { content: JSON.stringify(doc), plaintext: md }
-  } catch (err) {
-    console.warn("[markdownToContent] parse failed:", err)
-    const doc = {
-      type: "doc",
-      content: [{ type: "paragraph", content: [{ type: "text", text: md }] }],
-    }
-    return { content: JSON.stringify(doc), plaintext: md }
-  }
 }
 
 // ─── Parent picker (reused search+list pattern from MoveNoteModal) ────────────

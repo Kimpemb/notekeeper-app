@@ -4,12 +4,12 @@
   "version": "1.5.1",
   "type": "module",
   "scripts": {
-  "dev": "vite",
-  "build": "tsc && vite build",
-  "preview": "vite preview",
-  "tauri": "tauri",
-  "test": "vitest"
-},
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test": "vitest"
+  },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/api": "^2",
@@ -38,8 +38,10 @@
     "drizzle-orm": "^0.45.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.8.0",
+    "marked": "^18.0.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "tiptap-markdown": "^0.9.0",
     "yjs": "^13.6.29",
     "zustand": "^5.0.11"
   },
