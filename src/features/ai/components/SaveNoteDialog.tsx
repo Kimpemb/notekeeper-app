@@ -26,7 +26,8 @@ import {
   formatRawTranscript,
   wrapForAppend,
 } from "@/features/ai/lib/save/transcript"
-import { getNoteById, saveManualVersion } from "@/features/notes/db/queries"
+import { getNoteById, saveManualVersion }          from "@/features/notes/db/queries"
+import { formatCleanSession, formatCleanResponse, estimateTokens, getLengthBand } from "@/features/ai/lib/save/cleanMarkdown"
 import { useChatSessionStore }            from "@/features/ai/store/useChatSessionStore"
 import type { TranscriptMessage }         from "@/features/ai/lib/save/transcript"
 import type { ChatMessage }               from "@/features/ai/lib/chat"
@@ -37,10 +38,11 @@ export type SaveFormat      = "raw" | "clean_session" | "clean_response"
 export type SaveDestination = "subnote" | "append"
 
 interface Props {
-  paneId:        1 | 2
-  messages:      ChatMessage[]
-  onClose:       () => void
-  onSaveSuccess: (noteId: string, noteTitle: string) => void
+  paneId:          1 | 2
+  messages:        ChatMessage[]
+  onClose:         () => void
+  onSaveSuccess:   (noteId: string, noteTitle: string) => void
+  selectedMessage?: { user: TranscriptMessage; assistant: TranscriptMessage }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -158,7 +160,7 @@ function ParentPicker({ excludeNoteId, value, onChange }: ParentPickerProps) {
 
 // ─── Main dialog ──────────────────────────────────────────────────────────────
 
-export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Props) {
+export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selectedMessage }: Props) {
   const notes       = useNoteStore((s) => s.notes)
   const createNote  = useNoteStore((s) => s.createNote)
   const updateNote  = useNoteStore((s) => s.updateNote)
@@ -207,11 +209,29 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Pro
       // Format selection — clean markdown formatters are stubs until M7/M8.
       // They will be wired in Phase 2. For now all formats produce raw transcript.
       let markdown: string
+      let formatFallback = false
+
       if (format === "raw") {
         markdown = formatRawTranscript(transcript)
+      } else if (format === "clean_session") {
+        const result = await formatCleanSession(transcript)
+        markdown      = result.markdown
+        formatFallback = result.fallback
       } else {
-        // Stub: falls back to raw transcript. M7/M8 replace this.
-        markdown = formatRawTranscript(transcript)
+        // clean_response
+        if (selectedMessage) {
+          const result = await formatCleanResponse(selectedMessage.user, selectedMessage.assistant)
+          markdown      = result.markdown
+          formatFallback = result.fallback
+        } else {
+          const result = await formatCleanSession(transcript)
+          markdown      = result.markdown
+          formatFallback = result.fallback
+        }
+      }
+
+      if (formatFallback) {
+        setError("Clean markdown unavailable — saved as raw transcript. You can reformat later.")
       }
 
       const { content, plaintext } = markdownToContent(markdown)
@@ -314,7 +334,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Pro
       setSaving(false)
     }
   }, [
-    saving, messages, format, destination, parentId, noteName,
+    saving, messages, format, destination, parentId, noteName, selectedMessage,
     currentNoteId, currentNote, notes, createNote, updateNote,
     onSaveSuccess, onClose,
   ])
@@ -454,6 +474,20 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Pro
               />
             </div>
           </div>
+
+          {/* Over-20k notice */}
+          {format !== "raw" && (() => {
+            const tokens = estimateTokens(formatRawTranscript(toTranscript(messages)))
+            const band   = getLengthBand(tokens)
+            return band === "long" ? (
+              <div className="px-3 py-2 rounded-lg bg-amber-50/40 border border-amber-100">
+                <p className="text-[10px] text-amber-600 leading-relaxed">
+                  This is a long conversation. Clean markdown may not capture everything.
+                  Raw transcript preserves the full conversation.
+                </p>
+              </div>
+            ) : null
+          })()}
 
           {/* Conflict dialog */}
           {conflictPending && (

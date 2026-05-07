@@ -149,7 +149,11 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [allExhausted, setAllExhausted]     = useState(false);
   const prevProviderRef = useRef<string | null>(null);
   const prevModelRef    = useRef<string | null>(null);
-  const [saveDialogOpen, setSaveDialogOpen] = useState(false)
+  const [saveDialogOpen, setSaveDialogOpen]     = useState(false)
+  const [selectedMessage, setSelectedMessage]   = useState<{
+    user:      { role: "user" | "assistant"; content: string }
+    assistant: { role: "user" | "assistant"; content: string }
+  } | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
@@ -568,17 +572,41 @@ useEffect(() => {
               </div>
             )}
 
-            {messages.map((msg) => {
+            {messages.map((msg, idx) => {
               const meta        = metaMap.get(msg.id);
               const isStreaming = msg.id === streamingId;
+              const isLatest    = idx === messages.length - 1;
+              const prevMsg     = idx > 0 ? messages[idx - 1] : null;
+
               return (
-                <div key={msg.id}>
+                <div key={msg.id} className="group/msg relative">
                   <MessageBubble message={msg} isStreaming={isStreaming} />
                   {msg.role === "assistant" && meta && !isStreaming && (
                     <MessageFooter
                       meta={meta}
                       onOpenNote={handleOpenNote}
                     />
+                  )}
+                  {msg.role === "assistant" && !isStreaming && !isFreeTier && (
+                    <div className={`px-4 pb-1 ${isLatest ? "flex" : "hidden group-hover/msg:flex"}`}>
+                      <button
+                        onClick={() => {
+                          const userMsg = prevMsg?.role === "user" ? prevMsg : null
+                          setSelectedMessage(userMsg ? {
+                            user:      { role: "user",      content: userMsg.content },
+                            assistant: { role: "assistant", content: msg.content },
+                          } : null)
+                          setSaveDialogOpen(true)
+                        }}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-500 border border-transparent hover:border-violet-200 transition-colors duration-100"
+                      >
+                        <svg width="8" height="8" viewBox="0 0 9 9" fill="none">
+                          <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
+                            stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        Save to note ↓
+                      </button>
+                    </div>
                   )}
                 </div>
               );
@@ -705,7 +733,8 @@ useEffect(() => {
         <SaveNoteDialog
           paneId={paneId}
           messages={messages}
-          onClose={() => setSaveDialogOpen(false)}
+          selectedMessage={selectedMessage ?? undefined}
+          onClose={() => { setSaveDialogOpen(false); setSelectedMessage(null) }}
           onSaveSuccess={(noteId, noteTitle) => {
             setLinkedNote(paneId, noteId, noteTitle)
             stampSavedAt(paneId)
