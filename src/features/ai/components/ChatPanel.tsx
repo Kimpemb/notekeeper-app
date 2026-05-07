@@ -381,118 +381,114 @@ useEffect(() => {
     <div className="flex flex-col h-full w-72 shrink-0 border-l border-idemora-border bg-idemora-bg-primary">
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-idemora-border shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-6 h-6 rounded-md bg-violet-50 flex items-center justify-center shrink-0">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="text-violet-500">
-              <path d="M6.5 1C3.46 1 1 3.19 1 5.9c0 1.5.7 2.85 1.82 3.78L2.5 12l2.3-1.1c.54.15 1.1.23 1.7.23 3.04 0 5.5-2.19 5.5-4.9S9.54 1 6.5 1z"
-                stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-              <path d="M4 5.5h5M4 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-            </svg>
-          </div>
+<div className="flex flex-col border-b border-idemora-border shrink-0">
 
-          {!isFreeTier && <QuickSwitch />}
-
-          {isFreeTier && (
-            <span className="text-sm font-semibold text-idemora-text-normal truncate">
-              Ask your notes
-            </span>
-          )}
-
-          {messages.length > 0 && !isFreeTier && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-600 tabular-nums shrink-0">
-              {Math.floor(messages.length / 2)}
-            </span>
-          )}
-
-          {/* Indexing dot — shown when embedding budget is actively being consumed */}
-          {!isFreeTier && embeddingBudget.used > 0 && embeddingBudget.used < embeddingBudget.ceiling && (
-            <div
-              className="flex items-center gap-1 shrink-0"
-              title={`Indexing — ${embeddingBudget.ceiling - embeddingBudget.used} requests remaining today`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0">
-
-          {/* Save to Note button — shown when there are messages */}
-          {messages.length > 0 && !isFreeTier && (
-            <button
-              onClick={() => setSaveDialogOpen(true)}
-              title="Save to Note"
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-idemora-text-muted border border-idemora-border hover:text-violet-500 hover:border-violet-300 transition-colors duration-100"
-            >
-              <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-                <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
-                  stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              Save
-            </button>
-          )}
-
-          {/* Linked note indicator — shown when session is linked */}
-          {session?.linkedNoteId && !session?.linkedNoteDeleted && (
-            <button
-              onClick={() => {
-                if (session?.linkedNoteId) {
-                  if (paneId === 2) openTabInPane2(session.linkedNoteId)
-                  else openTab(session.linkedNoteId)
-                }
-              }}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-violet-500 border border-violet-200 hover:bg-violet-50/30 transition-colors duration-100 max-w-[8rem]"
-              title={`Saved to ${session?.linkedNoteTitle ?? "note"}`}
-            >
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
-                <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
-                <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-              </svg>
-              <span className="truncate">{session?.linkedNoteTitle ?? "Saved"}</span>
-              <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0">
-                <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
-                  stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          )}
-
-          {/* Trashed indicator */}
-          {session?.linkedNoteTrashed && (
-            <span className="text-[10px] text-amber-500 px-1.5">
-              Linked note in trash
-            </span>
-          )}
-
-          {/* Permanently deleted indicator */}
-          {session?.linkedNoteDeleted && (
-            <span className="text-[10px] text-idemora-text-muted px-1.5">
-              Note deleted — next save creates new
-            </span>
-          )}
-
-          {messages.length > 0 && (
-            <button
-              onClick={handleClear}
-              title="Clear conversation"
-              className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted transition-colors duration-100"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1.5 2.5h7M3 2.5V1.5h4v1M3.5 4.5v3M6.5 4.5v3M2 2.5l.5 6h5l.5-6"
-                  stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          )}
-          <button
-            onClick={() => closeChat(paneId)}
-            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted transition-colors duration-100"
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            </svg>
-          </button>
-        </div>
+  {/* Row 1 — identity + close */}
+  <div className="flex items-center justify-between px-3 pt-3 pb-2">
+    <div className="flex items-center gap-2 min-w-0">
+      <div className="w-5 h-5 rounded-md bg-violet-50 flex items-center justify-center shrink-0">
+        <svg width="11" height="11" viewBox="0 0 13 13" fill="none" className="text-violet-500">
+          <path d="M6.5 1C3.46 1 1 3.19 1 5.9c0 1.5.7 2.85 1.82 3.78L2.5 12l2.3-1.1c.54.15 1.1.23 1.7.23 3.04 0 5.5-2.19 5.5-4.9S9.54 1 6.5 1z"
+            stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          <path d="M4 5.5h5M4 7.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
       </div>
+
+      {!isFreeTier && <QuickSwitch />}
+      {isFreeTier && (
+        <span className="text-sm font-semibold text-idemora-text-normal truncate">
+          Ask your notes
+        </span>
+      )}
+
+      {messages.length > 0 && !isFreeTier && (
+        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-600 tabular-nums shrink-0">
+          {Math.floor(messages.length / 2)}
+        </span>
+      )}
+
+      {!isFreeTier && embeddingBudget.used > 0 && embeddingBudget.used < embeddingBudget.ceiling && (
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse shrink-0"
+          title={`Indexing — ${embeddingBudget.ceiling - embeddingBudget.used} requests remaining today`}
+        />
+      )}
+    </div>
+
+    <div className="flex items-center gap-1 shrink-0">
+      {messages.length > 0 && (
+        <button
+          onClick={handleClear}
+          title="Clear conversation"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M1.5 2.5h7M3 2.5V1.5h4v1M3.5 4.5v3M6.5 4.5v3M2 2.5l.5 6h5l.5-6"
+              stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
+      <button
+        onClick={() => closeChat(paneId)}
+        className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+      >
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  {/* Row 2 — save + linked note indicator (only when relevant) */}
+  {(messages.length > 0 || session?.linkedNoteId || session?.linkedNoteTrashed || session?.linkedNoteDeleted) && (
+    <div className="flex items-center gap-2 px-3 pb-2.5">
+      {messages.length > 0 && !isFreeTier && (
+        <button
+          onClick={() => setSaveDialogOpen(true)}
+          title="Save to Note"
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-idemora-text-muted border border-idemora-border hover:text-violet-500 hover:border-violet-300 transition-colors duration-100 shrink-0"
+        >
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+            <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
+              stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Save
+        </button>
+      )}
+
+      {session?.linkedNoteId && !session?.linkedNoteDeleted && (
+        <button
+          onClick={() => {
+            if (session?.linkedNoteId) {
+              if (paneId === 2) openTabInPane2(session.linkedNoteId)
+              else openTab(session.linkedNoteId)
+            }
+          }}
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-violet-500 border border-violet-200 hover:bg-violet-50/30 transition-colors duration-100 min-w-0"
+          title={`Saved to ${session?.linkedNoteTitle ?? "note"}`}
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+            <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
+            <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+          </svg>
+          <span className="truncate">{session?.linkedNoteTitle ?? "Saved"}</span>
+          <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0">
+            <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
+              stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
+
+      {session?.linkedNoteTrashed && (
+        <span className="text-[10px] text-amber-500">Linked note in trash</span>
+      )}
+
+      {session?.linkedNoteDeleted && (
+        <span className="text-[10px] text-idemora-text-muted">Note deleted — next save creates new</span>
+      )}
+    </div>
+  )}
+</div>
 
       {/* ── Indexing paused banner (after header) ── */}
       {indexingPaused && (

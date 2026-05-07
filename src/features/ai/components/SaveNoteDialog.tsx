@@ -214,11 +214,17 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Pro
         // Create child note under parentId (defaults to current note)
         const resolvedParentId = parentId ?? null
         const savedNote = await createNote({
-          title:     noteName.trim() || generateNoteName(transcript),
-          content,
-          plaintext,
-          parent_id: resolvedParentId,
+        title:     noteName.trim() || generateNoteName(transcript),
+        content,
+        plaintext,
+        parent_id: resolvedParentId,
         })
+
+        // Insert inline SubPageNode into the editor
+        window.dispatchEvent(new CustomEvent("idemora:insert-subpage", {
+        detail: { noteId: savedNote.id }
+        }))
+
         onSaveSuccess(savedNote.id, savedNote.title)
 
       } else {

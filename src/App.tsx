@@ -502,8 +502,8 @@ useEffect(() => {
           {paneOutlineOpen && activeEditor && (
             <OutlinePanel editor={activeEditor} paneId={paneId} />
           )}
-          {paneChatOpen && (
-            <ChatPanel noteId={paneNoteId ?? ""} paneId={paneId} />
+          {paneChatOpen && paneNoteId && (
+            <ChatPanel noteId={paneNoteId} paneId={paneId} />
           )}
         </div>
       )}

@@ -630,6 +630,21 @@ useEffect(() => {
     return () => window.removeEventListener("idemora:insert-link", handleInsertLink);
   }, [editor, isActiveTab]);
 
+  useEffect(() => {
+    if (!editor || !isActiveTab) return;
+    function handleInsertSubPage(e: Event) {
+      const { noteId: subNoteId } = (e as CustomEvent<{ noteId: string }>).detail;
+      if (!editor) return;
+      const note = useNoteStore.getState().notes.find((n) => n.id === subNoteId);
+      editor.chain().focus("end").insertContent([
+        { type: "subPage", attrs: { noteId: subNoteId, title: note?.title ?? "Untitled", mode: "display" } },
+        { type: "paragraph" },
+      ]).run();
+    }
+    window.addEventListener("idemora:insert-subpage", handleInsertSubPage);
+    return () => window.removeEventListener("idemora:insert-subpage", handleInsertSubPage);
+  }, [editor, isActiveTab]);
+
   const onSaveComplete = useCallback((content: string, savedNoteId: string) => {
     lastSavedContent.current = content;
     if (!editor) return;
