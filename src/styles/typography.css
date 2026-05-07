@@ -76,6 +76,7 @@
 .tiptap a {
   text-decoration: underline;
   opacity: 0.8;
+  cursor: pointer;
 }
 
 /* ─── Placeholders ───────────────────────────────────────────────────────── */
@@ -99,6 +100,8 @@
 }
 
 .dark .empty-line-hint { color: rgba(180, 180, 180, 0.28); }
+
+
 
 /* Add to src/styles/typography.css  (or wherever .ProseMirror is defined)
    These CSS custom properties are written at runtime by applySettingsToDOM().

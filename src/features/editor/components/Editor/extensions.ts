@@ -1,4 +1,3 @@
-// src/features/editor/components/Editor/extensions.ts
 import { Extension, Node } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { DecorationSet, Decoration } from "@tiptap/pm/view";
@@ -16,6 +15,7 @@ import { CalloutNodeView } from "./CalloutNodeView";
 import { Color }     from "@tiptap/extension-color";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Highlight     from "@tiptap/extension-highlight";
+import { markdownToDoc, looksLikeMarkdown } from "@/features/ai/lib/save/parseMarkdown"
 
 import {
   ToggleNodeView,
@@ -848,3 +848,57 @@ declare module "@tiptap/core" {
 export { BlockIdExtension } from "./BlockIdExtension";
 export { BlockRefNode }     from "./BlockRefNode";
 export { DataviewNode } from "./DataviewNode";
+
+// ── Markdown paste handler ────────────────────────────────────────────────────
+const URL_REGEX = /^https?:\/\/[^\s]+$/
+
+export const MarkdownPasteExtension = Extension.create({
+  name: "markdownPaste",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("markdownPaste"),
+        props: {
+          handlePaste(view, event) {
+            const text = event.clipboardData?.getData("text/plain")?.trim()
+            if (!text) return false
+
+            // ── URL only → show inline prompt ─────────────────────────────
+            if (URL_REGEX.test(text)) {
+              window.dispatchEvent(
+                new CustomEvent("idemora:url-paste", {
+                  detail: { url: text, view },
+                })
+              )
+              return true
+            }
+
+            // ── Markdown → parse and insert ───────────────────────────────
+            if (looksLikeMarkdown(text)) {
+              try {
+                const doc   = markdownToDoc(text) as { content: unknown[] }
+                const nodes = doc.content
+                if (!nodes?.length) return false
+
+                const { state, dispatch } = view
+                const { from, to }        = state.selection
+                const parsedSlice         = state.schema.nodeFromJSON({ type: "doc", content: nodes })
+
+                const tr = state.tr.replaceWith(from, to, parsedSlice.content)
+                dispatch(tr)
+                return true
+              } catch (err) {
+                console.warn("[markdownPaste] parse failed:", err)
+                return false
+              }
+            }
+
+            // ── Plain prose → default Tiptap paste behaviour ──────────────
+            return false
+          },
+        },
+      }),
+    ]
+  },
+})
