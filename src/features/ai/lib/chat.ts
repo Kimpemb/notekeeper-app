@@ -350,6 +350,9 @@ async function runPipeline(
   let excludedNoteNotices: ExcludedTitleMatch[] = []
 
   try {
+    console.log('[pipeline] scopeNoteIds:', scopeNoteIds)
+    console.log('[pipeline] scope from intent:', scope)
+    console.log('[pipeline] resolvedScope noteIds:', scopeNoteIds?.length ? scopeNoteIds : 'UNDEFINED — scope filter will not apply')
     const searchResult = await hybridSearch(cleanQuery, topK, {
       currentNoteId: currentNote?.id,
       scope,

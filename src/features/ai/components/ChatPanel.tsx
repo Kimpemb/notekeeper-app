@@ -235,11 +235,12 @@ export function ChatPanel({ noteId, paneId }: Props) {
   // ── Scope resolution ───────────────────────────────────────────────────────
 
   async function resolveScopeNoteIds(): Promise<string[] | undefined> {
-    // Read from refs — always current even inside stale closures
-    if (ragScopeRef.current === "all" || !linkedNoteRef.current) return undefined;
-    const descendants = await getAllDescendants(linkedNoteRef.current);
-    return [linkedNoteRef.current, ...descendants.map((d: { id: string }) => d.id)];
-  }
+  if (ragScopeRef.current === "all") return undefined;
+    // Always scope to the currently open note in the pane, not the linked/saved note.
+    // noteId is the prop — always defined, always tracks the live editor pane.
+    const descendants = await getAllDescendants(noteId);
+  return [noteId, ...descendants.map((d: { id: string }) => d.id)];
+}
 
   // ── Send ───────────────────────────────────────────────────────────────────
 
@@ -341,10 +342,10 @@ export function ChatPanel({ noteId, paneId }: Props) {
   function handleScopeToggle() {
     if (ragScope === "note") {
       setRagScope(paneId, "all");
-    } else if (session.linkedNoteId) {
+    } else {
+      // noteId is always defined — no save/link required to scope
       setRagScope(paneId, "note");
     }
-    // if ragScope === "all" and no linkedNoteId, do nothing (button is dimmed)
   }
 
   const hasNoEmbeddingMessage = [...metaMap.values()].some((m) => !m.usedEmbeddings);
@@ -541,28 +542,24 @@ export function ChatPanel({ noteId, paneId }: Props) {
           <div className="flex items-center px-3 pt-2.5 pb-1">
             <button
               onClick={handleScopeToggle}
-              disabled={ragScope === "all" && !session.linkedNoteId}
+              disabled={false}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium border transition-colors duration-100 ${
                 ragScope === "note"
                   ? "text-violet-500 border-violet-300 bg-violet-50/30 hover:bg-violet-100/40"
-                  : session.linkedNoteId
-                    ? "text-idemora-text-muted border-idemora-border hover:text-violet-500 hover:border-violet-300"
-                    : "text-idemora-text-muted border-idemora-border opacity-40 cursor-not-allowed"
+                  : "text-idemora-text-muted border-idemora-border hover:text-violet-500 hover:border-violet-300"
               }`}
               title={
                 ragScope === "note"
-                  ? "Searching this note and sub-notes — click to search all notes"
-                  : session.linkedNoteId
-                    ? "Searching all notes — click to scope to this note and sub-notes"
-                    : "Save a chat first to enable scoping"
+                  ? `Scoped to "${currentNote?.title ?? "this note"}" and sub-notes — click to search all notes`
+                  : `Searching all notes — click to scope to "${currentNote?.title ?? "this note"}" and sub-notes`
               }
             >
               <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="shrink-0">
                 <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/>
                 <path d="M4.5 2.5v4M2.5 4.5h4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
               </svg>
-              {ragScope === "note" && session.linkedNoteTitle
-                ? `Scoped: ${session.linkedNoteTitle.slice(0, 18)}${session.linkedNoteTitle.length > 18 ? "…" : ""}`
+              {ragScope === "note" && currentNote?.title
+                ? `Scoped: ${currentNote.title.slice(0, 18)}${currentNote.title.length > 18 ? "…" : ""}`
                 : "All notes"}
             </button>
           </div>

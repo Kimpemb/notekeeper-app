@@ -300,7 +300,8 @@ async function vectorPass(
 
     let filtered = semanticResults
     const hasScopeFilters = !!(
-      scope.sourceType || scope.dateRange || scope.tag || scope.noteTitle
+      scope.sourceType || scope.dateRange || scope.tag || scope.noteTitle ||
+      (scope.noteIds && scope.noteIds.length > 0)
     )
 
     if (hasScopeFilters) {
