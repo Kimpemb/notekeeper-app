@@ -428,15 +428,31 @@ loadAISettings: async () => {
     const processingProvider = parsed.processingSlot?.provider ?? DEFAULT_PROCESSING_SLOT.provider;
     const embeddingProvider  = parsed.embeddingProvider ?? "gemini";
 
-    const primaryKeyId    = parsed.primarySlot?.keyId
-      ?? providers[primaryProvider].activeKeyId
-      ?? null;
-    const processingKeyId = parsed.processingSlot?.keyId
-      ?? providers[processingProvider].activeKeyId
-      ?? null;
-    const embeddingKeyId  = parsed.providers?.gemini?.activeKeyId
-      ?? providers[embeddingProvider as ProviderName].activeKeyId
-      ?? null;
+    function resolveValidKeyId(
+      resolvedId: string | null,
+      providerKeys: StoredKey[],
+      fallbackActiveKeyId: string | null
+    ): string | null {
+      if (resolvedId && providerKeys.some((k) => k.id === resolvedId)) return resolvedId
+      if (fallbackActiveKeyId && providerKeys.some((k) => k.id === fallbackActiveKeyId)) return fallbackActiveKeyId
+      return providerKeys[0]?.id ?? null
+    }
+
+    const primaryKeyId    = resolveValidKeyId(
+      parsed.primarySlot?.keyId ?? null,
+      providers[primaryProvider].keys,
+      providers[primaryProvider].activeKeyId
+    )
+    const processingKeyId = resolveValidKeyId(
+      parsed.processingSlot?.keyId ?? null,
+      providers[processingProvider].keys,
+      providers[processingProvider].activeKeyId
+    )
+    const embeddingKeyId  = resolveValidKeyId(
+      parsed.providers?.gemini?.activeKeyId ?? null,
+      providers[embeddingProvider as ProviderName].keys,
+      providers[embeddingProvider as ProviderName].activeKeyId
+    )
 
     set({
       primarySlot:         parsed.primarySlot         ?? DEFAULT_PRIMARY_SLOT,
@@ -560,6 +576,12 @@ loadAISettings: async () => {
       processingRotation: isActiveProcessing
         ? { ...s.processingRotation, keyId: nextKey?.id ?? null }
         : s.processingRotation,
+      primarySlot: (s.primarySlot.keyId === keyId && s.primarySlot.provider === provider)
+        ? { ...s.primarySlot, keyId: nextKey?.id ?? null }
+        : s.primarySlot,
+      processingSlot: (s.processingSlot.keyId === keyId && s.processingSlot.provider === provider)
+        ? { ...s.processingSlot, keyId: nextKey?.id ?? null }
+        : s.processingSlot,
     }
   })
 
@@ -576,12 +598,23 @@ loadAISettings: async () => {
 },
 
   setActiveKey: async (provider, keyId) => {
-    set((s) => ({
-      providers: {
-        ...s.providers,
-        [provider]: { ...s.providers[provider], activeKeyId: keyId },
-      },
-    }));
+    set((s) => {
+      const isPrimary    = s.primaryRotation.provider === provider
+      const isProcessing = s.processingRotation.provider === provider
+      const isEmbedding  = s.embeddingProvider === provider
+
+      return {
+        providers: {
+          ...s.providers,
+          [provider]: { ...s.providers[provider], activeKeyId: keyId },
+        },
+        primaryRotation:    isPrimary    ? { ...s.primaryRotation,    keyId } : s.primaryRotation,
+        processingRotation: isProcessing ? { ...s.processingRotation, keyId } : s.processingRotation,
+        primarySlot:        isPrimary    ? { ...s.primarySlot,        keyId } : s.primarySlot,
+        processingSlot:     isProcessing ? { ...s.processingSlot,     keyId } : s.processingSlot,
+        embeddingActiveKeyId: isEmbedding ? keyId : s.embeddingActiveKeyId,
+      }
+    });
     await persist(get());
   },
 
