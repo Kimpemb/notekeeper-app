@@ -22,6 +22,7 @@ import { rerank, type RerankInput }       from "@/features/ai/lib/search/rerank"
 import { getSurroundingBlocks }           from "@/features/notes/db/queries"
 import type { ScopeFilter }               from "@/features/ai/lib/search/intentDetection"
 
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const RRF_K = 60
@@ -181,27 +182,30 @@ async function ftsPass(
     // FIX: exclude untitled notes unless they are the currently open note.
     try {
       const rows = await db.select<FtsRow[]>(
-        `SELECT
-           bf.block_id,
-           bf.note_id,
-           nb.plaintext,
-           nb.chunk_heading,
-           nb.source_type,
-           nb.block_updated_at,
-           n.title  AS note_title,
-           bf.rank  AS rank
-         FROM blocks_fts bf
-         JOIN note_blocks nb ON nb.block_id = bf.block_id
-         JOIN notes n        ON n.id        = bf.note_id
-         WHERE blocks_fts MATCH $1
-           AND n.deleted_at IS NULL
-           AND (n.id = $2 OR n.title NOT LIKE 'Untitled%')
-           AND COALESCE(n.rag_excluded, 0) = 0
-           ${scopeClause.sql}
-         ORDER BY bf.rank
-         LIMIT ${topK}`,
-        [sanitized, currentNoteId ?? "", ...scopeClause.params]
-      )
+  `SELECT
+     bf.block_id,
+     bf.note_id,
+     nb.plaintext,
+     nb.chunk_heading,
+     nb.source_type,
+     nb.block_updated_at,
+     n.title  AS note_title,
+     bf.rank  AS rank,
+     COALESCE(e.breadcrumb, ntc.breadcrumb) AS breadcrumb
+   FROM blocks_fts bf
+   JOIN note_blocks nb ON nb.block_id = bf.block_id
+   JOIN notes n        ON n.id        = bf.note_id
+   LEFT JOIN embeddings e          ON e.block_id  = bf.block_id
+   LEFT JOIN note_title_chunks ntc ON ntc.note_id = bf.note_id
+   WHERE blocks_fts MATCH $1
+     AND n.deleted_at IS NULL
+     AND (n.id = $2 OR n.title NOT LIKE 'Untitled%')
+     AND COALESCE(n.rag_excluded, 0) = 0
+     ${scopeClause.sql}
+   ORDER BY bf.rank
+   LIMIT ${topK}`,
+  [sanitized, currentNoteId ?? "", ...scopeClause.params]
+)
 
       for (const row of rows) {
         if (!results.has(row.block_id)) {

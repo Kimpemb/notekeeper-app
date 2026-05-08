@@ -234,25 +234,53 @@ function buildExcerptBlock(results: HybridResult[]): string {
 // text and filter sourceTitles/sourceNoteIds to only those indices.
 // If the model cited nothing, fall back to returning all sources.
 
+// ─── Citation filtering ───────────────────────────────────────────────────────
+
 function extractCitedIndices(text: string): Set<number> {
   const cited = new Set<number>()
+  // Keep 1-based — we'll convert when resolving
   for (const match of text.matchAll(/\[(\d+)\]/g)) {
-    cited.add(parseInt(match[1]) - 1) // convert to 0-indexed
+    cited.add(parseInt(match[1], 10))
   }
   return cited
 }
 
 function filterSourcesByCitations(
-  titles:  string[],
-  noteIds: string[],
-  cited:   Set<number>,
+  chunkTitles:  string[],   // parallel to results[], one entry per chunk
+  chunkNoteIds: string[],   // parallel to results[], one entry per chunk
+  cited:        Set<number>, // 1-based indices from model response
 ): { titles: string[]; noteIds: string[] } {
-  // If model cited nothing (no [N] markers at all), return all sources as fallback
-  if (cited.size === 0) return { titles, noteIds }
-  return {
-    titles:  titles.filter((_, i) => cited.has(i)),
-    noteIds: noteIds.filter((_, i) => cited.has(i)),
+  // If model cited nothing, return all unique sources as fallback
+  if (cited.size === 0) {
+    const seen = new Set<string>()
+    const titles: string[] = []
+    const noteIds: string[] = []
+    for (let i = 0; i < chunkNoteIds.length; i++) {
+      if (!seen.has(chunkNoteIds[i])) {
+        seen.add(chunkNoteIds[i])
+        titles.push(chunkTitles[i])
+        noteIds.push(chunkNoteIds[i])
+      }
+    }
+    return { titles, noteIds }
   }
+
+  const seen = new Set<string>()
+  const titles: string[] = []
+  const noteIds: string[] = []
+
+  for (const oneBased of cited) {
+    const i = oneBased - 1 // convert to 0-based chunk index
+    if (i < 0 || i >= chunkNoteIds.length) continue // bounds guard
+    const noteId = chunkNoteIds[i]
+    if (!seen.has(noteId)) {
+      seen.add(noteId)
+      noteIds.push(noteId)
+      titles.push(chunkTitles[i])
+    }
+  }
+
+  return { titles, noteIds }
 }
 
 // ─── Cross-note connection pass ───────────────────────────────────────────────
@@ -268,7 +296,10 @@ async function findRelatedNotes(
   try {
     // FIX: strip [N] citation markers and truncate before passing to FTS.
     // Raw answer text contains [1], [2] etc. which break FTS5 MATCH syntax.
-    const query = answerText.replace(/\[\d+\]/g, "").slice(0, 300)
+    const query = answerText
+      .replace(/\[\d+\]/g, "")
+      .replace(/[*•\-#>`]/g, " ")
+      .slice(0, 300)
     if (!query.trim()) return []
 
     const { results } = await hybridSearch(query, 5, { currentNoteId })
@@ -372,26 +403,26 @@ async function runPipeline(
     results = await expandContext(results)
   }
 
-  const sourceTitles:  string[] = []
-  const sourceNoteIds: string[] = []
-  const seenNoteIds = new Set<string>()
+  // REMOVE this block entirely:
+  // const sourceTitles:  string[] = []
+  // const sourceNoteIds: string[] = []
+  // const seenNoteIds = new Set<string>()
+  // for (const r of results) {
+  //   if (!seenNoteIds.has(r.note_id)) { ... }
+  // }
 
-  for (const r of results) {
-    if (!seenNoteIds.has(r.note_id)) {
-      seenNoteIds.add(r.note_id)
-      sourceTitles.push(r.note_title)
-      sourceNoteIds.push(r.note_id)
-    }
-  }
+  // REPLACE with: one entry per chunk, aligned with buildExcerptBlock's [1]..[N] labels
+  const chunkTitles  = results.map((r) => r.note_title)
+  const chunkNoteIds = results.map((r) => r.note_id)
 
   const confidence   = results[0]?.confidence ?? "low"
-  const excerptBlock = buildExcerptBlock(results)
+  const excerptBlock = buildExcerptBlock(results)  // labels [1]..[N] by chunk
   const tier1Cards   = buildTier1Cards(results)
 
   return {
     excerptBlock,
-    sourceTitles,
-    sourceNoteIds,
+    sourceTitles:  chunkTitles,   // chunk-parallel, not deduplicated yet
+    sourceNoteIds: chunkNoteIds,  // chunk-parallel, not deduplicated yet
     usedEmbeddings,
     confidence,
     tier1Cards,
@@ -418,17 +449,20 @@ function buildPrompt(
       ? `[NOTE AND VAULT EXCERPTS]\n${pipeline.excerptBlock}`
       : "(No matching content found in your notes.)"
 
-  return `You are a knowledgeable assistant with access to the user's personal notes vault and conversation history.
-Answer using ONLY the provided excerpts as your source.
-Excerpts are ranked by relevance. Cite sources using [1], [2] etc.
-If excerpts contain the answer, you MUST answer — do not say information is unavailable if it is present in the excerpts.
-If excerpts genuinely do not contain enough information, say so briefly and honestly.
-Be concise and direct.
-${historyBlock}
+  return `You are an assistant with access to the user's personal notes vault.
+You will be given numbered excerpts [1], [2], [3]... from different notes.
+Read ALL excerpts carefully before forming your answer — the relevant information may appear in any excerpt, not just the first ones.
+Cite every excerpt you draw from using its number: [1], [2] etc.
+Excerpts include a location path (e.g. "Projects / Vitobu / Day 1") — use this to give context about where information lives when it adds clarity.
+Synthesise across excerpts when the answer is spread across multiple notes.
+If after reading ALL excerpts the information is genuinely absent, say so in one sentence.
+Do not say information is unavailable if it appears anywhere in the excerpts, even partially.
+${historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
+[EXCERPTS FROM YOUR NOTES]
 ${excerptSection}
-${currentNoteBlock}
-
-User question: ${query}
+${currentNoteBlock ? `[CURRENTLY OPEN NOTE]\nUse this as additional context. Do not cite it with a number — refer to it as "current note" if relevant.\n${currentNoteBlock}\n` : ""}
+[QUESTION]
+${query}
 
 Answer:`
 }

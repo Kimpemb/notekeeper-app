@@ -436,13 +436,15 @@ export function NoteTreeItem({
             className="flex-1 bg-idemora-bg-primary text-idemora-text-normal text-base px-1 rounded outline-none border border-idemora-border focus:border-blue-500/50 min-w-0"
           />
         ) : (
-          <span
-            className={`flex-1 text-base leading-none flex items-center gap-1.5 overflow-hidden whitespace-nowrap transition-colors duration-150 ${
-              isSelected || isActive ? "text-blue-400" : "text-idemora-text-normal"
-            }`}
-            style={{ maskImage: "linear-gradient(to right, black 75%, transparent 100%)", WebkitMaskImage: "linear-gradient(to right, black 75%, transparent 100%)" }}
-          >
-            {note.title}
+          <>
+            <span
+              className={`flex-1 text-base leading-none overflow-hidden whitespace-nowrap transition-colors duration-150 min-w-0 ${
+                isSelected || isActive ? "text-blue-400" : "text-idemora-text-normal"
+              }`}
+              style={{ maskImage: "linear-gradient(to right, black 75%, transparent 100%)", WebkitMaskImage: "linear-gradient(to right, black 75%, transparent 100%)" }}
+            >
+              {note.title}
+            </span>
             {isPinned && (
               <span className="shrink-0 opacity-40">
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
@@ -451,21 +453,21 @@ export function NoteTreeItem({
               </span>
             )}
             {isBookmarked && (
-              <span className="shrink-0 opacity-40 ml-1">
+              <span className="shrink-0 opacity-40">
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
                   <path d="M2 1h6v8l-3-2-3 2V1z" stroke="currentColor" strokeWidth="1" fill="none"/>
                 </svg>
               </span>
             )}
             {isRagExcluded && (
-              <span className="shrink-0 opacity-40 ml-1" title="Excluded from search">
+              <span className="shrink-0 opacity-40" title="Excluded from search">
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
                   <rect x="2" y="4" width="6" height="5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
                   <path d="M3.5 4V3a1.5 1.5 0 013 0v1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
               </span>
             )}
-          </span>
+          </>
         )}
         {!renaming && (
           <button
