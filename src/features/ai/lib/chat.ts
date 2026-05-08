@@ -212,9 +212,13 @@ function buildExcerptBlock(results: HybridResult[]): string {
 
   for (let i = 0; i < results.length; i++) {
     const r    = results[i]
+    console.log(`[breadcrumb] result ${i + 1}: note="${r.note_title}" breadcrumb="${(r as any).breadcrumb ?? 'MISSING'}"`)
     const text = r.expanded_context ?? r.plaintext
-    const heading = r.chunk_heading ? ` — Section "${r.chunk_heading}"` : ""
-    const label   = `[${i + 1}] From "${r.note_title}" (${r.source_type})${heading}:\n${text}`
+    const heading    = r.chunk_heading ? ` — Section "${r.chunk_heading}"` : ""
+    const location   = r.breadcrumb && r.breadcrumb !== r.note_title
+      ? ` [${r.breadcrumb}]`
+      : ""
+    const label   = `[${i + 1}] From "${r.note_title}"${location} (${r.source_type})${heading}:\n${text}`
 
     if (total + label.length > MAX_CONTEXT_CHARS) break
     chunks.push(label)

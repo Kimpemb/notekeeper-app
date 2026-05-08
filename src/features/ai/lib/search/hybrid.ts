@@ -46,6 +46,7 @@ export interface HybridResult {
   confidence:      import("@/features/ai/lib/search/rerank").ConfidenceLevel
   matched_by:      ("semantic" | "keyword")[]
   expanded_context?: string
+  breadcrumb?:     string
 }
 
 export interface HybridSearchOptions {
@@ -131,6 +132,7 @@ interface FtsRow {
   note_title:       string
   block_updated_at: number
   rank:             number
+  breadcrumb?:      string
 }
 
 const FTS_STOP_WORDS = new Set([
@@ -217,8 +219,9 @@ async function ftsPass(
         title:       string
         source_type: string
         updated_at:  number
+        breadcrumb:  string | null
       }[]>(
-        `SELECT ntc.note_id, ntc.title, ntc.source_type, ntc.updated_at
+        `SELECT ntc.note_id, ntc.title, ntc.source_type, ntc.updated_at, ntc.breadcrumb
          FROM note_title_chunks ntc
          JOIN notes n ON n.id = ntc.note_id
          WHERE ntc.title LIKE $1
@@ -243,6 +246,7 @@ async function ftsPass(
               note_title:       row.title,
               block_updated_at: row.updated_at,
               rank:             0,
+              breadcrumb:       row.breadcrumb ?? undefined,
             },
             rank: globalRank++,
           })
@@ -456,9 +460,12 @@ async function enrichMissingRows(
        nb.source_type,
        nb.block_updated_at,
        n.title AS note_title,
-       0       AS rank
+       0       AS rank,
+       COALESCE(e.breadcrumb, ntc.breadcrumb) AS breadcrumb
      FROM note_blocks nb
      JOIN notes n ON n.id = nb.note_id
+     LEFT JOIN embeddings e   ON e.block_id = nb.block_id
+     LEFT JOIN note_title_chunks ntc ON ntc.note_id = nb.note_id
      WHERE nb.block_id IN (${phs})`,
     blockIds
   )
@@ -597,6 +604,7 @@ export async function hybridSearch(
     boost_applied: r.boost_applied,
     confidence:    r.confidence,
     matched_by:    [...(fused.get(r.block_id)?.matchedBy ?? new Set<"semantic" | "keyword">())],
+    breadcrumb:    fused.get(r.block_id)?.row?.breadcrumb ?? undefined,
   }))
 
   return { results, excludedTitleMatches: excludedList }

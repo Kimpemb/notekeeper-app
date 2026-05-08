@@ -446,8 +446,9 @@ export async function initDb(): Promise<void> {
     await clearStaleExhaustionEntries();
     await migrateNoteBlocksV3();
     await fixBlocksFtsUpdateTrigger();
-    await backfillNoteBlocks();
+await backfillNoteBlocks();
     await backfillBacklinks();
+    await backfillBreadcrumbs();
     await rebuildFtsIndexIfNeeded();
     await archiveOldExhaustionLogs();
     console.log("[initDb] Background maintenance complete");
@@ -1836,6 +1837,27 @@ export async function backfillBacklinks(): Promise<void> {
     await syncBacklinks(note.id, extractNoteLinkIdsFromJson(note.content));
   }
   await setSetting("v3_backlinks_backfill_done", "1");
+}
+
+export async function backfillBreadcrumbs(): Promise<void> {
+  const alreadyDone = await getSetting("breadcrumb_backfill_done");
+  if (alreadyDone === "1") return;
+
+  const db = await getDb();
+  const notes = await db.select<{ id: string }[]>(
+    `SELECT id FROM notes WHERE deleted_at IS NULL`
+  );
+
+  console.log(`[breadcrumb backfill] computing for ${notes.length} notes...`);
+
+  for (const note of notes) {
+    const breadcrumb = await computeBreadcrumb(note.id);
+    await upsertBreadcrumbOnTitleChunk(note.id, breadcrumb);
+    await upsertBreadcrumbOnEmbeddings(note.id, breadcrumb);
+  }
+
+  await setSetting("breadcrumb_backfill_done", "1");
+  console.log("[breadcrumb backfill] complete");
 }
 
 export interface AISummaryRow {
