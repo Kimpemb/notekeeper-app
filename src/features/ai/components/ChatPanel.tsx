@@ -20,6 +20,8 @@ import type { AICallError }    from "@/features/ai/lib/client";
 import { QuickSwitch }         from "@/features/ai/components/QuickSwitch";
 import { SaveNoteDialog }      from "@/features/ai/components/SaveNoteDialog";
 import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore";
+import type { ExcludedTitleMatch } from "@/features/ai/lib/search/hybrid"
+
 
 interface Props {
   noteId: string;
@@ -27,12 +29,14 @@ interface Props {
 }
 
 interface MessageMeta {
-  sourceTitles:   string[];
-  sourceNoteIds:  string[];
-  usedEmbeddings: boolean;
-  confidence:     "high" | "medium" | "low";
-  relatedNotes:   RelatedNote[];
-  tier1Results?:  Tier1ResultCard[];
+  sourceTitles:        string[];
+  sourceNoteIds:       string[];
+  usedEmbeddings:      boolean;
+  confidence:          "high" | "medium" | "low";
+  relatedNotes:        RelatedNote[];
+  tier1Results?:       Tier1ResultCard[];
+  excludedNoteNotices?: ExcludedTitleMatch[];
+  titleMatchedNoteIds?: string[];
 }
 
 // ─── Toast system ─────────────────────────────────────────────────────────────
@@ -122,6 +126,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [indexingPaused, setIndexingPaused] = useState(false);
   const [allExhausted, setAllExhausted]     = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [oneTimeInclusions, setOneTimeInclusions] = useState<Set<string>>(new Set());
   const [selectedMessage, setSelectedMessage] = useState<{
     user:      { role: "user" | "assistant"; content: string };
     assistant: { role: "user" | "assistant"; content: string };
@@ -234,13 +239,16 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
   // ── Scope resolution ───────────────────────────────────────────────────────
 
-  async function resolveScopeNoteIds(): Promise<string[] | undefined> {
-  if (ragScopeRef.current === "all") return undefined;
-    // Always scope to the currently open note in the pane, not the linked/saved note.
-    // noteId is the prop — always defined, always tracks the live editor pane.
-    const descendants = await getAllDescendants(noteId);
-  return [noteId, ...descendants.map((d: { id: string }) => d.id)];
-}
+  async function resolveScopeNoteIds(extraNoteIds?: string[]): Promise<string[] | undefined> {
+    if (ragScopeRef.current === "all" && (!extraNoteIds || extraNoteIds.length === 0)) return undefined;
+    let base: string[] = [];
+    if (ragScopeRef.current === "note") {
+      const descendants = await getAllDescendants(noteId);
+      base = [noteId, ...descendants.map((d: { id: string }) => d.id)];
+    }
+    const merged = [...new Set([...base, ...(extraNoteIds ?? [])])];
+    return merged.length > 0 ? merged : undefined;
+  }
 
   // ── Send ───────────────────────────────────────────────────────────────────
 
@@ -298,12 +306,14 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
       setMetaMap((prev) =>
         new Map(prev).set(assistantId, {
-          sourceTitles:   meta.sourceTitles,
-          sourceNoteIds:  meta.sourceNoteIds,
-          usedEmbeddings: meta.usedEmbeddings,
-          confidence:     meta.confidence,
-          relatedNotes:   meta.relatedNotes,
-          tier1Results:   meta.tier1Results,
+          sourceTitles:        meta.sourceTitles,
+          sourceNoteIds:       meta.sourceNoteIds,
+          usedEmbeddings:      meta.usedEmbeddings,
+          confidence:          meta.confidence,
+          relatedNotes:        meta.relatedNotes,
+          tier1Results:        meta.tier1Results,
+          excludedNoteNotices: meta.excludedNoteNotices,
+          titleMatchedNoteIds: meta.titleMatchedNoteIds,
         })
       );
     } catch (rawErr) {
@@ -330,6 +340,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
     setMessages([]);
     setMetaMap(new Map());
     setCallError(null);
+    setOneTimeInclusions(new Set());
     clearSession(paneId);
     await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)]);
   }
@@ -338,6 +349,56 @@ export function ChatPanel({ noteId, paneId }: Props) {
     if (paneId === 2) openTabInPane2(id);
     else openTab(id);
   }
+
+  const handleOneTimeInclusion = useCallback(async (inclusionNoteId: string) => {
+    setOneTimeInclusions((prev) => new Set([...prev, inclusionNoteId]));
+
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+
+    const assistantId  = crypto.randomUUID();
+    const assistantMsg: ChatMessage = {
+      id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+    setLoading(true);
+    setStreamingId(assistantId);
+
+    const allInclusions = [...oneTimeInclusions, inclusionNoteId];
+    const scopeNoteIds  = await resolveScopeNoteIds(allInclusions);
+
+    try {
+      const meta = await streamChatWithNotes(
+        lastUserMsg.content,
+        notes,
+        noteId,
+        currentNote,
+        scopeNoteIds,
+        {
+          onChunk: (token) => {
+            setMessages((prev) =>
+              prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
+            );
+          },
+          onDone:  () => { setStreamingId(null); setLoading(false); },
+          onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err); },
+        },
+        allInclusions,
+      );
+      setMetaMap((prev) =>
+        new Map(prev).set(assistantId, {
+          sourceTitles:        meta.sourceTitles,
+          sourceNoteIds:       meta.sourceNoteIds,
+          usedEmbeddings:      meta.usedEmbeddings,
+          confidence:          meta.confidence,
+          relatedNotes:        meta.relatedNotes,
+          tier1Results:        meta.tier1Results,
+          excludedNoteNotices: meta.excludedNoteNotices,
+          titleMatchedNoteIds: meta.titleMatchedNoteIds,
+        })
+      );
+    } catch { /* errors handled by onError above */ }
+  }, [messages, notes, noteId, currentNote, oneTimeInclusions]);
 
   function handleScopeToggle() {
     if (ragScope === "note") {
@@ -498,7 +559,11 @@ export function ChatPanel({ noteId, paneId }: Props) {
                 <div key={msg.id} className="group/msg relative">
                   <MessageBubble message={msg} isStreaming={isStreaming} />
                   {msg.role === "assistant" && meta && !isStreaming && (
-                    <MessageFooter meta={meta} onOpenNote={handleOpenNote} />
+                    <MessageFooter
+                    meta={meta}
+                    onOpenNote={handleOpenNote}
+                    onOneTimeInclusion={handleOneTimeInclusion}
+                  />
                   )}
                   {msg.role === "assistant" && !isStreaming && !isFreeTier && (
                     <div className={`px-4 pb-1 ${isLatest ? "flex" : "hidden group-hover/msg:flex"}`}>
@@ -704,7 +769,15 @@ function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStrea
 
 // ─── Message footer ───────────────────────────────────────────────────────────
 
-function MessageFooter({ meta, onOpenNote }: { meta: MessageMeta; onOpenNote: (id: string) => void }) {
+function MessageFooter({
+  meta,
+  onOpenNote,
+  onOneTimeInclusion,
+}: {
+  meta:                MessageMeta;
+  onOpenNote:          (id: string) => void;
+  onOneTimeInclusion:  (noteId: string) => void;
+}) {
   if (meta.tier1Results && meta.tier1Results.length > 0) {
     return <Tier1ResultCards cards={meta.tier1Results} onOpenNote={onOpenNote} />;
   }
@@ -712,9 +785,9 @@ function MessageFooter({ meta, onOpenNote }: { meta: MessageMeta; onOpenNote: (i
     <div className="px-4 pb-2 pl-9 space-y-1.5">
       {meta.confidence === "low" && (
         <div className="flex items-center gap-1.5">
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-amber-400 shrink-0">
-            <path d="M5 1L9 9H1L5 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-            <path d="M5 4v2M5 7.5v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+          <svg width="10" height="10" viewBox="0 0 8 8" fill="none" className="text-amber-400 shrink-0">
+            <path d="M4 1L7 7H1L4 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+            <path d="M4 3.5v2M4 6v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           </svg>
           <p className="text-[10px] text-amber-500 leading-relaxed">Limited matches — answer may be incomplete</p>
         </div>
@@ -724,19 +797,41 @@ function MessageFooter({ meta, onOpenNote }: { meta: MessageMeta; onOpenNote: (i
       )}
       {meta.sourceTitles.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {meta.sourceTitles.map((title, i) => (
-            <button
-              key={meta.sourceNoteIds[i]}
-              onClick={() => onOpenNote(meta.sourceNoteIds[i])}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-idemora-bg-primary text-idemora-text-muted hover:text-violet-400 transition-colors duration-100 max-w-[9rem]"
-              title={title}
-            >
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
-                <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
-                <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-              </svg>
-              <span className="truncate">[{i + 1}] {title}</span>
-            </button>
+          {meta.sourceTitles.map((title, i) => {
+            const isTitleMatch = meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]);
+            return (
+              <button
+                key={meta.sourceNoteIds[i]}
+                onClick={() => onOpenNote(meta.sourceNoteIds[i])}
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors duration-100 max-w-[9rem] ${
+                  isTitleMatch
+                    ? "bg-violet-50/40 text-violet-500 hover:text-violet-600"
+                    : "bg-idemora-bg-primary text-idemora-text-muted hover:text-violet-400"
+                }`}
+                title={isTitleMatch ? `Direct note lookup: ${title}` : title}
+              >
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                  <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
+                  <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+                </svg>
+                <span className="truncate">[{i + 1}] {title}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {meta.excludedNoteNotices && meta.excludedNoteNotices.length > 0 && (
+        <div className="pt-0.5 space-y-1">
+          {meta.excludedNoteNotices.map((n) => (
+            <p key={n.note_id} className="text-[10px] text-idemora-text-muted leading-relaxed">
+              <span className="font-medium">"{n.note_title}"</span> may be relevant but is excluded from search.{" "}
+              <button
+                onClick={() => onOneTimeInclusion(n.note_id)}
+                className="text-violet-500 hover:underline"
+              >
+                Include it?
+              </button>
+            </p>
           ))}
         </div>
       )}

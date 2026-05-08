@@ -1,6 +1,6 @@
 // src/features/ai/lib/search/hybrid.ts
 //
-// RAG v3 — Hybrid retrieval: FTS5 + vector + RRF fusion + rerank.
+// RAG v3 — Hybrid retrieval: FTS5 + vector + RRF fusion + rerank. Feature A: overrideNoteIds.
 //
 // Changes from v2:
 //   - Uses v3 chunker output — chunk_heading, source_type on every result
@@ -51,11 +51,12 @@ export interface HybridResult {
 }
 
 export interface HybridSearchOptions {
-  topK?:          number
-  currentNoteId?: string
-  scope?:         ScopeFilter
-  queryVariants?: string[]
-  noteIds?:       string[]
+  topK?:            number
+  currentNoteId?:   string
+  scope?:           ScopeFilter
+  queryVariants?:   string[]
+  noteIds?:         string[]
+  overrideNoteIds?: string[]
 }
 
 export interface HybridSearchResult {
@@ -134,6 +135,7 @@ interface FtsRow {
   block_updated_at: number
   rank:             number
   breadcrumb?:      string
+  rag_excluded?:    number
 }
 
 const FTS_STOP_WORDS = new Set([
@@ -148,16 +150,18 @@ const FTS_STOP_WORDS = new Set([
 ])
 
 async function ftsPass(
-  queries:        string[],
-  scope:          ScopeFilter,
-  topK:           number,
-  currentNoteId?: string,
+  queries:               string[],
+  scope:                 ScopeFilter,
+  topK:                  number,
+  currentNoteId?:        string,
   excludedTitleMatches?: Map<string, string>,
+  overrideNoteIds?:      string[],
 ): Promise<Map<string, { row: FtsRow; rank: number }>> {
-  const db      = await getDb()
-  const results = new Map<string, { row: FtsRow; rank: number }>()
+  const db         = await getDb()
+  const results    = new Map<string, { row: FtsRow; rank: number }>()
   let   globalRank = 0
   const _excludedMap = excludedTitleMatches ?? new Map<string, string>()
+  const overrideSet  = new Set(overrideNoteIds ?? [])
 
   for (const query of queries) {
     const sanitized = query
@@ -191,7 +195,8 @@ async function ftsPass(
      nb.block_updated_at,
      n.title  AS note_title,
      bf.rank  AS rank,
-     COALESCE(e.breadcrumb, ntc.breadcrumb) AS breadcrumb
+     COALESCE(e.breadcrumb, ntc.breadcrumb) AS breadcrumb,
+     COALESCE(n.rag_excluded, 0)            AS rag_excluded
    FROM blocks_fts bf
    JOIN note_blocks nb ON nb.block_id = bf.block_id
    JOIN notes n        ON n.id        = bf.note_id
@@ -200,7 +205,6 @@ async function ftsPass(
    WHERE blocks_fts MATCH $1
      AND n.deleted_at IS NULL
      AND (n.id = $2 OR n.title NOT LIKE 'Untitled%')
-     AND COALESCE(n.rag_excluded, 0) = 0
      ${scopeClause.sql}
    ORDER BY bf.rank
    LIMIT ${topK}`,
@@ -208,6 +212,7 @@ async function ftsPass(
 )
 
       for (const row of rows) {
+        if (row.rag_excluded === 1 && !overrideSet.has(row.note_id)) continue
         if (!results.has(row.block_id)) {
           results.set(row.block_id, { row, rank: globalRank++ })
         }
@@ -219,24 +224,25 @@ async function ftsPass(
     // Title-chunk FTS — untitled already excluded here
     try {
       const titleRows = await db.select<{
-        note_id:     string
-        title:       string
-        source_type: string
-        updated_at:  number
-        breadcrumb:  string | null
+        note_id:      string
+        title:        string
+        source_type:  string
+        updated_at:   number
+        breadcrumb:   string | null
+        rag_excluded: number
       }[]>(
-        `SELECT ntc.note_id, ntc.title, ntc.source_type, ntc.updated_at, ntc.breadcrumb
+        `SELECT ntc.note_id, ntc.title, ntc.source_type, ntc.updated_at, ntc.breadcrumb,
+                COALESCE(n.rag_excluded, 0) AS rag_excluded
          FROM note_title_chunks ntc
          JOIN notes n ON n.id = ntc.note_id
          WHERE ntc.title LIKE $1
            AND n.deleted_at IS NULL
-           AND COALESCE(n.rag_excluded, 0) = 0
          LIMIT $2`,
         [`%${query.replace(/['"*^()]/g, " ").trim()}%`, Math.floor(topK / 2)]
       )
 
       for (const row of titleRows.filter(
-        (r) => r.title && !isUntitledNote(r.title)
+        (r) => r.title && !isUntitledNote(r.title) && (r.rag_excluded !== 1 || overrideSet.has(r.note_id))
       )) {
         const syntheticId = `title:${row.note_id}`
         if (!results.has(syntheticId)) {
@@ -295,12 +301,14 @@ async function ftsPass(
 // When no scope filters are active, a lightweight title lookup is performed.
 
 async function vectorPass(
-  query:         string,
-  scope:         ScopeFilter,
-  topK:          number,
+  query:          string,
+  scope:          ScopeFilter,
+  topK:           number,
   currentNoteId?: string,
+  overrideSet?:   Set<string>,
 ): Promise<Map<string, { note_id: string; rank: number }>> {
-  const results = new Map<string, { note_id: string; rank: number }>()
+  const results      = new Map<string, { note_id: string; rank: number }>()
+  const _overrideSet = overrideSet ?? new Set<string>()
 
   try {
     const semanticResults = await semanticSearch(query, topK)
@@ -350,7 +358,7 @@ async function vectorPass(
         if (scope.tag        && (!meta.tags || !meta.tags.includes(scope.tag))) return false
         if (scope.noteTitle  && !meta.title.toLowerCase().includes(scope.noteTitle.toLowerCase())) return false
         if (isUntitledNote(meta.title) && meta.note_id !== currentNoteId) return false
-        if (meta.rag_excluded === 1) return false
+        if (meta.rag_excluded === 1 && !_overrideSet.has(meta.note_id)) return false
         return true
       })
     } else {
@@ -380,7 +388,7 @@ async function vectorPass(
           const t = titleMap.get(r.block_id)
           if (!t) return true
           if (isUntitledNote(t.title) && t.note_id !== currentNoteId) return false
-          if (t.rag_excluded === 1) return false
+          if (t.rag_excluded === 1 && !_overrideSet.has(t.note_id)) return false
           return true
         })
       }
@@ -535,16 +543,18 @@ export async function hybridSearch(
     scope         = {},
     queryVariants = [query],
     noteIds,
+    overrideNoteIds,
   } = options
 
   // Merge noteIds into scope if provided
   const resolvedScope = noteIds?.length ? { ...scope, noteIds } : scope
-  const allQueries = [query, ...queryVariants.filter((v) => v !== query)]
+  const allQueries    = [query, ...queryVariants.filter((v) => v !== query)]
   const excludedTitleMatches = new Map<string, string>()
+  const overrideSet   = new Set(overrideNoteIds ?? [])
 
   const [ftsResults, vectorResults] = await Promise.all([
-    ftsPass(allQueries, resolvedScope, 20, currentNoteId, excludedTitleMatches),
-    vectorPass(query, resolvedScope, 20, currentNoteId),
+    ftsPass(allQueries, resolvedScope, 20, currentNoteId, excludedTitleMatches, overrideNoteIds),
+    vectorPass(query, resolvedScope, 20, currentNoteId, overrideSet),
   ])
 
   console.log(`[hybrid] query="${query.slice(0, 60)}"`)

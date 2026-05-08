@@ -30,6 +30,7 @@ import {
   type HybridResult,
   type ExcludedTitleMatch,
 } from "@/features/ai/lib/search/hybrid"
+import { getDb } from "@/features/notes/db/client"
 import { detectIntent }    from "@/features/ai/lib/search/intentDetection"
 import {
   callPrimary,
@@ -83,6 +84,7 @@ export interface ChatResult {
   relatedNotes:         RelatedNote[]
   tier1Results?:        Tier1ResultCard[]
   excludedNoteNotices?: ExcludedTitleMatch[]
+  titleMatchedNoteIds?: string[]
 }
 
 export interface StreamingChatOptions {
@@ -343,8 +345,174 @@ function buildTier1Cards(results: HybridResult[]): Tier1ResultCard[] {
   })
 }
 
-// ─── Main pipeline ────────────────────────────────────────────────────────────
+// ─── Title-directed query detection ──────────────────────────────────────────
 
+const TITLE_QUERY_PATTERNS = [
+  /^what(?:'s|\s+is)\s+in\s+(.+?)[\?\.]*$/i,
+  /^what(?:'s|\s+is)\s+(?:the\s+)?(?:content|contents)\s+of\s+(.+?)[\?\.]*$/i,
+  /^show\s+me\s+(.+?)[\?\.]*$/i,
+  /^open\s+(.+?)[\?\.]*$/i,
+  /^summari[sz]e\s+(.+?)[\?\.]*$/i,
+  /^summary\s+of\s+(.+?)[\?\.]*$/i,
+  /^everything\s+(?:about|in|on)\s+(.+?)[\?\.]*$/i,
+  /^(?:tell\s+me\s+about|what(?:'s|\s+is)\s+in)\s+(.+?)[\?\.]*$/i,
+]
+
+interface TitleMatch {
+  noteId:    string
+  noteTitle: string
+}
+
+interface TitleDetectResult {
+  candidateFound: boolean   // true if pattern matched and extracted a candidate
+  matches:        TitleMatch[]
+}
+
+async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
+  let candidate: string | null = null
+
+  for (const pattern of TITLE_QUERY_PATTERNS) {
+    const m = query.trim().match(pattern)
+    if (m) { candidate = m[1].trim(); break }
+  }
+
+  if (!candidate) return { candidateFound: false, matches: [] }
+
+  // Strip instruction suffixes like ", max 5 lines" or ", briefly"
+  candidate = candidate.replace(/,.*$/, "").trim()
+
+  console.log('[titleDetect] candidate:', candidate)
+
+  try {
+    const db   = await getDb()
+    const rows = await db.select<{ note_id: string; title: string }[]>(
+      `SELECT ntc.note_id, ntc.title
+       FROM note_title_chunks ntc
+       JOIN notes n ON n.id = ntc.note_id
+       WHERE ntc.title LIKE $1
+         AND n.deleted_at IS NULL
+         AND COALESCE(n.rag_excluded, 0) = 0
+       LIMIT 10`,
+      [`%${candidate}%`]
+    )
+
+    console.log('[titleDetect] note_title_chunks rows found:', rows.length, rows.map(r => r.title))
+
+    if (rows.length === 0) {
+      console.log('[titleDetect] falling back to notes table')
+      const fallback = await db.select<{ id: string; title: string }[]>(
+        `SELECT id, title FROM notes
+         WHERE title LIKE $1
+           AND deleted_at IS NULL
+           AND COALESCE(rag_excluded, 0) = 0
+         LIMIT 10`,
+        [`%${candidate}%`]
+      )
+
+      console.log('[titleDetect] notes table fallback rows:', fallback.length, fallback.map(r => r.title))
+
+      if (fallback.length === 0) return { candidateFound: true, matches: [] }
+
+      const ranked = fallback
+        .map((r) => {
+          const t     = r.title.toLowerCase()
+          const c     = candidate!.toLowerCase()
+          const score = t === c ? 3 : t.startsWith(c) ? 2 : 1
+          return { note_id: r.id, title: r.title, score }
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+
+      return {
+        candidateFound: true,
+        matches: ranked.map((r) => ({ noteId: r.note_id, noteTitle: r.title })),
+      }
+    }
+
+    const ranked = rows
+      .map((r) => {
+        const t     = r.title.toLowerCase()
+        const c     = candidate!.toLowerCase()
+        const score = t === c ? 3 : t.startsWith(c) ? 2 : 1
+        return { ...r, score }
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+
+    return {
+      candidateFound: true,
+      matches: ranked.map((r) => ({ noteId: r.note_id, noteTitle: r.title })),
+    }
+  } catch (err) {
+    console.warn('[titleDetect] failed:', err)
+    return { candidateFound: false, matches: [] }
+  }
+}
+
+async function fetchTitleMatchChunks(
+  matches:  TitleMatch[],
+  maxChars: number,
+): Promise<{ chunks: HybridResult[]; noticeText: string }> {
+  const db      = await getDb()
+  const perNote = Math.floor(maxChars / matches.length)
+  const allChunks: HybridResult[] = []
+
+  for (const match of matches) {
+    try {
+      console.log('[titleChunks] fetching note:', match.noteTitle, match.noteId)
+      const rows = await db.select<{
+        block_id:      string
+        plaintext:     string
+        chunk_heading: string | null
+        source_type:   string
+        breadcrumb:    string | null
+      }[]>(
+        `SELECT nb.block_id, nb.plaintext, nb.chunk_heading, nb.source_type,
+                COALESCE(e.breadcrumb, ntc.breadcrumb) AS breadcrumb
+         FROM note_blocks nb
+         LEFT JOIN embeddings e          ON e.block_id  = nb.block_id
+         LEFT JOIN note_title_chunks ntc ON ntc.note_id = nb.note_id
+         WHERE nb.note_id = $1
+         ORDER BY nb.chunk_index ASC, nb.block_created_at ASC`,
+        [match.noteId]
+      )
+
+      console.log('[titleChunks] rows fetched:', rows.length)
+
+      let charCount = 0
+      for (const row of rows) {
+        if (charCount + row.plaintext.length > perNote) break
+        allChunks.push({
+          block_id:      row.block_id,
+          note_id:       match.noteId,
+          note_title:    match.noteTitle,
+          plaintext:     row.plaintext,
+          chunk_heading: row.chunk_heading,
+          source_type:   row.source_type,
+          rrf_score:     1.0,
+          final_score:   1.0,
+          boost_applied: 0,
+          confidence:    "high" as const,
+          matched_by:    ["keyword" as const],
+          breadcrumb:    row.breadcrumb ?? undefined,
+        })
+        charCount += row.plaintext.length
+      }
+    } catch (err) {
+      console.warn('[titleChunks] failed for note:', match.noteTitle, err)
+    }
+  }
+
+  const noticeText = matches.length === 1
+    ? `Note: The following excerpts are pulled directly from "${matches[0].noteTitle}" in reading order.`
+    : `Note: Found ${matches.length} notes matching your query: ${matches.map((m) => `"${m.noteTitle}"`).join(", ")}. Showing content from each below.`
+
+  return { chunks: allChunks, noticeText }
+}
+
+
+
+// ─── Main pipeline ────────────────────────────────────────────────────────────
 interface PipelineResult {
   excerptBlock:         string
   sourceTitles:         string[]
@@ -354,12 +522,15 @@ interface PipelineResult {
   tier1Cards:           Tier1ResultCard[]
   inventoryMode:        boolean
   excludedNoteNotices:  ExcludedTitleMatch[]
+  titleMatchedNoteIds:  string[]
+  isTitleDirected: boolean
 }
 
 async function runPipeline(
-  query:         string,
-  currentNote?:  Note,
-  scopeNoteIds?: string[],
+  query:            string,
+  currentNote?:     Note,
+  scopeNoteIds?:    string[],
+  overrideNoteIds?: string[],
 ): Promise<PipelineResult> {
   const { intent, scope, cleanQuery } = detectIntent(query)
 
@@ -374,25 +545,82 @@ async function runPipeline(
       tier1Cards:          [],
       inventoryMode:       true,
       excludedNoteNotices: [],
+      titleMatchedNoteIds: [],
+      isTitleDirected:     false,
     }
   }
 
+  // Feature B: title-directed detection — runs before hybrid, merges after
+  console.log('[pipeline] query:', query)
+  const titleDetect = await detectTitleQuery(query)
+  console.log('[pipeline] titleDetect:', titleDetect)
+
+  // Case 1: pattern matched but note doesn't exist anywhere in the vault
+  if (titleDetect.candidateFound && titleDetect.matches.length === 0) {
+    return {
+      excerptBlock:        "No note with that title was found in your vault.",
+      sourceTitles:        [],
+      sourceNoteIds:       [],
+      usedEmbeddings:      false,
+      confidence:          "high",
+      tier1Cards:          [],
+      inventoryMode:       false,
+      excludedNoteNotices: [],
+      titleMatchedNoteIds: [],
+      isTitleDirected:     true,
+    }
+  }
+
+  const titleMatches = titleDetect.matches
+  let titleChunks:         HybridResult[] = []
+  let titleNotice:         string         = ""
+  let titleMatchedNoteIds: string[]       = []
+
+  if (titleMatches.length > 0) {
+    const { chunks, noticeText } = await fetchTitleMatchChunks(
+      titleMatches,
+      Math.floor(MAX_CONTEXT_CHARS * 0.6),
+    )
+    titleChunks         = chunks
+    titleNotice         = noticeText
+    titleMatchedNoteIds = titleMatches.map((m) => m.noteId)
+    console.log('[pipeline] titleChunks count:', titleChunks.length)
+
+    // Case 2: note exists but has no content
+    if (titleChunks.length === 0) {
+      return {
+        excerptBlock:        `The note "${titleMatches[0].noteTitle}" exists but contains no content.`,
+        sourceTitles:        titleMatches.map((m) => m.noteTitle),
+        sourceNoteIds:       titleMatches.map((m) => m.noteId),
+        usedEmbeddings:      false,
+        confidence:          "high",
+        tier1Cards:          [],
+        inventoryMode:       false,
+        excludedNoteNotices: [],
+        titleMatchedNoteIds,
+        isTitleDirected:     true,
+      }
+    }
+  } else {
+    console.log('[pipeline] no title match — falling through to hybrid')
+  }
+
   const queryVariants = [cleanQuery]
-  const topK = intent === "exploration" ? 12 : 8
+  const topK = titleMatches.length > 0
+    ? 4
+    : intent === "exploration" ? 12 : 8
 
   let results: HybridResult[] = []
   let usedEmbeddings = false
   let excludedNoteNotices: ExcludedTitleMatch[] = []
 
   try {
-    console.log('[pipeline] scopeNoteIds:', scopeNoteIds)
-    console.log('[pipeline] scope from intent:', scope)
-    console.log('[pipeline] resolvedScope noteIds:', scopeNoteIds?.length ? scopeNoteIds : 'UNDEFINED — scope filter will not apply')
     const searchResult = await hybridSearch(cleanQuery, topK, {
-      currentNoteId: currentNote?.id,
+      currentNoteId:  currentNote?.id,
       scope,
       queryVariants,
-      noteIds: scopeNoteIds,
+      noteIds:        scopeNoteIds,
+      overrideNoteIds,
     })
     results             = searchResult.results
     usedEmbeddings      = results.some((r) => r.matched_by.includes("semantic"))
@@ -403,31 +631,29 @@ async function runPipeline(
     results = await expandContext(results)
   }
 
-  // REMOVE this block entirely:
-  // const sourceTitles:  string[] = []
-  // const sourceNoteIds: string[] = []
-  // const seenNoteIds = new Set<string>()
-  // for (const r of results) {
-  //   if (!seenNoteIds.has(r.note_id)) { ... }
-  // }
+  // Merge: title chunks first (positional order), hybrid fills remaining budget.
+  // Dedup by block_id so a chunk appearing in both isn't doubled.
+  const titleBlockIds = new Set(titleChunks.map((c) => c.block_id))
+  const hybridOnly    = results.filter((r) => !titleBlockIds.has(r.block_id))
+  const merged        = [...titleChunks, ...hybridOnly]
 
-  // REPLACE with: one entry per chunk, aligned with buildExcerptBlock's [1]..[N] labels
-  const chunkTitles  = results.map((r) => r.note_title)
-  const chunkNoteIds = results.map((r) => r.note_id)
-
-  const confidence   = results[0]?.confidence ?? "low"
-  const excerptBlock = buildExcerptBlock(results)  // labels [1]..[N] by chunk
-  const tier1Cards   = buildTier1Cards(results)
+  const chunkTitles  = merged.map((r) => r.note_title)
+  const chunkNoteIds = merged.map((r) => r.note_id)
+  const confidence   = merged[0]?.confidence ?? "low"
+  const excerptBlock = buildExcerptBlock(merged)
+  const tier1Cards   = buildTier1Cards(merged)
 
   return {
-    excerptBlock,
-    sourceTitles:  chunkTitles,   // chunk-parallel, not deduplicated yet
-    sourceNoteIds: chunkNoteIds,  // chunk-parallel, not deduplicated yet
+    excerptBlock:        titleNotice ? `${titleNotice}\n\n${excerptBlock}` : excerptBlock,
+    sourceTitles:        chunkTitles,
+    sourceNoteIds:       chunkNoteIds,
     usedEmbeddings,
     confidence,
     tier1Cards,
-    inventoryMode: false,
+    inventoryMode:       false,
     excludedNoteNotices,
+    titleMatchedNoteIds,
+    isTitleDirected:     titleMatches.length > 0,
   }
 }
 
@@ -449,8 +675,12 @@ function buildPrompt(
       ? `[NOTE AND VAULT EXCERPTS]\n${pipeline.excerptBlock}`
       : "(No matching content found in your notes.)"
 
+  const titleDirectedInstruction = pipeline.isTitleDirected
+    ? `The user is asking about a specific note by title. Prioritise excerpts from the directly matched note(s) and answer from their content. Do not speculate beyond what those excerpts contain.\n`
+    : ""
+
   return `You are an assistant with access to the user's personal notes vault.
-You will be given numbered excerpts [1], [2], [3]... from different notes.
+${titleDirectedInstruction}You will be given numbered excerpts [1], [2], [3]... from different notes.
 Read ALL excerpts carefully before forming your answer — the relevant information may appear in any excerpt, not just the first ones.
 Cite every excerpt you draw from using its number: [1], [2] etc.
 Excerpts include a location path (e.g. "Projects / Vitobu / Day 1") — use this to give context about where information lives when it adds clarity.
@@ -470,16 +700,18 @@ Answer:`
 // ─── Streaming chat (primary path) ───────────────────────────────────────────
 
 export async function streamChatWithNotes(
-  query:        string,
-  _allNotes:    Note[],
-  noteId:       string,
-  currentNote:  Note | undefined,
-  scopeNoteIds: string[] | undefined,
-  streaming:    StreamingChatOptions
+  query:            string,
+  _allNotes:        Note[],
+  noteId:           string,
+  currentNote:      Note | undefined,
+  scopeNoteIds:     string[] | undefined,
+  streaming:        StreamingChatOptions,
+  overrideNoteIds?: string[],
 ): Promise<Omit<ChatResult, "answer">> {
-  // Tier 1 — no AI key configured
+  
+// Tier 1 — no AI key configured
   if (!isAIReady()) {
-    const pipeline   = await runPipeline(query, currentNote, scopeNoteIds)
+    const pipeline   = await runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds)
     const tier1Cards = pipeline.tier1Cards
 
     const summary = tier1Cards.length > 0
@@ -497,13 +729,14 @@ export async function streamChatWithNotes(
       relatedNotes:        [],
       tier1Results:        tier1Cards,
       excludedNoteNotices: pipeline.excludedNoteNotices,
+      titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
     }
   }
 
   // Tier 2 — full AI pipeline
   const [historyBlock, pipeline] = await Promise.all([
     buildHistoryBlock(noteId),
-    runPipeline(query, currentNote, scopeNoteIds),
+    runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds),
   ])
 
   const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote)
@@ -559,6 +792,7 @@ export async function streamChatWithNotes(
     confidence:          pipeline.confidence,
     relatedNotes,
     excludedNoteNotices: pipeline.excludedNoteNotices,
+    titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
   }
 }
 
