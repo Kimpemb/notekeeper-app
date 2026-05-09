@@ -1,7 +1,6 @@
 // src/features/ai/lib/save/transcript.test.ts
-//
-// Run with:   npx tsx src/features/ai/lib/save/transcript.test.ts
 
+import { describe, it, expect, beforeAll } from "vitest"
 import {
   generateNoteName,
   generateAppendHeading,
@@ -11,52 +10,12 @@ import {
   type TranscriptMessage,
 } from "./transcript"
 
-// ─── Assert helpers ───────────────────────────────────────────────────────────
-
-let passed = 0
-let failed = 0
-
-function assert(label: string, condition: boolean, detail?: string): void {
-  if (condition) {
-    console.log(`  ✓  ${label}`)
-    passed++
-  } else {
-    console.error(`  ✗  ${label}${detail ? `\n     ${detail}` : ""}`)
-    failed++
-  }
-}
-
-function assertEqual<T>(label: string, actual: T, expected: T): void {
-  const ok = actual === expected
-  assert(label, ok, ok ? undefined : `expected: ${JSON.stringify(expected)}\n     actual:   ${JSON.stringify(actual)}`)
-}
-
-function assertContains(label: string, haystack: string, needle: string): void {
-  assert(label, haystack.includes(needle), `"${needle}" not found in:\n     ${JSON.stringify(haystack)}`)
-}
-
-function assertNotContains(label: string, haystack: string, needle: string): void {
-  assert(label, !haystack.includes(needle), `"${needle}" unexpectedly found in output`)
-}
-
-function assertStartsWith(label: string, actual: string, prefix: string): void {
-  assert(
-    label,
-    actual.startsWith(prefix),
-    `expected to start with: ${JSON.stringify(prefix)}\n     actual start: ${JSON.stringify(actual.slice(0, prefix.length + 10))}`
-  )
-}
-
-function section(name: string): void {
-  console.log(`\n${name}`)
-}
-
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const TODAY = (() => {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const d   = new Date()
+  const y   = d.getFullYear()
+  const m   = String(d.getMonth() + 1).padStart(2, "0")
   const day = String(d.getDate()).padStart(2, "0")
   return `${y}-${m}-${day}`
 })()
@@ -103,164 +62,161 @@ const EMPTY: TranscriptMessage[] = []
 
 // ─── generateNoteName ─────────────────────────────────────────────────────────
 
-section("generateNoteName")
+describe("generateNoteName", () => {
+  it("date prefix is today in YYYY-MM-DD", () => {
+    expect(generateNoteName(SIMPLE).slice(0, 10)).toBe(TODAY)
+  })
 
-assertEqual(
-  "date prefix is today in YYYY-MM-DD",
-  generateNoteName(SIMPLE).slice(0, 10),
-  TODAY
-)
+  it("separator is ' — '", () => {
+    expect(generateNoteName(SIMPLE).slice(10, 13)).toBe(" — ")
+  })
 
-assertEqual(
-  "separator is ' — '",
-  generateNoteName(SIMPLE).slice(10, 13),
-  " — "
-)
+  it("first user message appears after separator", () => {
+    expect(generateNoteName(SIMPLE)).toContain("What should the save flow look like?")
+  })
 
-assertContains(
-  "first user message appears after separator",
-  generateNoteName(SIMPLE),
-  "What should the save flow look like?"
-)
+  it("truncated body is <= 60 chars", () => {
+    expect(generateNoteName(LONG_FIRST).split(" — ").slice(1).join(" — ").length).toBeLessThanOrEqual(60)
+  })
 
-assert(
-  "truncated body is <= 60 chars",
-  generateNoteName(LONG_FIRST).split(" — ").slice(1).join(" — ").length <= 60
-)
+  it("newlines in first message are collapsed", () => {
+    expect(generateNoteName(MULTILINE_FIRST)).not.toContain("\n")
+  })
 
-assertNotContains(
-  "newlines in first message are collapsed",
-  generateNoteName(MULTILINE_FIRST),
-  "\n"
-)
+  it("multiline message becomes single line with spaces", () => {
+    expect(generateNoteName(MULTILINE_FIRST)).toContain("First line Second line Third line")
+  })
 
-assertContains(
-  "multiline message becomes single line with spaces",
-  generateNoteName(MULTILINE_FIRST),
-  "First line Second line Third line"
-)
+  it("falls back to 'Untitled chat' when no user message", () => {
+    expect(generateNoteName(NO_USER).split(" — ").slice(1).join(" — ")).toBe("Untitled chat")
+  })
 
-assertEqual(
-  "falls back to 'Untitled chat' when no user message",
-  generateNoteName(NO_USER).split(" — ").slice(1).join(" — "),
-  "Untitled chat"
-)
-
-assertEqual(
-  "falls back to 'Untitled chat' for empty session",
-  generateNoteName(EMPTY).split(" — ").slice(1).join(" — "),
-  "Untitled chat"
-)
+  it("falls back to 'Untitled chat' for empty session", () => {
+    expect(generateNoteName(EMPTY).split(" — ").slice(1).join(" — ")).toBe("Untitled chat")
+  })
+})
 
 // ─── generateAppendHeading ────────────────────────────────────────────────────
 
-section("generateAppendHeading")
-
-assertEqual(
-  "format is '## Chat — YYYY-MM-DD'",
-  generateAppendHeading(),
-  `## Chat — ${TODAY}`
-)
+describe("generateAppendHeading", () => {
+  it("format is '## Chat — YYYY-MM-DD'", () => {
+    expect(generateAppendHeading()).toBe(`## Chat — ${TODAY}`)
+  })
+})
 
 // ─── formatRawTranscript ──────────────────────────────────────────────────────
 
-section("formatRawTranscript")
+describe("formatRawTranscript", () => {
+  const simpleOut = formatRawTranscript(SIMPLE)
+  const multiOut  = formatRawTranscript(MULTI_TURN)
+  const codeOut   = formatRawTranscript(WITH_CODE)
+  const emptyOut  = formatRawTranscript(WITH_EMPTY)
 
-const simpleOut = formatRawTranscript(SIMPLE)
+  it("starts with # heading", () => {
+    expect(simpleOut.startsWith("# ")).toBe(true)
+  })
 
-assertStartsWith(
-  "starts with # heading",
-  simpleOut,
-  "# "
-)
+  it("heading derived from first user message", () => {
+    expect(simpleOut).toContain("# What should the save flow look like?")
+  })
 
-assertContains(
-  "heading derived from first user message",
-  simpleOut,
-  "# What should the save flow look like?"
-)
+  it("user turn has **User:** marker", () => {
+    expect(simpleOut).toContain("**User:**")
+  })
 
-assertContains("user turn has **User:** marker",           simpleOut, "**User:**")
-assertContains("assistant turn has **Assistant:** marker", simpleOut, "**Assistant:**")
+  it("assistant turn has **Assistant:** marker", () => {
+    expect(simpleOut).toContain("**Assistant:**")
+  })
 
-assertNotContains(
-  "does not end with trailing blank lines",
-  simpleOut,
-  "\n\n\n"
-)
+  it("does not end with trailing blank lines", () => {
+    expect(simpleOut).not.toContain("\n\n\n")
+  })
 
-const multiOut = formatRawTranscript(MULTI_TURN)
+  it("all turns present — user 1", () => {
+    expect(multiOut).toContain("What should the save flow look like?")
+  })
 
-assertContains("all turns present — user 1",      multiOut, "What should the save flow look like?")
-assertContains("all turns present — assistant 1", multiOut, "Triggered by Save to Note")
-assertContains("all turns present — user 2",      multiOut, "Should it default to sub-note")
-assertContains("all turns present — assistant 2", multiOut, "Sub-note when note has content.")
+  it("all turns present — assistant 1", () => {
+    expect(multiOut).toContain("Triggered by Save to Note")
+  })
 
-const codeOut = formatRawTranscript(WITH_CODE)
-assertContains("code fences preserved",  codeOut, "```markdown")
-assertContains("code content preserved", codeOut, "**User:** question")
+  it("all turns present — user 2", () => {
+    expect(multiOut).toContain("Should it default to sub-note")
+  })
 
-const emptyOut = formatRawTranscript(WITH_EMPTY)
-assertContains("non-empty user message present",    emptyOut, "Question")
-assertContains("non-empty follow-up present",       emptyOut, "Follow up")
-assert(
-  "empty assistant turns produce no **Assistant:** markers",
-  !emptyOut.includes("**Assistant:**")
-)
+  it("all turns present — assistant 2", () => {
+    expect(multiOut).toContain("Sub-note when note has content.")
+  })
 
-assertContains(
-  "multiline assistant response has label on its own line",
-  formatRawTranscript(MULTI_TURN),
-  "**Assistant:**\n"
-)
+  it("code fences preserved", () => {
+    expect(codeOut).toContain("```markdown")
+  })
+
+  it("code content preserved", () => {
+    expect(codeOut).toContain("**User:** question")
+  })
+
+  it("non-empty user message present", () => {
+    expect(emptyOut).toContain("Question")
+  })
+
+  it("non-empty follow-up present", () => {
+    expect(emptyOut).toContain("Follow up")
+  })
+
+  it("empty assistant turns produce no **Assistant:** markers", () => {
+    expect(emptyOut).not.toContain("**Assistant:**")
+  })
+
+  it("multiline assistant response has label on its own line", () => {
+    expect(formatRawTranscript(MULTI_TURN)).toContain("**Assistant:**\n")
+  })
+})
 
 // ─── formatRawResponse ────────────────────────────────────────────────────────
 
-section("formatRawResponse")
+describe("formatRawResponse", () => {
+  const responseOut = formatRawResponse(SIMPLE[0], SIMPLE[1])
 
-const responseOut = formatRawResponse(SIMPLE[0], SIMPLE[1])
+  it("starts with # heading", () => {
+    expect(responseOut.startsWith("# ")).toBe(true)
+  })
 
-assertStartsWith("starts with # heading",       responseOut, "# ")
-assertContains("user message present",          responseOut, "What should the save flow look like?")
-assertContains("assistant message present",     responseOut, "Triggered by Save to Note")
-assertContains("**User:** marker present",      responseOut, "**User:**")
-assertContains("**Assistant:** marker present", responseOut, "**Assistant:**")
+  it("user message present", () => {
+    expect(responseOut).toContain("What should the save flow look like?")
+  })
+
+  it("assistant message present", () => {
+    expect(responseOut).toContain("Triggered by Save to Note")
+  })
+
+  it("**User:** marker present", () => {
+    expect(responseOut).toContain("**User:**")
+  })
+
+  it("**Assistant:** marker present", () => {
+    expect(responseOut).toContain("**Assistant:**")
+  })
+})
 
 // ─── wrapForAppend ────────────────────────────────────────────────────────────
 
-section("wrapForAppend")
+describe("wrapForAppend", () => {
+  const wrapped = wrapForAppend(formatRawTranscript(SIMPLE))
 
-const wrapped = wrapForAppend(formatRawTranscript(SIMPLE))
+  it("starts with double newline", () => {
+    expect(wrapped.startsWith("\n\n")).toBe(true)
+  })
 
-assertStartsWith(
-  "starts with double newline",
-  wrapped,
-  "\n\n"
-)
+  it("contains ## Chat — today heading", () => {
+    expect(wrapped).toContain(`## Chat — ${TODAY}`)
+  })
 
-assertContains(
-  "contains ## Chat — today heading",
-  wrapped,
-  `## Chat — ${TODAY}`
-)
+  it("original content present", () => {
+    expect(wrapped).toContain("# What should the save flow look like?")
+  })
 
-assertContains(
-  "original content present",
-  wrapped,
-  "# What should the save flow look like?"
-)
-
-assert(
-  "heading appears before transcript content",
-  wrapped.indexOf(`## Chat — ${TODAY}`) < wrapped.indexOf("# What should")
-)
-
-// ─── Summary ──────────────────────────────────────────────────────────────────
-
-console.log(`\n${"─".repeat(40)}`)
-if (failed === 0) {
-  console.log(`✓ All ${passed} tests passed`)
-} else {
-  console.log(`${passed} passed, ${failed} failed`)
-  process.exit(1)
-}
+  it("heading appears before transcript content", () => {
+    expect(wrapped.indexOf(`## Chat — ${TODAY}`)).toBeLessThan(wrapped.indexOf("# What should"))
+  })
+})

@@ -634,7 +634,7 @@ async function runPipeline(
         confidence:          "high",
         tier1Cards:          [],
         inventoryMode:       false,
-        excludedNoteNotices: titleDetect.excludedMatches,
+        excludedNoteNotices: excludedOverridden ? [] : titleDetect.excludedMatches,
         titleMatchedNoteIds,
         isTitleDirected:     true,
       }

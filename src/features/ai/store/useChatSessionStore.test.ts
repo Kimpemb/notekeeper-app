@@ -192,3 +192,41 @@ describe("getSession", () => {
     expect(s.linkedNoteDeleted).toBe(false)
   })
 })
+
+// ─── ragScope ─────────────────────────────────────────────────────────────────
+
+describe("ragScope", () => {
+  it("defaults to 'all' on both panes", () => {
+    expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("all")
+    expect(useChatSessionStore.getState().getSession(2).ragScope).toBe("all")
+  })
+
+  it("setRagScope switches pane 1 to 'note'", () => {
+    useChatSessionStore.getState().setRagScope(1, "note")
+    expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("note")
+  })
+
+  it("setRagScope does not affect pane 2", () => {
+    useChatSessionStore.getState().setRagScope(1, "note")
+    expect(useChatSessionStore.getState().getSession(2).ragScope).toBe("all")
+  })
+
+  it("setRagScope can switch back to 'all'", () => {
+    useChatSessionStore.getState().setRagScope(1, "note")
+    useChatSessionStore.getState().setRagScope(1, "all")
+    expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("all")
+  })
+
+  it("clearSession resets ragScope to 'all'", () => {
+    useChatSessionStore.getState().setRagScope(1, "note")
+    useChatSessionStore.getState().clearSession(1)
+    expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("all")
+  })
+
+  it("panes have independent ragScope", () => {
+    useChatSessionStore.getState().setRagScope(1, "note")
+    useChatSessionStore.getState().setRagScope(2, "all")
+    expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("note")
+    expect(useChatSessionStore.getState().getSession(2).ragScope).toBe("all")
+  })
+})
