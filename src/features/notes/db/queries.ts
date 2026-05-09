@@ -442,18 +442,19 @@ export async function initDb(): Promise<void> {
 
   // Defer everything else — run after first render
   setTimeout(async () => {
-    await purgeTrashedNotes();
-    await clearStaleExhaustionEntries();
-    await migrateNoteBlocksV3();
-    await fixBlocksFtsUpdateTrigger();
-await backfillNoteBlocks();
-    await backfillBacklinks();
-    await backfillBreadcrumbs();
-    await rebuildFtsIndexIfNeeded();
-    await archiveOldExhaustionLogs();
-    console.log("[initDb] Background maintenance complete");
-    _dbReadyResolve?.();
-  }, 5000);
+  await purgeTrashedNotes();
+  await clearStaleExhaustionEntries();
+  await migrateNoteBlocksV3();
+  await fixBlocksFtsUpdateTrigger();
+  await backfillNoteBlocks();
+  await backfillBacklinks();
+  await backfillBreadcrumbs();
+  await backfillExcludedTitleChunks(); // add this
+  await rebuildFtsIndexIfNeeded();
+  await archiveOldExhaustionLogs();
+  console.log("[initDb] Background maintenance complete");
+  _dbReadyResolve?.();
+}, 5000);
 
   console.log("[initDb] Database initialized successfully");
 }
@@ -1672,20 +1673,21 @@ export async function syncNoteBlocks(
 ): Promise<void> {
   const db = await getDb();
 
-  // M12 — bail early if this note is excluded from RAG
   const excludedRows = await db.select<{ rag_excluded: number }[]>(
     `SELECT COALESCE(rag_excluded, 0) AS rag_excluded FROM notes WHERE id = $1`,
     [noteId]
   );
-  if (excludedRows[0]?.rag_excluded === 1) {
-    console.log(`[syncNoteBlocks] skipping excluded note ${noteId}`);
-    return;
-  }
+  const isExcluded = excludedRows[0]?.rag_excluded === 1;
 
+  // Always write the title chunk — excluded notes still need title discovery
   if (noteTitle?.trim()) {
-    // M11 — compute breadcrumb and write it with the title chunk
     const breadcrumb = await computeBreadcrumb(noteId);
     await upsertNoteTitleChunkWithBreadcrumb(noteId, noteTitle, sourceType, breadcrumb);
+  }
+
+  if (isExcluded) {
+    console.log(`[syncNoteBlocks] skipping blocks for excluded note ${noteId}`);
+    return;
   }
 
   const freshChunks = await chunkDocument(contentJson, sourceType);
@@ -1698,12 +1700,12 @@ export async function syncNoteBlocks(
   const existingHashMap = new Map(existing.map((r) => [r.block_id, r.content_hash]));
 
   for (let i = 0; i < freshChunks.length; i += NOTES_BATCH_SIZE) {
-    const batch = freshChunks.slice(i, i + NOTES_BATCH_SIZE)
+    const batch = freshChunks.slice(i, i + NOTES_BATCH_SIZE);
 
     const placeholders = batch.map((_, j) => {
       const b = j * 10;
       return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10})`;
-    }).join(", ")
+    }).join(", ");
 
     const values = batch.flatMap((chunk) => [
       chunk.blockId,
@@ -1716,7 +1718,7 @@ export async function syncNoteBlocks(
       chunk.blockCreatedAt,
       chunk.blockUpdatedAt,
       chunk.contentHash,
-    ])
+    ]);
 
     await db.execute(
       `INSERT INTO note_blocks
@@ -1736,7 +1738,7 @@ export async function syncNoteBlocks(
          END,
          content_hash     = excluded.content_hash`,
       values
-    )
+    );
   }
 
   const deletedIds = existing
@@ -1744,11 +1746,11 @@ export async function syncNoteBlocks(
     .filter((id) => !freshIds.has(id));
 
   if (deletedIds.length > 0) {
-    const placeholders = deletedIds.map((_, i) => `$${i + 1}`).join(", ")
+    const placeholders = deletedIds.map((_, i) => `$${i + 1}`).join(", ");
     await db.execute(
       `DELETE FROM note_blocks WHERE block_id IN (${placeholders})`,
       deletedIds
-    )
+    );
   }
 
   const blocksToEmbed = freshChunks
@@ -1756,7 +1758,7 @@ export async function syncNoteBlocks(
     .map((chunk) => ({ blockId: chunk.blockId, noteId }));
 
   if (blocksToEmbed.length > 0) {
-    await enqueueEmbeddingJobs(blocksToEmbed)
+    await enqueueEmbeddingJobs(blocksToEmbed);
   }
 }
 
@@ -1858,6 +1860,32 @@ export async function backfillBreadcrumbs(): Promise<void> {
 
   await setSetting("breadcrumb_backfill_done", "1");
   console.log("[breadcrumb backfill] complete");
+}
+
+async function backfillExcludedTitleChunks(): Promise<void> {
+  const alreadyDone = await getSetting("excluded_title_chunk_backfill_done");
+  if (alreadyDone === "1") return;
+
+  const db = await getDb();
+  const missing = await db.select<{ id: string; title: string }[]>(
+    `SELECT n.id, n.title
+     FROM notes n
+     WHERE n.rag_excluded = 1
+       AND n.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM note_title_chunks ntc WHERE ntc.note_id = n.id
+       )`
+  );
+
+  console.log(`[backfill] writing title chunks for ${missing.length} excluded notes`);
+
+  for (const note of missing) {
+    const breadcrumb = await computeBreadcrumb(note.id);
+    await upsertNoteTitleChunkWithBreadcrumb(note.id, note.title, "note", breadcrumb);
+  }
+
+  await setSetting("excluded_title_chunk_backfill_done", "1");
+  console.log("[backfill] excluded title chunks complete");
 }
 
 export interface AISummaryRow {

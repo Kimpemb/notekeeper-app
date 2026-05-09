@@ -364,8 +364,9 @@ interface TitleMatch {
 }
 
 interface TitleDetectResult {
-  candidateFound: boolean   // true if pattern matched and extracted a candidate
-  matches:        TitleMatch[]
+  candidateFound:  boolean
+  matches:         TitleMatch[]
+  excludedMatches: ExcludedTitleMatch[]
 }
 
 async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
@@ -376,7 +377,7 @@ async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
     if (m) { candidate = m[1].trim(); break }
   }
 
-  if (!candidate) return { candidateFound: false, matches: [] }
+  if (!candidate) return { candidateFound: false, matches: [], excludedMatches: [] }
 
   // Strip instruction suffixes like ", max 5 lines" or ", briefly"
   candidate = candidate.replace(/,.*$/, "").trim()
@@ -384,7 +385,26 @@ async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
   console.log('[titleDetect] candidate:', candidate)
 
   try {
-    const db   = await getDb()
+    const db = await getDb()
+
+    // Check excluded notes first — these surface a notice regardless
+    const excludedRows = await db.select<{ note_id: string; title: string }[]>(
+      `SELECT ntc.note_id, ntc.title
+       FROM note_title_chunks ntc
+       JOIN notes n ON n.id = ntc.note_id
+       WHERE ntc.title LIKE $1
+         AND n.deleted_at IS NULL
+         AND COALESCE(n.rag_excluded, 0) = 1
+       LIMIT 3`,
+      [`%${candidate}%`]
+    )
+    const excludedMatches: ExcludedTitleMatch[] = excludedRows.map((r) => ({
+      note_id:    r.note_id,
+      note_title: r.title,
+    }))
+
+    console.log('[titleDetect] excluded matches:', excludedMatches.length, excludedMatches.map(r => r.note_title))
+
     const rows = await db.select<{ note_id: string; title: string }[]>(
       `SELECT ntc.note_id, ntc.title
        FROM note_title_chunks ntc
@@ -411,7 +431,7 @@ async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
 
       console.log('[titleDetect] notes table fallback rows:', fallback.length, fallback.map(r => r.title))
 
-      if (fallback.length === 0) return { candidateFound: true, matches: [] }
+      if (fallback.length === 0) return { candidateFound: true, matches: [], excludedMatches }
 
       const ranked = fallback
         .map((r) => {
@@ -425,7 +445,8 @@ async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
 
       return {
         candidateFound: true,
-        matches: ranked.map((r) => ({ noteId: r.note_id, noteTitle: r.title })),
+        matches:        ranked.map((r) => ({ noteId: r.note_id, noteTitle: r.title })),
+        excludedMatches,
       }
     }
 
@@ -441,11 +462,12 @@ async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
 
     return {
       candidateFound: true,
-      matches: ranked.map((r) => ({ noteId: r.note_id, noteTitle: r.title })),
+      matches:        ranked.map((r) => ({ noteId: r.note_id, noteTitle: r.title })),
+      excludedMatches,
     }
   } catch (err) {
     console.warn('[titleDetect] failed:', err)
-    return { candidateFound: false, matches: [] }
+    return { candidateFound: false, matches: [], excludedMatches: [] }
   }
 }
 
@@ -460,6 +482,7 @@ async function fetchTitleMatchChunks(
   for (const match of matches) {
     try {
       console.log('[titleChunks] fetching note:', match.noteTitle, match.noteId)
+
       const rows = await db.select<{
         block_id:      string
         plaintext:     string
@@ -555,48 +578,63 @@ async function runPipeline(
   const titleDetect = await detectTitleQuery(query)
   console.log('[pipeline] titleDetect:', titleDetect)
 
+  // If an excluded note has been overridden, promote it to a title match
+  const excludedOverridden = titleDetect.excludedMatches.some(
+    (e) => (overrideNoteIds ?? []).includes(e.note_id)
+  )
+
+  const effectiveTitleMatches: TitleMatch[] = titleDetect.matches.length > 0
+    ? titleDetect.matches
+    : excludedOverridden
+      ? titleDetect.excludedMatches
+          .filter((e) => (overrideNoteIds ?? []).includes(e.note_id))
+          .map((e) => ({ noteId: e.note_id, noteTitle: e.note_title }))
+      : []
+
   // Case 1: pattern matched but note doesn't exist anywhere in the vault
-  if (titleDetect.candidateFound && titleDetect.matches.length === 0) {
+  // Skip early return if the excluded note is already overridden
+  if (titleDetect.candidateFound && effectiveTitleMatches.length === 0 && !excludedOverridden) {
     return {
-      excerptBlock:        "No note with that title was found in your vault.",
+      excerptBlock:        titleDetect.excludedMatches.length > 0
+        ? `No results found — "${titleDetect.excludedMatches[0].note_title}" may be relevant but is excluded from search.`
+        : "No note with that title was found in your vault.",
       sourceTitles:        [],
       sourceNoteIds:       [],
       usedEmbeddings:      false,
       confidence:          "high",
       tier1Cards:          [],
       inventoryMode:       false,
-      excludedNoteNotices: [],
+      excludedNoteNotices: titleDetect.excludedMatches,
       titleMatchedNoteIds: [],
       isTitleDirected:     true,
     }
   }
 
-  const titleMatches = titleDetect.matches
   let titleChunks:         HybridResult[] = []
   let titleNotice:         string         = ""
   let titleMatchedNoteIds: string[]       = []
 
-  if (titleMatches.length > 0) {
+  if (effectiveTitleMatches.length > 0) {
     const { chunks, noticeText } = await fetchTitleMatchChunks(
-      titleMatches,
+      effectiveTitleMatches,
       Math.floor(MAX_CONTEXT_CHARS * 0.6),
     )
     titleChunks         = chunks
     titleNotice         = noticeText
-    titleMatchedNoteIds = titleMatches.map((m) => m.noteId)
+    titleMatchedNoteIds = effectiveTitleMatches.map((m) => m.noteId)
     console.log('[pipeline] titleChunks count:', titleChunks.length)
 
     // Case 2: note exists but has no content
     if (titleChunks.length === 0) {
       return {
-        excerptBlock:        `The note "${titleMatches[0].noteTitle}" exists but contains no content.`,
-        sourceTitles:        titleMatches.map((m) => m.noteTitle),
-        sourceNoteIds:       titleMatches.map((m) => m.noteId),
+        excerptBlock:        `The note "${effectiveTitleMatches[0].noteTitle}" exists but contains no content.`,
+        sourceTitles:        effectiveTitleMatches.map((m) => m.noteTitle),
+        sourceNoteIds:       effectiveTitleMatches.map((m) => m.noteId),
         usedEmbeddings:      false,
         confidence:          "high",
         tier1Cards:          [],
         inventoryMode:       false,
-        excludedNoteNotices: [],
+        excludedNoteNotices: titleDetect.excludedMatches,
         titleMatchedNoteIds,
         isTitleDirected:     true,
       }
@@ -606,13 +644,13 @@ async function runPipeline(
   }
 
   const queryVariants = [cleanQuery]
-  const topK = titleMatches.length > 0
+  const topK = effectiveTitleMatches.length > 0
     ? 4
     : intent === "exploration" ? 12 : 8
 
   let results: HybridResult[] = []
   let usedEmbeddings = false
-  let excludedNoteNotices: ExcludedTitleMatch[] = []
+  let hybridExcludedNotices: ExcludedTitleMatch[] = []
 
   try {
     const searchResult = await hybridSearch(cleanQuery, topK, {
@@ -622,9 +660,9 @@ async function runPipeline(
       noteIds:        scopeNoteIds,
       overrideNoteIds,
     })
-    results             = searchResult.results
-    usedEmbeddings      = results.some((r) => r.matched_by.includes("semantic"))
-    excludedNoteNotices = searchResult.excludedTitleMatches
+    results               = searchResult.results
+    usedEmbeddings        = results.some((r) => r.matched_by.includes("semantic"))
+    hybridExcludedNotices = searchResult.excludedTitleMatches
   } catch { /* retrieval failure — empty results */ }
 
   if (results.length > 0) {
@@ -643,6 +681,17 @@ async function runPipeline(
   const excerptBlock = buildExcerptBlock(merged)
   const tier1Cards   = buildTier1Cards(merged)
 
+  // Merge excluded notices: title-detected ones take priority, dedup by note_id
+  // Don't show notice for notes that have been overridden this turn
+  const excludedNoteNotices: ExcludedTitleMatch[] = excludedOverridden
+    ? []
+    : [
+        ...titleDetect.excludedMatches,
+        ...hybridExcludedNotices.filter(
+          (n) => !titleDetect.excludedMatches.some((e) => e.note_id === n.note_id)
+        ),
+      ]
+
   return {
     excerptBlock:        titleNotice ? `${titleNotice}\n\n${excerptBlock}` : excerptBlock,
     sourceTitles:        chunkTitles,
@@ -653,7 +702,7 @@ async function runPipeline(
     inventoryMode:       false,
     excludedNoteNotices,
     titleMatchedNoteIds,
-    isTitleDirected:     titleMatches.length > 0,
+    isTitleDirected:     effectiveTitleMatches.length > 0,
   }
 }
 

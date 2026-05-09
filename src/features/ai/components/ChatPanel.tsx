@@ -351,54 +351,54 @@ export function ChatPanel({ noteId, paneId }: Props) {
   }
 
   const handleOneTimeInclusion = useCallback(async (inclusionNoteId: string) => {
-    setOneTimeInclusions((prev) => new Set([...prev, inclusionNoteId]));
+  const allInclusions = [...oneTimeInclusions, inclusionNoteId];
+  setOneTimeInclusions(new Set(allInclusions));
 
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-    if (!lastUserMsg) return;
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+  if (!lastUserMsg) return;
 
-    const assistantId  = crypto.randomUUID();
-    const assistantMsg: ChatMessage = {
-      id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
-    };
-    setMessages((prev) => [...prev, assistantMsg]);
-    setLoading(true);
-    setStreamingId(assistantId);
+  const assistantId = crypto.randomUUID();
+  const assistantMsg: ChatMessage = {
+    id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
+  };
+  setMessages((prev) => [...prev, assistantMsg]);
+  setLoading(true);
+  setStreamingId(assistantId);
 
-    const allInclusions = [...oneTimeInclusions, inclusionNoteId];
-    const scopeNoteIds  = await resolveScopeNoteIds(allInclusions);
+  const scopeNoteIds = await resolveScopeNoteIds(allInclusions);
 
-    try {
-      const meta = await streamChatWithNotes(
-        lastUserMsg.content,
-        notes,
-        noteId,
-        currentNote,
-        scopeNoteIds,
-        {
-          onChunk: (token) => {
-            setMessages((prev) =>
-              prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
-            );
-          },
-          onDone:  () => { setStreamingId(null); setLoading(false); },
-          onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err); },
+  try {
+    const meta = await streamChatWithNotes(
+      lastUserMsg.content,
+      notes,
+      noteId,
+      currentNote,
+      scopeNoteIds,
+      {
+        onChunk: (token) => {
+          setMessages((prev) =>
+            prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
+          );
         },
-        allInclusions,
-      );
-      setMetaMap((prev) =>
-        new Map(prev).set(assistantId, {
-          sourceTitles:        meta.sourceTitles,
-          sourceNoteIds:       meta.sourceNoteIds,
-          usedEmbeddings:      meta.usedEmbeddings,
-          confidence:          meta.confidence,
-          relatedNotes:        meta.relatedNotes,
-          tier1Results:        meta.tier1Results,
-          excludedNoteNotices: meta.excludedNoteNotices,
-          titleMatchedNoteIds: meta.titleMatchedNoteIds,
-        })
-      );
-    } catch { /* errors handled by onError above */ }
-  }, [messages, notes, noteId, currentNote, oneTimeInclusions]);
+        onDone:  () => { setStreamingId(null); setLoading(false); },
+        onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err); },
+      },
+      allInclusions,
+    );
+    setMetaMap((prev) =>
+      new Map(prev).set(assistantId, {
+        sourceTitles:        meta.sourceTitles,
+        sourceNoteIds:       meta.sourceNoteIds,
+        usedEmbeddings:      meta.usedEmbeddings,
+        confidence:          meta.confidence,
+        relatedNotes:        meta.relatedNotes,
+        tier1Results:        meta.tier1Results,
+        excludedNoteNotices: meta.excludedNoteNotices,
+        titleMatchedNoteIds: meta.titleMatchedNoteIds,
+      })
+    );
+  } catch { /* errors handled by onError above */ }
+}, [messages, notes, noteId, currentNote, oneTimeInclusions]);
 
   function handleScopeToggle() {
     if (ragScope === "note") {
