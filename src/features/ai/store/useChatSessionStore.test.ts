@@ -13,7 +13,8 @@ beforeEach(() => {
         lastSavedAt:       null,
         linkedNoteTrashed: false,
         linkedNoteDeleted: false,
-        ragScope:          "all",   // ← add this
+        ragScope:          "all",
+        webSearchEnabled:  false,
       },
       2: {
         linkedNoteId:      null,
@@ -21,7 +22,8 @@ beforeEach(() => {
         lastSavedAt:       null,
         linkedNoteTrashed: false,
         linkedNoteDeleted: false,
-        ragScope:          "all",   // ← add this
+        ragScope:          "all",
+        webSearchEnabled:  false,
       },
     },
   })

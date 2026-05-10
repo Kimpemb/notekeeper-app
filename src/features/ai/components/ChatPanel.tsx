@@ -21,7 +21,12 @@ import { QuickSwitch }         from "@/features/ai/components/QuickSwitch";
 import { SaveNoteDialog }      from "@/features/ai/components/SaveNoteDialog";
 import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore";
 import type { ExcludedTitleMatch } from "@/features/ai/lib/search/hybrid"
-
+import { useAppSettings } from "@/features/ui/store/useAppSettings"
+import {
+  WEB_SEARCH_PROVIDERS,
+  getWebSearchProvider,
+  type WebSearchResult,
+} from "@/features/ai/lib/search/webSearchProvider"
 
 interface Props {
   noteId: string;
@@ -37,6 +42,7 @@ interface MessageMeta {
   tier1Results?:       Tier1ResultCard[];
   excludedNoteNotices?: ExcludedTitleMatch[];
   titleMatchedNoteIds?: string[];
+  webNudge?:            "limited" | "zero";
 }
 
 // ─── Toast system ─────────────────────────────────────────────────────────────
@@ -114,6 +120,91 @@ function QuotaExhaustedCard({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+// ─── WebNudge component ──────────────────────────────────────────────────────
+
+function WebNudge({
+  messageId,
+  nudge,
+  query,
+  onSearchComplete,
+  onDismiss,
+}: {
+  messageId:        string;
+  nudge:            "limited" | "zero";
+  query:            string;
+  onSearchComplete: (messageId: string, results: WebSearchResult[]) => void;
+  onDismiss:        (messageId: string) => void;
+}) {
+  const [searching, setSearching] = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const { settings }              = useAppSettings();
+
+  const provider = WEB_SEARCH_PROVIDERS.find(
+    (p) => p.id === (settings.web_search_provider ?? "tinyfish")
+  ) ?? WEB_SEARCH_PROVIDERS[0];
+
+  const missingKey = provider.requiresKey && !(settings.web_search_api_key ?? "").trim();
+
+  async function handleSearch() {
+    if (missingKey) {
+      setError(`Web search requires a ${provider.label.split(" ")[0]} API key. Add it in Settings → Web Search.`);
+      return;
+    }
+    setSearching(true);
+    setError(null);
+    try {
+      const p       = getWebSearchProvider();
+      const results = await p.search(query);
+      onSearchComplete(messageId, results);
+    } catch {
+      setError("Search failed. Check your connection and try again.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  const copy = nudge === "zero"
+    ? "Nothing found in your notes."
+    : "Limited results from your notes.";
+
+  return (
+    <div className="mx-4 mb-2 ml-9 flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="text-sky-400 shrink-0">
+            <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/>
+            <path d="M4.5 1.5C3.8 2.5 3.4 3.4 3.4 4.5s.4 2 1.1 3M4.5 1.5C5.2 2.5 5.6 3.4 5.6 4.5s-.4 2-1.1 3M1.5 4.5h6"
+              stroke="currentColor" strokeWidth="0.7" strokeLinecap="round"/>
+          </svg>
+          <span className="text-[11px] text-idemora-text-muted">{copy}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleSearch}
+            disabled={searching}
+            className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50/40 text-sky-500 border border-sky-200 hover:bg-sky-100/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100"
+          >
+            {searching ? (
+              <svg width="9" height="9" viewBox="0 0 9 9" className="animate-spin" fill="none">
+                <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.5" strokeDasharray="9 4" strokeLinecap="round"/>
+              </svg>
+            ) : "Search the web"}
+          </button>
+          <button
+            onClick={() => onDismiss(messageId)}
+            className="px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-idemora-text-normal border border-transparent hover:border-idemora-border transition-colors duration-100"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+      {error && (
+        <p className="text-[10px] text-amber-500 leading-relaxed">{error}</p>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChatPanel({ noteId, paneId }: Props) {
@@ -131,6 +222,9 @@ export function ChatPanel({ noteId, paneId }: Props) {
     user:      { role: "user" | "assistant"; content: string };
     assistant: { role: "user" | "assistant"; content: string };
   } | null>(null);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
+  const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
 
   const { toasts, addToast } = useToasts();
 
@@ -165,6 +259,10 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const setRagScope       = useChatSessionStore((s) => s.setRagScope);
   const ragScope          = session.ragScope;
 
+  const setWebSearchEnabled = useChatSessionStore((s) => s.setWebSearchEnabled)
+  const webSearchEnabled    = session.webSearchEnabled
+  const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
+
   // Keep refs in sync so handleSend always reads current values
   useEffect(() => { ragScopeRef.current   = ragScope; },            [ragScope]);
   useEffect(() => { linkedNoteRef.current = session.linkedNoteId; }, [session.linkedNoteId]);
@@ -181,6 +279,17 @@ export function ChatPanel({ noteId, paneId }: Props) {
       addToast("Provider recovered — ready to chat", true);
     });
   }, [addToast]);
+
+  useEffect(() => {
+    const handleOnline  = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener("online",  handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online",  handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const primaryRotation = useAIStore((s) => s.primaryRotation);
   useEffect(() => {
@@ -215,6 +324,9 @@ export function ChatPanel({ noteId, paneId }: Props) {
     setMetaMap(new Map());
     setCallError(null);
     clearSession(paneId);
+    setDismissedNudges(new Set());
+    setWebResultsMap(new Map());
+    setWebSearchEnabled(paneId, appWebSearch);
   }, [noteId]);
 
   // M5: Reactive subscription — watch note store for linked note lifecycle events
@@ -248,6 +360,60 @@ export function ChatPanel({ noteId, paneId }: Props) {
     }
     const merged = [...new Set([...base, ...(extraNoteIds ?? [])])];
     return merged.length > 0 ? merged : undefined;
+  }
+
+  // ── M19: handleWebSearch function ─────────────────────────────────────────
+
+  async function handleWebSearch(
+    userQuery:  string,
+    webResults: import("@/features/ai/lib/search/webSearchProvider").WebSearchResult[],
+  ) {
+    const assistantId  = crypto.randomUUID()
+    const assistantMsg: ChatMessage = {
+      id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
+    }
+
+    setMessages((prev) => [...prev, assistantMsg])
+    setLoading(true)
+    setStreamingId(assistantId)
+    setCallError(null)
+
+    const scopeNoteIds = await resolveScopeNoteIds()
+
+    try {
+      const meta = await streamChatWithNotes(
+        userQuery,
+        notes,
+        noteId,
+        currentNote,
+        scopeNoteIds,
+        {
+          onChunk: (token) => {
+            setMessages((prev) =>
+              prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
+            )
+          },
+          onDone:  () => { setStreamingId(null); setLoading(false) },
+          onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err) },
+        },
+        undefined,    // overrideNoteIds — not applicable for web search turns
+        webResults,   // injected web results
+      )
+
+      setMetaMap((prev) =>
+        new Map(prev).set(assistantId, {
+          sourceTitles:        meta.sourceTitles,
+          sourceNoteIds:       meta.sourceNoteIds,
+          usedEmbeddings:      meta.usedEmbeddings,
+          confidence:          meta.confidence,
+          relatedNotes:        meta.relatedNotes,
+          tier1Results:        meta.tier1Results,
+          excludedNoteNotices: meta.excludedNoteNotices,
+          titleMatchedNoteIds: meta.titleMatchedNoteIds,
+          webNudge:            undefined, // no nudge on web-grounded responses
+        })
+      )
+    } catch { /* errors handled by onError above */ }
   }
 
   // ── Send ───────────────────────────────────────────────────────────────────
@@ -314,6 +480,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
           tier1Results:        meta.tier1Results,
           excludedNoteNotices: meta.excludedNoteNotices,
           titleMatchedNoteIds: meta.titleMatchedNoteIds,
+          webNudge:            meta.webNudge,
         })
       );
     } catch (rawErr) {
@@ -341,6 +508,8 @@ export function ChatPanel({ noteId, paneId }: Props) {
     setMetaMap(new Map());
     setCallError(null);
     setOneTimeInclusions(new Set());
+    setDismissedNudges(new Set());
+    setWebResultsMap(new Map());
     clearSession(paneId);
     await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)]);
   }
@@ -395,6 +564,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
         tier1Results:        meta.tier1Results,
         excludedNoteNotices: meta.excludedNoteNotices,
         titleMatchedNoteIds: meta.titleMatchedNoteIds,
+        webNudge:            meta.webNudge,
       })
     );
   } catch { /* errors handled by onError above */ }
@@ -445,6 +615,33 @@ export function ChatPanel({ noteId, paneId }: Props) {
                 className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse shrink-0"
                 title={`Indexing — ${embeddingBudget.ceiling - embeddingBudget.used} requests remaining today`}
               />
+            )}
+            {!isFreeTier && (
+              <button
+                onClick={() => !isOffline && setWebSearchEnabled(paneId, !webSearchEnabled)}
+                disabled={isOffline}
+                title={
+                  isOffline
+                    ? "Web search unavailable offline"
+                    : webSearchEnabled
+                      ? "Web search on — click to turn off"
+                      : "Web search off — click to turn on"
+                }
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border transition-colors duration-100 shrink-0 ${
+                  isOffline
+                    ? "opacity-40 cursor-not-allowed text-idemora-text-muted border-idemora-border"
+                    : webSearchEnabled
+                      ? "text-sky-500 border-sky-300 bg-sky-50/30 hover:bg-sky-100/40"
+                      : "text-idemora-text-muted border-idemora-border hover:text-sky-500 hover:border-sky-300"
+                }`}
+              >
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="shrink-0">
+                  <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/>
+                  <path d="M4.5 1C3.5 2.5 3 3.5 3 4.5s.5 2 1.5 3.5M4.5 1C5.5 2.5 6 3.5 6 4.5S5.5 6.5 4.5 8M1 4.5h7"
+                    stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+                </svg>
+                {webSearchEnabled ? "Web on" : "Web"}
+              </button>
             )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -560,10 +757,26 @@ export function ChatPanel({ noteId, paneId }: Props) {
                   <MessageBubble message={msg} isStreaming={isStreaming} />
                   {msg.role === "assistant" && meta && !isStreaming && (
                     <MessageFooter
-                    meta={meta}
-                    onOpenNote={handleOpenNote}
-                    onOneTimeInclusion={handleOneTimeInclusion}
-                  />
+                      meta={meta}
+                      onOpenNote={handleOpenNote}
+                      onOneTimeInclusion={handleOneTimeInclusion}
+                    />
+                  )}
+                  {msg.role === "assistant" && meta && !isStreaming && meta.webNudge && !isStreaming &&
+                   !dismissedNudges.has(msg.id) && !webResultsMap.has(msg.id) && (
+                    <WebNudge
+                      messageId={msg.id}
+                      nudge={meta.webNudge}
+                      query={prevMsg?.role === "user" ? prevMsg.content : ""}
+                      onSearchComplete={(id, results) => {
+                        setWebResultsMap((prev) => new Map(prev).set(id, results))
+                        const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
+                        if (userQuery) handleWebSearch(userQuery, results)
+                      }}
+                      onDismiss={(id) => {
+                        setDismissedNudges((prev) => new Set(prev).add(id));
+                      }}
+                    />
                   )}
                   {msg.role === "assistant" && !isStreaming && !isFreeTier && (
                     <div className={`px-4 pb-1 ${isLatest ? "flex" : "hidden group-hover/msg:flex"}`}>

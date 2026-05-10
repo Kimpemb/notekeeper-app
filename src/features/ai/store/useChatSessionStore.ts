@@ -17,6 +17,7 @@ export interface ChatSession {
   linkedNoteTrashed: boolean
   linkedNoteDeleted: boolean
   ragScope: "all" | "note"
+  webSearchEnabled: boolean          // ← M17: per-session web search toggle
 }
 
 interface ChatSessionStore {
@@ -43,6 +44,9 @@ interface ChatSessionStore {
   // M14 — set RAG scope for the pane
   setRagScope: (pane: 1 | 2, scope: "all" | "note") => void
 
+  // M17 — set web search enabled for the pane
+  setWebSearchEnabled: (pane: 1 | 2, enabled: boolean) => void
+
   // Selectors
   getSession:       (pane: 1 | 2) => ChatSession
   isLinked:         (pane: 1 | 2) => boolean
@@ -59,6 +63,7 @@ function emptySession(): ChatSession {
     linkedNoteTrashed: false,
     linkedNoteDeleted: false,
     ragScope:          "all",
+    webSearchEnabled:  false,    // ← M17: default false; app_settings default synced on mount
   }
 }
 
@@ -144,6 +149,15 @@ export const useChatSessionStore = create<ChatSessionStore>((set, get) => ({
       sessions: {
         ...s.sessions,
         [pane]: { ...s.sessions[pane], ragScope: scope },
+      },
+    })),
+
+  // ─── M17: setWebSearchEnabled implementation ────────────────────────────────
+  setWebSearchEnabled: (pane, enabled) =>
+    set((s) => ({
+      sessions: {
+        ...s.sessions,
+        [pane]: { ...s.sessions[pane], webSearchEnabled: enabled },
       },
     })),
 
