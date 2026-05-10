@@ -164,9 +164,9 @@ async function ftsPass(
   const overrideSet  = new Set(overrideNoteIds ?? [])
 
   for (const query of queries) {
-    const sanitized = query
+      const sanitized = query
       .trim()
-      .replace(/['"*^()?!.,;:\[\]]/g, " ")
+      .replace(/['"*^()?!.,;:\[\]-]/g, " ")
       .trim()
       .split(/\s+/)
       .filter(Boolean)
@@ -187,26 +187,30 @@ async function ftsPass(
     try {
       const rows = await db.select<FtsRow[]>(
   `SELECT
-     bf.block_id,
-     bf.note_id,
-     nb.plaintext,
-     nb.chunk_heading,
-     nb.source_type,
-     nb.block_updated_at,
-     n.title  AS note_title,
-     bf.rank  AS rank,
-     COALESCE(e.breadcrumb, ntc.breadcrumb) AS breadcrumb,
-     COALESCE(n.rag_excluded, 0)            AS rag_excluded
-   FROM blocks_fts bf
-   JOIN note_blocks nb ON nb.block_id = bf.block_id
-   JOIN notes n        ON n.id        = bf.note_id
-   LEFT JOIN embeddings e          ON e.block_id  = bf.block_id
-   LEFT JOIN note_title_chunks ntc ON ntc.note_id = bf.note_id
-   WHERE blocks_fts MATCH $1
-     AND n.deleted_at IS NULL
-     AND (n.id = $2 OR n.title NOT LIKE 'Untitled%')
-     ${scopeClause.sql}
-   ORDER BY bf.rank
+  sub.block_id,
+  sub.note_id,
+  nb.plaintext,
+  nb.chunk_heading,
+  nb.source_type,
+  nb.block_updated_at,
+  n.title  AS note_title,
+  sub.fts_rank AS rank,
+  COALESCE(e.breadcrumb, ntc.breadcrumb) AS breadcrumb,
+  COALESCE(n.rag_excluded, 0)            AS rag_excluded
+FROM (
+  SELECT block_id, note_id, rank AS fts_rank
+  FROM blocks_fts
+  WHERE blocks_fts MATCH $1
+  ORDER BY rank
+  LIMIT ${topK}
+) sub
+JOIN note_blocks nb ON nb.block_id = sub.block_id
+JOIN notes n        ON n.id        = sub.note_id
+LEFT JOIN embeddings e          ON e.block_id  = sub.block_id
+LEFT JOIN note_title_chunks ntc ON ntc.note_id = sub.note_id
+WHERE n.deleted_at IS NULL
+  AND (n.id = $2 OR n.title NOT LIKE 'Untitled%')
+  ${scopeClause.sql}
    LIMIT ${topK}`,
   [sanitized, currentNoteId ?? "", ...scopeClause.params]
 )
