@@ -187,14 +187,14 @@ export function calibrateConfidence(results: RerankResult[]): ConfidenceLevel {
 
   const topScore = results[0].rrf_score
 
-  // High: top result clearly above noise + multiple corroborating results
-  const aboveHigh = results.filter((r) => r.rrf_score > 0.013)
-  const uniqueHigh = new Set(aboveHigh.map((r) => r.note_id))
-  if (topScore > 0.015 && uniqueHigh.size >= 2) return "high"
+  // High: top score clearly above the noise floor (~0.022 for junk)
+  const aboveHigh   = results.filter((r) => r.rrf_score > 0.030)
+  const uniqueHigh  = new Set(aboveHigh.map((r) => r.note_id))
+  if (topScore > 0.035 && uniqueHigh.size >= 2) return "high"
 
-  // Medium: something meaningfully retrieved
-  const aboveMedium = results.filter((r) => r.rrf_score > 0.010)
-  if (topScore > 0.013 || aboveMedium.length >= 3) return "medium"
+  // Medium: something retrieved above noise
+  const aboveMedium = results.filter((r) => r.rrf_score > 0.025)
+  if (topScore > 0.030 || aboveMedium.length >= 3) return "medium"
 
   return "low"
 }

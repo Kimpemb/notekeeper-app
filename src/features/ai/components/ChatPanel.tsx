@@ -402,14 +402,14 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
       setMetaMap((prev) =>
         new Map(prev).set(assistantId, {
-          sourceTitles:        meta.sourceTitles,
-          sourceNoteIds:       meta.sourceNoteIds,
+          sourceTitles:        [],   
+          sourceNoteIds:       [], 
           usedEmbeddings:      meta.usedEmbeddings,
           confidence:          meta.confidence,
-          relatedNotes:        meta.relatedNotes,
+          relatedNotes:        [], 
           tier1Results:        meta.tier1Results,
-          excludedNoteNotices: meta.excludedNoteNotices,
-          titleMatchedNoteIds: meta.titleMatchedNoteIds,
+          excludedNoteNotices: [],
+          titleMatchedNoteIds: [],
           webNudge:            undefined, // no nudge on web-grounded responses
         })
       )

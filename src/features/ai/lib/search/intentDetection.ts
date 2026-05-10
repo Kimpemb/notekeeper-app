@@ -24,11 +24,12 @@ export interface DateRangeFilter {
 }
 
 export interface ScopeFilter {
-  sourceType?: SourceTypeFilter
-  dateRange?:  DateRangeFilter
+  sourceType?: string
+  dateRange?:  { after: number }
   tag?:        string
   noteTitle?:  string
   folder?:     string
+  noteIds?:    string[]
 }
 
 export interface DetectedIntent {

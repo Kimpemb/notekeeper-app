@@ -355,8 +355,8 @@ const TITLE_QUERY_PATTERNS = [
   /^what(?:'s|\s+is)\s+(?:the\s+)?(?:content|contents)\s+of\s+(.+?)[\?\.]*$/i,
   /^show\s+me\s+(.+?)[\?\.]*$/i,
   /^open\s+(.+?)[\?\.]*$/i,
-  /^summari[sz]e\s+(.+?)[\?\.]*$/i,
-  /^summary\s+of\s+(.+?)[\?\.]*$/i,
+  /^summari[sz]e\s+(.{3,40})[\?\.]*$/i,
+  /^summary\s+of\s+(.{3,40})[\?\.]*$/i,
   /^everything\s+(?:about|in|on)\s+(.+?)[\?\.]*$/i,
   /^(?:tell\s+me\s+about|what(?:'s|\s+is)\s+in)\s+(.+?)[\?\.]*$/i,
 ]
@@ -538,16 +538,41 @@ async function fetchTitleMatchChunks(
 
 // ─── deriveWebNudge helper ───────────────────────────────────────────────
 
-function deriveWebNudge(pipeline: PipelineResult): "limited" | "zero" | undefined {
-  // No nudge for inventory mode or title-directed queries — confidence is
-  // determined by the note match, not RAG retrieval quality.
+function deriveWebNudge(
+  pipeline: PipelineResult,
+  answerText?: string,
+): "limited" | "zero" | undefined {
   if (pipeline.inventoryMode)   return undefined
   if (pipeline.isTitleDirected) return undefined
 
   if (pipeline.chunkCount === 0) return "zero"
 
+  // Clean signal: pipeline confidence is low = retrieval was junk
+  if (pipeline.confidence === "low") return "limited"
+
+  // Fallback: model explicitly said it found nothing despite ok-looking retrieval
+  if (answerText) {
+    const lower = answerText.toLowerCase()
+    if (
+      lower.includes("do not contain") ||
+      lower.includes("doesn't contain") ||
+      lower.includes("no information") ||
+      lower.includes("not found in") ||
+      lower.includes("cannot find") ||
+      lower.includes("nothing in your notes") ||
+      lower.includes("not present in") ||
+      lower.includes("not available in") ||
+      lower.includes("no mention") ||
+      lower.includes("not mentioned") ||
+      lower.includes("does not include") ||
+      lower.includes("not covered") ||
+      lower.includes("not in the provided") ||
+      lower.includes("provided notes do not")
+    ) return "limited"
+  }
+
   if (
-    pipeline.topScore  < WEB_SEARCH_SCORE_THRESHOLD ||
+    pipeline.topScore  < WEB_SEARCH_SCORE_THRESHOLD &&
     pipeline.chunkCount < WEB_SEARCH_MIN_CHUNKS
   ) return "limited"
 
@@ -800,7 +825,7 @@ export async function streamChatWithNotes(
   webResults?:      WebSearchResult[],
 ): Promise<Omit<ChatResult, "answer">> {
   
-// Tier 1 — no AI key configured
+  // Tier 1 — no AI key configured
   if (!isAIReady()) {
     const pipeline   = await runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds)
     const tier1Cards = pipeline.tier1Cards
@@ -821,7 +846,7 @@ export async function streamChatWithNotes(
       tier1Results:        tier1Cards,
       excludedNoteNotices: pipeline.excludedNoteNotices,
       titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-      webNudge:            deriveWebNudge(pipeline),
+      webNudge:            deriveWebNudge(pipeline), // No assembled available in Tier 1
     }
   }
 
@@ -885,7 +910,7 @@ export async function streamChatWithNotes(
     relatedNotes,
     excludedNoteNotices: pipeline.excludedNoteNotices,
     titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-    webNudge:            deriveWebNudge(pipeline),
+    webNudge:            deriveWebNudge(pipeline, assembled), // Pass assembled for Tier 2
   }
 }
 
