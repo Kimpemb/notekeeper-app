@@ -49,6 +49,8 @@ import {
   saveConversationSummary,
 } from "@/features/notes/db/queries"
 import type { Note } from "@/types"
+import { WEB_SEARCH_SCORE_THRESHOLD, WEB_SEARCH_MIN_CHUNKS } from "@/features/ai/lib/search/webSearchProvider"
+import type { WebSearchResult } from "@/features/ai/lib/search/webSearchProvider"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +87,7 @@ export interface ChatResult {
   tier1Results?:        Tier1ResultCard[]
   excludedNoteNotices?: ExcludedTitleMatch[]
   titleMatchedNoteIds?: string[]
+  webNudge?:            "limited" | "zero"
 }
 
 export interface StreamingChatOptions {
@@ -533,7 +536,32 @@ async function fetchTitleMatchChunks(
   return { chunks: allChunks, noticeText }
 }
 
+// ─── deriveWebNudge helper ───────────────────────────────────────────────
 
+function deriveWebNudge(pipeline: PipelineResult): "limited" | "zero" | undefined {
+  // No nudge for inventory mode or title-directed queries — confidence is
+  // determined by the note match, not RAG retrieval quality.
+  if (pipeline.inventoryMode)   return undefined
+  if (pipeline.isTitleDirected) return undefined
+
+  if (pipeline.chunkCount === 0) return "zero"
+
+  if (
+    pipeline.topScore  < WEB_SEARCH_SCORE_THRESHOLD ||
+    pipeline.chunkCount < WEB_SEARCH_MIN_CHUNKS
+  ) return "limited"
+
+  return undefined
+}
+
+// ─── Web results builder ──────────────────────────────────────────────────────
+
+function buildWebResultsBlock(webResults: WebSearchResult[]): string {
+  const lines = webResults.map((r, i) =>
+    `[web:${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`
+  )
+  return `[WEB SEARCH RESULTS]\nThe following results were retrieved from a live web search. Cite them as [web:1], [web:2] etc.\n\n${lines.join("\n\n")}\n`
+}
 
 // ─── Main pipeline ────────────────────────────────────────────────────────────
 interface PipelineResult {
@@ -546,7 +574,9 @@ interface PipelineResult {
   inventoryMode:        boolean
   excludedNoteNotices:  ExcludedTitleMatch[]
   titleMatchedNoteIds:  string[]
-  isTitleDirected: boolean
+  isTitleDirected:      boolean
+  topScore:             number
+  chunkCount:           number
 }
 
 async function runPipeline(
@@ -570,6 +600,8 @@ async function runPipeline(
       excludedNoteNotices: [],
       titleMatchedNoteIds: [],
       isTitleDirected:     false,
+      topScore:            1,
+      chunkCount:          1,
     }
   }
 
@@ -607,6 +639,8 @@ async function runPipeline(
       excludedNoteNotices: titleDetect.excludedMatches,
       titleMatchedNoteIds: [],
       isTitleDirected:     true,
+      topScore:            0,
+      chunkCount:          0,
     }
   }
 
@@ -637,6 +671,8 @@ async function runPipeline(
         excludedNoteNotices: excludedOverridden ? [] : titleDetect.excludedMatches,
         titleMatchedNoteIds,
         isTitleDirected:     true,
+        topScore:            1,
+        chunkCount:          0,
       }
     }
   } else {
@@ -703,6 +739,8 @@ async function runPipeline(
     excludedNoteNotices,
     titleMatchedNoteIds,
     isTitleDirected:     effectiveTitleMatches.length > 0,
+    topScore:            merged[0]?.final_score ?? 0,
+    chunkCount:          merged.length,
   }
 }
 
@@ -713,6 +751,7 @@ function buildPrompt(
   pipeline:     PipelineResult,
   historyBlock: string,
   currentNote?: Note,
+  webResults?:  WebSearchResult[],
 ): string {
   const currentNoteBlock = currentNote
     ? `\nContext — currently open note:\nTitle: ${currentNote.title}\n${(currentNote.plaintext ?? "").slice(0, 1500)}`
@@ -731,7 +770,8 @@ function buildPrompt(
   return `You are an assistant with access to the user's personal notes vault.
 ${titleDirectedInstruction}You will be given numbered excerpts [1], [2], [3]... from different notes.
 Read ALL excerpts carefully before forming your answer — the relevant information may appear in any excerpt, not just the first ones.
-Cite every excerpt you draw from using its number: [1], [2] etc.
+Cite every note excerpt you draw from using its number: [1], [2] etc.
+When using web search results, cite them as [web:1], [web:2] etc.
 Excerpts include a location path (e.g. "Projects / Vitobu / Day 1") — use this to give context about where information lives when it adds clarity.
 Synthesise across excerpts when the answer is spread across multiple notes.
 If after reading ALL excerpts the information is genuinely absent, say so in one sentence.
@@ -740,6 +780,7 @@ ${historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
 [EXCERPTS FROM YOUR NOTES]
 ${excerptSection}
 ${currentNoteBlock ? `[CURRENTLY OPEN NOTE]\nUse this as additional context. Do not cite it with a number — refer to it as "current note" if relevant.\n${currentNoteBlock}\n` : ""}
+${webResults && webResults.length > 0 ? buildWebResultsBlock(webResults) : ""}
 [QUESTION]
 ${query}
 
@@ -756,6 +797,7 @@ export async function streamChatWithNotes(
   scopeNoteIds:     string[] | undefined,
   streaming:        StreamingChatOptions,
   overrideNoteIds?: string[],
+  webResults?:      WebSearchResult[],
 ): Promise<Omit<ChatResult, "answer">> {
   
 // Tier 1 — no AI key configured
@@ -779,6 +821,7 @@ export async function streamChatWithNotes(
       tier1Results:        tier1Cards,
       excludedNoteNotices: pipeline.excludedNoteNotices,
       titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+      webNudge:            deriveWebNudge(pipeline),
     }
   }
 
@@ -788,7 +831,7 @@ export async function streamChatWithNotes(
     runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds),
   ])
 
-  const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote)
+  const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote, webResults)
   const messages: ProviderMessage[] = [{ role: "user", content: prompt }]
 
   let assembled = ""
@@ -842,6 +885,7 @@ export async function streamChatWithNotes(
     relatedNotes,
     excludedNoteNotices: pipeline.excludedNoteNotices,
     titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+    webNudge:            deriveWebNudge(pipeline),
   }
 }
 
