@@ -7,7 +7,8 @@
 // - Embedding provider selector with DeepSeek data residency notice
 // - RPDBudgetBar
 // - Master AI toggle
-// Everything else unchanged.
+// Phase 5: WebSearchSection rebuilt to match modal quality bar.
+// Hover pass: consistent hover states applied throughout all sections.
 
 import { useEffect, useState, useRef } from "react";
 import { useUIStore }     from "@/features/ui/store/useUIStore";
@@ -24,7 +25,6 @@ import { ProcessingModelCard }  from "@/features/ai/components/ProcessingModelCa
 import { RPDBudgetBar }         from "@/features/ai/components/RPDBudgetBar";
 import { ProviderCard, ExhaustionHistory } from "@/features/ai/components/ProviderCard";
 
-
 // DeepSeek data residency
 import {
   DEEPSEEK_DATA_RESIDENCY_NOTICE,
@@ -32,6 +32,12 @@ import {
 } from "@/features/ai/lib/providers/deepseek";
 import { PROVIDER_META } from "@/features/ai/lib/provider";
 import type { EmbeddingProvider, ProviderName } from "@/features/ai/store/useAIStore";
+
+// Web search imports
+import {
+  WEB_SEARCH_PROVIDERS,
+  getWebSearchProvider,
+} from "@/features/ai/lib/search/webSearchProvider";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,7 +53,11 @@ export interface AppSettings {
   autoPurgeTrash: boolean;
   hasCompletedOnboarding: boolean;
   hasInsertedSampleNotes: boolean;
-  hasSeenAISetup: boolean;        // ← add this
+  hasSeenAISetup: boolean;
+  // Web search
+  web_search_enabled:  number   // 0 = off, 1 = on
+  web_search_provider: string   // "tinyfish" | "serper" | "tavily" | "brave"
+  web_search_api_key:  string
 }
 
 const SETTINGS_KEY = "app_settings_v1";
@@ -64,7 +74,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoPurgeTrash: true,
   hasCompletedOnboarding: false,
   hasInsertedSampleNotes: false,
-  hasSeenAISetup: false,          
+  hasSeenAISetup: false,
+  web_search_enabled:  0,
+  web_search_provider: "tinyfish",
+  web_search_api_key:  "",
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -80,6 +93,11 @@ export async function loadAppSettings(): Promise<AppSettings> {
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
   await setSetting(SETTINGS_KEY, JSON.stringify(settings));
 }
+
+// ─── Shared hover token ───────────────────────────────────────────────────────
+// Single source of truth matching the outline panel pattern exactly.
+
+const H = "hover:bg-black/[0.06] dark:hover:bg-white/[0.07]";
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -154,7 +172,7 @@ function Select<T extends string>({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as T)}
-      className="text-sm bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+      className={`text-sm bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer transition-colors duration-150 ${H}`}
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>
@@ -166,7 +184,6 @@ function Select<T extends string>({
 }
 
 // ─── Provider order for cards ─────────────────────────────────────────────────
-// Gemini first (recommended starting point), then the rest.
 
 const PROVIDER_CARD_ORDER: ProviderName[] = [
   "gemini",
@@ -179,23 +196,20 @@ const PROVIDER_CARD_ORDER: ProviderName[] = [
 // ─── Embedding provider selector ──────────────────────────────────────────────
 
 function EmbeddingProviderSelector() {
-  const embeddingProvider     = useAIStore((s) => s.embeddingProvider);
-  const setEmbeddingProvider  = useAIStore((s) => s.setEmbeddingProvider);
-  const providers             = useAIStore((s) => s.providers);
+  const embeddingProvider    = useAIStore((s) => s.embeddingProvider);
+  const setEmbeddingProvider = useAIStore((s) => s.setEmbeddingProvider);
+  const providers            = useAIStore((s) => s.providers);
 
   const [showResidencyNotice, setShowResidencyNotice] = useState(false);
   const [pendingProvider,     setPendingProvider]     = useState<EmbeddingProvider | null>(null);
 
-  // Only providers that support embedding AND have a valid key
   const embeddingProviders: EmbeddingProvider[] = (["gemini", "openai", "deepseek"] as EmbeddingProvider[]).filter(
     (p) => providers[p].keys.some((k) => k.valid)
   );
 
   async function handleSelect(p: EmbeddingProvider) {
     if (p === embeddingProvider) return;
-
     if (p === "deepseek") {
-      // Check if residency notice has been acknowledged
       const acked = await getSetting(DEEPSEEK_DATA_RESIDENCY_SETTING_KEY);
       if (!acked) {
         setPendingProvider("deepseek");
@@ -203,7 +217,6 @@ function EmbeddingProviderSelector() {
         return;
       }
     }
-
     await setEmbeddingProvider(p);
   }
 
@@ -236,10 +249,10 @@ function EmbeddingProviderSelector() {
           <button
             key={p}
             onClick={() => handleSelect(p)}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+            className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors duration-150 ${
               embeddingProvider === p
                 ? "border-blue-500 bg-blue-500/10 text-blue-400"
-                : "border-idemora-border bg-idemora-bg-primary text-idemora-text-muted hover:border-blue-400/50"
+                : `border-idemora-border bg-idemora-bg-primary text-idemora-text-muted hover:border-blue-400/50 ${H}`
             }`}
           >
             {PROVIDER_META[p].label}
@@ -247,7 +260,6 @@ function EmbeddingProviderSelector() {
         ))}
       </div>
 
-      {/* DeepSeek data residency notice modal */}
       {showResidencyNotice && (
         <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/5 px-3 py-3 mb-3">
           <p className="text-xs font-semibold text-yellow-500 mb-1.5">Data Residency Notice</p>
@@ -257,13 +269,13 @@ function EmbeddingProviderSelector() {
           <div className="flex gap-2">
             <button
               onClick={handleResidencyAccept}
-              className="px-3 py-1.5 text-xs font-medium rounded-md bg-yellow-500/20 text-yellow-500 border border-yellow-500/40 hover:bg-yellow-500/30 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium rounded-md bg-yellow-500/20 text-yellow-500 border border-yellow-500/40 hover:bg-yellow-500/30 transition-colors duration-150"
             >
               I understand, proceed
             </button>
             <button
               onClick={handleResidencyDecline}
-              className="px-3 py-1.5 text-xs rounded-md border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal transition-colors"
+              className={`px-3 py-1.5 text-xs rounded-md border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-150 ${H}`}
             >
               Cancel
             </button>
@@ -280,7 +292,7 @@ function EmbeddingProviderSelector() {
 
 // ─── Sidebar nav tabs ─────────────────────────────────────────────────────────
 
-type Section = "appearance" | "editor" | "keybindings" | "data" | "ai" | "backup";
+type Section = "appearance" | "editor" | "keybindings" | "data" | "ai" | "backup" | "websearch";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -345,6 +357,17 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
       </svg>
     ),
   },
+  {
+    id: "websearch",
+    label: "Web Search",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.2"/>
+        <path d="M6 2.5C5.2 3.5 4.8 4.7 4.8 6s.4 2.5 1.2 3.5M6 2.5C6.8 3.5 7.2 4.7 7.2 6s-.4 2.5-1.2 3.5M2.5 6h7" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        <path d="M9.5 9.5L12 12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      </svg>
+    ),
+  },
 ];
 
 // ─── Keybindings reference ────────────────────────────────────────────────────
@@ -366,35 +389,28 @@ function AISection() {
 
   return (
     <div>
-      {/* 1. Profile selector */}
       <SectionTitle>Profile</SectionTitle>
       <ProfileSelector />
 
-      {/* 2. Provider cards — Gemini first */}
       <SectionTitle>Providers</SectionTitle>
       {PROVIDER_CARD_ORDER.map((p) => (
         <ProviderCard key={p} provider={p} />
       ))}
 
-      {/* 3. Processing model */}
       <SectionTitle>Processing Model</SectionTitle>
       <ProcessingModelCard />
 
-      {/* 4. Embedding provider */}
       <SectionTitle>Embeddings</SectionTitle>
       <EmbeddingProviderSelector />
 
-      {/* 5. RPD budget bar */}
       <div className="mt-3">
         <RPDBudgetBar />
       </div>
 
-      {/* 6. Exhaustion history */}
       <div className="mt-3">
         <ExhaustionHistory />
       </div>
 
-      {/* 7. Master toggle */}
       <SectionTitle>Master Switch</SectionTitle>
       <Row
         label="Enable AI features"
@@ -411,7 +427,6 @@ function AISection() {
         />
       </Row>
 
-      {/* Info footer */}
       <div className="mt-4 p-3 rounded-lg bg-idemora-bg-primary border border-idemora-border">
         <p className="text-xs text-idemora-text-muted leading-relaxed">
           API keys are stored locally in the app database. All calls go directly from
@@ -420,6 +435,243 @@ function AISection() {
       </div>
     </div>
   );
+}
+
+// ─── ExternalLinkIcon ─────────────────────────────────────────────────────────
+
+function ExternalLinkIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+      <path d="M4 2H2a1 1 0 00-1 1v5a1 1 0 001 1h5a1 1 0 001-1V6M6 1h3m0 0v3m0-3L4.5 5.5"
+        stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+// ─── WebSearchSection ─────────────────────────────────────────────────────────
+
+function WebSearchSection() {
+  const { settings, updateSetting } = useAppSettings()
+  const [testState, setTestState]   = useState<"idle" | "loading" | "ok" | "fail">("idle")
+  const [lastTestedKey, setLastTestedKey] = useState<string>("")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const currentProvider = WEB_SEARCH_PROVIDERS.find(
+    (p) => p.id === (settings.web_search_provider ?? "tinyfish")
+  ) ?? WEB_SEARCH_PROVIDERS[0]
+
+  const apiKey     = settings.web_search_api_key ?? ""
+  const missingKey = currentProvider.requiresKey && !apiKey.trim()
+
+  // Reset to idle if key changed since last successful test
+  const derivedTestState = (testState === "ok" && apiKey !== lastTestedKey) ? "idle" : testState
+
+  async function handleTest() {
+    setTestState("loading")
+    try {
+      const provider = getWebSearchProvider()
+      const results  = await provider.search("test")
+      if (results.length > 0) {
+        setTestState("ok")
+        setLastTestedKey(apiKey)
+        inputRef.current?.blur()
+      } else {
+        setTestState("fail")
+      }
+    } catch {
+      setTestState("fail")
+    }
+  }
+
+  function handleProviderChange(id: string) {
+    updateSetting("web_search_provider", id)
+    setTestState("idle")
+    setLastTestedKey("")
+  }
+
+  function handleKeyChange(value: string) {
+    updateSetting("web_search_api_key", value)
+    if (testState !== "idle") setTestState("idle")
+  }
+
+  return (
+    <div>
+      {/* Enable toggle */}
+      <SectionTitle>Web Search</SectionTitle>
+      <Row
+        label="Enable web search"
+        description="Search the web when your notes don't have an answer"
+      >
+        <Toggle
+          checked={settings.web_search_enabled === 1}
+          onChange={(v) => updateSetting("web_search_enabled", v ? 1 : 0)}
+        />
+      </Row>
+
+      {/* Provider list */}
+      <SectionTitle>Provider</SectionTitle>
+      <div className="rounded-lg border border-idemora-border overflow-hidden">
+        {WEB_SEARCH_PROVIDERS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => handleProviderChange(p.id)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors duration-150 border-b border-idemora-border last:border-b-0 ${
+              currentProvider.id === p.id
+                ? "bg-violet-500/5"
+                : `bg-idemora-bg-secondary ${H}`
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              {/* Radio dot */}
+              <span className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors duration-150 ${
+                currentProvider.id === p.id ? "border-violet-500" : "border-idemora-border"
+              }`}>
+                {currentProvider.id === p.id && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                )}
+              </span>
+              <span className={`text-sm leading-snug transition-colors duration-150 ${
+                currentProvider.id === p.id
+                  ? "text-idemora-text-normal font-medium"
+                  : "text-idemora-text-muted"
+              }`}>
+                {p.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!p.requiresKey && (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-500/10 text-green-500 border border-green-500/20">
+                  free · no key
+                </span>
+              )}
+              <a
+                href={p.docsUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-idemora-text-muted hover:text-violet-400 transition-colors duration-150"
+                title={`Get ${p.label} API key`}
+              >
+                <ExternalLinkIcon />
+              </a>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* API key field */}
+      {currentProvider.requiresKey && (
+        <>
+          <SectionTitle>API Key</SectionTitle>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  ref={inputRef}
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => handleKeyChange(e.target.value)}
+                  placeholder={`Paste your ${currentProvider.keyLabel}…`}
+                  className={`w-full rounded-md px-2.5 py-1.5 text-sm bg-idemora-bg-primary border text-idemora-text-normal placeholder-idemora-text-muted focus:outline-none focus:ring-1 transition-colors duration-150 ${
+                    derivedTestState === "ok"
+                      ? "border-green-500/50 focus:ring-green-500/40"
+                      : derivedTestState === "fail"
+                        ? "border-red-400/50 focus:ring-red-400/40"
+                        : "border-idemora-border focus:ring-violet-400"
+                  }`}
+                />
+                {derivedTestState === "ok" && (
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-green-500 text-xs font-medium pointer-events-none">
+                    verified
+                  </span>
+                )}
+                {derivedTestState === "fail" && (
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-red-400 text-xs font-medium pointer-events-none">
+                    failed
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={handleTest}
+                disabled={derivedTestState === "loading" || !apiKey.trim()}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors duration-150 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
+                  derivedTestState === "ok"
+                    ? "border-green-500/40 text-green-500 bg-green-500/5 hover:bg-green-500/10"
+                    : derivedTestState === "fail"
+                      ? "border-red-400/40 text-red-400 bg-red-400/5 hover:bg-red-400/10"
+                      : `border-idemora-border text-idemora-text-muted bg-idemora-bg-secondary hover:text-violet-500 hover:border-violet-300 ${H}`
+                }`}
+              >
+                {derivedTestState === "loading" ? (
+                  <svg width="10" height="10" viewBox="0 0 10 10" className="animate-spin" fill="none">
+                    <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="11 5" strokeLinecap="round"/>
+                  </svg>
+                ) : derivedTestState === "ok" ? (
+                  <span className="flex items-center gap-1">
+                    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                      <path d="M1.5 4.5l2 2 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    Verified
+                  </span>
+                ) : derivedTestState === "fail" ? (
+                  <span className="flex items-center gap-1">
+                    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                      <path d="M1.5 1.5l6 6M7.5 1.5l-6 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                    </svg>
+                    Failed
+                  </span>
+                ) : (
+                  "Test"
+                )}
+              </button>
+            </div>
+
+            {/* Missing key warning */}
+            {missingKey && settings.web_search_enabled === 1 && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-amber-400 shrink-0 mt-px">
+                  <path d="M5.5 1L10 9.5H1L5.5 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                  <path d="M5.5 4.5v2M5.5 8v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+                <p className="text-[11px] text-amber-500 leading-relaxed">
+                  Web search is enabled but no API key is configured. Add your {currentProvider.label.split(" ")[0]} key above.
+                </p>
+              </div>
+            )}
+
+            {/* Failed test guidance */}
+            {derivedTestState === "fail" && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-red-400/30 bg-red-400/5">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0 mt-px">
+                  <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.1"/>
+                  <path d="M5.5 3.5v2.5M5.5 7.5v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+                <p className="text-[11px] text-red-400 leading-relaxed">
+                  Connection failed — check your key is correct and has not expired.{" "}
+                  <a
+                    href={currentProvider.docsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-red-300 transition-colors duration-150"
+                  >
+                    Get a new key
+                  </a>
+                </p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Info footer */}
+      <div className="mt-6 p-3 rounded-lg bg-idemora-bg-primary border border-idemora-border">
+        <p className="text-xs text-idemora-text-muted leading-relaxed">
+          Web search runs directly from your device to the provider. Results are used only for
+          the turn they're retrieved and are never stored or re-indexed automatically.
+        </p>
+      </div>
+    </div>
+  )
 }
 
 // ─── Main modal ───────────────────────────────────────────────────────────────
@@ -470,6 +722,7 @@ export function SettingsModal() {
     >
       <div className="relative flex w-[720px] max-w-[95vw] h-[520px] max-h-[90vh] rounded-xl shadow-2xl overflow-hidden bg-idemora-bg-secondary border border-idemora-border">
 
+        {/* ── Sidebar ── */}
         <aside className="w-44 shrink-0 bg-idemora-bg-secondary border-r border-idemora-border flex flex-col py-4 gap-0.5 px-2 overflow-y-auto">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-idemora-text-muted px-2 mb-2">
             Settings
@@ -478,10 +731,10 @@ export function SettingsModal() {
             <button
               key={s.id}
               onClick={() => setSection(s.id)}
-              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-left transition-colors duration-100 w-full ${
+              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-left transition-colors duration-150 w-full ${
                 section === s.id
                   ? "bg-blue-500/10 text-blue-400 font-medium"
-                  : "text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
+                  : `text-idemora-text-muted ${H}`
               }`}
             >
               <span className="shrink-0">{s.icon}</span>
@@ -495,10 +748,11 @@ export function SettingsModal() {
           </div>
         </aside>
 
+        {/* ── Content ── */}
         <div className="flex-1 relative">
           <button
             onClick={closeSettings}
-            className="absolute top-3 right-3 z-10 w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-150"
+            className={`absolute top-3 right-3 z-10 w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted transition-colors duration-150 ${H}`}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -506,6 +760,8 @@ export function SettingsModal() {
           </button>
 
           <div ref={contentRef} className="h-full overflow-y-auto pt-12 pb-6 px-6">
+
+            {/* ── Appearance ── */}
             {section === "appearance" && (
               <div>
                 <SectionTitle>Theme</SectionTitle>
@@ -527,7 +783,7 @@ export function SettingsModal() {
                 <Row label="Show welcome tour" description="View the onboarding guide again">
                   <button
                     onClick={() => { updateSetting("hasCompletedOnboarding", false); closeSettings(); }}
-                    className="px-4 py-1.5 text-sm font-medium rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+                    className={`px-4 py-1.5 text-sm font-medium rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-normal transition-colors duration-150 ${H}`}
                   >
                     Restart tour
                   </button>
@@ -570,6 +826,7 @@ export function SettingsModal() {
               </div>
             )}
 
+            {/* ── Editor ── */}
             {section === "editor" && (
               <div>
                 <SectionTitle>Behaviour</SectionTitle>
@@ -606,6 +863,7 @@ export function SettingsModal() {
               </div>
             )}
 
+            {/* ── Keybindings ── */}
             {section === "keybindings" && (
               <div>
                 <p className="text-xs text-idemora-text-muted mb-4">
@@ -634,6 +892,7 @@ export function SettingsModal() {
               </div>
             )}
 
+            {/* ── Data ── */}
             {section === "data" && (
               <div>
                 <SectionTitle>Storage</SectionTitle>
@@ -666,13 +925,10 @@ export function SettingsModal() {
               </div>
             )}
 
-            {section === "ai" && <AISection />}
+            {section === "ai"        && <AISection />}
+            {section === "backup"    && <div><BackupModal /></div>}
+            {section === "websearch" && <div><WebSearchSection /></div>}
 
-            {section === "backup" && (
-              <div>
-                <BackupModal />
-              </div>
-            )}
           </div>
         </div>
       </div>
