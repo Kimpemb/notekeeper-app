@@ -164,13 +164,40 @@ async function ftsPass(
   const overrideSet  = new Set(overrideNoteIds ?? [])
 
   for (const query of queries) {
-      const sanitized = query
+    const rawTerms = query
       .trim()
       .replace(/['"*^()?!.,;:\[\]-]/g, " ")
       .trim()
       .split(/\s+/)
       .filter(Boolean)
       .filter((word) => word.length > 2 && !FTS_STOP_WORDS.has(word.toLowerCase()))
+
+    // IDF filtering — drop terms that match too many blocks (noise terms)
+    // Runs one lightweight COUNT per term, skipped if only one term remains
+    const MAX_DF = 200
+    let filteredTerms = rawTerms
+    if (rawTerms.length > 1) {
+      const termFreqs = await Promise.all(
+        rawTerms.map(async (term) => {
+          try {
+            const rows = await db.select<{ c: number }[]>(
+              `SELECT COUNT(*) as c FROM blocks_fts WHERE blocks_fts MATCH $1`,
+              [`${term}*`]
+            )
+            return { term, count: rows[0]?.c ?? 0 }
+          } catch {
+            return { term, count: Number.MAX_SAFE_INTEGER }
+          }
+        })
+      )
+      // Only filter if at least one term survives — never drop all terms
+      const surviving = termFreqs.filter((t) => t.count <= MAX_DF)
+      if (surviving.length > 0) {
+        filteredTerms = surviving.map((t) => t.term)
+      }
+    }
+
+    const sanitized = filteredTerms
       .map((word) => `${word}*`)
       .join(" OR ")
 
@@ -178,9 +205,9 @@ async function ftsPass(
 
     if (!sanitized) continue
 
-    // $1 = sanitized query, $2 = currentNoteId (for untitled exclusion)
-    // scope clause params start at $3
-    const scopeClause = buildScopeClause(scope, 3)
+    // $1 = currentNoteId (for untitled exclusion)
+    // scope clause params start at $2
+    const scopeClause = buildScopeClause(scope, 2)
 
     // Block-level FTS — plaintext + chunk_heading
     // FIX: exclude untitled notes unless they are the currently open note.
@@ -200,7 +227,7 @@ async function ftsPass(
 FROM (
   SELECT block_id, note_id, rank AS fts_rank
   FROM blocks_fts
-  WHERE blocks_fts MATCH $1
+  WHERE blocks_fts MATCH '${sanitized}'
   ORDER BY rank
   LIMIT ${topK}
 ) sub
@@ -209,11 +236,11 @@ JOIN notes n        ON n.id        = sub.note_id
 LEFT JOIN embeddings e          ON e.block_id  = sub.block_id
 LEFT JOIN note_title_chunks ntc ON ntc.note_id = sub.note_id
 WHERE n.deleted_at IS NULL
-  AND (n.id = $2 OR n.title NOT LIKE 'Untitled%')
+  AND (n.id = $1 OR n.title NOT LIKE 'Untitled%')
   ${scopeClause.sql}
-   LIMIT ${topK}`,
-  [sanitized, currentNoteId ?? "", ...scopeClause.params]
-)
+  LIMIT ${topK}`,
+      [currentNoteId ?? "", ...scopeClause.params]
+      )
 
       for (const row of rows) {
         if (row.rag_excluded === 1 && !overrideSet.has(row.note_id)) continue
@@ -293,7 +320,6 @@ WHERE n.deleted_at IS NULL
 
   return results
 }
-
 // ─── Vector pass ──────────────────────────────────────────────────────────────
 //
 // Embeds the primary query (not variants — one embedding call per search),

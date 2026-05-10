@@ -43,6 +43,7 @@ interface MessageMeta {
   excludedNoteNotices?: ExcludedTitleMatch[];
   titleMatchedNoteIds?: string[];
   webNudge?:            "limited" | "zero";
+  webGrounded?:         boolean;
 }
 
 // ─── Toast system ─────────────────────────────────────────────────────────────
@@ -402,15 +403,16 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
       setMetaMap((prev) =>
         new Map(prev).set(assistantId, {
-          sourceTitles:        [],   
-          sourceNoteIds:       [], 
+          sourceTitles:        [],
+          sourceNoteIds:       [],
           usedEmbeddings:      meta.usedEmbeddings,
           confidence:          meta.confidence,
-          relatedNotes:        [], 
+          relatedNotes:        [],
           tier1Results:        meta.tier1Results,
           excludedNoteNotices: [],
           titleMatchedNoteIds: [],
-          webNudge:            undefined, // no nudge on web-grounded responses
+          webNudge:            undefined,
+          webGrounded:         true,
         })
       )
     } catch { /* errors handled by onError above */ }
@@ -996,7 +998,7 @@ function MessageFooter({
   }
   return (
     <div className="px-4 pb-2 pl-9 space-y-1.5">
-      {meta.confidence === "low" && (
+      {meta.confidence === "low" && !meta.webGrounded && (
         <div className="flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 8 8" fill="none" className="text-amber-400 shrink-0">
             <path d="M4 1L7 7H1L4 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
@@ -1005,7 +1007,7 @@ function MessageFooter({
           <p className="text-[10px] text-amber-500 leading-relaxed">Limited matches — answer may be incomplete</p>
         </div>
       )}
-      {meta.confidence === "medium" && (
+      {meta.confidence === "medium" && !meta.webGrounded && (
         <p className="text-[10px] text-idemora-text-muted">Sourced from your notes</p>
       )}
       {meta.sourceTitles.length > 0 && (
