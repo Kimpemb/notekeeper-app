@@ -22,6 +22,7 @@ import { SaveNoteDialog }      from "@/features/ai/components/SaveNoteDialog";
 import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore";
 import type { ExcludedTitleMatch } from "@/features/ai/lib/search/hybrid"
 import { useAppSettings } from "@/features/ui/store/useAppSettings"
+import { marked } from "marked"
 import {
   WEB_SEARCH_PROVIDERS,
   getWebSearchProvider,
@@ -922,24 +923,42 @@ export function ChatPanel({ noteId, paneId }: Props) {
 function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStreaming: boolean }) {
   const isUser = message.role === "user";
 
-  function renderWithCitations(text: string) {
-    const parts = text.split(/(\[\d+\])/g);
-    return parts.map((part, i) => {
-      const match = part.match(/^\[(\d+)\]$/);
-      if (match) {
-        return (
-          <sup
-            key={i}
-            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-violet-100 text-violet-600 text-[8px] font-bold mx-0.5 cursor-default"
-            title={`Source ${match[1]}`}
-          >
-            {match[1]}
-          </sup>
-        );
-      }
-      return <span key={i}>{part}</span>;
-    });
-  }
+function renderWithCitations(text: string) {
+  const html = marked.parse(text, { async: false }) as string
+  console.log('[marked] html:', html.slice(0, 500))
+  const parts = html.split(/(\[\d+(?:,\s*\d+)*\])/g)
+  return (
+    <div className="text-sm text-idemora-text-normal
+      [&_strong]:font-semibold [&_strong]:text-idemora-text-normal
+      [&_em]:italic
+      [&_p]:my-0 [&_p]:leading-relaxed
+      [&_ul]:list-disc [&_ul]:pl-3 [&_ul]:mt-0.5 [&_ul]:mb-0
+      [&_ol]:list-decimal [&_ol]:pl-3 [&_ol]:mt-0.5 [&_ol]:mb-0
+      [&_li]:my-0 [&_li]:leading-snug
+      [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mt-2 [&_h1]:mb-0.5
+      [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-0.5
+      [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mt-1.5 [&_h3]:mb-0.5
+      [&_pre]:bg-idemora-bg-secondary [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-1 [&_pre]:overflow-x-auto
+    [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
+      [&_pre_code]:bg-transparent [&_pre_code]:p-0
+      [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 [&_blockquote]:border-idemora-border [&_blockquote]:pl-3 [&_blockquote]:my-1">      {parts.map((part, i) => {
+    const match = part.match(/^\[(\d+(?:,\s*\d+)*)\]$/)
+        if (match) {
+          return (
+            <sup
+              key={i}
+              className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-violet-100 text-violet-600 text-[8px] font-bold mx-0.5 cursor-default"
+              title={`Source ${match[1]}`}
+            >
+              {match[1]}
+            </sup>
+          )
+        }
+        return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />
+      })}
+    </div>
+  )
+}
 
   return (
     <div className={`px-4 py-1.5 ${isUser ? "flex justify-end" : ""}`}>
