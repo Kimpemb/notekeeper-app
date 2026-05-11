@@ -315,7 +315,7 @@ async function findRelatedNotes(
       if (citedNoteIds.has(r.note_id)) continue
       if (r.note_id === currentNoteId)  continue
       if (seen.has(r.note_id))          continue
-      if (r.final_score < 0.005)        continue
+      if (r.final_score < 0.05)        continue
 
       seen.add(r.note_id)
       related.push({ title: r.note_title, noteId: r.note_id })
@@ -610,10 +610,19 @@ async function runPipeline(
   scopeNoteIds?:    string[],
   overrideNoteIds?: string[],
 ): Promise<PipelineResult> {
+  console.log('[pipeline] ========== STARTING PIPELINE ==========')
+  console.log('[pipeline] Input query:', query)
+  console.log('[pipeline] currentNote:', currentNote?.id || 'none')
+  console.log('[pipeline] scopeNoteIds:', scopeNoteIds || 'none')
+  console.log('[pipeline] overrideNoteIds:', overrideNoteIds || 'none')
+
   const { intent, scope, cleanQuery } = detectIntent(query)
+  console.log('[pipeline] Intent detection:', { intent, scope, cleanQuery })
 
   if (intent === "inventory") {
+    console.log('[pipeline] INVENTORY MODE - building inventory context')
     const inventoryContext = await buildInventoryContext()
+    console.log('[pipeline] Inventory context built, length:', inventoryContext.length)
     return {
       excerptBlock:        inventoryContext,
       sourceTitles:        [],
@@ -630,15 +639,20 @@ async function runPipeline(
     }
   }
 
-  // Feature B: title-directed detection — runs before hybrid, merges after
-  console.log('[pipeline] query:', query)
+  console.log('[pipeline] Running title-directed detection')
   const titleDetect = await detectTitleQuery(query)
-  console.log('[pipeline] titleDetect:', titleDetect)
+  console.log('[pipeline] titleDetect results:', {
+    matchesCount:         titleDetect.matches.length,
+    excludedMatchesCount: titleDetect.excludedMatches.length,
+    candidateFound:       titleDetect.candidateFound,
+    matches:              titleDetect.matches.map(m => ({ id: m.noteId, title: m.noteTitle })),
+    excludedMatches:      titleDetect.excludedMatches.map(e => ({ id: e.note_id, title: e.note_title }))
+  })
 
-  // If an excluded note has been overridden, promote it to a title match
   const excludedOverridden = titleDetect.excludedMatches.some(
     (e) => (overrideNoteIds ?? []).includes(e.note_id)
   )
+  console.log('[pipeline] excludedOverridden:', excludedOverridden)
 
   const effectiveTitleMatches: TitleMatch[] = titleDetect.matches.length > 0
     ? titleDetect.matches
@@ -648,13 +662,19 @@ async function runPipeline(
           .map((e) => ({ noteId: e.note_id, noteTitle: e.note_title }))
       : []
 
-  // Case 1: pattern matched but note doesn't exist anywhere in the vault
-  // Skip early return if the excluded note is already overridden
+  console.log('[pipeline] effectiveTitleMatches count:', effectiveTitleMatches.length)
+  if (effectiveTitleMatches.length > 0) {
+    console.log('[pipeline] effectiveTitleMatches details:', effectiveTitleMatches.map(m => ({ id: m.noteId, title: m.noteTitle })))
+  }
+
   if (titleDetect.candidateFound && effectiveTitleMatches.length === 0 && !excludedOverridden) {
+    console.log('[pipeline] CASE 1: Title pattern matched but no accessible note found')
+    const errorMessage = titleDetect.excludedMatches.length > 0
+      ? `No results found — "${titleDetect.excludedMatches[0].note_title}" may be relevant but is excluded from search.`
+      : "No note with that title was found in your vault."
+    console.log('[pipeline] Returning error message:', errorMessage)
     return {
-      excerptBlock:        titleDetect.excludedMatches.length > 0
-        ? `No results found — "${titleDetect.excludedMatches[0].note_title}" may be relevant but is excluded from search.`
-        : "No note with that title was found in your vault.",
+      excerptBlock:        errorMessage,
       sourceTitles:        [],
       sourceNoteIds:       [],
       usedEmbeddings:      false,
@@ -674,17 +694,35 @@ async function runPipeline(
   let titleMatchedNoteIds: string[]       = []
 
   if (effectiveTitleMatches.length > 0) {
+    console.log('[pipeline] Fetching chunks for title matches')
+    const maxChars = Math.floor(MAX_CONTEXT_CHARS * 0.6)
+    console.log('[pipeline] Max chars for title chunks:', maxChars)
+
     const { chunks, noticeText } = await fetchTitleMatchChunks(
       effectiveTitleMatches,
-      Math.floor(MAX_CONTEXT_CHARS * 0.6),
+      maxChars,
     )
     titleChunks         = chunks
     titleNotice         = noticeText
     titleMatchedNoteIds = effectiveTitleMatches.map((m) => m.noteId)
-    console.log('[pipeline] titleChunks count:', titleChunks.length)
 
-    // Case 2: note exists but has no content
+    console.log('[pipeline] Title chunks fetched:', {
+      chunkCount:     titleChunks.length,
+      noticeText:     titleNotice || 'none',
+      matchedNoteIds: titleMatchedNoteIds
+    })
+
+    if (titleChunks.length > 0) {
+      console.log('[pipeline] First title chunk sample:', {
+        noteId:    titleChunks[0].note_id,
+        noteTitle: titleChunks[0].note_title,
+        blockId:   titleChunks[0].block_id,
+        score:     titleChunks[0].final_score
+      })
+    }
+
     if (titleChunks.length === 0) {
+      console.log('[pipeline] CASE 2: Note exists but has no content')
       return {
         excerptBlock:        `The note "${effectiveTitleMatches[0].noteTitle}" exists but contains no content.`,
         sourceTitles:        effectiveTitleMatches.map((m) => m.noteTitle),
@@ -701,7 +739,7 @@ async function runPipeline(
       }
     }
   } else {
-    console.log('[pipeline] no title match — falling through to hybrid')
+    console.log('[pipeline] No title matches found - falling through to hybrid search')
   }
 
   const queryVariants = [cleanQuery]
@@ -709,11 +747,20 @@ async function runPipeline(
     ? 4
     : intent === "exploration" ? 12 : 8
 
+  console.log('[pipeline] Hybrid search config:', {
+    queryVariants,
+    topK,
+    intent,
+    hasTitleMatches: effectiveTitleMatches.length > 0
+  })
+
   let results: HybridResult[] = []
   let usedEmbeddings = false
   let hybridExcludedNotices: ExcludedTitleMatch[] = []
 
   try {
+    console.log('[pipeline] scopeNoteIds going into hybridSearch:', scopeNoteIds ?? 'none')
+
     const searchResult = await hybridSearch(cleanQuery, topK, {
       currentNoteId:  currentNote?.id,
       scope,
@@ -721,29 +768,79 @@ async function runPipeline(
       noteIds:        scopeNoteIds,
       overrideNoteIds,
     })
+
     results               = searchResult.results
     usedEmbeddings        = results.some((r) => r.matched_by.includes("semantic"))
     hybridExcludedNotices = searchResult.excludedTitleMatches
-  } catch { /* retrieval failure — empty results */ }
 
-  if (results.length > 0) {
-    results = await expandContext(results)
+    console.log('[pipeline] Hybrid search completed:', {
+      resultsCount:         results.length,
+      usedEmbeddings,
+      excludedNoticesCount: hybridExcludedNotices.length,
+      semanticCount:        results.filter(r => r.matched_by.includes("semantic")).length,
+      keywordCount:         results.filter(r => r.matched_by.includes("keyword")).length,
+    })
+
+    if (results.length > 0) {
+      console.log('[pipeline] Top hybrid result:', {
+        noteId:    results[0].note_id,
+        noteTitle: results[0].note_title,
+        score:     results[0].final_score,
+        matchedBy: results[0].matched_by
+      })
+    }
+  } catch (error) {
+    console.error('[pipeline] ERROR in hybridSearch:', error)
   }
 
-  // Merge: title chunks first (positional order), hybrid fills remaining budget.
-  // Dedup by block_id so a chunk appearing in both isn't doubled.
+  // BEFORE
+  if (results.length > 0) {
+    console.log('[pipeline] Expanding context for', results.length, 'results')
+    results = await expandContext(results)
+    console.log('[pipeline] Context expansion completed, now', results.length, 'results')
+  }
+
+// AFTER
+  if (results.length > 0) {
+    // When scoped, drop weak matches — prevents hallucination from thin evidence
+    if (scopeNoteIds && scopeNoteIds.length > 0) {
+      const before = results.length
+      results = results.filter((r) => r.final_score >= 0.03)
+      console.log('[pipeline] Scoped score cutoff: dropped', before - results.length, 'weak results, kept', results.length)
+    }
+    console.log('[pipeline] Expanding context for', results.length, 'results')
+    results = await expandContext(results)
+    console.log('[pipeline] Context expansion completed, now', results.length, 'results')
+  }
+
   const titleBlockIds = new Set(titleChunks.map((c) => c.block_id))
   const hybridOnly    = results.filter((r) => !titleBlockIds.has(r.block_id))
   const merged        = [...titleChunks, ...hybridOnly]
 
+  console.log('[pipeline] Merging results:', {
+    titleChunksCount: titleChunks.length,
+    hybridOnlyCount:  hybridOnly.length,
+    mergedCount:      merged.length,
+  })
+
   const chunkTitles  = merged.map((r) => r.note_title)
   const chunkNoteIds = merged.map((r) => r.note_id)
   const confidence   = merged[0]?.confidence ?? "low"
+
+  console.log('[pipeline] Building final response:', {
+    totalChunks:     merged.length,
+    confidence,
+    topScore:        merged[0]?.final_score ?? 0,
+    uniqueNoteCount: new Set(chunkNoteIds).size,
+    noteDistribution: chunkTitles.reduce((acc, title) => {
+      acc[title] = (acc[title] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+  })
+
   const excerptBlock = buildExcerptBlock(merged)
   const tier1Cards   = buildTier1Cards(merged)
 
-  // Merge excluded notices: title-detected ones take priority, dedup by note_id
-  // Don't show notice for notes that have been overridden this turn
   const excludedNoteNotices: ExcludedTitleMatch[] = excludedOverridden
     ? []
     : [
@@ -753,7 +850,9 @@ async function runPipeline(
         ),
       ]
 
-  return {
+  console.log('[pipeline] Excluded notices count:', excludedNoteNotices.length)
+
+  const finalResult = {
     excerptBlock:        titleNotice ? `${titleNotice}\n\n${excerptBlock}` : excerptBlock,
     sourceTitles:        chunkTitles,
     sourceNoteIds:       chunkNoteIds,
@@ -767,6 +866,18 @@ async function runPipeline(
     topScore:            merged[0]?.final_score ?? 0,
     chunkCount:          merged.length,
   }
+
+  console.log('[pipeline] ========== PIPELINE COMPLETE ==========')
+  console.log('[pipeline] Final result summary:', {
+    excerptBlockLength: finalResult.excerptBlock.length,
+    sourceCount:        finalResult.sourceTitles.length,
+    confidence:         finalResult.confidence,
+    isTitleDirected:    finalResult.isTitleDirected,
+    chunkCount:         finalResult.chunkCount,
+    topScore:           finalResult.topScore,
+  })
+
+  return finalResult
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
@@ -856,10 +967,28 @@ export async function streamChatWithNotes(
     runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds),
   ])
 
+  let assembled = ""
+
+  // Short-circuit — no chunks means nothing to ground the model on
+  if (pipeline.chunkCount === 0 && !pipeline.inventoryMode) {
+    console.log('[streamChat] chunkCount=0, short-circuiting before model call')
+    assembled = "Nothing found in your notes about this."
+    streaming.onChunk(assembled)
+    streaming.onDone?.()
+    return {
+      sourceTitles:        [],
+      sourceNoteIds:       [],
+      usedEmbeddings:      false,
+      confidence:          "low",
+      relatedNotes:        [],
+      excludedNoteNotices: pipeline.excludedNoteNotices,
+      titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+      webNudge:            deriveWebNudge(pipeline),
+    }
+  }
+
   const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote, webResults)
   const messages: ProviderMessage[] = [{ role: "user", content: prompt }]
-
-  let assembled = ""
 
   try {
     const result = await callPrimary(messages)
@@ -887,12 +1016,14 @@ export async function streamChatWithNotes(
 
   // Cross-note connection pass
   const citedNoteIds = new Set(pipeline.sourceNoteIds)
-  const relatedNotes = await findRelatedNotes(
-    assembled,
-    citedNoteIds,
-    currentNote?.id,
-    pipeline.confidence,
-  )
+  const relatedNotes = (pipeline.chunkCount === 0 || pipeline.confidence === "low")
+    ? []
+    : await findRelatedNotes(
+        assembled,
+        citedNoteIds,
+        currentNote?.id,
+        pipeline.confidence,
+      )
 
   // FIX: filter sources to only notes the model actually cited with [N] markers.
   const cited = extractCitedIndices(assembled)
@@ -935,12 +1066,14 @@ export async function chatWithNotes(
   await appendAIHistory(noteId, "assistant", answer)
 
   const citedNoteIds = new Set(pipeline.sourceNoteIds)
-  const relatedNotes = await findRelatedNotes(
-    answer,
-    citedNoteIds,
-    currentNote?.id,
-    pipeline.confidence,
-  )
+  const relatedNotes = (pipeline.chunkCount === 0 || pipeline.confidence === "low")
+  ? []
+  : await findRelatedNotes(
+      answer,
+      citedNoteIds,
+      currentNote?.id,
+      pipeline.confidence,
+    )
 
   // FIX: filter sources to only notes the model actually cited with [N] markers.
   const cited = extractCitedIndices(answer)

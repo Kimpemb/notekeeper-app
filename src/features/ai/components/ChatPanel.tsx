@@ -266,7 +266,10 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
 
   // Keep refs in sync so handleSend always reads current values
-  useEffect(() => { ragScopeRef.current   = ragScope; },            [ragScope]);
+  useEffect(() => {
+    console.log('[ragScope sync] ragScope changed to:', ragScope)
+    ragScopeRef.current = ragScope;
+  }, [ragScope]);
   useEffect(() => { linkedNoteRef.current = session.linkedNoteId; }, [session.linkedNoteId]);
 
   // ── Effects ────────────────────────────────────────────────────────────────
@@ -322,6 +325,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   }, [noteId]);
 
   useEffect(() => {
+    console.log('[noteId effect] firing, will clear session. noteId:', noteId)
     setMessages([]);
     setMetaMap(new Map());
     setCallError(null);
@@ -353,16 +357,18 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
   // ── Scope resolution ───────────────────────────────────────────────────────
 
-  async function resolveScopeNoteIds(extraNoteIds?: string[]): Promise<string[] | undefined> {
-    if (ragScopeRef.current === "all" && (!extraNoteIds || extraNoteIds.length === 0)) return undefined;
-    let base: string[] = [];
-    if (ragScopeRef.current === "note") {
-      const descendants = await getAllDescendants(noteId);
-      base = [noteId, ...descendants.map((d: { id: string }) => d.id)];
-    }
-    const merged = [...new Set([...base, ...(extraNoteIds ?? [])])];
-    return merged.length > 0 ? merged : undefined;
+  const resolveScopeNoteIds = useCallback(async (extraNoteIds?: string[]): Promise<string[] | undefined> => {
+  console.log('[scope] ragScope:', ragScopeRef.current, 'noteId:', noteId, 'currentNote:', currentNote?.title)
+  if (ragScopeRef.current === "all" && (!extraNoteIds || extraNoteIds.length === 0)) return undefined
+  let base: string[] = []
+  if (ragScopeRef.current === "note") {
+    const descendants = await getAllDescendants(noteId)
+    base = [noteId, ...descendants.map((d: { id: string }) => d.id)]
+    console.log('[scope] resolved noteIds:', base)
   }
+  const merged = [...new Set([...base, ...(extraNoteIds ?? [])])]
+  return merged.length > 0 ? merged : undefined
+}, [noteId])
 
   // ── M19: handleWebSearch function ─────────────────────────────────────────
 
@@ -422,6 +428,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   // ── Send ───────────────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async () => {
+    console.log('[handleSend] ragScopeRef:', ragScopeRef.current, 'ragScope:', ragScope)
     const q = input.trim();
     if (!q || loading || isFreeTier) return;
 
@@ -500,7 +507,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
     }
   // resolveScopeNoteIds uses refs so doesn't need to be a dep
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus]);
+  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus, resolveScopeNoteIds]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }

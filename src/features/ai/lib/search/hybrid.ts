@@ -105,10 +105,9 @@ function buildScopeClause(scope: ScopeFilter, startIdx: number): ScopeClause {
   }
   if (scope.noteIds && scope.noteIds.length > 0) {
     const placeholders = scope.noteIds.map(() => `$${idx++}`).join(", ")
-    parts.push(`n.id IN (${placeholders})`)
+    parts.push(`nb.note_id IN (${placeholders})`)
     params.push(...scope.noteIds)
   }
-
   const sql = parts.length > 0 ? " AND " + parts.join(" AND ") : ""
   return { sql, params, offset: idx }
 }
@@ -387,6 +386,7 @@ async function vectorPass(
         if (scope.dateRange  && meta.updated_at < scope.dateRange.after) return false
         if (scope.tag        && (!meta.tags || !meta.tags.includes(scope.tag))) return false
         if (scope.noteTitle  && !meta.title.toLowerCase().includes(scope.noteTitle.toLowerCase())) return false
+        if (scope.noteIds && scope.noteIds.length > 0 && !scope.noteIds.includes(meta.note_id)) return false
         if (isUntitledNote(meta.title) && meta.note_id !== currentNoteId) return false
         if (meta.rag_excluded === 1 && !_overrideSet.has(meta.note_id)) return false
         return true
