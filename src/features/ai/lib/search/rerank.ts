@@ -46,7 +46,7 @@ const BOOST_RECENCY_RECENT  = 0.15   // within 7 days
 const BOOST_RECENCY_SOFT    = 0.08   // within 30 days
 const BOOST_VISIT_FREQ      = 0.10   // visited > 5 times
 const BOOST_BACKLINK        = 0.08   // > 3 backlinks
-const BOOST_CURRENT_NOTE    =  0   // block from currently open note
+const BOOST_CURRENT_NOTE    =  0.25  // block from currently open note
 const BOOST_HEADING_MATCH   = 0.12   // query terms in chunk_heading
 const BOOST_TITLE_MATCH     = 0.15   // query terms in note title
 const BOOST_VAULT_ENTRY     = 0.10   // vault_entry + project terms
@@ -182,19 +182,23 @@ function computeBoost(
 
 // ─── Confidence calibration ───────────────────────────────────────────────────
 
+// AFTER
 export function calibrateConfidence(results: RerankResult[]): ConfidenceLevel {
   if (results.length === 0) return "low"
 
-  const topScore = results[0].rrf_score
+  const topScore = results[0].final_score
+  const topRrf   = results[0].rrf_score
 
-  // High: top score clearly above the noise floor (~0.022 for junk)
-  const aboveHigh   = results.filter((r) => r.rrf_score > 0.030)
-  const uniqueHigh  = new Set(aboveHigh.map((r) => r.note_id))
-  if (topScore > 0.035 && uniqueHigh.size >= 2) return "high"
+  console.log('[rerank] calibrateConfidence topScore:', topScore, 'topRrf:', topRrf, 'count:', results.length)
 
-  // Medium: something retrieved above noise
-  const aboveMedium = results.filter((r) => r.rrf_score > 0.025)
-  if (topScore > 0.030 || aboveMedium.length >= 3) return "medium"
+  // Use raw RRF score for confidence — boosts are for ranking only, not confidence
+  const aboveHigh  = results.filter((r) => r.rrf_score > 0.030)
+  const uniqueHigh = new Set(aboveHigh.map((r) => r.note_id))
+  if (topRrf > 0.035 && uniqueHigh.size >= 2) return "high"
+  if (topRrf > 0.030 && uniqueHigh.size >= 1) return "high"
+
+  const aboveMedium = results.filter((r) => r.rrf_score > 0.022)
+  if (topRrf > 0.025 || aboveMedium.length >= 3) return "medium"
 
   return "low"
 }

@@ -169,7 +169,7 @@ async function ftsPass(
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .filter((word) => word.length > 2 && !FTS_STOP_WORDS.has(word.toLowerCase()))
+      .filter((word) => (word.length > 2 || /^\d+$/.test(word)) && !FTS_STOP_WORDS.has(word.toLowerCase()))
 
     // IDF filtering — drop terms that match too many blocks (noise terms)
     // Runs one lightweight COUNT per term, skipped if only one term remains

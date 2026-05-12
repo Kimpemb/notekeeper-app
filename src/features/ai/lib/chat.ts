@@ -747,6 +747,42 @@ async function runPipeline(
     ? 4
     : intent === "exploration" ? 12 : 8
 
+  // When scoped to a single note with a broad/enumerative query,
+  // bypass scored retrieval and fetch the note in reading order directly
+  const isEnumerativeScoped = scopeNoteIds && scopeNoteIds.length === 1
+
+  if (isEnumerativeScoped) {
+    console.log('[pipeline] enumerative scoped query — injecting full note plaintext')
+    const db = await getDb()
+    const noteId = scopeNoteIds![0]
+    const rows = await db.select<{ title: string; plaintext: string | null }[]>(
+      `SELECT title, plaintext FROM notes WHERE id = $1 AND deleted_at IS NULL`,
+      [noteId]
+    )
+    const row = rows[0]
+    if (row && row.plaintext) {
+      const fullText     = row.plaintext.slice(0, MAX_CONTEXT_CHARS)
+      const excerptBlock = `[1] From "${row.title}" (full note):\n${fullText}`
+      console.log('[pipeline] full plaintext injected, length:', fullText.length)
+      return {
+        excerptBlock,
+        sourceTitles:        [row.title],
+        sourceNoteIds:       [noteId],
+        usedEmbeddings:      false,
+        confidence:          "high",
+        tier1Cards:          [],
+        inventoryMode:       false,
+        excludedNoteNotices: [],
+        titleMatchedNoteIds: [noteId],
+        isTitleDirected:     true,
+        topScore:            1,
+        chunkCount:          1,
+      }
+    }
+    // Fallback to chunked retrieval if plaintext unavailable
+    console.log('[pipeline] plaintext unavailable — falling through to hybrid search')
+  }
+
   console.log('[pipeline] Hybrid search config:', {
     queryVariants,
     topK,
@@ -805,7 +841,7 @@ async function runPipeline(
     // When scoped, drop weak matches — prevents hallucination from thin evidence
     if (scopeNoteIds && scopeNoteIds.length > 0) {
       const before = results.length
-      results = results.filter((r) => r.final_score >= 0.03)
+      results = results.filter((r) => r.final_score >= 0.01)
       console.log('[pipeline] Scoped score cutoff: dropped', before - results.length, 'weak results, kept', results.length)
     }
     console.log('[pipeline] Expanding context for', results.length, 'results')
@@ -889,9 +925,9 @@ function buildPrompt(
   currentNote?: Note,
   webResults?:  WebSearchResult[],
 ): string {
-  const currentNoteBlock = currentNote
-    ? `\nContext — currently open note:\nTitle: ${currentNote.title}\n${(currentNote.plaintext ?? "").slice(0, 1500)}`
-    : ""
+const currentNoteBlock = currentNote
+  ? `\nCurrently open note: "${currentNote.title}"`
+  : ""
 
   const excerptSection = pipeline.inventoryMode
     ? pipeline.excerptBlock
