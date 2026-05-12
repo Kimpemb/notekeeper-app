@@ -1036,7 +1036,7 @@ function MessageFooter({
       {meta.confidence === "medium" && !meta.webGrounded && (
         <p className="text-[10px] text-idemora-text-muted">Sourced from your notes</p>
       )}
-      {meta.sourceTitles.length > 0 && (
+      {meta.sourceTitles.length > 0 && !(meta.webNudge && meta.confidence === "low") && (
         <div className="flex flex-wrap gap-1">
           {meta.sourceTitles.map((title, i) => {
             const isTitleMatch = meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]);
