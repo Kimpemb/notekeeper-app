@@ -961,19 +961,8 @@ function renderWithCitations(text: string) {
         </div>
       ) : (
         <div className="space-y-1">
-          <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                <path d="M4 1C2.34 1 1 2.19 1 3.65c0 .88.44 1.67 1.12 2.18L2 7l1.35-.65c.21.04.43.05.65.05C5.66 6.4 7 5.21 7 3.65S5.66 1 4 1z"
-                  fill="currentColor" className="text-violet-500"/>
-              </svg>
-            </div>
-            <span className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide">
-              Assistant
-            </span>
-          </div>
           {isStreaming && message.content === "" && (
-            <div className="pl-5 flex items-center gap-1 py-1">
+            <div className="flex items-center gap-1 py-1">
               {[0, 1, 2].map((i) => (
                 <span key={i} className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
                   style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }} />
@@ -981,7 +970,7 @@ function renderWithCitations(text: string) {
             </div>
           )}
           {message.content !== "" && (
-            <div className="text-sm text-idemora-text-normal leading-relaxed whitespace-pre-wrap pl-5">
+            <div className="text-sm text-idemora-text-normal leading-relaxed whitespace-pre-wrap">
               {renderWithCitations(message.content)}
               {isStreaming && (
                 <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
