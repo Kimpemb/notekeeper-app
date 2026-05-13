@@ -224,7 +224,6 @@ export function ChatPanel({ noteId, paneId }: Props) {
     user:      { role: "user" | "assistant"; content: string };
     assistant: { role: "user" | "assistant"; content: string };
   } | null>(null);
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
 const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
 const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set());
@@ -261,11 +260,9 @@ const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set())
   const setRagScope       = useChatSessionStore((s) => s.setRagScope);
   const ragScope          = session.ragScope;
 
-  const setWebSearchEnabled = useChatSessionStore((s) => s.setWebSearchEnabled)
-const webSearchEnabled    = session.webSearchEnabled
 const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
-const { settings }        = useAppSettings()
-const autoSearch          = settings.web_search_auto_search === 1
+  const { settings }        = useAppSettings()
+  const autoSearch          = settings.web_search_auto_search === 1
 
 useEffect(() => {
   if (!autoSearch || !appWebSearch) return
@@ -289,7 +286,7 @@ useEffect(() => {
     handleWebSearch(userQuery, results)
   }).catch(console.error)
 // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [messages, metaMap, autoSearch, webSearchEnabled, dismissedNudges, webResultsMap])
+}, [messages, metaMap, autoSearch, dismissedNudges, webResultsMap])
 
   // Keep refs in sync so handleSend always reads current values
   useEffect(() => {
@@ -311,16 +308,6 @@ useEffect(() => {
     });
   }, [addToast]);
 
-  useEffect(() => {
-    const handleOnline  = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-    window.addEventListener("online",  handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online",  handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
 
   const primaryRotation = useAIStore((s) => s.primaryRotation);
   useEffect(() => {
@@ -359,7 +346,6 @@ useEffect(() => {
     setDismissedNudges(new Set());
     setWebResultsMap(new Map());
     setSuppressedNudges(new Set());
-    setWebSearchEnabled(paneId, appWebSearch);
   }, [noteId]);
 
   // M5: Reactive subscription — watch note store for linked note lifecycle events
@@ -675,33 +661,7 @@ async function handleDirectWebSearch() {
                 title={`Indexing — ${embeddingBudget.ceiling - embeddingBudget.used} requests remaining today`}
               />
             )}
-            {!isFreeTier && (
-              <button
-                onClick={() => !isOffline && setWebSearchEnabled(paneId, !webSearchEnabled)}
-                disabled={isOffline}
-                title={
-                  isOffline
-                    ? "Web search unavailable offline"
-                    : webSearchEnabled
-                      ? "Web search on — click to turn off"
-                      : "Web search off — click to turn on"
-                }
-                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border transition-colors duration-100 shrink-0 ${
-                  isOffline
-                    ? "opacity-40 cursor-not-allowed text-idemora-text-muted border-idemora-border"
-                    : webSearchEnabled
-                      ? "text-sky-500 border-sky-300 bg-sky-50/30 hover:bg-sky-100/40"
-                      : "text-idemora-text-muted border-idemora-border hover:text-sky-500 hover:border-sky-300"
-                }`}
-              >
-                <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="shrink-0">
-                  <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/>
-                  <path d="M4.5 1C3.5 2.5 3 3.5 3 4.5s.5 2 1.5 3.5M4.5 1C5.5 2.5 6 3.5 6 4.5S5.5 6.5 4.5 8M1 4.5h7"
-                    stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-                </svg>
-                {webSearchEnabled ? "Web on" : "Web"}
-              </button>
-            )}
+            
           </div>
           <div className="flex items-center gap-1 shrink-0">
             {messages.length > 0 && (
@@ -876,8 +836,8 @@ async function handleDirectWebSearch() {
       {!isFreeTier && (
         <div className="shrink-0 border-t border-idemora-border">
 
-          {/* Scope toggle — sits just above the textarea */}
-          <div className="flex items-center px-3 pt-2.5 pb-1">
+          {/* Scope + web toggles — sit just above the textarea */}
+          <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1">
             <button
               onClick={handleScopeToggle}
               disabled={false}
@@ -1213,7 +1173,7 @@ function MessageFooter({
         </div>
       )}
       <p className="text-[10px] text-idemora-text-muted">
-        {meta.usedEmbeddings ? "✦ semantic search" : "◦ keyword search"}
+        {meta.webGrounded ? "⊕ web search" : meta.usedEmbeddings ? "✦ semantic search" : "◦ keyword search"}
       </p>
     </div>
   );
