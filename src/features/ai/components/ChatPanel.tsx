@@ -1084,6 +1084,43 @@ function formatWebUrl(url: string, title: string): string {
   }
 }
 
+function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? sources : sources.slice(0, 1)
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {visible.map((source, i) => (
+        <button
+          key={i}
+          onClick={() => window.open(source.url, "_blank", "noreferrer")}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-sky-50/30 text-sky-500 border border-sky-200 hover:bg-sky-100/40 transition-colors duration-100 max-w-[14rem]"
+          title={source.url}
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+            <circle cx="4" cy="4" r="3" stroke="currentColor" strokeWidth="0.9"/>
+            <path d="M4 1.5C3.5 2.5 3.2 3.2 3.2 4s.3 1.5.8 2.5M4 1.5C4.5 2.5 4.8 3.2 4.8 4s-.3 1.5-.8 2.5M1.5 4h5"
+              stroke="currentColor" strokeWidth="0.7" strokeLinecap="round"/>
+          </svg>
+          <span className="truncate">{formatWebUrl(source.url, source.title)}</span>
+          <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60">
+            <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
+              stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      ))}
+      {sources.length > 1 && (
+        <button
+          onClick={() => setExpanded((prev) => !prev)}
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] text-idemora-text-muted border border-idemora-border hover:text-sky-500 hover:border-sky-200 transition-colors duration-100"
+        >
+          {expanded ? "show less" : `+${sources.length - 1} more`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function MessageFooter({
   meta,
   onOpenNote,
@@ -1101,27 +1138,7 @@ function MessageFooter({
   return (
     <div className="px-4 pb-2 pl-9 space-y-1.5">
       {webSources && webSources.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {webSources.map((source, i) => (
-            <button
-              key={i}
-              onClick={() => window.open(source.url, "_blank", "noreferrer")}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-sky-50/30 text-sky-500 border border-sky-200 hover:bg-sky-100/40 transition-colors duration-100 max-w-[14rem]"
-              title={source.url}
-            >
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
-                <circle cx="4" cy="4" r="3" stroke="currentColor" strokeWidth="0.9"/>
-                <path d="M4 1.5C3.5 2.5 3.2 3.2 3.2 4s.3 1.5.8 2.5M4 1.5C4.5 2.5 4.8 3.2 4.8 4s-.3 1.5-.8 2.5M1.5 4h5"
-                  stroke="currentColor" strokeWidth="0.7" strokeLinecap="round"/>
-              </svg>
-              <span className="truncate">{formatWebUrl(source.url, source.title)}</span>
-              <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60">
-                <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
-                  stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          ))}
-        </div>
+        <WebSourceChips sources={webSources.slice(0, 6)} />
       )}
       {meta.confidence === "low" && !meta.webGrounded && (
         <div className="flex items-center gap-1.5">
