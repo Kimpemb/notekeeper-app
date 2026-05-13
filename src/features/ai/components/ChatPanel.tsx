@@ -226,7 +226,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   } | null>(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
-  const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
+const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
 
   const { toasts, addToast } = useToasts();
 
@@ -262,8 +262,34 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const ragScope          = session.ragScope;
 
   const setWebSearchEnabled = useChatSessionStore((s) => s.setWebSearchEnabled)
-  const webSearchEnabled    = session.webSearchEnabled
-  const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
+const webSearchEnabled    = session.webSearchEnabled
+const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
+const { settings }        = useAppSettings()
+const autoSearch          = settings.web_search_auto_search === 1
+
+useEffect(() => {
+  if (!autoSearch || !appWebSearch) return
+
+  const lastMsg = messages[messages.length - 1]
+  if (!lastMsg || lastMsg.role !== "assistant") return
+  const meta = metaMap.get(lastMsg.id)
+  if (!meta || !meta.webNudge) return
+  if (dismissedNudges.has(lastMsg.id)) return
+  if (webResultsMap.has(lastMsg.id)) return
+
+  const prevMsg = messages[messages.length - 2]
+  const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
+  if (!userQuery) return
+
+  console.log('[autoSearch] firing auto web search for:', userQuery)
+  const provider = getWebSearchProvider()
+  provider.search(userQuery).then((results) => {
+    console.log('[autoSearch] search results:', results.length, results[0])
+    setWebResultsMap((prev) => new Map(prev).set(lastMsg.id, results))
+    handleWebSearch(userQuery, results)
+  }).catch(console.error)
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [messages, metaMap, autoSearch, webSearchEnabled, dismissedNudges, webResultsMap])
 
   // Keep refs in sync so handleSend always reads current values
   useEffect(() => {
@@ -371,7 +397,27 @@ export function ChatPanel({ noteId, paneId }: Props) {
 }, [noteId])
 
   // ── M19: handleWebSearch function ─────────────────────────────────────────
+async function handleDirectWebSearch() {
+    const q = input.trim()
+    if (!q || loading) return
 
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
+    }
+    setMessages((prev) => [...prev, userMsg])
+    setInput("")
+    setLoading(true)
+
+    try {
+      const provider = getWebSearchProvider()
+      const results  = await provider.search(q)
+      await handleWebSearch(q, results)
+    } catch {
+      setLoading(false)
+    }
+  }
+
+  
   async function handleWebSearch(
     userQuery:  string,
     webResults: import("@/features/ai/lib/search/webSearchProvider").WebSearchResult[],
@@ -870,6 +916,18 @@ export function ChatPanel({ noteId, paneId }: Props) {
                 el.style.height = Math.min(el.scrollHeight, 128) + "px";
               }}
             />
+            <button
+              onClick={handleDirectWebSearch}
+              disabled={!input.trim() || loading}
+              title="Search the web directly"
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-sky-300 text-sky-500 hover:bg-sky-50/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100 shrink-0"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
+                <path d="M6 1.5C5 3 4.5 4.5 4.5 6s.5 3 1.5 4.5M6 1.5C7 3 7.5 4.5 7.5 6S7 9 6 10.5M1.5 6h9"
+                  stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              </svg>
+            </button>
             <button
               onClick={handleSend}
               disabled={!input.trim() || loading}

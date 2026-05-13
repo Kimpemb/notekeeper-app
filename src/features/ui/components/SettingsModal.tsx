@@ -46,7 +46,7 @@ export interface AppSettings {
   fontFamily: "default" | "serif" | "mono";
   fontSize: "sm" | "md" | "lg";
   lineHeight: "compact" | "normal" | "relaxed";
-  spellCheck: boolean;
+  spellCheck: boolean; 
   autosaveDelay: number;
   defaultView: "editor" | "split";
   showWordCount: boolean;
@@ -55,10 +55,12 @@ export interface AppSettings {
   hasInsertedSampleNotes: boolean;
   hasSeenAISetup: boolean;
   // Web search
-  web_search_enabled:  number   // 0 = off, 1 = on
-  web_search_provider: string   // "tinyfish" | "serper" | "tavily" | "brave"
-  web_search_api_key:  string
+    web_search_enabled:      number   // 0 = off, 1 = on
+  web_search_provider:     string   // "tinyfish" | "serper" | "tavily" | "brave"
+  web_search_api_key:      string
+  web_search_auto_search:  number   // 0 = ask, 1 = auto-search
 }
+
 
 const SETTINGS_KEY = "app_settings_v1";
 
@@ -75,9 +77,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hasCompletedOnboarding: false,
   hasInsertedSampleNotes: false,
   hasSeenAISetup: false,
-  web_search_enabled:  0,
-  web_search_provider: "tinyfish",
-  web_search_api_key:  "",
+  web_search_enabled:      0,
+  web_search_provider:     "tinyfish",
+  web_search_api_key:      "",
+  web_search_auto_search:  0,
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -507,6 +510,24 @@ function WebSearchSection() {
           onChange={(v) => updateSetting("web_search_enabled", v ? 1 : 0)}
         />
       </Row>
+
+      {/* Auto-search toggle */}
+      <div className="flex items-center justify-between py-2.5 border-b border-idemora-border">
+        <div>
+          <p className="text-sm font-medium text-idemora-text-normal">Auto-search web when nothing found</p>
+          <p className="text-xs text-idemora-text-muted">Automatically searches the web instead of asking you</p>
+        </div>
+        <button
+          onClick={() => updateSetting("web_search_auto_search", settings.web_search_auto_search === 1 ? 0 : 1)}
+          className={`w-9 h-5 rounded-full transition-colors duration-200 ${
+            settings.web_search_auto_search === 1 ? "bg-violet-500" : "bg-idemora-border"
+          }`}
+        >
+          <span className={`block w-3.5 h-3.5 rounded-full bg-white shadow transition-transform duration-200 mx-0.5 ${
+            settings.web_search_auto_search === 1 ? "translate-x-4" : "translate-x-0"
+          }`} />
+        </button>
+      </div>
 
       {/* Provider list */}
       <SectionTitle>Provider</SectionTitle>

@@ -88,6 +88,7 @@ export interface ChatResult {
   excludedNoteNotices?: ExcludedTitleMatch[]
   titleMatchedNoteIds?: string[]
   webNudge?:            "limited" | "zero"
+  webGrounded?:         boolean
 }
 
 export interface StreamingChatOptions {
@@ -998,6 +999,42 @@ export async function streamChatWithNotes(
   }
 
   // Tier 2 — full AI pipeline
+  // Tier 2 — full AI pipeline
+
+  // Web-only path — skip pipeline entirely when web results are provided
+  if (webResults && webResults.length > 0) {
+    const webPrompt = `You are a helpful assistant. Answer the user's question using the web search results below. Cite sources as [web:1], [web:2] etc.
+
+${buildWebResultsBlock(webResults)}
+
+[QUESTION]
+${query}
+
+Answer:`
+
+    let assembled = ""
+    try {
+      const result = await callPrimary([{ role: "user", content: webPrompt }])
+      assembled    = result.text
+      streaming.onChunk(assembled)
+      streaming.onDone?.()
+    } catch (err) {
+      streaming.onError?.(err as AICallError)
+    }
+
+    return {
+      sourceTitles:        [],
+      sourceNoteIds:       [],
+      usedEmbeddings:      false,
+      confidence:          "high",
+      relatedNotes:        [],
+      excludedNoteNotices: [],
+      titleMatchedNoteIds: [],
+      webNudge:            undefined,
+      webGrounded:         true,
+    }
+  }
+
   const [historyBlock, pipeline] = await Promise.all([
     buildHistoryBlock(noteId),
     runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds),
