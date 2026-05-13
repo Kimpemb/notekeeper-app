@@ -227,7 +227,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
 const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
-
+const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set());
   const { toasts, addToast } = useToasts();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -285,7 +285,7 @@ useEffect(() => {
   const provider = getWebSearchProvider()
   provider.search(userQuery).then((results) => {
     console.log('[autoSearch] search results:', results.length, results[0])
-    setWebResultsMap((prev) => new Map(prev).set(lastMsg.id, results))
+    setSuppressedNudges((prev) => new Set(prev).add(lastMsg.id))
     handleWebSearch(userQuery, results)
   }).catch(console.error)
 // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -358,6 +358,7 @@ useEffect(() => {
     clearSession(paneId);
     setDismissedNudges(new Set());
     setWebResultsMap(new Map());
+    setSuppressedNudges(new Set());
     setWebSearchEnabled(paneId, appWebSearch);
   }, [noteId]);
 
@@ -423,6 +424,7 @@ async function handleDirectWebSearch() {
     webResults: import("@/features/ai/lib/search/webSearchProvider").WebSearchResult[],
   ) {
     const assistantId  = crypto.randomUUID()
+    setWebResultsMap((prev) => new Map(prev).set(assistantId, webResults))
     const assistantMsg: ChatMessage = {
       id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
     }
@@ -566,6 +568,7 @@ async function handleDirectWebSearch() {
     setOneTimeInclusions(new Set());
     setDismissedNudges(new Set());
     setWebResultsMap(new Map());
+    setSuppressedNudges(new Set());
     clearSession(paneId);
     await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)]);
   }
@@ -816,16 +819,17 @@ async function handleDirectWebSearch() {
                       meta={meta}
                       onOpenNote={handleOpenNote}
                       onOneTimeInclusion={handleOneTimeInclusion}
+                      webSources={webResultsMap.get(msg.id)}
                     />
                   )}
                   {msg.role === "assistant" && meta && !isStreaming && meta.webNudge && !isStreaming &&
-                   !dismissedNudges.has(msg.id) && !webResultsMap.has(msg.id) && (
+                   !dismissedNudges.has(msg.id) && !suppressedNudges.has(msg.id) && (
                     <WebNudge
                       messageId={msg.id}
                       nudge={meta.webNudge}
                       query={prevMsg?.role === "user" ? prevMsg.content : ""}
                       onSearchComplete={(id, results) => {
-                        setWebResultsMap((prev) => new Map(prev).set(id, results))
+                        setSuppressedNudges((prev) => new Set(prev).add(id))
                         const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
                         if (userQuery) handleWebSearch(userQuery, results)
                       }}
@@ -989,7 +993,8 @@ function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStrea
   const isUser = message.role === "user";
 
 function renderWithCitations(text: string) {
-  const html = marked.parse(text, { async: false }) as string
+  const cleaned = text.replace(/\[web:\d+\]/g, "")
+  const html = marked.parse(cleaned, { async: false }) as string
   console.log('[marked] html:', html.slice(0, 500))
   const parts = html.split(/(\[\d+(?:,\s*\d+)*\])/g)
   return (
@@ -1068,20 +1073,56 @@ function renderWithCitations(text: string) {
 
 // ─── Message footer ───────────────────────────────────────────────────────────
 
+function formatWebUrl(url: string, title: string): string {
+  try {
+    const u = new URL(url)
+    const domain = u.hostname.replace(/^www\./, "")
+    const shortTitle = title.length > 40 ? title.slice(0, 40) + "…" : title
+    return `${domain} · ${shortTitle}`
+  } catch {
+    return title
+  }
+}
+
 function MessageFooter({
   meta,
   onOpenNote,
   onOneTimeInclusion,
+  webSources,
 }: {
   meta:                MessageMeta;
   onOpenNote:          (id: string) => void;
   onOneTimeInclusion:  (noteId: string) => void;
+  webSources?:         WebSearchResult[];
 }) {
   if (meta.tier1Results && meta.tier1Results.length > 0) {
     return <Tier1ResultCards cards={meta.tier1Results} onOpenNote={onOpenNote} />;
   }
   return (
     <div className="px-4 pb-2 pl-9 space-y-1.5">
+      {webSources && webSources.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {webSources.map((source, i) => (
+            <button
+              key={i}
+              onClick={() => window.open(source.url, "_blank", "noreferrer")}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-sky-50/30 text-sky-500 border border-sky-200 hover:bg-sky-100/40 transition-colors duration-100 max-w-[14rem]"
+              title={source.url}
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                <circle cx="4" cy="4" r="3" stroke="currentColor" strokeWidth="0.9"/>
+                <path d="M4 1.5C3.5 2.5 3.2 3.2 3.2 4s.3 1.5.8 2.5M4 1.5C4.5 2.5 4.8 3.2 4.8 4s-.3 1.5-.8 2.5M1.5 4h5"
+                  stroke="currentColor" strokeWidth="0.7" strokeLinecap="round"/>
+              </svg>
+              <span className="truncate">{formatWebUrl(source.url, source.title)}</span>
+              <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60">
+                <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
+                  stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
       {meta.confidence === "low" && !meta.webGrounded && (
         <div className="flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 8 8" fill="none" className="text-amber-400 shrink-0">
