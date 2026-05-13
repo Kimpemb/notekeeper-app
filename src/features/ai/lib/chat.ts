@@ -986,6 +986,14 @@ Excerpts include a location path (e.g. "Projects / Vitobu / Day 1") — use this
 Synthesise across excerpts when the answer is spread across multiple notes.
 If after reading ALL excerpts the information is genuinely absent, say so in one sentence.
 Do not say information is unavailable if it appears anywhere in the excerpts, even partially.
+Format your response using markdown:
+- Use **bold** for key terms and important concepts
+- Use headers (## or ###) only when the response covers multiple distinct topics; never use h1
+- Always use fenced code blocks with the correct language tag for any code (e.g. \`\`\`python, \`\`\`ts)
+- Use bullet points for lists of 3 or more items; use prose for shorter enumerations
+- Match response length to the question — a simple question gets a short answer, a complex one gets a thorough one; never pad
+- Place citations inline immediately after the claim they support, not clustered at the end: "The save flow runs in Phase 1 [1], while RAG scoping is Phase 3 [2]."
+- Never restate the question, summarise what you just said, or add filler closing sentences
 ${historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
 [EXCERPTS FROM YOUR NOTES]
 ${excerptSection}
