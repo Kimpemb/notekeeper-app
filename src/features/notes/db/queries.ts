@@ -421,6 +421,18 @@ export function waitForDb(): Promise<void> {
   return _dbReady;
 }
 
+async function resetFailedEmbeddingJobs(): Promise<void> {
+  const db = await getDb()
+  const result = await db.execute(
+    `UPDATE embedding_jobs
+     SET status = 'pending', attempts = 0, last_error = NULL, next_attempt_at = 0
+     WHERE status = 'failed'`
+  )
+  if (result.rowsAffected > 0) {
+    console.log(`[initDb] reset ${result.rowsAffected} failed embedding jobs`)
+  }
+}
+
 export async function initDb(): Promise<void> {
   if (_dbInitialized) return;
   _dbInitialized = true;
@@ -442,19 +454,22 @@ export async function initDb(): Promise<void> {
 
   // Defer everything else — run after first render
   setTimeout(async () => {
-  await purgeTrashedNotes();
-  await clearStaleExhaustionEntries();
-  await migrateNoteBlocksV3();
-  await fixBlocksFtsUpdateTrigger();
-  await backfillNoteBlocks();
-  await backfillBacklinks();
-  await backfillBreadcrumbs();
-  await backfillExcludedTitleChunks(); // add this
-  await rebuildFtsIndexIfNeeded();
-  await archiveOldExhaustionLogs();
-  console.log("[initDb] Background maintenance complete");
-  _dbReadyResolve?.();
-}, 5000);
+    await purgeTrashedNotes();
+    await clearStaleExhaustionEntries();
+    await migrateNoteBlocksV3();
+    await fixBlocksFtsUpdateTrigger();
+    await backfillNoteBlocks()
+    await backfillUnblockedNotes()  
+    await backfillBacklinks()
+    await backfillBreadcrumbs();
+    await backfillExcludedTitleChunks();
+    await backfillMissingTitleChunks();
+    await resetFailedEmbeddingJobs();
+    await rebuildFtsIndexIfNeeded();
+    await archiveOldExhaustionLogs();
+    console.log("[initDb] Background maintenance complete");
+    _dbReadyResolve?.();
+  }, 5000);
 
   console.log("[initDb] Database initialized successfully");
 }
@@ -666,6 +681,10 @@ export async function trashNote(id: string): Promise<void> {
     await db.execute(
       `UPDATE notes SET deleted_at = $1 WHERE id = $2`,
       [trashedAt, noteId]
+    );
+    await db.execute(
+      `DELETE FROM note_title_chunks WHERE note_id = $1`,
+      [noteId]
     );
   }
 }
@@ -1822,6 +1841,30 @@ export async function backfillNoteBlocks(): Promise<void> {
   console.log("[backfill] complete");
 }
 
+async function backfillUnblockedNotes(): Promise<void> {
+  const db = await getDb()
+  const notes = await db.select<{ id: string; content: string; title: string }[]>(
+    `SELECT n.id, n.content, n.title
+     FROM notes n
+     WHERE n.deleted_at IS NULL
+       AND COALESCE(n.rag_excluded, 0) = 0
+       AND TRIM(n.plaintext) != ''
+       AND n.content IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM note_blocks nb WHERE nb.note_id = n.id
+       )`
+  )
+
+  if (notes.length === 0) return
+  console.log(`[backfill] chunking ${notes.length} notes with plaintext but no blocks`)
+
+  for (const note of notes) {
+    await syncNoteBlocks(note.id, note.content, "note", note.title)
+  }
+
+  console.log("[backfill] unblocked notes complete")
+}
+
 export async function backfillBacklinks(): Promise<void> {
   const alreadyDone = await getSetting("v3_backlinks_backfill_done");
   if (alreadyDone === "1") return;
@@ -1886,6 +1929,32 @@ async function backfillExcludedTitleChunks(): Promise<void> {
 
   await setSetting("excluded_title_chunk_backfill_done", "1");
   console.log("[backfill] excluded title chunks complete");
+}
+
+async function backfillMissingTitleChunks(): Promise<void> {
+  const alreadyDone = await getSetting("missing_title_chunk_backfill_done")
+  if (alreadyDone === "1") return
+
+  const db = await getDb()
+  const missing = await db.select<{ id: string; title: string }[]>(
+    `SELECT n.id, n.title
+     FROM notes n
+     WHERE n.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM note_title_chunks ntc WHERE ntc.note_id = n.id
+       )`
+  )
+
+  console.log(`[backfill] writing title chunks for ${missing.length} notes`)
+
+  for (const note of missing) {
+    if (!note.title.trim()) continue
+    const breadcrumb = await computeBreadcrumb(note.id)
+    await upsertNoteTitleChunkWithBreadcrumb(note.id, note.title, "note", breadcrumb)
+  }
+
+  await setSetting("missing_title_chunk_backfill_done", "1")
+  console.log("[backfill] missing title chunks complete")
 }
 
 export interface AISummaryRow {
