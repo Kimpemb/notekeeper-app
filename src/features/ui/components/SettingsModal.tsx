@@ -18,6 +18,8 @@ import { useAIStore }     from "@/features/ai/store/useAIStore";
 import { BackupModal }    from "@/features/backup/components/BackupModal";
 import { SHORTCUT_GROUPS } from "@/lib/keybindings";
 import type { ShortcutGroup, Shortcut } from "@/lib/keybindings";
+import { getDb } from "@/features/notes/db/client"
+
 
 // Milestone 4 components
 import { ProfileSelector }      from "@/features/ai/components/ProfileSelector";
@@ -293,6 +295,129 @@ function EmbeddingProviderSelector() {
   );
 }
 
+// ─── Vault Index Status ───────────────────────────────────────────────────────
+
+function VaultIndexStatus() {
+  const [stats, setStats] = useState<{
+    totalNotes:    number
+    indexedNotes:  number
+    pendingBlocks: number
+    failedBlocks:  number
+    lastIndexed:   number | null
+  } | null>(null)
+  const [retrying, setRetrying] = useState(false)
+
+  async function fetchStats() {
+    const db = await getDb()
+
+    const [total]   = await db.select<{ c: number }[]>(`SELECT COUNT(*) as c FROM notes WHERE deleted_at IS NULL AND COALESCE(rag_excluded, 0) = 0`)
+    const [indexed] = await db.select<{ c: number }[]>(`SELECT COUNT(DISTINCT note_id) as c FROM embeddings`)
+    const [pending] = await db.select<{ c: number }[]>(`SELECT COUNT(*) as c FROM embedding_jobs WHERE status IN ('pending', 'processing')`)
+    const [failed]  = await db.select<{ c: number }[]>(`SELECT COUNT(*) as c FROM embedding_jobs WHERE status = 'failed'`)
+    const [last]    = await db.select<{ t: number | null }[]>(`SELECT MAX(updated_at) as t FROM embeddings`)
+
+    setStats({
+      totalNotes:    total.c,
+      indexedNotes:  indexed.c,
+      pendingBlocks: pending.c,
+      failedBlocks:  failed.c,
+      lastIndexed:   last.t ?? null,
+    })
+  }
+
+  async function handleRetry() {
+    setRetrying(true)
+    const db = await getDb()
+    await db.execute(
+      `UPDATE embedding_jobs SET status = 'pending', attempts = 0, last_error = NULL, next_attempt_at = 0 WHERE status = 'failed'`
+    )
+    await fetchStats()
+    setRetrying(false)
+  }
+
+  useEffect(() => {
+    fetchStats()
+    const interval = setInterval(fetchStats, 10_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  if (!stats) return (
+    <p className="text-xs text-idemora-text-muted">Loading index status…</p>
+  )
+
+  const pct      = stats.totalNotes > 0 ? Math.round((stats.indexedNotes / stats.totalNotes) * 100) : 0
+  const isHealthy = stats.failedBlocks === 0 && stats.pendingBlocks === 0
+
+  function formatLastIndexed(ts: number | null): string {
+    if (!ts) return "never"
+    const diff = Date.now() - ts
+    if (diff < 60_000)  return "just now"
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+    return `${Math.floor(diff / 86_400_000)}d ago`
+  }
+
+  return (
+    <div className="rounded-lg border border-idemora-border bg-idemora-bg-primary overflow-hidden mt-3">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-idemora-border">
+        <span className="text-xs font-semibold text-idemora-text-normal">Vault Index</span>
+        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
+          isHealthy
+            ? "bg-green-500/10 text-green-500 border-green-500/20"
+            : stats.pendingBlocks > 0
+              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+              : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+        }`}>
+          {isHealthy ? "up to date" : stats.pendingBlocks > 0 ? "indexing…" : "needs attention"}
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="px-3 pt-2.5 pb-1">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-idemora-text-muted">Notes indexed</span>
+          <span className="text-xs text-idemora-text-normal font-mono">
+            {stats.indexedNotes} / {stats.totalNotes}
+            <span className="text-idemora-text-muted ml-1">({pct}%)</span>
+          </span>
+        </div>
+        <div className="h-1 rounded-full bg-idemora-bg-secondary overflow-hidden">
+          <div
+            className="h-full rounded-full bg-blue-500 transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Stats rows */}
+      <div className="px-3 py-2 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-idemora-text-muted">Blocks pending</span>
+          <span className="text-xs font-mono text-idemora-text-normal">{stats.pendingBlocks}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-idemora-text-muted">Last indexed</span>
+          <span className="text-xs font-mono text-idemora-text-normal">{formatLastIndexed(stats.lastIndexed)}</span>
+        </div>
+
+        {stats.failedBlocks > 0 && (
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-xs text-amber-400">{stats.failedBlocks} blocks failed</span>
+            <button
+              onClick={handleRetry}
+              disabled={retrying}
+              className={`text-[11px] font-medium px-2 py-0.5 rounded border border-amber-500/30 text-amber-400 bg-amber-500/5 hover:bg-amber-500/10 transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              {retrying ? "Retrying…" : "Retry failed"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Sidebar nav tabs ─────────────────────────────────────────────────────────
 
 type Section = "appearance" | "editor" | "keybindings" | "data" | "ai" | "backup" | "websearch";
@@ -405,6 +530,7 @@ function AISection() {
 
       <SectionTitle>Embeddings</SectionTitle>
       <EmbeddingProviderSelector />
+      <VaultIndexStatus />
 
       <div className="mt-3">
         <RPDBudgetBar />
