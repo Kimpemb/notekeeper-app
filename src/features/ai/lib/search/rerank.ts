@@ -55,6 +55,19 @@ const BOOST_CAP             = 0.40   // additive cap
 const RECENCY_7D  = 7  * 24 * 60 * 60 * 1000
 const RECENCY_30D = 30 * 24 * 60 * 60 * 1000
 
+// RRF confidence thresholds — derived from RRF_K=60 math:
+// max single-match score = 1/61 = 0.01639 (rank 0)
+// max dual-match score   = 1/61 + 1/61 = 0.03279
+// high:   any rank-0 single match or better
+// medium: rank ~5 single or weak dual
+// low:    near-zero signal
+const CONF_HIGH_TOP    = 0.014   // ~rank 1 single-match
+const CONF_HIGH_UNIQUE = 2       // at least 2 notes above threshold for high
+const CONF_HIGH_SOLO   = 0.014   // single note still gets high if above this
+const CONF_MEDIUM_TOP  = 0.010   // ~rank 5+ single-match
+const CONF_MEDIUM_MIN  = 3       // OR 3+ results above medium floor
+const CONF_MEDIUM_FLOOR = 0.008
+
 const PROJECT_TERMS = [
   "project", "task", "milestone", "deadline", "sprint", "roadmap",
   "objective", "goal", "deliverable", "stakeholder", "client",
@@ -186,19 +199,19 @@ function computeBoost(
 export function calibrateConfidence(results: RerankResult[]): ConfidenceLevel {
   if (results.length === 0) return "low"
 
-  const topScore = results[0].final_score
-  const topRrf   = results[0].rrf_score
+  const topRrf = results[0].rrf_score
 
-  console.log('[rerank] calibrateConfidence topScore:', topScore, 'topRrf:', topRrf, 'count:', results.length)
+  console.log('[rerank] calibrateConfidence topRrf:', topRrf, 'count:', results.length)
 
-  // Use raw RRF score for confidence — boosts are for ranking only, not confidence
-  const aboveHigh  = results.filter((r) => r.rrf_score > 0.030)
+  // Use raw RRF score — boosts are for ranking only, not confidence calibration
+  // Thresholds derived from RRF_K=60: rank-0 single = 0.01639, rank-0 dual = 0.03279
+  const aboveHigh  = results.filter((r) => r.rrf_score > CONF_HIGH_TOP)
   const uniqueHigh = new Set(aboveHigh.map((r) => r.note_id))
-  if (topRrf > 0.035 && uniqueHigh.size >= 2) return "high"
-  if (topRrf > 0.030 && uniqueHigh.size >= 1) return "high"
+  if (topRrf > CONF_HIGH_TOP && uniqueHigh.size >= CONF_HIGH_UNIQUE) return "high"
+  if (topRrf > CONF_HIGH_SOLO)                                        return "high"
 
-  const aboveMedium = results.filter((r) => r.rrf_score > 0.022)
-  if (topRrf > 0.025 || aboveMedium.length >= 3) return "medium"
+  const aboveMedium = results.filter((r) => r.rrf_score > CONF_MEDIUM_FLOOR)
+  if (topRrf > CONF_MEDIUM_TOP || aboveMedium.length >= CONF_MEDIUM_MIN) return "medium"
 
   return "low"
 }

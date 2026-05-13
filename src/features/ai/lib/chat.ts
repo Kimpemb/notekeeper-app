@@ -362,6 +362,8 @@ const TITLE_QUERY_PATTERNS = [
   /^(?:tell\s+me\s+about|what(?:'s|\s+is)\s+in)\s+(.+?)[\?\.]*$/i,
 ]
 
+const DEIXIS_PATTERNS = /\b(this note|the current note|this page|my current note|summarize this|summarise this|what is this|what's this|what is this about|what's this about|what does this|explain this|what did i write|key points from this|main ideas here|tldr|tl;dr)\b/i
+
 interface TitleMatch {
   noteId:    string
   noteTitle: string
@@ -409,16 +411,24 @@ async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
 
     console.log('[titleDetect] excluded matches:', excludedMatches.length, excludedMatches.map(r => r.note_title))
 
-    const rows = await db.select<{ note_id: string; title: string }[]>(
-      `SELECT ntc.note_id, ntc.title
-       FROM note_title_chunks ntc
-       JOIN notes n ON n.id = ntc.note_id
-       WHERE ntc.title LIKE $1
-         AND n.deleted_at IS NULL
-         AND COALESCE(n.rag_excluded, 0) = 0
-       LIMIT 10`,
-      [`%${candidate}%`]
-    )
+    const tokens = candidate
+  .split(/\s+/)
+  .filter((t) => t.length > 2)
+  .slice(0, 6)
+
+  const whereClauses = tokens.map((_, i) => `ntc.title LIKE $${i + 1}`).join(" AND ")
+  const params       = tokens.map((t) => `%${t}%`)
+
+  const rows = await db.select<{ note_id: string; title: string }[]>(
+    `SELECT ntc.note_id, ntc.title
+    FROM note_title_chunks ntc
+    JOIN notes n ON n.id = ntc.note_id
+    WHERE (${whereClauses})
+      AND n.deleted_at IS NULL
+      AND COALESCE(n.rag_excluded, 0) = 0
+    LIMIT 10`,
+    params
+  )
 
     console.log('[titleDetect] note_title_chunks rows found:', rows.length, rows.map(r => r.title))
 
@@ -455,14 +465,15 @@ async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
     }
 
     const ranked = rows
-      .map((r) => {
-        const t     = r.title.toLowerCase()
-        const c     = candidate!.toLowerCase()
-        const score = t === c ? 3 : t.startsWith(c) ? 2 : 1
-        return { ...r, score }
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
+    .map((r) => {
+      const t          = r.title.toLowerCase()
+      const c          = candidate!.toLowerCase()
+      const tokenHits  = tokens.filter((tok) => t.includes(tok.toLowerCase())).length
+      const exactBonus = t === c ? 10 : t.startsWith(c) ? 5 : 0
+      return { ...r, score: tokenHits + exactBonus }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
 
     return {
       candidateFound: true,
@@ -640,6 +651,40 @@ async function runPipeline(
     }
   }
 
+  const isDeicticQuery = DEIXIS_PATTERNS.test(query)
+
+  // PATCH: Deixis path moved here — "summarize this note", "what's in the current note" etc.
+  // Injects full note plaintext directly, mirrors isEnumerativeScoped pattern.
+  if (isDeicticQuery && currentNote) {
+    console.log('[pipeline] deixis query detected — injecting current note plaintext')
+    const db = await getDb()
+    const rows = await db.select<{ title: string; plaintext: string | null }[]>(
+      `SELECT title, plaintext FROM notes WHERE id = $1 AND deleted_at IS NULL`,
+      [currentNote.id]
+    )
+    const row = rows[0]
+    if (row && row.plaintext) {
+      const fullText     = row.plaintext.slice(0, MAX_CONTEXT_CHARS)
+      const excerptBlock = `[1] From "${row.title}" (current note):\n${fullText}`
+      console.log('[pipeline] deixis: injected plaintext length:', fullText.length)
+      return {
+        excerptBlock,
+        sourceTitles:        [row.title],
+        sourceNoteIds:       [currentNote.id],
+        usedEmbeddings:      false,
+        confidence:          "high",
+        tier1Cards:          [],
+        inventoryMode:       false,
+        excludedNoteNotices: [],
+        titleMatchedNoteIds: [currentNote.id],
+        isTitleDirected:     true,
+        topScore:            1,
+        chunkCount:          1,
+      }
+    }
+    console.log('[pipeline] deixis: no plaintext available — falling through to hybrid search')
+  }
+
   console.log('[pipeline] Running title-directed detection')
   const titleDetect = await detectTitleQuery(query)
   console.log('[pipeline] titleDetect results:', {
@@ -668,7 +713,7 @@ async function runPipeline(
     console.log('[pipeline] effectiveTitleMatches details:', effectiveTitleMatches.map(m => ({ id: m.noteId, title: m.noteTitle })))
   }
 
-  if (titleDetect.candidateFound && effectiveTitleMatches.length === 0 && !excludedOverridden) {
+  if (!isDeicticQuery && titleDetect.candidateFound && effectiveTitleMatches.length === 0 && !excludedOverridden) {
     console.log('[pipeline] CASE 1: Title pattern matched but no accessible note found')
     const errorMessage = titleDetect.excludedMatches.length > 0
       ? `No results found — "${titleDetect.excludedMatches[0].note_title}" may be relevant but is excluded from search.`
@@ -830,14 +875,6 @@ async function runPipeline(
     console.error('[pipeline] ERROR in hybridSearch:', error)
   }
 
-  // BEFORE
-  if (results.length > 0) {
-    console.log('[pipeline] Expanding context for', results.length, 'results')
-    results = await expandContext(results)
-    console.log('[pipeline] Context expansion completed, now', results.length, 'results')
-  }
-
-// AFTER
   if (results.length > 0) {
     // When scoped, drop weak matches — prevents hallucination from thin evidence
     if (scopeNoteIds && scopeNoteIds.length > 0) {
