@@ -230,6 +230,19 @@ const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]
 const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set());
   const { toasts, addToast } = useToasts();
 
+  const CHAT_WIDTHS = ["w-72", "w-96", "w-[480px]"] as const
+const [chatWidthIdx, setChatWidthIdx] = useState(() => {
+  const saved = localStorage.getItem("idemora-chat-width")
+  return saved ? parseInt(saved) : 0
+})
+const chatWidth = CHAT_WIDTHS[chatWidthIdx]
+
+function cycleChatWidth() {
+  const next = (chatWidthIdx + 1) % CHAT_WIDTHS.length
+  setChatWidthIdx(next)
+  localStorage.setItem("idemora-chat-width", String(next))
+}
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
   const prevProviderRef = useRef<string | null>(null);
@@ -631,7 +644,7 @@ async function handleDirectWebSearch() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full w-72 shrink-0 border-l border-idemora-border bg-idemora-bg-primary">
+    <div className={`flex flex-col h-full ${chatWidth} shrink-0 border-l border-idemora-border bg-idemora-bg-primary`}>
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-3 py-2 shrink-0">
@@ -656,6 +669,28 @@ async function handleDirectWebSearch() {
               </svg>
             </button>
           )}
+          <button
+            onClick={cycleChatWidth}
+            title={chatWidthIdx === 0 ? "Expand chat" : chatWidthIdx === 1 ? "Expand chat more" : "Collapse chat"}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+          >
+            {chatWidthIdx === 0 ? (
+              // compact → expand left
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M8.5 5h-7M4 2.5L1.5 5 4 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            ) : chatWidthIdx === 1 ? (
+              // medium → expand left more
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M8.5 5h-7M4 2.5L1.5 5 4 7.5M6.5 2.5L4 5l2.5 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            ) : (
+              // max → collapse right
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1.5 5h7M6 2.5l2.5 2.5L6 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </button>
           <button
             onClick={() => closeChat(paneId)}
             title="Close chat"
