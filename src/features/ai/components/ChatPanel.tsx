@@ -658,16 +658,31 @@ async function handleDirectWebSearch() {
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {messages.length > 0 && (
-            <button
-              onClick={handleClear}
-              title="Clear conversation"
-              className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
-            >
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <path d="M1.5 3h8M3.5 3V2h4v1M4 5v3.5M7 5v3.5M2.5 3l.5 6.5h5l.5-6.5"
-                  stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setSelectedMessage(null)
+                  setSaveDialogOpen(true)
+                }}
+                title="Save conversation to note"
+                className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M1.5 6.5V9h8V6.5M5.5 1v5.5M3 4.5l2.5 2 2.5-2"
+                    stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                onClick={handleClear}
+                title="Clear conversation"
+                className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <path d="M1.5 3h8M3.5 3V2h4v1M4 5v3.5M7 5v3.5M2.5 3l.5 6.5h5l.5-6.5"
+                    stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </>
           )}
           <button
             onClick={cycleChatWidth}

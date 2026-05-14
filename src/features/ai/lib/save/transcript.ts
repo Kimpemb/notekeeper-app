@@ -64,7 +64,7 @@ export async function generateNoteNameAI(
   const raw      = formatRawTranscript(messages)
 
   try {
-    const result = await promptProcessing(NOTE_NAME_PROMPT(raw))
+    const result  = await promptProcessing(NOTE_NAME_PROMPT(raw))
     const cleaned = result.trim().replace(/^["']|["']$/g, "").trim()
     if (!cleaned || cleaned.length > 80) return fallback
     return `${todayPrefix()}${DATE_PREFIX_SEPARATOR}${cleaned}`
@@ -74,6 +74,20 @@ export async function generateNoteNameAI(
     }
     return fallback
   }
+}
+
+// ─── Note name from a single response ────────────────────────────────────────
+// Used when saving "this response" — derives name from the user question,
+// no AI call, always instant.
+
+export function generateNoteNameFromResponse(
+  userMsg: TranscriptMessage,
+): string {
+  const base = userMsg.content.replace(/\n+/g, " ").trim()
+  const truncated = base.length > NOTE_NAME_MAX_CHARS
+    ? base.slice(0, NOTE_NAME_MAX_CHARS).trimEnd()
+    : base
+  return `${todayPrefix()}${DATE_PREFIX_SEPARATOR}${truncated}`
 }
 
 // ─── Append heading ───────────────────────────────────────────────────────────
@@ -116,20 +130,26 @@ export function formatRawTranscript(messages: TranscriptMessage[]): string {
 }
 
 // ─── Single response formatter ────────────────────────────────────────────────
+// Saves just one assistant response. The user's question becomes the heading,
+// the assistant content is the body. No AI involved — always instant.
 
-export function formatRawResponse(
+export function formatSingleResponse(
   userMsg:      TranscriptMessage,
   assistantMsg: TranscriptMessage,
 ): string {
-  const headingSource = assistantMsg.content.trim() || userMsg.content.trim()
-  const headingText   = headingSource
+  const headingText = userMsg.content
     .replace(/\n+/g, " ")
     .trim()
     .slice(0, NOTE_NAME_MAX_CHARS)
     .trimEnd()
 
-  return formatRawTranscript([userMsg, assistantMsg].filter((m) => m.content.trim()))
-    .replace(/^# .+/, `# ${headingText}`)
+  const lines: string[] = [`# ${headingText}`, ""]
+
+  if (assistantMsg.content.trim()) {
+    lines.push(assistantMsg.content.trim())
+  }
+
+  return lines.join("\n")
 }
 
 // ─── Append wrapper ───────────────────────────────────────────────────────────
