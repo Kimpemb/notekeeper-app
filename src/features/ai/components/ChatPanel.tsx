@@ -1072,12 +1072,13 @@ function MessageFooter({
               <button
                 key={meta.sourceNoteIds[i]}
                 onClick={() => onOpenNote(meta.sourceNoteIds[i])}
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors duration-100 max-w-[9rem] ${
+                // updated
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors duration-100 max-w-[9rem] border ${
                   isTitleMatch
-                    ? "bg-violet-50/40 text-violet-500 hover:text-violet-600"
-                    : "bg-idemora-bg-primary text-idemora-text-muted hover:text-violet-400"
+                    ? "bg-violet-50/40 text-violet-500 border-violet-200 hover:bg-violet-100/50 hover:text-violet-600"
+                    : "bg-idemora-bg-primary text-idemora-text-muted border-transparent hover:text-violet-400 hover:border-violet-200 hover:bg-violet-50/20"
                 }`}
-                title={isTitleMatch ? `Direct note lookup: ${title}` : title}
+                title={`Open note: ${title}`}
               >
                 <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
                   <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
