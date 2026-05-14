@@ -1048,7 +1048,7 @@ export async function streamChatWithNotes(
 
   // Web-only path — skip pipeline entirely when web results are provided
   if (webResults && webResults.length > 0) {
-    const webPrompt = `You are a helpful assistant. Answer the user's question using the web search results below. Cite sources as [web:1], [web:2] etc.
+    const webPrompt = `You are a helpful assistant. Answer the user's question using the web search results below. Cite sources as [web:1], [web:2] etc. Do not use the phrase "Source:" — inline citations only.
 
 ${buildWebResultsBlock(webResults)}
 
