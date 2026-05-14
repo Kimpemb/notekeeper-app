@@ -1,48 +1,31 @@
 // src/features/ai/components/SaveNoteDialog.tsx
-//
-// M2 — Save dialog component
-//
-// Shown when the user clicks "Save to Note" in the chat panel header.
-// Handles all three save modes (raw transcript / clean markdown session /
-// clean markdown single response) and both destinations (sub-note / append).
-//
-// Clean markdown formatters are stubs here — they will be wired in M7/M8.
-// For now the format radio exists in the UI but only raw transcript does
-// real work; the other options fall through to raw transcript with a notice.
-//
-// Props
-//   paneId        — which pane owns this chat (drives note lookup)
-//   messages      — current chat messages (used by formatter + note name)
-//   onClose       — called after save completes or user dismisses
-//   onSaveSuccess — called with the saved note's id + title after a
-//                   successful write (ChatPanel uses this to update the
-//                   linked note indicator)
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { useNoteStore }       from "@/features/notes/store/useNoteStore"
-import { useUIStore }         from "@/features/ui/store/useUIStore"
+import { useNoteStore }        from "@/features/notes/store/useNoteStore"
+import { useUIStore }          from "@/features/ui/store/useUIStore"
 import {
   generateNoteName,
+  generateNoteNameAI,
   formatRawTranscript,
   wrapForAppend,
 } from "@/features/ai/lib/save/transcript"
-import { getNoteById, saveManualVersion }          from "@/features/notes/db/queries"
-import { formatCleanSession, formatCleanResponse, estimateTokens, getLengthBand } from "@/features/ai/lib/save/cleanMarkdown"
-import { useChatSessionStore }            from "@/features/ai/store/useChatSessionStore"
-import { markdownToContent } from "@/features/ai/lib/save/parseMarkdown"
-import type { TranscriptMessage }         from "@/features/ai/lib/save/transcript"
-import type { ChatMessage }               from "@/features/ai/lib/chat"
+import { getNoteById, saveManualVersion } from "@/features/notes/db/queries"
+import { formatDocument, estimateTokens, getLengthBand } from "@/features/ai/lib/save/cleanMarkdown"
+import { useChatSessionStore }  from "@/features/ai/store/useChatSessionStore"
+import { markdownToContent }    from "@/features/ai/lib/save/parseMarkdown"
+import type { TranscriptMessage } from "@/features/ai/lib/save/transcript"
+import type { ChatMessage }       from "@/features/ai/lib/chat"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type SaveFormat      = "raw" | "clean_session" | "clean_response"
+export type SaveFormat      = "document" | "transcript"
 export type SaveDestination = "subnote" | "append"
 
 interface Props {
-  paneId:          1 | 2
-  messages:        ChatMessage[]
-  onClose:         () => void
-  onSaveSuccess:   (noteId: string, noteTitle: string) => void
+  paneId:        1 | 2
+  messages:      ChatMessage[]
+  onClose:       () => void
+  onSaveSuccess: (noteId: string, noteTitle: string) => void
   selectedMessage?: { user: TranscriptMessage; assistant: TranscriptMessage }
 }
 
@@ -52,16 +35,16 @@ function toTranscript(messages: ChatMessage[]): TranscriptMessage[] {
   return messages.map((m) => ({ role: m.role, content: m.content }))
 }
 
-// ─── Parent picker (reused search+list pattern from MoveNoteModal) ────────────
+// ─── Parent picker ────────────────────────────────────────────────────────────
 
 interface ParentPickerProps {
   excludeNoteId: string | null
-  value:         string | null   // "__root__" | noteId | null
+  value:         string | null
   onChange:      (id: string | null) => void
 }
 
 function ParentPicker({ excludeNoteId, value, onChange }: ParentPickerProps) {
-  const notes   = useNoteStore((s) => s.notes)
+  const notes    = useNoteStore((s) => s.notes)
   const [query, setQuery] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -82,18 +65,16 @@ function ParentPicker({ excludeNoteId, value, onChange }: ParentPickerProps) {
   }
 
   const candidates = [
-    { id: "__root__", title: "Root level", crumb: "Move to top level" },
+    { id: "__root__", title: "Root level", crumb: "No parent — top level note" },
     ...notes
       .filter((n) => !n.deleted_at && n.id !== excludeNoteId)
       .map((n) => ({ id: n.id, title: n.title, crumb: breadcrumb(n.id) })),
   ]
 
-  const q = query.trim().toLowerCase()
+  const q        = query.trim().toLowerCase()
   const filtered = q
     ? candidates.filter(
-        (c) =>
-          c.title.toLowerCase().includes(q) ||
-          c.crumb.toLowerCase().includes(q)
+        (c) => c.title.toLowerCase().includes(q) || c.crumb.toLowerCase().includes(q)
       )
     : candidates
 
@@ -112,7 +93,7 @@ function ParentPicker({ excludeNoteId, value, onChange }: ParentPickerProps) {
           className="flex-1 bg-transparent outline-none text-xs text-idemora-text-normal placeholder-idemora-text-muted"
         />
       </div>
-      <ul className="max-h-36 overflow-y-auto py-0.5">
+      <ul className="max-h-40 overflow-y-auto py-0.5">
         {filtered.length === 0 && (
           <li className="px-3 py-2 text-xs text-idemora-text-muted">No notes found</li>
         )}
@@ -143,41 +124,39 @@ function ParentPicker({ excludeNoteId, value, onChange }: ParentPickerProps) {
 
 // ─── Main dialog ──────────────────────────────────────────────────────────────
 
-export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selectedMessage }: Props) {
-  const notes       = useNoteStore((s) => s.notes)
-  const createNote  = useNoteStore((s) => s.createNote)
-  const updateNote  = useNoteStore((s) => s.updateNote)
+export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess }: Props) {
+  const notes      = useNoteStore((s) => s.notes)
+  const createNote = useNoteStore((s) => s.createNote)
+  const updateNote = useNoteStore((s) => s.updateNote)
 
   const paneActiveNoteId = useUIStore((s) => s.paneActiveNoteId)
+  const currentNoteId    = paneActiveNoteId(paneId)
+  const currentNote      = notes.find((n) => n.id === currentNoteId) ?? null
 
-  const currentNoteId = paneActiveNoteId(paneId)
-  const currentNote   = notes.find((n) => n.id === currentNoteId) ?? null
-
-  // Auto-selection rule: default to append when current note is empty,
-  // sub-note when it has content.
   const currentNoteIsEmpty =
-    !currentNote ||
-    !currentNote.plaintext ||
-    currentNote.plaintext.trim() === ""
+    !currentNote?.plaintext || currentNote.plaintext.trim() === ""
 
-  const [noteName, setNoteName]           = useState(() => generateNoteName(toTranscript(messages)))
-  const [destination, setDestination]     = useState<SaveDestination>(currentNoteIsEmpty ? "append" : "subnote")
-  const [format, setFormat]               = useState<SaveFormat>("raw")
-  const [parentId, setParentId]           = useState<string | null>(currentNoteId)
-  const [showParentPicker, setShowParentPicker] = useState(false)
-  const [saving, setSaving]               = useState(false)
-  const [error, setError]                 = useState<string | null>(null)
+  const [noteName, setNoteName]       = useState(() => generateNoteName(toTranscript(messages)))
+  const [nameLoading, setNameLoading] = useState(true)
+  const [destination, setDestination] = useState<SaveDestination>(currentNoteIsEmpty ? "append" : "subnote")
+  const [format, setFormat]           = useState<SaveFormat>("document")
+  const [parentId, setParentId]       = useState<string | null>(currentNoteId)
+  const [saving, setSaving]           = useState(false)
+  const [error, setError]             = useState<string | null>(null)
   const [conflictPending, setConflictPending] = useState<{
-    content: string
+    content:   string
     plaintext: string
   } | null>(null)
 
-  // Show parent picker when no note is open
+  // Generate AI note name on mount
   useEffect(() => {
-    if (!currentNoteId) setShowParentPicker(true)
-  }, [currentNoteId])
+    let cancelled = false
+    generateNoteNameAI(toTranscript(messages)).then((name) => {
+      if (!cancelled) { setNoteName(name); setNameLoading(false) }
+    })
+    return () => { cancelled = true }
+  }, [])
 
-  const parentNote = notes.find((n) => n.id === parentId) ?? null
 
   // ── Save handler ────────────────────────────────────────────────────────────
 
@@ -187,34 +166,20 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
     setError(null)
 
     try {
-      const transcript = toTranscript(messages)
-
-      // Format selection — clean markdown formatters are stubs until M7/M8.
-      // They will be wired in Phase 2. For now all formats produce raw transcript.
-      let markdown: string
+      const transcript   = toTranscript(messages)
+      let markdown:       string
       let formatFallback = false
 
-      if (format === "raw") {
-        markdown = formatRawTranscript(transcript)
-      } else if (format === "clean_session") {
-        const result = await formatCleanSession(transcript)
-        markdown      = result.markdown
+      if (format === "document") {
+        const result   = await formatDocument(transcript)
+        markdown       = result.markdown
         formatFallback = result.fallback
       } else {
-        // clean_response
-        if (selectedMessage) {
-          const result = await formatCleanResponse(selectedMessage.user, selectedMessage.assistant)
-          markdown      = result.markdown
-          formatFallback = result.fallback
-        } else {
-          const result = await formatCleanSession(transcript)
-          markdown      = result.markdown
-          formatFallback = result.fallback
-        }
+        markdown = formatRawTranscript(transcript)
       }
 
       if (formatFallback) {
-        setError("Clean markdown unavailable — saved as raw transcript. You can reformat later.")
+        setError("Document formatting unavailable — saved as transcript. You can reformat later.")
       }
 
       const { content, plaintext } = markdownToContent(markdown)
@@ -222,23 +187,20 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
       if (destination === "subnote") {
         const session = useChatSessionStore.getState().getSession(paneId)
 
-        // Re-save path — linked note already exists
         if (session.linkedNoteId) {
           const linkedNote = await getNoteById(session.linkedNoteId)
 
           if (linkedNote) {
-            const lastSavedAt  = session.lastSavedAt ?? 0
+            const lastSavedAt   = session.lastSavedAt ?? 0
             const noteUpdatedAt = linkedNote.updated_at
 
-            // Conflict — note was manually edited after last save
             if (noteUpdatedAt > lastSavedAt) {
               setConflictPending({ content, plaintext })
               setSaving(false)
               return
             }
 
-            // Silent overwrite — save version first, then update
-            await saveManualVersion(session.linkedNoteId!)
+            await saveManualVersion(session.linkedNoteId)
             await updateNote(session.linkedNoteId, { content, plaintext })
             onSaveSuccess(session.linkedNoteId, linkedNote.title)
             useChatSessionStore.getState().stampSavedAt(paneId)
@@ -247,16 +209,13 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
           }
         }
 
-        // First save — create new sub-note
-        const resolvedParentId = parentId ?? null
         const savedNote = await createNote({
           title:     noteName.trim() || generateNoteName(transcript),
           content,
           plaintext,
-          parent_id: resolvedParentId,
+          parent_id: parentId ?? null,
         })
 
-        // Insert inline SubPageNode into the editor
         window.dispatchEvent(new CustomEvent("idemora:insert-subpage", {
           detail: { noteId: savedNote.id }
         }))
@@ -265,37 +224,26 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
         useChatSessionStore.getState().stampSavedAt(paneId)
 
       } else {
-        // Append to current note under ## Chat — YYYY-MM-DD heading
         if (!currentNoteId) {
           setError("No note is open to append to.")
           setSaving(false)
           return
         }
 
-        // wrapForAppend adds the ## Chat — YYYY-MM-DD heading before the content
-        const wrapped = wrapForAppend(markdown)
-
-        // Fetch current content from store (may be stub) or fall back to empty doc
+        const wrapped       = wrapForAppend(markdown)
         const existingNote  = notes.find((n) => n.id === currentNoteId)
         const existingPlain = existingNote?.plaintext ?? ""
+        const newPlaintext  = existingPlain + wrapped
 
-        // Append plaintext for FTS/RAG — use wrapped so the heading is indexed too
-        const newPlaintext = existingPlain + wrapped
-
-        // For content, we append a paragraph node to the existing doc.
-        // If content is unavailable (not loaded), we create a fresh doc.
         let newContent: string
         try {
           const existingContent = existingNote?.content
           if (existingContent && existingContent !== JSON.stringify({ type: "doc", content: [] })) {
-            const doc = JSON.parse(existingContent)
+            const doc       = JSON.parse(existingContent)
             const appendDoc = JSON.parse(markdownToContent(wrapped).content)
             newContent = JSON.stringify({
               ...doc,
-              content: [
-                ...(doc.content ?? []),
-                ...(appendDoc.content ?? []),
-              ],
+              content: [...(doc.content ?? []), ...(appendDoc.content ?? [])],
             })
           } else {
             newContent = markdownToContent(wrapped).content
@@ -304,11 +252,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
           newContent = markdownToContent(wrapped).content
         }
 
-        await updateNote(currentNoteId, {
-          content:   newContent,
-          plaintext: newPlaintext,
-        })
-
+        await updateNote(currentNoteId, { content: newContent, plaintext: newPlaintext })
         onSaveSuccess(currentNoteId, currentNote?.title ?? "")
         useChatSessionStore.getState().stampSavedAt(paneId)
       }
@@ -320,7 +264,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
       setSaving(false)
     }
   }, [
-    saving, messages, format, destination, parentId, noteName, selectedMessage,
+    saving, messages, format, destination, parentId, noteName,
     currentNoteId, currentNote, notes, createNote, updateNote,
     onSaveSuccess, onClose, paneId,
   ])
@@ -358,7 +302,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
           </div>
           <button
             onClick={onClose}
-            className="w-5 h-5 flex items-center justify-center text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-75"
+            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -368,19 +312,28 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
 
         <div className="p-4 space-y-4 overflow-y-auto">
 
-          {/* Note name — only shown for sub-note */}
+          {/* Note name */}
           {destination === "subnote" && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold text-idemora-text-muted uppercase tracking-wide">
                 Note name
               </label>
-              <input
-                value={noteName}
-                onChange={(e) => setNoteName(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-idemora-border bg-idemora-bg-primary text-sm text-idemora-text-normal placeholder-idemora-text-muted focus:outline-none focus:ring-1 focus:ring-violet-400 transition-colors duration-100"
-                placeholder="Note name…"
-                autoFocus
-              />
+              <div className="relative">
+                <input
+                  value={noteName}
+                  onChange={(e) => setNoteName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-idemora-border bg-idemora-bg-primary text-sm text-idemora-text-normal placeholder-idemora-text-muted focus:outline-none focus:ring-1 focus:ring-violet-400 transition-colors duration-100"
+                  placeholder="Note name…"
+                  autoFocus={!nameLoading}
+                />
+                {nameLoading && (
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                    <svg width="11" height="11" viewBox="0 0 12 12" className="animate-spin text-idemora-text-muted" fill="none">
+                      <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 7" strokeLinecap="round"/>
+                    </svg>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -393,12 +346,8 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
               <RadioRow
                 checked={destination === "subnote"}
                 onChange={() => setDestination("subnote")}
-                label="Save as sub-note"
-                description={
-                  parentNote
-                    ? `Under "${parentNote.title}"`
-                    : "Under current note"
-                }
+                label="Save as new note"
+                description="Create a standalone note anywhere in your vault"
               />
               <RadioRow
                 checked={destination === "append"}
@@ -410,11 +359,11 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
             </div>
           </div>
 
-          {/* Parent picker — shown when no note open or user changes target */}
-          {destination === "subnote" && (showParentPicker || !currentNoteId) && (
+          {/* Parent picker — always visible when subnote selected */}
+          {destination === "subnote" && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold text-idemora-text-muted uppercase tracking-wide">
-                Parent note
+                Location
               </label>
               <ParentPicker
                 excludeNoteId={null}
@@ -424,16 +373,6 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
             </div>
           )}
 
-          {/* Change parent link — shown when a current note is open */}
-          {destination === "subnote" && currentNoteId && !showParentPicker && (
-            <button
-              onClick={() => setShowParentPicker(true)}
-              className="text-[11px] text-idemora-text-muted hover:text-violet-400 transition-colors duration-75"
-            >
-              Change parent note ↓
-            </button>
-          )}
-
           {/* Format */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-semibold text-idemora-text-muted uppercase tracking-wide">
@@ -441,35 +380,28 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
             </label>
             <div className="space-y-1">
               <RadioRow
-                checked={format === "raw"}
-                onChange={() => setFormat("raw")}
-                label="Raw transcript"
+                checked={format === "document"}
+                onChange={() => setFormat("document")}
+                label="Document"
+                description="AI organises the conversation into a clean written note"
+              />
+              <RadioRow
+                checked={format === "transcript"}
+                onChange={() => setFormat("transcript")}
+                label="Transcript"
                 description="Turn-by-turn, lossless, always available"
-              />
-              <RadioRow
-                checked={format === "clean_session"}
-                onChange={() => setFormat("clean_session")}
-                label="Clean markdown — session"
-                description="Structured with headings and decisions (requires AI)"
-              />
-              <RadioRow
-                checked={format === "clean_response"}
-                onChange={() => setFormat("clean_response")}
-                label="Clean markdown — single response"
-                description="Save one selected response (requires AI)"
               />
             </div>
           </div>
 
-          {/* Over-20k notice */}
-          {format !== "raw" && (() => {
+          {/* Long conversation notice */}
+          {format === "document" && (() => {
             const tokens = estimateTokens(formatRawTranscript(toTranscript(messages)))
             const band   = getLengthBand(tokens)
             return band === "long" ? (
               <div className="px-3 py-2 rounded-lg bg-amber-50/40 border border-amber-100">
                 <p className="text-[10px] text-amber-600 leading-relaxed">
-                  This is a long conversation. Clean markdown may not capture everything.
-                  Raw transcript preserves the full conversation.
+                  Long conversation — document format may not capture everything. Transcript preserves it all.
                 </p>
               </div>
             ) : null
@@ -485,7 +417,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
                 <button
                   onClick={async () => {
                     setSaving(true)
-                    const session = useChatSessionStore.getState().getSession(paneId)
+                    const session    = useChatSessionStore.getState().getSession(paneId)
                     const linkedNote = await getNoteById(session.linkedNoteId!)
                     if (linkedNote) {
                       await saveManualVersion(session.linkedNoteId!)
@@ -498,7 +430,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
                   }}
                   className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors duration-75"
                 >
-                  Save from chat — overwrite manual edits (version history preserved)
+                  Overwrite with chat version (version history preserved)
                 </button>
                 <button
                   onClick={() => setConflictPending(null)}
@@ -509,9 +441,9 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
                 <button
                   onClick={async () => {
                     setSaving(true)
-                    const session = useChatSessionStore.getState().getSession(paneId)
+                    const session          = useChatSessionStore.getState().getSession(paneId)
                     const resolvedParentId = session.linkedNoteId
-                    const savedNote = await createNote({
+                    const savedNote        = await createNote({
                       title:     noteName.trim() || generateNoteName(toTranscript(messages)),
                       content:   conflictPending.content,
                       plaintext: conflictPending.plaintext,
@@ -527,7 +459,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
                   }}
                   className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium border border-idemora-border text-idemora-text-normal hover:bg-idemora-bg-primary transition-colors duration-75"
                 >
-                  Save as new sub-note — keep both
+                  Save as new note — keep both
                 </button>
               </div>
             </div>
@@ -543,9 +475,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-idemora-border shrink-0">
-          <p className="text-[10px] text-idemora-text-muted">
-            ⌘↵ to save · Esc to cancel
-          </p>
+          <p className="text-[10px] text-idemora-text-muted">⌘↵ to save · Esc to cancel</p>
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
@@ -570,11 +500,7 @@ export function SaveNoteDialog({ paneId, messages, onClose, onSaveSuccess, selec
 // ─── RadioRow ─────────────────────────────────────────────────────────────────
 
 function RadioRow({
-  checked,
-  onChange,
-  label,
-  description,
-  disabled = false,
+  checked, onChange, label, description, disabled = false,
 }: {
   checked:     boolean
   onChange:    () => void
@@ -592,7 +518,6 @@ function RadioRow({
           : "border-idemora-border bg-idemora-bg-primary hover:border-violet-200"
       } ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
     >
-      {/* Custom radio dot */}
       <div className={`mt-0.5 w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center ${
         checked ? "border-violet-500" : "border-idemora-border"
       }`}>
