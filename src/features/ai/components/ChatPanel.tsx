@@ -661,10 +661,10 @@ async function handleDirectWebSearch() {
             <button
               onClick={handleClear}
               title="Clear conversation"
-              className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+              className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
             >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1.5 2.5h7M3 2.5V1.5h4v1M3.5 4.5v3M6.5 4.5v3M2 2.5l.5 6h5l.5-6"
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M1.5 3h8M3.5 3V2h4v1M4 5v3.5M7 5v3.5M2.5 3l.5 6.5h5l.5-6.5"
                   stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
@@ -672,29 +672,26 @@ async function handleDirectWebSearch() {
           <button
             onClick={cycleChatWidth}
             title={chatWidthIdx === 0 ? "Expand chat" : chatWidthIdx === 1 ? "Expand chat more" : "Collapse chat"}
-            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
           >
             {chatWidthIdx === 0 ? (
-              // compact → expand left
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M8.5 5h-7M4 2.5L1.5 5 4 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M9 5.5H2M4.5 3L2 5.5l2.5 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             ) : chatWidthIdx === 1 ? (
-              // medium → expand left more
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M8.5 5h-7M4 2.5L1.5 5 4 7.5M6.5 2.5L4 5l2.5 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M6 3L3.5 5.5 6 8M9 3L6.5 5.5 9 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             ) : (
-              // max → collapse right
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1.5 5h7M6 2.5l2.5 2.5L6 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M2 5.5h7M6.5 3L9 5.5l-2.5 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             )}
           </button>
           <button
             onClick={() => closeChat(paneId)}
             title="Close chat"
-            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
+            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
               <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
