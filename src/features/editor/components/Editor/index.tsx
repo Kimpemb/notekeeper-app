@@ -39,8 +39,6 @@ import { BlockRefSuggest } from "./BlockRefSuggest";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
 import { Breadcrumb } from "./Breadcrumb";
 import { enqueueNoteForIndexing } from "@/features/ai/lib/indexer"
-import { MarkdownPasteExtension } from "./extensions"
-
 
 
 import {
@@ -53,7 +51,7 @@ import {
   CodeBlockBackspaceExtension,
   BlockIdExtension,
   BlockRefNode,
-  DataviewNode, Color, TextStyle, MultiHighlight, 
+  DataviewNode, Color, TextStyle, MultiHighlight,
 } from "./extensions";
 
 import {
@@ -129,15 +127,19 @@ function reconcileSubPageBlocks(
   try { doc = JSON.parse(contentJson); } catch { return null; }
 
   const existingIds = new Set<string>();
-for (const node of doc.content ?? []) {
-  const n = node as { type: string; attrs?: { noteId?: string | null } };
-  if (n.type === "subPage" && n.attrs?.noteId) {
-    existingIds.add(n.attrs.noteId);
+  let hasPendingBlock = false;
+  for (const node of doc.content ?? []) {
+    const n = node as { type: string; attrs?: { noteId?: string | null; mode?: string } };
+    if (n.type === "subPage") {
+      if (n.attrs?.noteId) existingIds.add(n.attrs.noteId);
+      if (n.attrs?.mode === "editing" || n.attrs?.noteId == null) hasPendingBlock = true;
+    }
   }
-}
+
+  if (!hasPendingBlock) return null;
 
   const missing = children.filter((c) => !existingIds.has(c.id));
-if (missing.length === 0) return null;
+  if (missing.length === 0) return null;
 
   const newBlocks = missing.map((c) => ({
     type: "subPage",
@@ -280,7 +282,7 @@ useEffect(() => {
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
-      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, BlockIdExtension, BlockRefNode, DataviewNode, MarkdownPasteExtension,
+      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, BlockIdExtension, BlockRefNode, DataviewNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({ name: "findReplacePlugin",     addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
