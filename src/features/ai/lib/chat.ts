@@ -258,17 +258,7 @@ function filterSourcesByCitations(
 ): { titles: string[]; noteIds: string[] } {
   // If model cited nothing, return all unique sources as fallback
   if (cited.size === 0) {
-    const seen = new Set<string>()
-    const titles: string[] = []
-    const noteIds: string[] = []
-    for (let i = 0; i < chunkNoteIds.length; i++) {
-      if (!seen.has(chunkNoteIds[i])) {
-        seen.add(chunkNoteIds[i])
-        titles.push(chunkTitles[i])
-        noteIds.push(chunkNoteIds[i])
-      }
-    }
-    return { titles, noteIds }
+    return { titles: [], noteIds: [] }
   }
 
   const seen = new Set<string>()
