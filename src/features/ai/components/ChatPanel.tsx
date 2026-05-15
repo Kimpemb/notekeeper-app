@@ -19,7 +19,8 @@ import { isAIReady }           from "@/features/ai/lib/client";
 import type { AICallError }    from "@/features/ai/lib/client";
 import { QuickSwitch }         from "@/features/ai/components/QuickSwitch";
 import { SaveNoteDialog }      from "@/features/ai/components/SaveNoteDialog";
-import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore";
+import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore"
+import type { PersistedMeta } from "@/features/ai/store/useChatSessionStore"
 import type { ExcludedTitleMatch } from "@/features/ai/lib/search/hybrid"
 import { useAppSettings } from "@/features/ui/store/useAppSettings"
 import { marked } from "marked"
@@ -210,8 +211,8 @@ function WebNudge({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChatPanel({ noteId, paneId }: Props) {
-  const [messages, setMessages]     = useState<ChatMessage[]>([]);
-  const [metaMap, setMetaMap]       = useState<Map<string, MessageMeta>>(new Map());
+  // messages and persistedMeta live in the store — not local state
+  const [runtimeMetaMap, setRuntimeMetaMap] = useState<Map<string, Partial<MessageMeta>>>(new Map());
   const [input, setInput]           = useState("");
   const [loading, setLoading]       = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
@@ -264,12 +265,54 @@ function cycleChatWidth() {
   const isFreeTier = !aiReady;
   const currentNote = notes.find((n) => n.id === noteId);
 
-  const session           = useChatSessionStore((s) => s.sessions[paneId]);
+  const setPaneNote       = useChatSessionStore((s) => s.setPaneNote);
+  const addMessage        = useChatSessionStore((s) => s.addMessage);
+  const setMessageContent = useChatSessionStore((s) => s.setMessageContent);
+  const setPersistedMeta  = useChatSessionStore((s) => s.setPersistedMeta);
+  const saveSession       = useChatSessionStore((s) => s.saveSession);
   const setLinkedNote     = useChatSessionStore((s) => s.setLinkedNote);
   const stampSavedAt      = useChatSessionStore((s) => s.stampSavedAt);
   const clearSession      = useChatSessionStore((s) => s.clearSession);
   const setRagScope       = useChatSessionStore((s) => s.setRagScope);
+  const session           = useChatSessionStore((s) => s.getSession(paneId));
+  const messages          = session.messages;
   const ragScope          = session.ragScope;
+
+  // Merge persisted + runtime meta for rendering
+  const metaMap = new Map<string, MessageMeta>(
+    session.persistedMeta.map((pm) => {
+      const runtime = runtimeMetaMap.get(pm.messageId) ?? {}
+      return [pm.messageId, {
+        sourceTitles:        runtime.sourceTitles        ?? pm.citations?.map(c => c.title) ?? [],
+        sourceNoteIds:       runtime.sourceNoteIds       ?? pm.citations?.map(c => c.noteId) ?? [],
+        usedEmbeddings:      pm.usedEmbeddings           ?? false,
+        confidence:          pm.confidence               ?? "medium",
+        relatedNotes:        runtime.relatedNotes        ?? [],
+        tier1Results:        runtime.tier1Results,
+        excludedNoteNotices: runtime.excludedNoteNotices ?? [],
+        titleMatchedNoteIds: pm.citations?.filter(c => c.isTitleMatch).map(c => c.noteId) ?? [],
+        webNudge:            runtime.webNudge,
+        webGrounded:         pm.usedWeb                  ?? false,
+      }]
+    })
+  )
+  // Also merge in any runtime-only entries (messages mid-stream before persist)
+  for (const [id, runtime] of runtimeMetaMap) {
+    if (!metaMap.has(id)) {
+      metaMap.set(id, {
+        sourceTitles:        runtime.sourceTitles        ?? [],
+        sourceNoteIds:       runtime.sourceNoteIds       ?? [],
+        usedEmbeddings:      runtime.usedEmbeddings      ?? false,
+        confidence:          runtime.confidence          ?? "medium",
+        relatedNotes:        runtime.relatedNotes        ?? [],
+        tier1Results:        runtime.tier1Results,
+        excludedNoteNotices: runtime.excludedNoteNotices ?? [],
+        titleMatchedNoteIds: runtime.titleMatchedNoteIds ?? [],
+        webNudge:            runtime.webNudge,
+        webGrounded:         runtime.webGrounded         ?? false,
+      })
+    }
+  }
 
 const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
   const { settings }        = useAppSettings()
@@ -349,14 +392,12 @@ useEffect(() => {
   }, [noteId]);
 
   useEffect(() => {
-    console.log('[noteId effect] firing, will clear session. noteId:', noteId)
-    setMessages([]);
-    setMetaMap(new Map());
-    setCallError(null);
-    clearSession(paneId);
-    setDismissedNudges(new Set());
-    setWebResultsMap(new Map());
-    setSuppressedNudges(new Set());
+    setPaneNote(paneId, noteId)
+    setCallError(null)
+    setDismissedNudges(new Set())
+    setWebResultsMap(new Map())
+    setSuppressedNudges(new Set())
+    setRuntimeMetaMap(new Map())
   }, [noteId]);
 
   // M5: Reactive subscription — watch note store for linked note lifecycle events
@@ -369,13 +410,13 @@ useEffect(() => {
         useChatSessionStore.getState();
       const activeNote = state.notes.find((n) => n.id === linkedId);
       if (activeNote) {
-        if (session.linkedNoteTrashed) markLinkedNoteRestored(paneId, activeNote.title);
-        if (activeNote.title !== session.linkedNoteTitle) setLinkedNoteTitle(paneId, activeNote.title);
+        if (session.linkedNoteTrashed) markLinkedNoteRestored(noteId, activeNote.title);
+        if (activeNote.title !== session.linkedNoteTitle) setLinkedNoteTitle(noteId, activeNote.title);
         return;
       }
       const trashedNote = state.trashedNotes?.find((n) => n.id === linkedId);
-      if (trashedNote) { markLinkedNoteTrashed(paneId); return; }
-      if (!session.linkedNoteDeleted) markLinkedNoteDeleted(paneId);
+      if (trashedNote) { markLinkedNoteTrashed(noteId); return; }
+      if (!session.linkedNoteDeleted) markLinkedNoteDeleted(noteId);
     });
   }, [paneId, session?.linkedNoteId, session?.linkedNoteTrashed, session?.linkedNoteDeleted, session?.linkedNoteTitle]);
 
@@ -402,7 +443,7 @@ async function handleDirectWebSearch() {
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
     }
-    setMessages((prev) => [...prev, userMsg])
+    addMessage(noteId, userMsg);
     setInput("")
     setLoading(true)
 
@@ -426,7 +467,8 @@ async function handleDirectWebSearch() {
       id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
     }
 
-    setMessages((prev) => [...prev, assistantMsg])
+    addMessage(noteId, assistantMsg);
+    await saveSession(noteId);
     setLoading(true)
     setStreamingId(assistantId)
     setCallError(null)
@@ -442,9 +484,9 @@ async function handleDirectWebSearch() {
         scopeNoteIds,
         {
           onChunk: (token) => {
-            setMessages((prev) =>
-              prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
-            )
+            const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+            const existing = current.messages.find(m => m.id === assistantId)
+            setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
           },
           onDone:  () => { setStreamingId(null); setLoading(false) },
           onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err) },
@@ -453,20 +495,31 @@ async function handleDirectWebSearch() {
         webResults,   // injected web results
       )
 
-      setMetaMap((prev) =>
-        new Map(prev).set(assistantId, {
-          sourceTitles:        [],
-          sourceNoteIds:       [],
-          usedEmbeddings:      meta.usedEmbeddings,
-          confidence:          meta.confidence,
-          relatedNotes:        [],
-          tier1Results:        meta.tier1Results,
-          excludedNoteNotices: [],
-          titleMatchedNoteIds: [],
-          webNudge:            undefined,
-          webGrounded:         true,
-        })
-      )
+      // Persist the durable subset
+      const pm: PersistedMeta = {
+        messageId:      assistantId,
+        confidence:     meta.confidence,
+        citations:      meta.sourceTitles.map((title, i) => ({
+          noteId:       meta.sourceNoteIds[i],
+          title,
+          isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+        })),
+        usedWeb:        meta.webNudge !== undefined,
+        usedEmbeddings: meta.usedEmbeddings,
+      }
+      setPersistedMeta(noteId, assistantId, pm)
+      await saveSession(noteId)
+
+      // Keep runtime-only fields in local state
+      setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
+        sourceTitles:        meta.sourceTitles,
+        sourceNoteIds:       meta.sourceNoteIds,
+        relatedNotes:        meta.relatedNotes,
+        tier1Results:        meta.tier1Results,
+        excludedNoteNotices: meta.excludedNoteNotices,
+        titleMatchedNoteIds: meta.titleMatchedNoteIds,
+        webNudge:            meta.webNudge,
+      }))
     } catch { /* errors handled by onError above */ }
   }
 
@@ -485,7 +538,9 @@ async function handleDirectWebSearch() {
       id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    addMessage(noteId, userMsg);
+    addMessage(noteId, assistantMsg);
+    await saveSession(noteId);
     setInput("");
     setLoading(true);
     setStreamingId(assistantId);
@@ -504,9 +559,9 @@ async function handleDirectWebSearch() {
         scopeNoteIds,
         {
           onChunk: (token) => {
-            setMessages((prev) =>
-              prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
-            );
+            const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+            const existing = current.messages.find(m => m.id === assistantId)
+            setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
           },
           onDone: () => {
             setStreamingId(null);
@@ -514,7 +569,12 @@ async function handleDirectWebSearch() {
           },
           onError: (err: AICallError) => {
             errorHandled = true;
-            setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+            // roll back the assistant placeholder
+            useChatSessionStore.setState((s) => {
+              const sess = s.sessions[noteId]
+              if (!sess) return s
+              return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
+            })
             if (err.code === "AUTH_FAILED" || err.code === "QUOTA_EXCEEDED") {
               setProviderStatus(primarySlot.provider, "error", err.message);
             }
@@ -525,22 +585,39 @@ async function handleDirectWebSearch() {
         }
       );
 
-      setMetaMap((prev) =>
-        new Map(prev).set(assistantId, {
-          sourceTitles:        meta.sourceTitles,
-          sourceNoteIds:       meta.sourceNoteIds,
-          usedEmbeddings:      meta.usedEmbeddings,
-          confidence:          meta.confidence,
-          relatedNotes:        meta.relatedNotes,
-          tier1Results:        meta.tier1Results,
-          excludedNoteNotices: meta.excludedNoteNotices,
-          titleMatchedNoteIds: meta.titleMatchedNoteIds,
-          webNudge:            meta.webNudge,
-        })
-      );
+      // Persist the durable subset
+      const pm: PersistedMeta = {
+        messageId:      assistantId,
+        confidence:     meta.confidence,
+        citations:      meta.sourceTitles.map((title, i) => ({
+          noteId:       meta.sourceNoteIds[i],
+          title,
+          isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+        })),
+        usedWeb:        meta.webNudge !== undefined,
+        usedEmbeddings: meta.usedEmbeddings,
+      }
+      setPersistedMeta(noteId, assistantId, pm)
+      await saveSession(noteId)
+
+      // Keep runtime-only fields in local state
+      setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
+        sourceTitles:        meta.sourceTitles,
+        sourceNoteIds:       meta.sourceNoteIds,
+        relatedNotes:        meta.relatedNotes,
+        tier1Results:        meta.tier1Results,
+        excludedNoteNotices: meta.excludedNoteNotices,
+        titleMatchedNoteIds: meta.titleMatchedNoteIds,
+        webNudge:            meta.webNudge,
+      }))
     } catch (rawErr) {
       if (!errorHandled) {
-        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+        // roll back the assistant placeholder
+            useChatSessionStore.setState((s) => {
+              const sess = s.sessions[noteId]
+              if (!sess) return s
+              return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
+            })
         const err = rawErr as Partial<AICallError>;
         setCallError(err?.code ? (rawErr as AICallError) : {
           code: "UNKNOWN", provider: primarySlot.provider, model: primarySlot.model,
@@ -559,15 +636,14 @@ async function handleDirectWebSearch() {
   }
 
   async function handleClear() {
-    setMessages([]);
-    setMetaMap(new Map());
-    setCallError(null);
-    setOneTimeInclusions(new Set());
-    setDismissedNudges(new Set());
-    setWebResultsMap(new Map());
-    setSuppressedNudges(new Set());
-    clearSession(paneId);
-    await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)]);
+    setCallError(null)
+    setOneTimeInclusions(new Set())
+    setDismissedNudges(new Set())
+    setWebResultsMap(new Map())
+    setSuppressedNudges(new Set())
+    setRuntimeMetaMap(new Map())
+    await clearSession(noteId)
+    await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)])
   }
 
   function handleOpenNote(id: string) {
@@ -586,7 +662,8 @@ async function handleDirectWebSearch() {
   const assistantMsg: ChatMessage = {
     id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
   };
-  setMessages((prev) => [...prev, assistantMsg]);
+  addMessage(noteId, assistantMsg);
+  await saveSession(noteId);
   setLoading(true);
   setStreamingId(assistantId);
 
@@ -601,39 +678,50 @@ async function handleDirectWebSearch() {
       scopeNoteIds,
       {
         onChunk: (token) => {
-          setMessages((prev) =>
-            prev.map((m) => m.id === assistantId ? { ...m, content: m.content + token } : m)
-          );
+          const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+          const existing = current.messages.find(m => m.id === assistantId)
+          setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
         },
         onDone:  () => { setStreamingId(null); setLoading(false); },
         onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err); },
       },
       allInclusions,
     );
-    setMetaMap((prev) =>
-      new Map(prev).set(assistantId, {
-        sourceTitles:        meta.sourceTitles,
-        sourceNoteIds:       meta.sourceNoteIds,
-        usedEmbeddings:      meta.usedEmbeddings,
-        confidence:          meta.confidence,
-        relatedNotes:        meta.relatedNotes,
-        tier1Results:        meta.tier1Results,
-        excludedNoteNotices: meta.excludedNoteNotices,
-        titleMatchedNoteIds: meta.titleMatchedNoteIds,
-        webNudge:            meta.webNudge,
-      })
-    );
+    // Persist the durable subset
+    const pm: PersistedMeta = {
+      messageId:      assistantId,
+      confidence:     meta.confidence,
+      citations:      meta.sourceTitles.map((title, i) => ({
+        noteId:       meta.sourceNoteIds[i],
+        title,
+        isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+      })),
+      usedWeb:        meta.webNudge !== undefined,
+      usedEmbeddings: meta.usedEmbeddings,
+    }
+    setPersistedMeta(noteId, assistantId, pm)
+    await saveSession(noteId)
+
+    // Keep runtime-only fields in local state
+    setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
+      sourceTitles:        meta.sourceTitles,
+      sourceNoteIds:       meta.sourceNoteIds,
+      relatedNotes:        meta.relatedNotes,
+      tier1Results:        meta.tier1Results,
+      excludedNoteNotices: meta.excludedNoteNotices,
+      titleMatchedNoteIds: meta.titleMatchedNoteIds,
+      webNudge:            meta.webNudge,
+    }))
   } catch { /* errors handled by onError above */ }
 }, [messages, notes, noteId, currentNote, oneTimeInclusions]);
 
   function handleScopeToggle() {
-    if (ragScope === "note") {
-      setRagScope(paneId, "all");
-    } else {
-      // noteId is always defined — no save/link required to scope
-      setRagScope(paneId, "note");
-    }
+  if (ragScope === "note") {
+    setRagScope(noteId, "all");
+  } else {
+    setRagScope(noteId, "note");
   }
+}
 
   const hasNoEmbeddingMessage = [...metaMap.values()].some((m) => !m.usedEmbeddings);
 
@@ -727,6 +815,12 @@ async function handleDirectWebSearch() {
       <div className="flex-1 overflow-y-auto">
         {isFreeTier ? (
           <FreeTierState />
+        ) : session.isLoading ? (
+          <div className="py-6 px-4 space-y-3 animate-pulse">
+            {[1,2,3].map(i => (
+              <div key={i} className="h-3 rounded bg-idemora-border" style={{ width: `${60 + i * 10}%` }} />
+            ))}
+          </div>
         ) : messages.length === 0 && !callError ? (
           <EmptyState currentNoteTitle={currentNote?.title} />
         ) : (
@@ -942,10 +1036,10 @@ async function handleDirectWebSearch() {
           onClose={() => { setSaveDialogOpen(false); setSelectedMessage(null); }}
           onSaveSuccess={(savedNoteId, savedNoteTitle) => {
             const isFirstSave = !session.linkedNoteId;
-            setLinkedNote(paneId, savedNoteId, savedNoteTitle);
-            stampSavedAt(paneId);
+            setLinkedNote(noteId, savedNoteId, savedNoteTitle);
+            stampSavedAt(noteId);
             if (isFirstSave) {
-              setRagScope(paneId, "note");
+              setRagScope(noteId, "note");
               addToast("Search scoped to this note and sub-notes — change anytime above");
             }
           }}

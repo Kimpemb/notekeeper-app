@@ -1,167 +1,334 @@
 // src/features/ai/store/useChatSessionStore.ts
 //
-// Holds per-pane linked note state for the Context Vault save flow.
-// Intentionally thin — only what M2–M5 need. Extended in later milestones.
-//
-// One session per pane (1 | 2). A session is created implicitly on first
-// save and cleared when the user clicks "New conversation".
+// Chat session store — keyed by noteId, not pane.
+// Panes hold a pointer (paneNoteId) to whichever noteId they're showing.
+// Persistence: messages + durable metadata only. Ephemeral UI state stays local.
 
 import { create } from "zustand"
+import {
+  getChatSession,
+  saveChatSession,
+  deleteChatSession,
+  type PersistedMeta,
+  type PersistedChatSession,
+} from "@/features/notes/db/queries"
+import type { ChatMessage } from "@/features/ai/lib/chat"
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface ChatSession {
-  linkedNoteId:   string | null
-  linkedNoteTitle: string | null
-  lastSavedAt:    number | null
+export type { PersistedMeta }
+
+export interface RuntimeSession extends PersistedChatSession {
   linkedNoteTrashed: boolean
   linkedNoteDeleted: boolean
-  ragScope: "all" | "note"
-  webSearchEnabled: boolean          // ← M17: per-session web search toggle
+  isLoading:         boolean
 }
 
 interface ChatSessionStore {
-  sessions: Record<1 | 2, ChatSession>
+  sessions:    Record<string, RuntimeSession>
+  paneNoteId:  Record<1 | 2, string | null>
 
-  // Called after every successful save
-  setLinkedNote: (pane: 1 | 2, noteId: string, noteTitle: string) => void
+  // ── Pane pointer ────────────────────────────────────────────────────────────
+  setPaneNote: (pane: 1 | 2, noteId: string) => Promise<void>
 
-  // Update the cached title when the note is renamed/moved
-  setLinkedNoteTitle: (pane: 1 | 2, title: string) => void
+  // ── DB load / save ──────────────────────────────────────────────────────────
+  loadSession: (noteId: string) => Promise<void>
+  saveSession: (noteId: string) => Promise<void>
 
-  // Stamp last_saved_at — called immediately after DB write completes
-  stampSavedAt: (pane: 1 | 2) => void
+  // ── Message mutations (in-memory only — DB written after completion) ────────
+  addMessage:        (noteId: string, message: ChatMessage) => void
+  setMessageContent: (noteId: string, messageId: string, content: string) => void
+  setPersistedMeta:  (noteId: string, messageId: string, meta: PersistedMeta) => void
 
-  // Lifecycle events for linked note (M5)
-  markLinkedNoteTrashed:  (pane: 1 | 2) => void
-  markLinkedNoteDeleted:  (pane: 1 | 2) => void
-  markLinkedNoteRestored: (pane: 1 | 2, title: string) => void
+  // ── Session metadata ────────────────────────────────────────────────────────
+  setLinkedNote:       (noteId: string, linkedId: string, title: string) => void
+  setLinkedNoteTitle:  (noteId: string, title: string) => void
+  stampSavedAt:        (noteId: string) => void
+  setRagScope:         (noteId: string, scope: "all" | "note") => void
+  setWebSearchEnabled: (noteId: string, enabled: boolean) => void
 
+  // ── Note lifecycle events ───────────────────────────────────────────────────
+  markLinkedNoteTrashed:  (noteId: string) => void
+  markLinkedNoteDeleted:  (noteId: string) => void
+  markLinkedNoteRestored: (noteId: string, title: string) => void
 
-// Called by "New conversation" button — resets everything for the pane
-  clearSession: (pane: 1 | 2) => void
+  // ── Clear ───────────────────────────────────────────────────────────────────
+  clearSession: (noteId: string) => Promise<void>
 
-  // M14 — set RAG scope for the pane
-  setRagScope: (pane: 1 | 2, scope: "all" | "note") => void
-
-  // M17 — set web search enabled for the pane
-  setWebSearchEnabled: (pane: 1 | 2, enabled: boolean) => void
-
-  // Selectors
-  getSession:       (pane: 1 | 2) => ChatSession
-  isLinked:         (pane: 1 | 2) => boolean
-  getLinkedNoteId:  (pane: 1 | 2) => string | null
+  // ── Selectors ───────────────────────────────────────────────────────────────
+  getSession:        (pane: 1 | 2) => RuntimeSession
+  getSessionByNoteId:(noteId: string) => RuntimeSession
+  isLinked:          (pane: 1 | 2) => boolean
+  getLinkedNoteId:   (pane: 1 | 2) => string | null
 }
 
-// ─── Default session ──────────────────────────────────────────────────────────
+// ─── Defaults ────────────────────────────────────────────────────────────────
 
-function emptySession(): ChatSession {
+function emptySession(): RuntimeSession {
   return {
+    messages:          [],
+    persistedMeta:     [],
     linkedNoteId:      null,
     linkedNoteTitle:   null,
     lastSavedAt:       null,
+    ragScope:          "all",
+    webSearchEnabled:  false,
+    updatedAt:         Date.now(),
     linkedNoteTrashed: false,
     linkedNoteDeleted: false,
-    ragScope:          "all",
-    webSearchEnabled:  false,    // ← M17: default false; app_settings default synced on mount
+    isLoading:         false,
   }
+}
+
+function toPersistedSession(s: RuntimeSession): PersistedChatSession {
+  return {
+    messages:         s.messages,
+    persistedMeta:    s.persistedMeta,
+    linkedNoteId:     s.linkedNoteId,
+    linkedNoteTitle:  s.linkedNoteTitle,
+    lastSavedAt:      s.lastSavedAt,
+    ragScope:         s.ragScope,
+    webSearchEnabled: s.webSearchEnabled,
+    updatedAt:        s.updatedAt,
+  }
+}
+
+// ─── Debounce helper ──────────────────────────────────────────────────────────
+
+const _saveTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+
+function debouncedSave(noteId: string, fn: () => void, ms = 500) {
+  clearTimeout(_saveTimers[noteId])
+  _saveTimers[noteId] = setTimeout(fn, ms)
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useChatSessionStore = create<ChatSessionStore>((set, get) => ({
-  sessions: {
-    1: emptySession(),
-    2: emptySession(),
+  sessions:   {},
+  paneNoteId: { 1: null, 2: null },
+
+  // ── setPaneNote ─────────────────────────────────────────────────────────────
+  setPaneNote: async (pane, noteId) => {
+    set((s) => ({ paneNoteId: { ...s.paneNoteId, [pane]: noteId } }))
+    if (!get().sessions[noteId]) {
+      await get().loadSession(noteId)
+    }
   },
 
-  setLinkedNote: (pane, noteId, noteTitle) =>
+  // ── loadSession ─────────────────────────────────────────────────────────────
+  loadSession: async (noteId) => {
     set((s) => ({
       sessions: {
         ...s.sessions,
-        [pane]: {
-          ...s.sessions[pane],
-          linkedNoteId:      noteId,
-          linkedNoteTitle:   noteTitle,
-          linkedNoteTrashed: false,
-          linkedNoteDeleted: false,
+        [noteId]: { ...(s.sessions[noteId] ?? emptySession()), isLoading: true },
+      },
+    }))
+    try {
+      const persisted = await getChatSession(noteId)
+      set((s) => ({
+        sessions: {
+          ...s.sessions,
+          [noteId]: {
+            ...(persisted ?? {}),
+            messages:          persisted?.messages         ?? [],
+            persistedMeta:     persisted?.persistedMeta    ?? [],
+            linkedNoteId:      persisted?.linkedNoteId     ?? null,
+            linkedNoteTitle:   persisted?.linkedNoteTitle  ?? null,
+            lastSavedAt:       persisted?.lastSavedAt      ?? null,
+            ragScope:          persisted?.ragScope         ?? "all",
+            webSearchEnabled:  persisted?.webSearchEnabled ?? false,
+            updatedAt:         persisted?.updatedAt        ?? Date.now(),
+            linkedNoteTrashed: false,
+            linkedNoteDeleted: false,
+            isLoading:         false,
+          },
         },
-      },
-    })),
-
-  setLinkedNoteTitle: (pane, title) =>
-    set((s) => ({
-      sessions: {
-        ...s.sessions,
-        [pane]: { ...s.sessions[pane], linkedNoteTitle: title },
-      },
-    })),
-
-  stampSavedAt: (pane) =>
-    set((s) => ({
-      sessions: {
-        ...s.sessions,
-        [pane]: { ...s.sessions[pane], lastSavedAt: Date.now() },
-      },
-    })),
-
-  markLinkedNoteTrashed: (pane) =>
-    set((s) => ({
-      sessions: {
-        ...s.sessions,
-        [pane]: { ...s.sessions[pane], linkedNoteTrashed: true },
-      },
-    })),
-
-  markLinkedNoteDeleted: (pane) =>
-    set((s) => ({
-      sessions: {
-        ...s.sessions,
-        [pane]: {
-          ...s.sessions[pane],
-          linkedNoteId:      null,
-          linkedNoteTitle:   null,
-          linkedNoteTrashed: false,
-          linkedNoteDeleted: true,
+      }))
+    } catch {
+      set((s) => ({
+        sessions: {
+          ...s.sessions,
+          [noteId]: { ...(s.sessions[noteId] ?? emptySession()), isLoading: false },
         },
-      },
-    })),
+      }))
+    }
+  },
 
-  markLinkedNoteRestored: (pane, title) =>
-    set((s) => ({
-      sessions: {
-        ...s.sessions,
-        [pane]: {
-          ...s.sessions[pane],
-          linkedNoteTrashed: false,
-          linkedNoteTitle:   title,
+  // ── saveSession ─────────────────────────────────────────────────────────────
+  saveSession: async (noteId) => {
+    const session = get().sessions[noteId]
+    if (!session) return
+    await saveChatSession(noteId, toPersistedSession(session))
+  },
+
+  // ── addMessage ──────────────────────────────────────────────────────────────
+  addMessage: (noteId, message) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      return {
+        sessions: {
+          ...s.sessions,
+          [noteId]: { ...session, messages: [...session.messages, message] },
         },
-      },
-    })),
+      }
+    })
+  },
 
-  clearSession: (pane) =>
-    set((s) => ({
-      sessions: { ...s.sessions, [pane]: emptySession() },
-    })),
+  // ── setMessageContent ────────────────────────────────────────────────────────
+  setMessageContent: (noteId, messageId, content) => {
+    set((s) => {
+      const session = s.sessions[noteId]
+      if (!session) return s
+      return {
+        sessions: {
+          ...s.sessions,
+          [noteId]: {
+            ...session,
+            messages: session.messages.map((m) =>
+              m.id === messageId ? { ...m, content } : m
+            ),
+          },
+        },
+      }
+    })
+  },
 
-  setRagScope: (pane, scope) =>
-    set((s) => ({
-      sessions: {
-        ...s.sessions,
-        [pane]: { ...s.sessions[pane], ragScope: scope },
-      },
-    })),
+  // ── setPersistedMeta ─────────────────────────────────────────────────────────
+  setPersistedMeta: (noteId, messageId, meta) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      const existing = session.persistedMeta.filter((m) => m.messageId !== messageId)
+      const updated = { ...session, persistedMeta: [...existing, meta], updatedAt: Date.now() }
+      debouncedSave(noteId, () => saveChatSession(noteId, toPersistedSession(get().sessions[noteId])))
+      return { sessions: { ...s.sessions, [noteId]: updated } }
+    })
+  },
 
-  // ─── M17: setWebSearchEnabled implementation ────────────────────────────────
-  setWebSearchEnabled: (pane, enabled) =>
-    set((s) => ({
-      sessions: {
-        ...s.sessions,
-        [pane]: { ...s.sessions[pane], webSearchEnabled: enabled },
-      },
-    })),
+  // ── setLinkedNote ────────────────────────────────────────────────────────────
+  setLinkedNote: (noteId, linkedId, title) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      const updated = {
+        ...session,
+        linkedNoteId:      linkedId,
+        linkedNoteTitle:   title,
+        linkedNoteTrashed: false,
+        linkedNoteDeleted: false,
+        updatedAt:         Date.now(),
+      }
+      debouncedSave(noteId, () => saveChatSession(noteId, toPersistedSession(get().sessions[noteId])))
+      return { sessions: { ...s.sessions, [noteId]: updated } }
+    })
+  },
 
-  getSession:      (pane) => get().sessions[pane],
-  isLinked:        (pane) => get().sessions[pane].linkedNoteId !== null,
-  getLinkedNoteId: (pane) => get().sessions[pane].linkedNoteId,
+  // ── setLinkedNoteTitle ───────────────────────────────────────────────────────
+  setLinkedNoteTitle: (noteId, title) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      const updated = { ...session, linkedNoteTitle: title, updatedAt: Date.now() }
+      debouncedSave(noteId, () => saveChatSession(noteId, toPersistedSession(get().sessions[noteId])))
+      return { sessions: { ...s.sessions, [noteId]: updated } }
+    })
+  },
+
+  // ── stampSavedAt ─────────────────────────────────────────────────────────────
+  stampSavedAt: (noteId) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      const updated = { ...session, lastSavedAt: Date.now(), updatedAt: Date.now() }
+      debouncedSave(noteId, () => saveChatSession(noteId, toPersistedSession(get().sessions[noteId])))
+      return { sessions: { ...s.sessions, [noteId]: updated } }
+    })
+  },
+
+  // ── setRagScope ──────────────────────────────────────────────────────────────
+  setRagScope: (noteId, scope) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      const updated = { ...session, ragScope: scope, updatedAt: Date.now() }
+      debouncedSave(noteId, () => saveChatSession(noteId, toPersistedSession(get().sessions[noteId])))
+      return { sessions: { ...s.sessions, [noteId]: updated } }
+    })
+  },
+
+  // ── setWebSearchEnabled ──────────────────────────────────────────────────────
+  setWebSearchEnabled: (noteId, enabled) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      const updated = { ...session, webSearchEnabled: enabled, updatedAt: Date.now() }
+      debouncedSave(noteId, () => saveChatSession(noteId, toPersistedSession(get().sessions[noteId])))
+      return { sessions: { ...s.sessions, [noteId]: updated } }
+    })
+  },
+
+  // ── markLinkedNoteTrashed ────────────────────────────────────────────────────
+  markLinkedNoteTrashed: (noteId) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      return { sessions: { ...s.sessions, [noteId]: { ...session, linkedNoteTrashed: true } } }
+    })
+  },
+
+  // ── markLinkedNoteDeleted ────────────────────────────────────────────────────
+  markLinkedNoteDeleted: (noteId) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      return {
+        sessions: {
+          ...s.sessions,
+          [noteId]: {
+            ...session,
+            linkedNoteId:      null,
+            linkedNoteTitle:   null,
+            linkedNoteTrashed: false,
+            linkedNoteDeleted: true,
+          },
+        },
+      }
+    })
+  },
+
+  // ── markLinkedNoteRestored ───────────────────────────────────────────────────
+  markLinkedNoteRestored: (noteId, title) => {
+    set((s) => {
+      const session = s.sessions[noteId] ?? emptySession()
+      return {
+        sessions: {
+          ...s.sessions,
+          [noteId]: { ...session, linkedNoteTrashed: false, linkedNoteTitle: title },
+        },
+      }
+    })
+  },
+
+  // ── clearSession ─────────────────────────────────────────────────────────────
+  clearSession: async (noteId) => {
+    await deleteChatSession(noteId)
+    set((s) => {
+      const next = { ...s.sessions }
+      delete next[noteId]
+      return { sessions: next }
+    })
+  },
+
+  // ── Selectors ────────────────────────────────────────────────────────────────
+  getSession: (pane) => {
+    const noteId = get().paneNoteId[pane]
+    if (!noteId) return emptySession()
+    return get().sessions[noteId] ?? emptySession()
+  },
+
+  getSessionByNoteId: (noteId) => {
+    return get().sessions[noteId] ?? emptySession()
+  },
+
+  isLinked: (pane) => {
+    return get().getSession(pane).linkedNoteId !== null
+  },
+
+  getLinkedNoteId: (pane) => {
+    return get().getSession(pane).linkedNoteId
+  },
 }))

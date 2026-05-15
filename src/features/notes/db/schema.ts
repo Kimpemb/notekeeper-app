@@ -310,4 +310,18 @@ export const ALL_MIGRATIONS: string[] = [
   // Same path, stored per-embedding so the model receives provenance
   // context alongside every retrieved chunk.
   `ALTER TABLE embeddings ADD COLUMN breadcrumb TEXT`,
+
+  // ── Chat Sessions (persistent chat history per note) ─────────────────────
+  `CREATE TABLE IF NOT EXISTS chat_sessions (
+    note_id            TEXT     PRIMARY KEY,
+    messages           TEXT     NOT NULL DEFAULT '[]',
+    persisted_meta     TEXT     NOT NULL DEFAULT '[]',
+    linked_note_id     TEXT,
+    linked_note_title  TEXT,
+    last_saved_at      INTEGER,
+    rag_scope          TEXT     NOT NULL DEFAULT 'all',
+    web_search_enabled INTEGER  NOT NULL DEFAULT 0,
+    updated_at         INTEGER  NOT NULL
+  )`,
+
 ];

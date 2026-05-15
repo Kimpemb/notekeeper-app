@@ -323,6 +323,7 @@ export function SaveNoteDialog({
 
   // ── Session linkage ─────────────────────────────────────────────────────────
 
+  const currentNoteId_  = paneActiveNoteId(paneId) ?? ""
   const session         = useChatSessionStore.getState().getSession(paneId)
   const linkedNoteId    = session.linkedNoteId   ?? null
   const linkedNoteTitle = session.linkedNoteTitle ?? null
@@ -453,7 +454,7 @@ export function SaveNoteDialog({
       const existingPlain = targetNote?.plaintext ?? ""
       await updateNote(locationId, { content: newContent, plaintext: existingPlain + wrapped })
       onSaveSuccess(locationId, targetNote?.title ?? "")
-      useChatSessionStore.getState().stampSavedAt(paneId)
+      useChatSessionStore.getState().stampSavedAt(currentNoteId_)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Append failed. Please try again.")
@@ -492,7 +493,7 @@ export function SaveNoteDialog({
         await saveManualVersion(linkedNoteId)
         await updateNote(linkedNoteId, { content, plaintext })
         onSaveSuccess(linkedNoteId, linkedNote.title)
-        useChatSessionStore.getState().stampSavedAt(paneId)
+        useChatSessionStore.getState().stampSavedAt(currentNoteId_)
         onClose()
       }
     } catch (err) {
@@ -532,7 +533,7 @@ export function SaveNoteDialog({
       }
 
       onSaveSuccess(savedNote.id, savedNote.title)
-      useChatSessionStore.getState().stampSavedAt(paneId)
+      useChatSessionStore.getState().stampSavedAt(currentNoteId_)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed. Please try again.")
@@ -708,7 +709,7 @@ export function SaveNoteDialog({
                       await saveManualVersion(s.linkedNoteId!)
                       await updateNote(s.linkedNoteId!, { content, plaintext: conflictPending.plaintext })
                       onSaveSuccess(s.linkedNoteId!, linkedNote.title)
-                      useChatSessionStore.getState().stampSavedAt(paneId)
+                      useChatSessionStore.getState().stampSavedAt(currentNoteId_)
                     }
                     setConflictPending(null)
                     onClose()
@@ -739,7 +740,7 @@ export function SaveNoteDialog({
                       detail: { noteId: savedNote.id }
                     }))
                     onSaveSuccess(savedNote.id, savedNote.title)
-                    useChatSessionStore.getState().stampSavedAt(paneId)
+                    useChatSessionStore.getState().stampSavedAt(currentNoteId_)
                     setConflictPending(null)
                     onClose()
                   }}

@@ -668,6 +668,7 @@ export async function deleteNote(id: string): Promise<void> {
     const note = await getNoteById(noteId);
     if (note) await deleteNoteAssets(note.content ?? "");
     await db.execute(`DELETE FROM notes WHERE id = $1`, [noteId]);
+    await deleteChatSession(noteId);
   }
   await db.execute(`PRAGMA wal_checkpoint(TRUNCATE)`);
 }
@@ -2626,4 +2627,110 @@ export async function getRagExcludedNotes(): Promise<Note[]> {
      WHERE rag_excluded = 1
        AND deleted_at IS NULL`
   );
+}
+
+// ─── Chat Sessions ────────────────────────────────────────────────────────────
+
+export interface PersistedMeta {
+  messageId:       string
+  confidence?:     "high" | "medium" | "low"
+  citations?:      { noteId: string; title: string; isTitleMatch?: boolean }[]
+  usedWeb?:        boolean
+  usedEmbeddings?: boolean
+}
+
+export interface PersistedChatSession {
+  messages:         import("@/features/ai/lib/chat").ChatMessage[]
+  persistedMeta:    PersistedMeta[]
+  linkedNoteId:     string | null
+  linkedNoteTitle:  string | null
+  lastSavedAt:      number | null
+  ragScope:         "all" | "note"
+  webSearchEnabled: boolean
+  updatedAt:        number
+}
+
+function trimToMessageCap(
+  messages: import("@/features/ai/lib/chat").ChatMessage[],
+  cap = 80
+): import("@/features/ai/lib/chat").ChatMessage[] {
+  if (messages.length <= cap) return messages
+  return messages.slice(messages.length - cap)
+}
+
+export async function getChatSession(
+  noteId: string
+): Promise<PersistedChatSession | null> {
+  const db = await getDb()
+  const rows = await db.select<{
+    note_id:            string
+    messages:           string
+    persisted_meta:     string
+    linked_note_id:     string | null
+    linked_note_title:  string | null
+    last_saved_at:      number | null
+    rag_scope:          string
+    web_search_enabled: number
+    updated_at:         number
+  }[]>(
+    `SELECT note_id, messages, persisted_meta, linked_note_id, linked_note_title,
+            last_saved_at, rag_scope, web_search_enabled, updated_at
+     FROM chat_sessions WHERE note_id = $1`,
+    [noteId]
+  )
+  if (rows.length === 0) return null
+  const row = rows[0]
+  try {
+    return {
+      messages:         JSON.parse(row.messages)         ?? [],
+      persistedMeta:    JSON.parse(row.persisted_meta)   ?? [],
+      linkedNoteId:     row.linked_note_id,
+      linkedNoteTitle:  row.linked_note_title,
+      lastSavedAt:      row.last_saved_at,
+      ragScope:         (row.rag_scope as "all" | "note") ?? "all",
+      webSearchEnabled: row.web_search_enabled === 1,
+      updatedAt:        row.updated_at,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function saveChatSession(
+  noteId: string,
+  data: PersistedChatSession
+): Promise<void> {
+  const db = await getDb()
+  const trimmedMessages = trimToMessageCap(data.messages, 80)
+  await db.execute(
+    `INSERT INTO chat_sessions
+       (note_id, messages, persisted_meta, linked_note_id, linked_note_title,
+        last_saved_at, rag_scope, web_search_enabled, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT(note_id) DO UPDATE SET
+       messages           = excluded.messages,
+       persisted_meta     = excluded.persisted_meta,
+       linked_note_id     = excluded.linked_note_id,
+       linked_note_title  = excluded.linked_note_title,
+       last_saved_at      = excluded.last_saved_at,
+       rag_scope          = excluded.rag_scope,
+       web_search_enabled = excluded.web_search_enabled,
+       updated_at         = excluded.updated_at`,
+    [
+      noteId,
+      JSON.stringify(trimmedMessages),
+      JSON.stringify(data.persistedMeta),
+      data.linkedNoteId,
+      data.linkedNoteTitle,
+      data.lastSavedAt,
+      data.ragScope,
+      data.webSearchEnabled ? 1 : 0,
+      data.updatedAt,
+    ]
+  )
+}
+
+export async function deleteChatSession(noteId: string): Promise<void> {
+  const db = await getDb()
+  await db.execute(`DELETE FROM chat_sessions WHERE note_id = $1`, [noteId])
 }
