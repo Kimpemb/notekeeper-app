@@ -87,7 +87,9 @@ export const BlockIdExtension = Extension.create({
     modified = true;
   });
 
-  return modified ? tr : null;
+  if (!modified) return null;
+  tr.setMeta("preventAutoSave", true);
+  return tr;
 },
       }),
     ];

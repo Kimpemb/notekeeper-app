@@ -176,18 +176,25 @@ setSaveStatus("saved");
   useEffect(() => {
     if (!editor) return;
 
-    const handler = ({ transaction }: { transaction: any }) => {
-      if (!transaction.docChanged) return;
-      if (transaction.getMeta("preventAutoSave")) return;
-      if (contentLoading?.current) {
-        // Paste arrived during programmatic load window — retry after it clears
-        setTimeout(() => {
-          if (!contentLoading?.current) scheduleSave();
-        }, 50);
-        return;
-      }
-      scheduleSave();
-    };
+   const handler = ({ transaction }: { transaction: any }) => {
+  if (!transaction.docChanged) return;
+  if (transaction.getMeta("preventAutoSave")) return;
+const metaKeys = Object.keys(transaction.meta ?? {});
+if (metaKeys.length === 1 && metaKeys[0] === "preventUpdate") return;
+  console.log(
+    "[autosave] docChanged transaction fired,",
+    "steps:", transaction.steps.length,
+    "step types:", transaction.steps.map((s: any) => s.constructor.name),
+    "all metas:", JSON.stringify(transaction.meta)
+  );
+  if (contentLoading?.current) {
+    setTimeout(() => {
+      if (!contentLoading?.current) scheduleSave();
+    }, 50);
+    return;
+  }
+  scheduleSave();
+};
 
     editor.on("transaction", handler);
     return () => { editor.off("transaction", handler); };

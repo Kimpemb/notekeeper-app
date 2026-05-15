@@ -127,19 +127,15 @@ function reconcileSubPageBlocks(
   try { doc = JSON.parse(contentJson); } catch { return null; }
 
   const existingIds = new Set<string>();
-  let hasPendingBlock = false;
-  for (const node of doc.content ?? []) {
-    const n = node as { type: string; attrs?: { noteId?: string | null; mode?: string } };
-    if (n.type === "subPage") {
-      if (n.attrs?.noteId) existingIds.add(n.attrs.noteId);
-      if (n.attrs?.mode === "editing" || n.attrs?.noteId == null) hasPendingBlock = true;
-    }
+for (const node of doc.content ?? []) {
+  const n = node as { type: string; attrs?: { noteId?: string | null } };
+  if (n.type === "subPage" && n.attrs?.noteId) {
+    existingIds.add(n.attrs.noteId);
   }
+}
 
-  if (!hasPendingBlock) return null;
-
-  const missing = children.filter((c) => !existingIds.has(c.id));
-  if (missing.length === 0) return null;
+const missing = children.filter((c) => !existingIds.has(c.id));
+if (missing.length === 0) return null;
 
   const newBlocks = missing.map((c) => ({
     type: "subPage",
@@ -217,8 +213,14 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const titleFocusedRef     = useRef(false);
   const subPageCreatingRef  = useRef(false);
   const suppressSave        = useRef(false);
-  const contentLoadingRef   = useRef(false);
+const contentLoadingRef   = useRef(false);
 
+const isEmptyContent = !note?.content ||
+  note.content === "null" ||
+  note.content === "" ||
+  note.content === '{"type":"doc","content":[]}';
+
+const [contentReady, setContentReady] = useState(!isEmptyContent);
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const bubblePosRef                    = useRef<BubblePos | null>(null);
@@ -249,16 +251,16 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   // Load content if empty/stub — only fires once per mount
   const _contentLoadFired = useRef(false);
-const isEmptyContent = !note?.content ||
-  note.content === "null" ||
-  note.content === "" ||
-  note.content === '{"type":"doc","content":[]}';
+
 
 useEffect(() => {
+  if (!isEmptyContent) {
+    setContentReady(true);
+    return;
+  }
   if (_contentLoadFired.current) return;
-  if (!isEmptyContent) return;
   _contentLoadFired.current = true;
-  loadNoteContent(noteId);
+  loadNoteContent(noteId).then(() => setContentReady(true));
 }, [noteId, isEmptyContent]);
 
   const initialContent = (() => {
@@ -539,25 +541,37 @@ useEffect(() => {
   }, [noteId, editor]);
 
   useEffect(() => {
-    if (!editor || !note) return;
-    if (subPageCreatingRef.current) return;
+  if (!editor || !note) return;
+  if (subPageCreatingRef.current) return;
 
-    const children = notes
-      .filter((n) => n.parent_id === noteId && !n.deleted_at)
-      .sort((a, b) => a.sort_order - b.sort_order);
+  // Don't reconcile until content is fully loaded — avoids wiping real content
+  // when the note is still a stub on first mount.
+  const isStub = !note.content ||
+    note.content === "null" ||
+    note.content === "" ||
+    note.content === '{"type":"doc","content":[]}';
+  if (isStub) return;
 
-    if (children.length === 0) return;
+  const children = notes
+    .filter((n) => n.parent_id === noteId && !n.deleted_at)
+    .sort((a, b) => a.sort_order - b.sort_order);
 
-    const newContent = reconcileSubPageBlocks(note.content ?? "", children);
-    if (!newContent) return;
+  if (children.length === 0) return;
+
+  const newContent = reconcileSubPageBlocks(note.content ?? "", children);
+  if (!newContent) return;
 
     const apply = () => {
-      if (editor.isDestroyed || editor.isFocused) return;
-      if (subPageCreatingRef.current) return;
-      editor.commands.setContent(JSON.parse(newContent));
-      lastSavedContent.current = newContent;
-      updateNote(noteId, { content: newContent });
-    };
+  if (editor.isDestroyed || editor.isFocused) return;
+  if (subPageCreatingRef.current) return;
+  console.log("[reconciler] applying subpage blocks");
+  contentLoadingRef.current = true;
+  editor.commands.setContent(JSON.parse(newContent));
+  editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
+  lastSavedContent.current = newContent;
+  updateNote(noteId, { content: newContent });
+  setTimeout(() => { contentLoadingRef.current = false; }, 0);
+};
 
     const t = setTimeout(apply, 80);
     return () => clearTimeout(t);
@@ -750,7 +764,8 @@ useEffect(() => {
   });
 
   // ── Early return — all hooks must be above this line ─────────────────────
-  if (!note) return null;
+if (!note) return null;
+if (!contentReady) return null;
 
   const isUntitled = /^Untitled-\d+$/.test(note.title);
 
