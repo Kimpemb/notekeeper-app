@@ -163,13 +163,18 @@ async function ftsPass(
   const overrideSet  = new Set(overrideNoteIds ?? [])
 
   for (const query of queries) {
+    // AFTER
     const rawTerms = query
       .trim()
-      .replace(/['"*^()?!.,;:\[\]-]/g, " ")
+      .replace(/['"*^()?!.,;:\[\]\/\\-]/g, " ")   // add / and \ to stripped chars
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .filter((word) => (word.length > 2 || /^\d+$/.test(word)) && !FTS_STOP_WORDS.has(word.toLowerCase()))
+      .filter((word) =>
+        word.length > 2 &&                          // remove the digit exception — "2" is noise
+        !/^\d+$/.test(word) &&                      // pure numbers are never useful FTS terms
+        !FTS_STOP_WORDS.has(word.toLowerCase())
+      )
 
     // IDF filtering — drop terms that match too many blocks (noise terms)
     // Runs one lightweight COUNT per term, skipped if only one term remains
@@ -189,6 +194,8 @@ async function ftsPass(
           }
         })
       )
+      // Only filter if at least one term survives — never drop all terms
+      console.log('[idf]', termFreqs.map(t => `"${t.term}": ${t.count}`).join(', '))
       // Only filter if at least one term survives — never drop all terms
       const surviving = termFreqs.filter((t) => t.count <= MAX_DF)
       if (surviving.length > 0) {

@@ -292,10 +292,16 @@ async function findRelatedNotes(
   try {
     // FIX: strip [N] citation markers and truncate before passing to FTS.
     // Raw answer text contains [1], [2] etc. which break FTS5 MATCH syntax.
+    // AFTER
     const query = answerText
-      .replace(/\[\d+\]/g, "")
-      .replace(/[*•\-#>`]/g, " ")
-      .slice(0, 300)
+      .replace(/\[\d+\]/g, "")                     // strip citation markers
+      .replace(/`[^`]+`/g, " ")                    // strip inline code (file paths live here)
+      .replace(/```[\s\S]*?```/g, " ")             // strip code blocks
+      .replace(/[*•\-#>`\/\\]/g, " ")             // add / and \ 
+      .replace(/\b\w*[\/\\._]\w+\b/g, " ")        // strip path-like tokens
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 200)                               // tighter slice — 300 was too generous
     if (!query.trim()) return []
 
     const { results } = await hybridSearch(query, 5, { currentNoteId })
