@@ -521,6 +521,16 @@ export function SaveNoteDialog({
         parent_id: locationId ?? null,
       })
 
+      // Insert subpage block into editor if the parent note is currently open
+      const uiState = useUIStore.getState()
+      const pane1NoteId = uiState.paneActiveNoteId(1)
+      const pane2NoteId = uiState.paneActiveNoteId(2)
+      if (locationId && (pane1NoteId === locationId || pane2NoteId === locationId)) {
+        window.dispatchEvent(new CustomEvent("idemora:insert-subpage", {
+          detail: { noteId: savedNote.id }
+        }))
+      }
+
       onSaveSuccess(savedNote.id, savedNote.title)
       useChatSessionStore.getState().stampSavedAt(paneId)
       onClose()
