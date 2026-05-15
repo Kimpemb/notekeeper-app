@@ -563,6 +563,7 @@ export function SaveNoteDialog({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
       onClick={onClose}
+      data-overlay-sentinel
     >
       <div
         className="w-full max-w-sm mx-4 rounded-xl bg-idemora-bg-secondary border border-idemora-border shadow-2xl overflow-hidden flex flex-col"
