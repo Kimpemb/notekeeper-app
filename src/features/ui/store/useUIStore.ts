@@ -52,6 +52,8 @@ interface SessionPersist {
   pane2ActiveTabId: string | null;
   splitOpen: boolean;
   splitDirection: SplitDirection;
+  chatOpen1: boolean;
+  chatOpen2: boolean;
 }
 
 function saveSession(state: UIStore) {
@@ -62,6 +64,8 @@ function saveSession(state: UIStore) {
     pane2ActiveTabId: state.pane2ActiveTabId,
     splitOpen: state.splitOpen,
     splitDirection: state.splitDirection,
+    chatOpen1: state.chatOpen1,
+    chatOpen2: state.chatOpen2,
   };
   setSetting(SESSION_KEY, JSON.stringify(persist)).catch(console.error);
 }
@@ -345,6 +349,8 @@ export const useUIStore = create<UIStore>((set, get) => {
         pane2ActiveTabId: session.pane2ActiveTabId ?? null,
         splitOpen: session.splitOpen ?? false,
         splitDirection: session.splitDirection ?? "horizontal",
+        chatOpen1: session.chatOpen1 ?? false,
+        chatOpen2: session.chatOpen2 ?? false,
       });
     }
   } catch { /**/ }
@@ -432,8 +438,14 @@ export const useUIStore = create<UIStore>((set, get) => {
     // ─── Chat panel — per pane ────────────────────────────────────────────────
     chatOpen1: false,
     chatOpen2: false,
-    openChat: (paneId) => set(paneId === 1 ? { chatOpen1: true } : { chatOpen2: true }),
-    closeChat: (paneId) => set(paneId === 1 ? { chatOpen1: false } : { chatOpen2: false }),
+    openChat: (paneId) => {
+      set(paneId === 1 ? { chatOpen1: true } : { chatOpen2: true });
+      setTimeout(() => saveSession(get()), 0);
+    },
+    closeChat: (paneId) => {
+      set(paneId === 1 ? { chatOpen1: false } : { chatOpen2: false });
+      setTimeout(() => saveSession(get()), 0);
+    },
 
     // ─── File tree ────────────────────────────────────────────────────────────
     pane1FileTreeOpen: false,

@@ -195,21 +195,22 @@ export function ImportModal() {
         const bodyLines = lines.filter((l) => !l.startsWith("# ")).join("\n");
 
         const newNote: Note = {
-  id: crypto.randomUUID(),
-  title,
-  content: "",
-  plaintext: bodyLines.trim(),
-  tags,
-  frontmatter,
-  parent_id: null,
-  sync_id: crypto.randomUUID(),
-  created_at: Date.now(),
-  updated_at: Date.now(),
-  deleted_at: null,
-  sort_order: maxSortOrder + 1,
-  is_canvas: false,        // Added: regular note, not a canvas
-  canvas_state: null,      // Added: no canvas state for regular notes
-};
+          id: crypto.randomUUID(),
+          title,
+          content: "",
+          plaintext: bodyLines.trim(),
+          tags,
+          frontmatter,
+          parent_id: null,
+          sync_id: crypto.randomUUID(),
+          created_at: Date.now(),
+          updated_at: Date.now(),
+          deleted_at: null,
+          sort_order: maxSortOrder + 1,
+          is_canvas: false,
+          canvas_state: null,
+          rag_excluded: 0,  // ← Added: 0 = included in RAG index
+        };
 
         const notesByTitle = new Map<string, string>(
           existingNotes.map((n) => [n.title.toLowerCase(), n.id])
@@ -230,7 +231,12 @@ export function ImportModal() {
           "id" in n && "title" in n && "content" in n && "created_at" in n
         );
         if (!looksValid) throw new Error("This file doesn't look like an Idemora export. Only .json files exported from Idemora can be imported.");
-        notes = parsed as Note[];
+        
+        // Ensure each note has rag_excluded (default to 0 if missing)
+        notes = (parsed as Note[]).map((n) => ({
+          ...n,
+          rag_excluded: (n as any).rag_excluded ?? 0,
+        }));
       }
 
       const existingIds = new Set(useNoteStore.getState().notes.map((n) => n.id));

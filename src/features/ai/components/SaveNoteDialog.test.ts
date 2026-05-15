@@ -5,31 +5,34 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore"
+import type { ChatMessage } from "@/features/ai/lib/chat"
+
+// Helper to create a valid empty session
+function emptyTestSession() {
+  return {
+    messages:          [] as ChatMessage[],
+    persistedMeta:     [],
+    linkedNoteId:      null as string | null,
+    linkedNoteTitle:   null as string | null,
+    lastSavedAt:       null as number | null,
+    ragScope:          "all" as "all" | "note",
+    webSearchEnabled:  false,
+    updatedAt:         Date.now(),
+    linkedNoteTrashed: false,
+    linkedNoteDeleted: false,
+    isLoading:         false,
+  }
+}
 
 // ─── Reset store before each test ─────────────────────────────────────────────
 
 beforeEach(() => {
   useChatSessionStore.setState({
     sessions: {
-      1: {
-        linkedNoteId:      null,
-        linkedNoteTitle:   null,
-        lastSavedAt:       null,
-        linkedNoteTrashed: false,
-        linkedNoteDeleted: false,
-        ragScope:          "all",
-        webSearchEnabled:  false,
-      },
-      2: {
-        linkedNoteId:      null,
-        linkedNoteTitle:   null,
-        lastSavedAt:       null,
-        linkedNoteTrashed: false,
-        linkedNoteDeleted: false,
-        ragScope:          "all",
-        webSearchEnabled:  false,
-      },
+      "test-note-1": emptyTestSession(),
+      "test-note-2": emptyTestSession(),
     },
+    paneNoteId: { 1: "test-note-1", 2: "test-note-2" },
   })
 })
 
@@ -74,8 +77,8 @@ describe("conflict detection", () => {
 
 describe("stampSavedAt conflict prevention", () => {
   it("stamping after save prevents conflict on immediate re-save", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().stampSavedAt(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().stampSavedAt("test-note-1")
 
     const session     = useChatSessionStore.getState().getSession(1)
     const lastSavedAt = session.lastSavedAt!
@@ -86,8 +89,8 @@ describe("stampSavedAt conflict prevention", () => {
   })
 
   it("conflict detected when note edited after stamp", async () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().stampSavedAt(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().stampSavedAt("test-note-1")
 
     const session     = useChatSessionStore.getState().getSession(1)
     const lastSavedAt = session.lastSavedAt!
@@ -102,32 +105,32 @@ describe("stampSavedAt conflict prevention", () => {
 
 describe("re-save path", () => {
   it("isLinked returns true after first save", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
     expect(useChatSessionStore.getState().isLinked(1)).toBe(true)
   })
 
   it("re-save detects existing linkedNoteId", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
     const session = useChatSessionStore.getState().getSession(1)
     expect(session.linkedNoteId).toBe("note-abc")
   })
 
   it("clearSession removes link — next save treated as first save", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().clearSession(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().clearSession("test-note-1")
     expect(useChatSessionStore.getState().isLinked(1)).toBe(false)
     expect(useChatSessionStore.getState().getLinkedNoteId(1)).toBeNull()
   })
 
   it("stampSavedAt updates after re-save", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().stampSavedAt(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().stampSavedAt("test-note-1")
     const first = useChatSessionStore.getState().getSession(1).lastSavedAt!
 
     // Simulate time passing
     vi.useFakeTimers()
     vi.advanceTimersByTime(500)
-    useChatSessionStore.getState().stampSavedAt(1)
+    useChatSessionStore.getState().stampSavedAt("test-note-1")
     const second = useChatSessionStore.getState().getSession(1).lastSavedAt!
     vi.useRealTimers()
 

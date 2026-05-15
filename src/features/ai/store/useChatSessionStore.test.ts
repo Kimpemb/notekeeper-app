@@ -2,30 +2,33 @@
 
 import { describe, it, expect, beforeEach } from "vitest"
 import { useChatSessionStore } from "./useChatSessionStore"
+import type { ChatMessage } from "@/features/ai/lib/chat"
+
+// Helper to create a valid empty session
+function emptyTestSession() {
+  return {
+    messages:          [] as ChatMessage[],
+    persistedMeta:     [],
+    linkedNoteId:      null as string | null,
+    linkedNoteTitle:   null as string | null,
+    lastSavedAt:       null as number | null,
+    ragScope:          "all" as "all" | "note",
+    webSearchEnabled:  false,
+    updatedAt:         Date.now(),
+    linkedNoteTrashed: false,
+    linkedNoteDeleted: false,
+    isLoading:         false,
+  }
+}
 
 // Reset store state before each test
 beforeEach(() => {
   useChatSessionStore.setState({
     sessions: {
-      1: {
-        linkedNoteId:      null,
-        linkedNoteTitle:   null,
-        lastSavedAt:       null,
-        linkedNoteTrashed: false,
-        linkedNoteDeleted: false,
-        ragScope:          "all",
-        webSearchEnabled:  false,
-      },
-      2: {
-        linkedNoteId:      null,
-        linkedNoteTitle:   null,
-        lastSavedAt:       null,
-        linkedNoteTrashed: false,
-        linkedNoteDeleted: false,
-        ragScope:          "all",
-        webSearchEnabled:  false,
-      },
+      "test-note-1": emptyTestSession(),
+      "test-note-2": emptyTestSession(),
     },
+    paneNoteId: { 1: "test-note-1", 2: "test-note-2" },
   })
 })
 
@@ -52,28 +55,28 @@ describe("initial state", () => {
 
 describe("setLinkedNote", () => {
   it("links pane 1 to a note", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
     const s = useChatSessionStore.getState().getSession(1)
     expect(s.linkedNoteId).toBe("note-abc")
     expect(s.linkedNoteTitle).toBe("My Note")
   })
 
   it("does not affect pane 2 when pane 1 is linked", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
     expect(useChatSessionStore.getState().isLinked(2)).toBe(false)
   })
 
   it("clears trashed and deleted flags on link", () => {
-    useChatSessionStore.getState().markLinkedNoteTrashed(1)
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
+    useChatSessionStore.getState().markLinkedNoteTrashed("test-note-1")
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
     const s = useChatSessionStore.getState().getSession(1)
     expect(s.linkedNoteTrashed).toBe(false)
     expect(s.linkedNoteDeleted).toBe(false)
   })
 
   it("panes are independent — linking pane 2 does not affect pane 1", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-111", "Note 1")
-    useChatSessionStore.getState().setLinkedNote(2, "note-222", "Note 2")
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-111", "Note 1")
+    useChatSessionStore.getState().setLinkedNote("test-note-2", "note-222", "Note 2")
     expect(useChatSessionStore.getState().getLinkedNoteId(1)).toBe("note-111")
     expect(useChatSessionStore.getState().getLinkedNoteId(2)).toBe("note-222")
   })
@@ -83,8 +86,8 @@ describe("setLinkedNote", () => {
 
 describe("setLinkedNoteTitle", () => {
   it("updates title without affecting other fields", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "Old Title")
-    useChatSessionStore.getState().setLinkedNoteTitle(1, "New Title")
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "Old Title")
+    useChatSessionStore.getState().setLinkedNoteTitle("test-note-1", "New Title")
     const s = useChatSessionStore.getState().getSession(1)
     expect(s.linkedNoteTitle).toBe("New Title")
     expect(s.linkedNoteId).toBe("note-abc")
@@ -96,7 +99,7 @@ describe("setLinkedNoteTitle", () => {
 describe("stampSavedAt", () => {
   it("sets lastSavedAt to a recent timestamp", () => {
     const before = Date.now()
-    useChatSessionStore.getState().stampSavedAt(1)
+    useChatSessionStore.getState().stampSavedAt("test-note-1")
     const after = Date.now()
     const ts = useChatSessionStore.getState().getSession(1).lastSavedAt
     expect(ts).not.toBeNull()
@@ -105,7 +108,7 @@ describe("stampSavedAt", () => {
   })
 
   it("does not affect pane 2", () => {
-    useChatSessionStore.getState().stampSavedAt(1)
+    useChatSessionStore.getState().stampSavedAt("test-note-1")
     expect(useChatSessionStore.getState().getSession(2).lastSavedAt).toBeNull()
   })
 })
@@ -114,14 +117,14 @@ describe("stampSavedAt", () => {
 
 describe("markLinkedNoteTrashed", () => {
   it("sets linkedNoteTrashed to true", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().markLinkedNoteTrashed(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().markLinkedNoteTrashed("test-note-1")
     expect(useChatSessionStore.getState().getSession(1).linkedNoteTrashed).toBe(true)
   })
 
   it("preserves linkedNoteId when trashed", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().markLinkedNoteTrashed(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().markLinkedNoteTrashed("test-note-1")
     expect(useChatSessionStore.getState().getLinkedNoteId(1)).toBe("note-abc")
   })
 })
@@ -130,8 +133,8 @@ describe("markLinkedNoteTrashed", () => {
 
 describe("markLinkedNoteDeleted", () => {
   it("sets linkedNoteDeleted to true and clears linkedNoteId", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().markLinkedNoteDeleted(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().markLinkedNoteDeleted("test-note-1")
     const s = useChatSessionStore.getState().getSession(1)
     expect(s.linkedNoteDeleted).toBe(true)
     expect(s.linkedNoteId).toBeNull()
@@ -140,8 +143,8 @@ describe("markLinkedNoteDeleted", () => {
   })
 
   it("isLinked returns false after deletion", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().markLinkedNoteDeleted(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().markLinkedNoteDeleted("test-note-1")
     expect(useChatSessionStore.getState().isLinked(1)).toBe(false)
   })
 })
@@ -150,9 +153,9 @@ describe("markLinkedNoteDeleted", () => {
 
 describe("markLinkedNoteRestored", () => {
   it("clears trashed flag and updates title", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().markLinkedNoteTrashed(1)
-    useChatSessionStore.getState().markLinkedNoteRestored(1, "My Note Restored")
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().markLinkedNoteTrashed("test-note-1")
+    useChatSessionStore.getState().markLinkedNoteRestored("test-note-1", "My Note Restored")
     const s = useChatSessionStore.getState().getSession(1)
     expect(s.linkedNoteTrashed).toBe(false)
     expect(s.linkedNoteTitle).toBe("My Note Restored")
@@ -163,9 +166,9 @@ describe("markLinkedNoteRestored", () => {
 
 describe("clearSession", () => {
   it("resets pane 1 to empty session", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-abc", "My Note")
-    useChatSessionStore.getState().stampSavedAt(1)
-    useChatSessionStore.getState().clearSession(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-abc", "My Note")
+    useChatSessionStore.getState().stampSavedAt("test-note-1")
+    useChatSessionStore.getState().clearSession("test-note-1")
     const s = useChatSessionStore.getState().getSession(1)
     expect(s.linkedNoteId).toBeNull()
     expect(s.linkedNoteTitle).toBeNull()
@@ -175,9 +178,9 @@ describe("clearSession", () => {
   })
 
   it("does not affect pane 2 when pane 1 is cleared", () => {
-    useChatSessionStore.getState().setLinkedNote(1, "note-111", "Note 1")
-    useChatSessionStore.getState().setLinkedNote(2, "note-222", "Note 2")
-    useChatSessionStore.getState().clearSession(1)
+    useChatSessionStore.getState().setLinkedNote("test-note-1", "note-111", "Note 1")
+    useChatSessionStore.getState().setLinkedNote("test-note-2", "note-222", "Note 2")
+    useChatSessionStore.getState().clearSession("test-note-1")
     expect(useChatSessionStore.getState().getLinkedNoteId(2)).toBe("note-222")
   })
 })
@@ -186,7 +189,7 @@ describe("clearSession", () => {
 
 describe("getSession", () => {
   it("returns full session object for the pane", () => {
-    useChatSessionStore.getState().setLinkedNote(2, "note-xyz", "XYZ")
+    useChatSessionStore.getState().setLinkedNote("test-note-2", "note-xyz", "XYZ")
     const s = useChatSessionStore.getState().getSession(2)
     expect(s.linkedNoteId).toBe("note-xyz")
     expect(s.linkedNoteTitle).toBe("XYZ")
@@ -204,30 +207,30 @@ describe("ragScope", () => {
   })
 
   it("setRagScope switches pane 1 to 'note'", () => {
-    useChatSessionStore.getState().setRagScope(1, "note")
+    useChatSessionStore.getState().setRagScope("test-note-1", "note")
     expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("note")
   })
 
   it("setRagScope does not affect pane 2", () => {
-    useChatSessionStore.getState().setRagScope(1, "note")
+    useChatSessionStore.getState().setRagScope("test-note-1", "note")
     expect(useChatSessionStore.getState().getSession(2).ragScope).toBe("all")
   })
 
   it("setRagScope can switch back to 'all'", () => {
-    useChatSessionStore.getState().setRagScope(1, "note")
-    useChatSessionStore.getState().setRagScope(1, "all")
+    useChatSessionStore.getState().setRagScope("test-note-1", "note")
+    useChatSessionStore.getState().setRagScope("test-note-1", "all")
     expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("all")
   })
 
   it("clearSession resets ragScope to 'all'", () => {
-    useChatSessionStore.getState().setRagScope(1, "note")
-    useChatSessionStore.getState().clearSession(1)
+    useChatSessionStore.getState().setRagScope("test-note-1", "note")
+    useChatSessionStore.getState().clearSession("test-note-1")
     expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("all")
   })
 
   it("panes have independent ragScope", () => {
-    useChatSessionStore.getState().setRagScope(1, "note")
-    useChatSessionStore.getState().setRagScope(2, "all")
+    useChatSessionStore.getState().setRagScope("test-note-1", "note")
+    useChatSessionStore.getState().setRagScope("test-note-2", "all")
     expect(useChatSessionStore.getState().getSession(1).ragScope).toBe("note")
     expect(useChatSessionStore.getState().getSession(2).ragScope).toBe("all")
   })

@@ -1,11 +1,11 @@
 // src/features/ai/lib/save/transcript.test.ts
 
-import { describe, it, expect, beforeAll } from "vitest"
+import { describe, it, expect } from "vitest"
 import {
   generateNoteName,
   generateAppendHeading,
   formatRawTranscript,
-  formatRawResponse,
+  formatSingleResponse,  // ← changed from formatRawResponse
   wrapForAppend,
   type TranscriptMessage,
 } from "./transcript"
@@ -173,29 +173,22 @@ describe("formatRawTranscript", () => {
   })
 })
 
-// ─── formatRawResponse ────────────────────────────────────────────────────────
+// ─── formatSingleResponse ─────────────────────────────────────────────────────
+// Changed from formatRawResponse to match actual export
 
-describe("formatRawResponse", () => {
-  const responseOut = formatRawResponse(SIMPLE[0], SIMPLE[1])
+describe("formatSingleResponse", () => {
+  const responseOut = formatSingleResponse(SIMPLE[0], SIMPLE[1])
 
   it("starts with # heading", () => {
     expect(responseOut.startsWith("# ")).toBe(true)
   })
 
-  it("user message present", () => {
+  it("user message content appears in heading", () => {
     expect(responseOut).toContain("What should the save flow look like?")
   })
 
   it("assistant message present", () => {
-    expect(responseOut).toContain("Triggered by Save to Note")
-  })
-
-  it("**User:** marker present", () => {
-    expect(responseOut).toContain("**User:**")
-  })
-
-  it("**Assistant:** marker present", () => {
-    expect(responseOut).toContain("**Assistant:**")
+    expect(responseOut).toContain("Triggered by Save to Note in the header.")
   })
 })
 

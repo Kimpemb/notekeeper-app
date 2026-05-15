@@ -4,10 +4,8 @@
 //
 // Covers:
 //   M6  estimateTokens, getLengthBand, getMaxTokens
-//   M7  formatCleanSession  — happy path, fallback on ProcessingExhaustedError,
-//                             fallback on generic error, correct band propagation
-//   M8  formatCleanResponse — happy path, fallback on ProcessingExhaustedError,
-//                             fallback on generic error
+//   M7  formatDocument — happy path, fallback on ProcessingExhaustedError,
+//                        fallback on generic error, correct band propagation
 //
 // promptProcessing is mocked at the module boundary so no real API calls are
 // made. The mock is reset between every test to prevent cross-test pollution.
@@ -17,8 +15,7 @@ import {
   estimateTokens,
   getLengthBand,
   getMaxTokens,
-  formatCleanSession,
-  formatCleanResponse,
+  formatDocument,
   type LengthBand,
 } from "@/features/ai/lib/save/cleanMarkdown"
 import { ProcessingExhaustedError } from "@/features/ai/lib/client"
@@ -50,16 +47,6 @@ const SHORT_MESSAGES: TranscriptMessage[] = [
   { role: "user",      content: "What is a closure in JavaScript?" },
   { role: "assistant", content: "A closure is a function that retains access to its outer scope even after that scope has returned." },
 ]
-
-const SINGLE_USER: TranscriptMessage = {
-  role: "user",
-  content: "Explain the event loop.",
-}
-
-const SINGLE_ASSISTANT: TranscriptMessage = {
-  role: "assistant",
-  content: "The event loop is the mechanism Node.js uses to handle async operations without blocking the main thread.",
-}
 
 // Produces a string long enough to push token estimates into the target band.
 function makeText(charCount: number): string {
@@ -141,14 +128,14 @@ describe("getMaxTokens", () => {
   })
 })
 
-// ─── M7 — formatCleanSession ──────────────────────────────────────────────────
+// ─── M7 — formatDocument ──────────────────────────────────────────────────────
 
-describe("formatCleanSession", () => {
+describe("formatDocument", () => {
   it("returns model output with fallback=false on success", async () => {
     const modelOutput = "# Closures\n\n## Summary\nWe discussed closures."
     mockPromptProcessing.mockResolvedValueOnce(modelOutput)
 
-    const result = await formatCleanSession(SHORT_MESSAGES)
+    const result = await formatDocument(SHORT_MESSAGES)
 
     expect(result.markdown).toBe(modelOutput)
     expect(result.fallback).toBe(false)
@@ -157,7 +144,7 @@ describe("formatCleanSession", () => {
   it("calls promptProcessing exactly once", async () => {
     mockPromptProcessing.mockResolvedValueOnce("# Topic")
 
-    await formatCleanSession(SHORT_MESSAGES)
+    await formatDocument(SHORT_MESSAGES)
 
     expect(mockPromptProcessing).toHaveBeenCalledTimes(1)
   })
@@ -165,7 +152,7 @@ describe("formatCleanSession", () => {
   it("passes a non-empty prompt string to promptProcessing", async () => {
     mockPromptProcessing.mockResolvedValueOnce("# Topic")
 
-    await formatCleanSession(SHORT_MESSAGES)
+    await formatDocument(SHORT_MESSAGES)
 
     const [promptArg] = mockPromptProcessing.mock.calls[0]
     expect(typeof promptArg).toBe("string")
@@ -175,7 +162,7 @@ describe("formatCleanSession", () => {
   it("prompt includes the raw conversation content", async () => {
     mockPromptProcessing.mockResolvedValueOnce("# Topic")
 
-    await formatCleanSession(SHORT_MESSAGES)
+    await formatDocument(SHORT_MESSAGES)
 
     const [promptArg] = mockPromptProcessing.mock.calls[0]
     // The prompt wraps the raw transcript — at minimum the user message text
@@ -186,7 +173,7 @@ describe("formatCleanSession", () => {
   it("falls back to raw transcript on ProcessingExhaustedError", async () => {
     mockPromptProcessing.mockRejectedValueOnce(new ProcessingExhaustedError())
 
-    const result = await formatCleanSession(SHORT_MESSAGES)
+    const result = await formatDocument(SHORT_MESSAGES)
 
     expect(result.fallback).toBe(true)
     expect(result.markdown).toContain("**User:**")
@@ -196,7 +183,7 @@ describe("formatCleanSession", () => {
   it("falls back to raw transcript on generic error", async () => {
     mockPromptProcessing.mockRejectedValueOnce(new Error("network timeout"))
 
-    const result = await formatCleanSession(SHORT_MESSAGES)
+    const result = await formatDocument(SHORT_MESSAGES)
 
     expect(result.fallback).toBe(true)
     expect(result.markdown).toContain("**User:**")
@@ -205,13 +192,13 @@ describe("formatCleanSession", () => {
   it("does not throw on any error — always resolves", async () => {
     mockPromptProcessing.mockRejectedValueOnce(new Error("kaboom"))
 
-    await expect(formatCleanSession(SHORT_MESSAGES)).resolves.toBeDefined()
+    await expect(formatDocument(SHORT_MESSAGES)).resolves.toBeDefined()
   })
 
   it("reports 'short' band for a short conversation", async () => {
     mockPromptProcessing.mockResolvedValueOnce("# Topic")
 
-    const result = await formatCleanSession(SHORT_MESSAGES)
+    const result = await formatDocument(SHORT_MESSAGES)
 
     expect(result.band).toBe("short")
   })
@@ -221,7 +208,7 @@ describe("formatCleanSession", () => {
     const messages = makeMessages(32_000)
     mockPromptProcessing.mockResolvedValueOnce("# Topic")
 
-    const result = await formatCleanSession(messages)
+    const result = await formatDocument(messages)
 
     expect(result.band).toBe("medium")
   })
@@ -231,7 +218,7 @@ describe("formatCleanSession", () => {
     const messages = makeMessages(80_100)
     mockPromptProcessing.mockResolvedValueOnce("# Topic")
 
-    const result = await formatCleanSession(messages)
+    const result = await formatDocument(messages)
 
     expect(result.band).toBe("long")
   })
@@ -240,7 +227,7 @@ describe("formatCleanSession", () => {
     const messages = makeMessages(32_000) // medium band
     mockPromptProcessing.mockRejectedValueOnce(new ProcessingExhaustedError())
 
-    const result = await formatCleanSession(messages)
+    const result = await formatDocument(messages)
 
     expect(result.fallback).toBe(true)
     expect(result.band).toBe("medium")
@@ -249,103 +236,6 @@ describe("formatCleanSession", () => {
   it("handles an empty messages array without throwing", async () => {
     mockPromptProcessing.mockResolvedValueOnce("# Empty")
 
-    await expect(formatCleanSession([])).resolves.toBeDefined()
-  })
-})
-
-// ─── M8 — formatCleanResponse ─────────────────────────────────────────────────
-
-describe("formatCleanResponse", () => {
-  it("returns model output with fallback=false on success", async () => {
-    const modelOutput = "# Event Loop\n\n> Explain the event loop.\n\n## Summary\nCovered the loop."
-    mockPromptProcessing.mockResolvedValueOnce(modelOutput)
-
-    const result = await formatCleanResponse(SINGLE_USER, SINGLE_ASSISTANT)
-
-    expect(result.markdown).toBe(modelOutput)
-    expect(result.fallback).toBe(false)
-  })
-
-  it("calls promptProcessing exactly once", async () => {
-    mockPromptProcessing.mockResolvedValueOnce("# Topic")
-
-    await formatCleanResponse(SINGLE_USER, SINGLE_ASSISTANT)
-
-    expect(mockPromptProcessing).toHaveBeenCalledTimes(1)
-  })
-
-  it("prompt includes both the user message and the assistant response", async () => {
-    mockPromptProcessing.mockResolvedValueOnce("# Topic")
-
-    await formatCleanResponse(SINGLE_USER, SINGLE_ASSISTANT)
-
-    const [promptArg] = mockPromptProcessing.mock.calls[0]
-    expect(promptArg).toContain(SINGLE_USER.content)
-    expect(promptArg).toContain(SINGLE_ASSISTANT.content)
-  })
-
-  it("falls back to raw transcript on ProcessingExhaustedError", async () => {
-    mockPromptProcessing.mockRejectedValueOnce(new ProcessingExhaustedError())
-
-    const result = await formatCleanResponse(SINGLE_USER, SINGLE_ASSISTANT)
-
-    expect(result.fallback).toBe(true)
-    expect(result.markdown).toContain(SINGLE_USER.content)
-    expect(result.markdown).toContain(SINGLE_ASSISTANT.content)
-  })
-
-  it("falls back to raw transcript on generic error", async () => {
-    mockPromptProcessing.mockRejectedValueOnce(new Error("rate limited"))
-
-    const result = await formatCleanResponse(SINGLE_USER, SINGLE_ASSISTANT)
-
-    expect(result.fallback).toBe(true)
-    expect(result.markdown).toContain(SINGLE_USER.content)
-  })
-
-  it("does not throw on any error — always resolves", async () => {
-    mockPromptProcessing.mockRejectedValueOnce(new Error("kaboom"))
-
-    await expect(
-      formatCleanResponse(SINGLE_USER, SINGLE_ASSISTANT)
-    ).resolves.toBeDefined()
-  })
-
-  it("reports 'short' band for a short single response", async () => {
-    mockPromptProcessing.mockResolvedValueOnce("# Topic")
-
-    const result = await formatCleanResponse(SINGLE_USER, SINGLE_ASSISTANT)
-
-    expect(result.band).toBe("short")
-  })
-
-  it("reports correct band when assistant response is long", async () => {
-    // Force a long assistant message (> 20 000 token equivalent)
-    const longAssistant: TranscriptMessage = {
-      role: "assistant",
-      content: makeText(80_100),
-    }
-    mockPromptProcessing.mockResolvedValueOnce("# Long topic")
-
-    const result = await formatCleanResponse(SINGLE_USER, longAssistant)
-
-    expect(result.band).toBe("long")
-  })
-
-  it("fallback markdown contains the assistant content, not just the user message", async () => {
-    mockPromptProcessing.mockRejectedValueOnce(new ProcessingExhaustedError())
-
-    const result = await formatCleanResponse(SINGLE_USER, SINGLE_ASSISTANT)
-
-    expect(result.markdown).toContain("event loop")
-  })
-
-  it("handles empty assistant content gracefully", async () => {
-    const emptyAssistant: TranscriptMessage = { role: "assistant", content: "" }
-    mockPromptProcessing.mockResolvedValueOnce("# Topic")
-
-    await expect(
-      formatCleanResponse(SINGLE_USER, emptyAssistant)
-    ).resolves.toBeDefined()
+    await expect(formatDocument([])).resolves.toBeDefined()
   })
 })

@@ -35,6 +35,7 @@ import { TagsPanel } from "@/features/notes/components/Sidebar/TagsPanel";
 import { BacklinksPanel } from "@/features/editor/components/Editor/BacklinksPanel";
 import { OutlinePanel } from "@/features/editor/components/Editor/OutlinePanel";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
+import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore";
 import { CanvasWorkspace } from "@/features/canvas/components/CanvasWorkspace";
 import { MoveBlockModal } from "@/features/ui/components/MoveBlockModal";
 // PATCH: 1. Add import near the top with other modal imports
@@ -283,11 +284,13 @@ useEffect(() => {
   useEffect(() => {
     const noteId = useUIStore.getState().activeTabNoteId();
     if (noteId && noteId !== useNoteStore.getState().activeNoteId) setActive(noteId, true);
+    if (noteId) useChatSessionStore.getState().setPaneNote(1, noteId);
   }, [activeTabId]);
 
   useEffect(() => {
     const noteId = useUIStore.getState().paneActiveNoteId(2);
     if (noteId) useUIStore.getState().pane2PushNav(noteId);
+    if (noteId) useChatSessionStore.getState().setPaneNote(2, noteId);
   }, [pane2ActiveTabId]);
 
   function triggerNav(action: () => void) {
@@ -456,7 +459,7 @@ useEffect(() => {
   const paneNoteId        = paneTabs.find(t => t.id === paneActiveTabId)?.noteId ?? null;
 
   // Only show inline panels when right panel bar is open AND this pane is active
-  const showPanels = rightPanelOpen && activePaneId === paneId;
+  const showPanels = rightPanelOpen;
 
   return (
     <div
@@ -495,11 +498,11 @@ useEffect(() => {
       {/* Inline panels for this pane */}
       {showPanels && (
         <div className="flex shrink-0 border-l border-idemora-border">
-          {paneTagsOpen && <TagsPanel />}
-          {paneBacklinksOpen && paneNoteId && (
+          {(activePaneId === paneId) && paneTagsOpen && <TagsPanel />}
+          {(activePaneId === paneId) && paneBacklinksOpen && paneNoteId && (
             <BacklinksPanel noteId={paneNoteId} paneId={paneId} />
           )}
-          {paneOutlineOpen && activeEditor && (
+          {(activePaneId === paneId) && paneOutlineOpen && activeEditor && (
             <OutlinePanel editor={activeEditor} paneId={paneId} />
           )}
           {paneChatOpen && paneNoteId && (
