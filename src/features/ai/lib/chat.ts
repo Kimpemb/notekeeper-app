@@ -408,10 +408,13 @@ async function detectTitleQuery(query: string): Promise<TitleDetectResult> {
     console.log('[titleDetect] excluded matches:', excludedMatches.length, excludedMatches.map(r => r.note_title))
 
     const tokens = candidate
-  .split(/\s+/)
-  .filter((t) => t.length > 2)
-  .slice(0, 6)
+      .split(/\s+/)
+      .filter((t) => t.length > 1)   // allow 2-char tokens like "Ad", "#1"
+      .slice(0, 6)
 
+  if (tokens.length === 0) {
+    return { candidateFound: true, matches: [], excludedMatches }
+  }
   const whereClauses = tokens.map((_, i) => `ntc.title LIKE $${i + 1}`).join(" AND ")
   const params       = tokens.map((t) => `%${t}%`)
 

@@ -303,19 +303,30 @@ WHERE n.deleted_at IS NULL
 
     // Excluded title discovery — fetch rag_excluded notes whose title matches
     try {
-      const excludedRows = await db.select<{
-        note_id: string
-        title:   string
-      }[]>(
-        `SELECT ntc.note_id, ntc.title
-         FROM note_title_chunks ntc
-         JOIN notes n ON n.id = ntc.note_id
-         WHERE ntc.title LIKE $1
-           AND n.deleted_at IS NULL
-           AND COALESCE(n.rag_excluded, 0) = 1
-         LIMIT 3`,
-        [`%${query.replace(/['"*^()]/g, " ").trim()}%`]
-      )
+      const excludedTerms = query
+  .replace(/['"*^()]/g, " ")
+  .trim()
+  .split(/\s+/)
+  .filter((t) => t.length > 2 && !FTS_STOP_WORDS.has(t.toLowerCase()))
+
+const excludedRows = excludedTerms.length === 0 ? [] : await (async () => {
+  const whereClauses = excludedTerms
+    .slice(0, 4)
+    .map((_, i) => `ntc.title LIKE $${i + 1}`)
+    .join(" OR ")
+  const params = excludedTerms.slice(0, 4).map((t) => `%${t}%`)
+
+  return db.select<{ note_id: string; title: string }[]>(
+    `SELECT ntc.note_id, ntc.title
+     FROM note_title_chunks ntc
+     JOIN notes n ON n.id = ntc.note_id
+     WHERE (${whereClauses})
+       AND n.deleted_at IS NULL
+       AND COALESCE(n.rag_excluded, 0) = 1
+     LIMIT 3`,
+    params
+  )
+})()
       for (const row of excludedRows) {
         if (!isUntitledNote(row.title)) {
           _excludedMap.set(row.note_id, row.title)

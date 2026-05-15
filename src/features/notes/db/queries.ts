@@ -781,29 +781,33 @@ export async function moveNote(id: string, newParentId: string | null): Promise<
 //   - Embeddings will be recreated on the next syncNoteBlocks call
 //   - Enqueues blocks for embedding immediately
 
-export async function setRagExcluded(noteId: string, excluded: boolean): Promise<void> {
+export async function setRagExcluded(
+  noteId:   string,
+  excluded: boolean,
+  cascade:  boolean = false
+): Promise<void> {
   const db = await getDb();
-  await db.execute(
-    `UPDATE notes SET rag_excluded = $1 WHERE id = $2`,
-    [excluded ? 1 : 0, noteId]
-  );
 
-  if (excluded) {
-    // Clear embeddings so they are not retrieved
-    await db.execute(`DELETE FROM embeddings WHERE note_id = $1`, [noteId]);
-    // Remove pending jobs — no point processing them
+  const descendants = cascade ? await getAllDescendants(noteId) : [];
+  const targets     = [noteId, ...descendants.map((d) => d.id)];
+
+  for (const id of targets) {
     await db.execute(
-      `DELETE FROM embedding_jobs WHERE note_id = $1`,
-      [noteId]
+      `UPDATE notes SET rag_excluded = $1 WHERE id = $2`,
+      [excluded ? 1 : 0, id]
     );
-  } else {
-    // Re-including — enqueue all blocks for re-embedding
-    const blocks = await db.select<{ block_id: string }[]>(
-      `SELECT block_id FROM note_blocks WHERE note_id = $1`,
-      [noteId]
-    );
-    if (blocks.length > 0) {
-      await enqueueEmbeddingJobs(blocks.map((b) => ({ blockId: b.block_id, noteId })));
+
+    if (excluded) {
+      await db.execute(`DELETE FROM embeddings WHERE note_id = $1`, [id]);
+      await db.execute(`DELETE FROM embedding_jobs WHERE note_id = $1`, [id]);
+    } else {
+      const blocks = await db.select<{ block_id: string }[]>(
+        `SELECT block_id FROM note_blocks WHERE note_id = $1`,
+        [id]
+      );
+      if (blocks.length > 0) {
+        await enqueueEmbeddingJobs(blocks.map((b) => ({ blockId: b.block_id, noteId: id })));
+      }
     }
   }
 }

@@ -170,8 +170,9 @@ export function NoteTreeItem({
   const [contextMenu, setContextMenu] = useState<ContextMenuPos | null>(null);
   const [renaming, setRenaming]       = useState(false);
   const [renameValue, setRenameValue] = useState("");
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [moveOpen, setMoveOpen]       = useState(false);
+  const [confirmOpen, setConfirmOpen]         = useState(false);
+  const [moveOpen, setMoveOpen]               = useState(false);
+  const [ragExcludeOpen, setRagExcludeOpen]   = useState(false);
   const [focusedItem, setFocusedItem] = useState<ContextItemId>("new-sub-note");
   
   // ─── Group picker state ───────────────────────────────────────────────────
@@ -307,7 +308,20 @@ export function NoteTreeItem({
         break;
       case "rag-exclude":
         setContextMenu(null);
-        setRagExcluded(noteId, !isRagExcluded).catch(console.error);
+        if (isRagExcluded) {
+          const hasExcludedChildren = children.some((c) => c.rag_excluded === 1);
+          if (hasExcludedChildren) {
+            setRagExcludeOpen(true);
+          } else {
+            setRagExcluded(noteId, false).catch(console.error);
+          }
+        } else if (hasChildren) {
+          // Excluding a note with children: ask about cascade
+          setRagExcludeOpen(true);
+        } else {
+          // Excluding a leaf note: no dialog needed
+          setRagExcluded(noteId, true).catch(console.error);
+        }
         break;
     }
   }
@@ -559,6 +573,61 @@ export function NoteTreeItem({
         onConfirm={async () => { setConfirmOpen(false); await deleteNote(noteId); }}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      {ragExcludeOpen && (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50"
+        onClick={() => setRagExcludeOpen(false)}
+      >
+        <div
+          className="w-[400px] rounded-lg bg-idemora-bg-primary border border-idemora-border shadow-2xl overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-6 pt-6 pb-4">
+            <p className="text-base font-medium text-idemora-text-normal mb-1">
+              {isRagExcluded ? "Include in search" : "Exclude from search"}
+            </p>
+            <p className="text-sm text-idemora-text-muted leading-relaxed">
+              "{note.title}" has {children.length} sub-note{children.length !== 1 ? "s" : ""}. What would you like to {isRagExcluded ? "re-include" : "exclude"}?
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5 px-6 pb-6">
+            <button
+  onClick={() => {
+    setRagExcludeOpen(false);
+    setRagExcluded(noteId, isRagExcluded ? false : true, false).catch(console.error);
+  }}
+  className="w-full px-4 py-2.5 rounded-md text-sm text-left text-idemora-text-normal bg-idemora-bg-secondary border border-idemora-border hover:border-blue-500/40 hover:bg-blue-500/5 transition-colors duration-150"
+>
+  <span className="font-medium">This note only</span>
+  <span className="block text-xs text-idemora-text-muted mt-0.5">
+    {isRagExcluded ? "Sub-notes remain excluded" : "Sub-notes remain searchable"}
+  </span>
+            </button>
+            <button
+              onClick={() => {
+                setRagExcludeOpen(false);
+                setRagExcluded(noteId, isRagExcluded ? false : true, true).catch(console.error);
+              }}
+              className="w-full px-4 py-2.5 rounded-md text-sm text-left text-idemora-text-normal bg-idemora-bg-secondary border border-idemora-border hover:border-blue-500/40 hover:bg-blue-500/5 transition-colors duration-150"
+            >
+              <span className="font-medium">This note and all sub-notes</span>
+              <span className="block text-xs text-idemora-text-muted mt-0.5">
+                {isRagExcluded
+                  ? `${children.length} sub-note${children.length !== 1 ? "s" : ""} will also be re-included`
+                  : `${children.length} sub-note${children.length !== 1 ? "s" : ""} will also be excluded`}
+              </span>
+            </button>
+            <button
+              onClick={() => setRagExcludeOpen(false)}
+              className="w-full px-4 py-2 rounded-md text-sm text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-150 mt-1"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
       {/* Group picker modal */}
       <GroupPickerModal

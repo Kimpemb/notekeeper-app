@@ -117,7 +117,7 @@ interface NoteStore {
   reorderBookmarks: (draggedId: string, targetId: string) => Promise<void>;
   isBookmarked: (noteId: string) => boolean;
   getBookmarkForNote: (noteId: string) => NoteBookmark | null;
-  setRagExcluded: (noteId: string, excluded: boolean) => Promise<void>;
+  setRagExcluded: (noteId: string, excluded: boolean, cascade?: boolean) => Promise<void>;
 }
 
 function nextUntitledName(notes: Note[]): string {
@@ -558,12 +558,22 @@ loadNoteContent: async (id: string) => {
       (b): b is NoteBookmark => b.kind === "note" && b.noteId === noteId
     ) ?? null),
 
-  setRagExcluded: async (noteId, excluded) => {
-    await dbSetRagExcluded(noteId, excluded);
-    set((state) => ({
-      notes: state.notes.map((n) =>
-        n.id === noteId ? { ...n, rag_excluded: excluded ? 1 : 0 } : n
-      ),
-    }));
+  setRagExcluded: async (noteId, excluded, cascade = false) => {
+    await dbSetRagExcluded(noteId, excluded, cascade);
+    if (cascade) {
+      const descendants = collectDescendants(noteId, get().notes)
+      const targets = new Set([noteId, ...descendants])
+      set((state) => ({
+        notes: state.notes.map((n) =>
+          targets.has(n.id) ? { ...n, rag_excluded: excluded ? 1 : 0 } : n
+        ),
+      }))
+    } else {
+      set((state) => ({
+        notes: state.notes.map((n) =>
+          n.id === noteId ? { ...n, rag_excluded: excluded ? 1 : 0 } : n
+        ),
+      }))
+    }
   },
 }));

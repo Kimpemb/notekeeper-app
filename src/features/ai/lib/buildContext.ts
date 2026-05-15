@@ -68,7 +68,8 @@ export async function buildAIContext(
   const currentBody        = note.plaintext?.trim() ?? "";
 
   // ── Similar notes (algorithmic, top 3) ───────────────────────────────────
-  const similarResults = getSimilarityResults(note, allNotes, [], new Set(), 3);
+  const indexableNotes = allNotes.filter((n) => !n.rag_excluded);
+  const similarResults = getSimilarityResults(note, indexableNotes, [], new Set(), 3); 
   const relatedNotes = similarResults
     .map((r) => allNotes.find((n) => n.id === r.noteId))
     .filter((n): n is Note => n !== undefined)
