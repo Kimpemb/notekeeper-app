@@ -309,6 +309,9 @@ WHERE n.deleted_at IS NULL
   .split(/\s+/)
   .filter((t) => t.length > 2 && !FTS_STOP_WORDS.has(t.toLowerCase()))
 
+
+  console.log('[fts excluded] terms:', excludedTerms, 'query was:', query.slice(0, 60)) // HERE
+  
 const excludedRows = excludedTerms.length === 0 ? [] : await (async () => {
   const whereClauses = excludedTerms
     .slice(0, 4)
@@ -332,6 +335,7 @@ const excludedRows = excludedTerms.length === 0 ? [] : await (async () => {
           _excludedMap.set(row.note_id, row.title)
         }
       }
+      console.log('[fts] excludedTerms:', excludedTerms, 'excludedRows:', excludedRows.length, 'excludedMap size:', _excludedMap.size)
     } catch { /* non-fatal */ }
   }
 

@@ -65,7 +65,7 @@ interface ChatSessionStore {
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
-function emptySession(): RuntimeSession {
+export function emptySession(): RuntimeSession {
   return {
     messages:          [],
     persistedMeta:     [],

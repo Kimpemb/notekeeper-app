@@ -2,8 +2,7 @@
 //
 // RAG v3 — Milestone 8 + Phase 3 (M14 scope, save flow)
 
-import { useEffect, useRef, useState, useCallback, type ReactElement } from "react";
-import { subscribeToIndexerStatus } from "@/features/ai/lib/indexer";
+import { useEffect, useRef, useState, useCallback, useMemo, type ReactElement } from "react";import { subscribeToIndexerStatus } from "@/features/ai/lib/indexer";
 import { onRecovery } from "@/features/ai/lib/client";
 import {
   streamChatWithNotes,
@@ -19,7 +18,7 @@ import { isAIReady }           from "@/features/ai/lib/client";
 import type { AICallError }    from "@/features/ai/lib/client";
 import { QuickSwitch }         from "@/features/ai/components/QuickSwitch";
 import { SaveNoteDialog }      from "@/features/ai/components/SaveNoteDialog";
-import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore"
+import { useChatSessionStore, emptySession } from "@/features/ai/store/useChatSessionStore"
 import type { PersistedMeta } from "@/features/ai/store/useChatSessionStore"
 import type { ExcludedTitleMatch } from "@/features/ai/lib/search/hybrid"
 import { useAppSettings } from "@/features/ui/store/useAppSettings"
@@ -274,13 +273,22 @@ function cycleChatWidth() {
   const stampSavedAt      = useChatSessionStore((s) => s.stampSavedAt);
   const clearSession      = useChatSessionStore((s) => s.clearSession);
   const setRagScope       = useChatSessionStore((s) => s.setRagScope);
-  const session           = useChatSessionStore((s) => s.getSession(paneId));
-  const messages          = session.messages;
-  const ragScope          = session.ragScope;
+const paneNoteId      = useChatSessionStore((s) => s.paneNoteId[paneId])
+const _sessions       = useChatSessionStore((s) => s.sessions)
+const _session        = (paneNoteId ? _sessions[paneNoteId] : null) ?? emptySession()
+const messages        = _session.messages
+const ragScope        = _session.ragScope
+const persistedMeta   = _session.persistedMeta
+const linkedNoteId    = _session.linkedNoteId
+const linkedNoteTitle = _session.linkedNoteTitle
+const linkedNoteTrashed = _session.linkedNoteTrashed
+const linkedNoteDeleted = _session.linkedNoteDeleted
+const isLoading       = _session.isLoading
 
   // Merge persisted + runtime meta for rendering
-  const metaMap = new Map<string, MessageMeta>(
-    session.persistedMeta.map((pm) => {
+  const metaMap = useMemo(() => {
+  const map = new Map<string, MessageMeta>(
+    persistedMeta.map((pm) => {
       const runtime = runtimeMetaMap.get(pm.messageId) ?? {}
       return [pm.messageId, {
         sourceTitles:        runtime.sourceTitles        ?? pm.citations?.map(c => c.title) ?? [],
@@ -296,10 +304,9 @@ function cycleChatWidth() {
       }]
     })
   )
-  // Also merge in any runtime-only entries (messages mid-stream before persist)
   for (const [id, runtime] of runtimeMetaMap) {
-    if (!metaMap.has(id)) {
-      metaMap.set(id, {
+    if (!map.has(id)) {
+      map.set(id, {
         sourceTitles:        runtime.sourceTitles        ?? [],
         sourceNoteIds:       runtime.sourceNoteIds       ?? [],
         usedEmbeddings:      runtime.usedEmbeddings      ?? false,
@@ -313,6 +320,8 @@ function cycleChatWidth() {
       })
     }
   }
+  return map
+}, [persistedMeta, runtimeMetaMap])
 
 const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
   const { settings }        = useAppSettings()
@@ -347,7 +356,7 @@ useEffect(() => {
     console.log('[ragScope sync] ragScope changed to:', ragScope)
     ragScopeRef.current = ragScope;
   }, [ragScope]);
-  useEffect(() => { linkedNoteRef.current = session.linkedNoteId; }, [session.linkedNoteId]);
+  useEffect(() => { linkedNoteRef.current = linkedNoteId; }, [linkedNoteId]);
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
@@ -402,7 +411,7 @@ useEffect(() => {
 
   // M5: Reactive subscription — watch note store for linked note lifecycle events
   useEffect(() => {
-    if (!session?.linkedNoteId) return;
+    if (!linkedNoteId) return;
     return useNoteStore.subscribe((state) => {
       const linkedId = useChatSessionStore.getState().getSession(paneId).linkedNoteId;
       if (!linkedId) return;
@@ -410,15 +419,15 @@ useEffect(() => {
         useChatSessionStore.getState();
       const activeNote = state.notes.find((n) => n.id === linkedId);
       if (activeNote) {
-        if (session.linkedNoteTrashed) markLinkedNoteRestored(noteId, activeNote.title);
-        if (activeNote.title !== session.linkedNoteTitle) setLinkedNoteTitle(noteId, activeNote.title);
+        if (linkedNoteTrashed) markLinkedNoteRestored(noteId, activeNote.title);
+        if (activeNote.title !== linkedNoteTitle) setLinkedNoteTitle(noteId, activeNote.title);
         return;
       }
       const trashedNote = state.trashedNotes?.find((n) => n.id === linkedId);
       if (trashedNote) { markLinkedNoteTrashed(noteId); return; }
-      if (!session.linkedNoteDeleted) markLinkedNoteDeleted(noteId);
+      if (!linkedNoteDeleted) markLinkedNoteDeleted(noteId);
     });
-  }, [paneId, session?.linkedNoteId, session?.linkedNoteTrashed, session?.linkedNoteDeleted, session?.linkedNoteTitle]);
+  }, [paneId, linkedNoteId, linkedNoteTrashed, linkedNoteDeleted, linkedNoteTitle]);
 
   // ── Scope resolution ───────────────────────────────────────────────────────
 
@@ -815,7 +824,7 @@ async function handleDirectWebSearch() {
       <div className="flex-1 overflow-y-auto">
         {isFreeTier ? (
           <FreeTierState />
-        ) : session.isLoading ? (
+        ) : isLoading ? (
           <div className="py-6 px-4 space-y-3 animate-pulse">
             {[1,2,3].map(i => (
               <div key={i} className="h-3 rounded bg-idemora-border" style={{ width: `${60 + i * 10}%` }} />
@@ -944,32 +953,32 @@ async function handleDirectWebSearch() {
                   ? `Scoped: ${currentNote.title.slice(0, 18)}${currentNote.title.length > 18 ? "…" : ""}`
                   : "All notes"}
               </button>
-              {session?.linkedNoteId && !session?.linkedNoteDeleted && (
+              {linkedNoteId && !linkedNoteDeleted && (
                 <button
                   onClick={() => {
-                    if (session.linkedNoteId) {
-                      if (paneId === 2) openTabInPane2(session.linkedNoteId);
-                      else openTab(session.linkedNoteId);
+                    if (linkedNoteId) {
+                      if (paneId === 2) openTabInPane2(linkedNoteId);
+                      else openTab(linkedNoteId);
                     }
                   }}
-                  title={`Saves going to "${session.linkedNoteTitle ?? "note"}"`}
+                  title={`Saves going to "${linkedNoteTitle ?? "note"}"`}
                   className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-violet-500 border border-violet-200 hover:bg-violet-50/30 transition-colors duration-100 min-w-0"
                 >
                   <svg width="7" height="7" viewBox="0 0 8 8" fill="none" className="shrink-0">
                     <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
                     <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
                   </svg>
-                  <span className="truncate max-w-24">{session.linkedNoteTitle ?? "Saved"}</span>
+                  <span className="truncate max-w-24">{linkedNoteTitle ?? "Saved"}</span>
                   <svg width="6" height="6" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60">
                     <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
                       stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
               )}
-              {session?.linkedNoteTrashed && (
+              {linkedNoteTrashed && (
                 <span className="text-[10px] text-amber-500">Linked note in trash</span>
               )}
-              {session?.linkedNoteDeleted && (
+              {linkedNoteDeleted && (
                 <span className="text-[10px] text-idemora-text-muted">Note deleted — next save creates new</span>
               )}
             </div>
@@ -1035,7 +1044,7 @@ async function handleDirectWebSearch() {
           selectedMessage={selectedMessage ?? undefined}
           onClose={() => { setSaveDialogOpen(false); setSelectedMessage(null); }}
           onSaveSuccess={(savedNoteId, savedNoteTitle) => {
-            const isFirstSave = !session.linkedNoteId;
+            const isFirstSave = !linkedNoteId;
             setLinkedNote(noteId, savedNoteId, savedNoteTitle);
             stampSavedAt(noteId);
             if (isFirstSave) {
