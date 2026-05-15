@@ -42,6 +42,52 @@ const FORMAT_DESCRIPTIONS: Record<SaveFormat, string> = {
   response:   "Just this response, pasted as-is, no AI",
 }
 
+// ─── SubPage node preservation ────────────────────────────────────────────────
+// When writing to an existing note, subPage nodes (inline subnote references)
+// are not representable in markdown and therefore get dropped by the
+// markdownToContent round-trip. We extract them from the existing doc before
+// overwriting and re-append them so the editor still sees them.
+
+function extractSubPageNodes(content: string): object[] {
+  try {
+    const doc = JSON.parse(content)
+    return (doc.content ?? []).filter(
+      (node: { type: string }) => node.type === "subPage"
+    )
+  } catch {
+    return []
+  }
+}
+
+function reappendSubPageNodes(docJson: string, subPageNodes: object[]): string {
+  if (subPageNodes.length === 0) return docJson
+  try {
+    const doc = JSON.parse(docJson)
+    return JSON.stringify({
+      ...doc,
+      content: [...(doc.content ?? []), ...subPageNodes],
+    })
+  } catch {
+    return docJson
+  }
+}
+
+// ─── Icons ────────────────────────────────────────────────────────────────────
+
+const LockIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-idemora-text-muted shrink-0">
+    <rect x="2" y="4.5" width="6" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+    <path d="M3.5 4.5V3a1.5 1.5 0 013 0v1.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+  </svg>
+)
+
+const AppendIcon = () => (
+  <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+    <path d="M4.5 1v5.5M2 5l2.5 2.5L7 5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M1.5 8h6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+  </svg>
+)
+
 // ─── Location dropdown ────────────────────────────────────────────────────────
 
 interface LocationDropdownProps {
@@ -57,7 +103,6 @@ function LocationDropdown({ excludeNoteId, value, onChange }: LocationDropdownPr
   const containerRef = useRef<HTMLDivElement>(null)
   const searchRef    = useRef<HTMLInputElement>(null)
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return
     function handleClick(e: MouseEvent) {
@@ -70,12 +115,10 @@ function LocationDropdown({ excludeNoteId, value, onChange }: LocationDropdownPr
     return () => document.removeEventListener("mousedown", handleClick)
   }, [open])
 
-  // Focus search when opening
   useEffect(() => {
     if (open) setTimeout(() => searchRef.current?.focus(), 30)
   }, [open])
 
-  // Escape closes dropdown only, not the whole dialog
   useEffect(() => {
     if (!open) return
     function handleKey(e: KeyboardEvent) {
@@ -111,7 +154,7 @@ function LocationDropdown({ excludeNoteId, value, onChange }: LocationDropdownPr
       )
     : candidates
 
-  const selectedItem   = value
+  const selectedItem      = value
     ? candidates.find((c) => c.id === value)
     : candidates.find((c) => c.id === "__root__")
   const hasCustomLocation = value !== null
@@ -124,8 +167,6 @@ function LocationDropdown({ excludeNoteId, value, onChange }: LocationDropdownPr
 
   return (
     <div ref={containerRef} className="relative">
-
-      {/* Trigger button */}
       <button
         onClick={() => setOpen((v) => !v)}
         className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-xs text-left
@@ -141,17 +182,14 @@ function LocationDropdown({ excludeNoteId, value, onChange }: LocationDropdownPr
           <path d="M1 3.5A1.5 1.5 0 012.5 2h2l1 1.5H9.5A1.5 1.5 0 0111 5v4a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 011 9V3.5z"
             stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
         </svg>
-
         <span className={`flex-1 truncate ${hasCustomLocation ? "text-violet-500 font-medium" : "text-idemora-text-muted"}`}>
           {selectedItem?.title ?? "Root level"}
         </span>
-
         {selectedItem?.crumb && (
           <span className="text-idemora-text-muted truncate max-w-[7rem] text-[10px]">
             {selectedItem.crumb}
           </span>
         )}
-
         <svg
           width="10" height="10" viewBox="0 0 10 10" fill="none"
           className={`shrink-0 text-idemora-text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`}
@@ -160,11 +198,8 @@ function LocationDropdown({ excludeNoteId, value, onChange }: LocationDropdownPr
         </svg>
       </button>
 
-      {/* Floating dropdown — does not push content */}
       {open && (
         <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-lg border border-idemora-border bg-idemora-bg-primary shadow-lg overflow-hidden">
-
-          {/* Search */}
           <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-idemora-border">
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-idemora-text-muted shrink-0">
               <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -188,8 +223,6 @@ function LocationDropdown({ excludeNoteId, value, onChange }: LocationDropdownPr
               </button>
             )}
           </div>
-
-          {/* List */}
           <ul className="max-h-44 overflow-y-auto py-0.5">
             {filtered.length === 0 ? (
               <li className="px-3 py-2.5 text-xs text-idemora-text-muted">No notes found</li>
@@ -205,7 +238,6 @@ function LocationDropdown({ excludeNoteId, value, onChange }: LocationDropdownPr
                         : "text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
                       }`}
                   >
-                    {/* Checkmark for selected, spacer for others */}
                     {isSelected ? (
                       <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="shrink-0 text-violet-500">
                         <path d="M1.5 4.5l2 2 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -262,13 +294,16 @@ function SegmentedControl({ value, onChange, showResponse }: SegmentedControlPro
           </button>
         ))}
       </div>
-      {/* Live description */}
-      <p className="text-[10px] text-idemora-text-muted leading-relaxed px-0.5 transition-all duration-100">
+      <p className="text-[10px] text-idemora-text-muted leading-relaxed px-0.5">
         {FORMAT_DESCRIPTIONS[value]}
       </p>
     </div>
   )
 }
+
+// ─── Footer button variants ───────────────────────────────────────────────────
+
+type FooterMode = "linked" | "other-note" | "root"
 
 // ─── Main dialog ──────────────────────────────────────────────────────────────
 
@@ -285,35 +320,52 @@ export function SaveNoteDialog({
 
   const paneActiveNoteId = useUIStore((s) => s.paneActiveNoteId)
   const currentNoteId    = paneActiveNoteId(paneId)
-  const currentNote      = notes.find((n) => n.id === currentNoteId) ?? null
+
+  // ── Session linkage ─────────────────────────────────────────────────────────
+
+  const session         = useChatSessionStore.getState().getSession(paneId)
+  const linkedNoteId    = session.linkedNoteId   ?? null
+  const linkedNoteTitle = session.linkedNoteTitle ?? null
+  const isLinked        = !!linkedNoteId
+
+  // ── Default format ──────────────────────────────────────────────────────────
 
   const defaultFormat: SaveFormat = selectedMessage ? "response" : "document"
+  const [format, setFormat] = useState<SaveFormat>(defaultFormat)
 
-  const [format, setFormat]     = useState<SaveFormat>(defaultFormat)
-  const [parentId, setParentId] = useState<string | null>(currentNoteId)
-  const [saving, setSaving]     = useState(false)
-  const [error, setError]       = useState<string | null>(null)
-  const [conflictPending, setConflictPending] = useState<{
-    content:   string
-    plaintext: string
-  } | null>(null)
+  // ── Location ────────────────────────────────────────────────────────────────
 
-  // ── Note name ───────────────────────────────────────────────────────────────
+  const [locationId, setLocationId] = useState<string | null>(
+    linkedNoteId ?? currentNoteId
+  )
 
-  const [noteName, setNoteName]       = useState<string>(() => {
-    if (selectedMessage && defaultFormat === "response") {
-      return generateNoteNameFromResponse(selectedMessage.user)
-    }
+  // ── Name + link-broken state ─────────────────────────────────────────────────
+
+  const [noteName, setNoteName] = useState<string>(() => {
+    if (isLinked && linkedNoteTitle)                    return linkedNoteTitle
+    if (selectedMessage && defaultFormat === "response") return generateNoteNameFromResponse(selectedMessage.user)
     return generateNoteName(toTranscript(messages))
   })
-  const [nameLoading, setNameLoading] = useState(() => defaultFormat !== "response")
+  const [nameLoading, setNameLoading] = useState(!isLinked && defaultFormat !== "response")
 
+  // linkBroken: user edited the name while a linked note was selected
+  const [linkBroken, setLinkBroken] = useState(false)
+
+  function handleNameChange(val: string) {
+    setNoteName(val)
+    if (isLinked && !linkBroken) setLinkBroken(true)
+  }
+
+  // Re-derive name when format changes (only if not linked / not broken)
   useEffect(() => {
+    if (isLinked) return
+
     if (format === "response") {
       if (selectedMessage) setNoteName(generateNoteNameFromResponse(selectedMessage.user))
       setNameLoading(false)
       return
     }
+
     setNameLoading(true)
     let cancelled = false
     const source  = selectedMessage
@@ -324,6 +376,23 @@ export function SaveNoteDialog({
     })
     return () => { cancelled = true }
   }, [format]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Footer mode ─────────────────────────────────────────────────────────────
+
+  const footerMode: FooterMode = (() => {
+    if (locationId === null) return "root"
+    if (isLinked && !linkBroken && locationId === linkedNoteId) return "linked"
+    return "other-note"
+  })()
+
+  // ── Conflict state ──────────────────────────────────────────────────────────
+
+  const [saving, setSaving]                   = useState(false)
+  const [error,  setError]                    = useState<string | null>(null)
+  const [conflictPending, setConflictPending] = useState<{
+    content:   string
+    plaintext: string
+  } | null>(null)
 
   // ── Build markdown ──────────────────────────────────────────────────────────
 
@@ -348,18 +417,22 @@ export function SaveNoteDialog({
   // ── Append handler ──────────────────────────────────────────────────────────
 
   const handleAppend = useCallback(async () => {
-    if (!currentNoteId || saving) return
+    if (!locationId || saving) return
     setSaving(true)
     setError(null)
 
     try {
       const { markdown } = await buildMarkdown()
       const wrapped      = wrapForAppend(markdown)
-      const existingNote = notes.find((n) => n.id === currentNoteId)
+      const targetNote   = notes.find((n) => n.id === locationId)
+
+      // Preserve any subPage nodes from the existing doc — they don't survive
+      // the markdown round-trip and must be re-appended after the merge.
+      const existingSubPageNodes = extractSubPageNodes(targetNote?.content ?? "")
 
       let newContent: string
       try {
-        const existingContent = existingNote?.content
+        const existingContent = targetNote?.content
         if (existingContent && existingContent !== JSON.stringify({ type: "doc", content: [] })) {
           const doc       = JSON.parse(existingContent)
           const appendDoc = JSON.parse(markdownToContent(wrapped).content)
@@ -374,91 +447,115 @@ export function SaveNoteDialog({
         newContent = markdownToContent(wrapped).content
       }
 
-      const existingPlain = existingNote?.plaintext ?? ""
-      await updateNote(currentNoteId, { content: newContent, plaintext: existingPlain + wrapped })
-      onSaveSuccess(currentNoteId, currentNote?.title ?? "")
+      // Re-attach preserved subPage nodes at the end.
+      newContent = reappendSubPageNodes(newContent, existingSubPageNodes)
+
+      const existingPlain = targetNote?.plaintext ?? ""
+      await updateNote(locationId, { content: newContent, plaintext: existingPlain + wrapped })
+      onSaveSuccess(locationId, targetNote?.title ?? "")
       useChatSessionStore.getState().stampSavedAt(paneId)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Append failed. Please try again.")
       setSaving(false)
     }
-  }, [saving, currentNoteId, currentNote, notes, format, messages, selectedMessage, updateNote, onSaveSuccess, onClose, paneId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [saving, locationId, notes, format, messages, selectedMessage, updateNote, onSaveSuccess, onClose, paneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Save handler ────────────────────────────────────────────────────────────
+  // ── Update linked note handler ──────────────────────────────────────────────
 
-  const handleSave = useCallback(async () => {
+  const handleUpdateLinked = useCallback(async () => {
+    if (saving || !linkedNoteId) return
+    setSaving(true)
+    setError(null)
+
+    try {
+      const { markdown, fallback } = await buildMarkdown()
+      if (fallback) setError("Document formatting unavailable — saved as transcript.")
+
+      const { content: rawContent, plaintext } = markdownToContent(markdown)
+      const linkedNote = await getNoteById(linkedNoteId)
+
+      if (linkedNote) {
+        const lastSavedAt   = session.lastSavedAt ?? 0
+        const noteUpdatedAt = linkedNote.updated_at
+
+        if (noteUpdatedAt > lastSavedAt) {
+          setConflictPending({ content: rawContent, plaintext })
+          setSaving(false)
+          return
+        }
+
+        // Preserve subPage nodes from the note being overwritten.
+        const existingSubPageNodes = extractSubPageNodes(linkedNote.content ?? "")
+        const content = reappendSubPageNodes(rawContent, existingSubPageNodes)
+
+        await saveManualVersion(linkedNoteId)
+        await updateNote(linkedNoteId, { content, plaintext })
+        onSaveSuccess(linkedNoteId, linkedNote.title)
+        useChatSessionStore.getState().stampSavedAt(paneId)
+        onClose()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed. Please try again.")
+      setSaving(false)
+    }
+  }, [saving, linkedNoteId, session, format, messages, selectedMessage, updateNote, onSaveSuccess, onClose, paneId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Save as subnote / new note handler ─────────────────────────────────────
+
+  const handleSaveNew = useCallback(async () => {
     if (saving) return
     setSaving(true)
     setError(null)
 
     try {
       const { markdown, fallback } = await buildMarkdown()
-
-      if (fallback) {
-        setError("Document formatting unavailable — saved as transcript. You can reformat later.")
-      }
+      if (fallback) setError("Document formatting unavailable — saved as transcript.")
 
       const { content, plaintext } = markdownToContent(markdown)
-      const session = useChatSessionStore.getState().getSession(paneId)
-
-      if (session.linkedNoteId) {
-        const linkedNote = await getNoteById(session.linkedNoteId)
-        if (linkedNote) {
-          const lastSavedAt   = session.lastSavedAt ?? 0
-          const noteUpdatedAt = linkedNote.updated_at
-          if (noteUpdatedAt > lastSavedAt) {
-            setConflictPending({ content, plaintext })
-            setSaving(false)
-            return
-          }
-          await saveManualVersion(session.linkedNoteId)
-          await updateNote(session.linkedNoteId, { content, plaintext })
-          onSaveSuccess(session.linkedNoteId, linkedNote.title)
-          useChatSessionStore.getState().stampSavedAt(paneId)
-          onClose()
-          return
-        }
-      }
 
       const savedNote = await createNote({
         title:     noteName.trim() || generateNoteName(toTranscript(messages)),
         content,
         plaintext,
-        parent_id: parentId ?? null,
+        parent_id: locationId ?? null,
       })
-
-      window.dispatchEvent(new CustomEvent("idemora:insert-subpage", {
-        detail: { noteId: savedNote.id }
-      }))
 
       onSaveSuccess(savedNote.id, savedNote.title)
       useChatSessionStore.getState().stampSavedAt(paneId)
       onClose()
-
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed. Please try again.")
       setSaving(false)
     }
-  }, [saving, format, messages, selectedMessage, noteName, parentId, createNote, updateNote, onSaveSuccess, onClose, paneId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [saving, locationId, noteName, format, messages, selectedMessage, createNote, onSaveSuccess, onClose, paneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Keyboard ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") { e.preventDefault(); onClose() }
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSave() }
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        if (footerMode === "linked")     handleUpdateLinked()
+        else if (footerMode === "root")  handleSaveNew()
+        else                             handleSaveNew()
+      }
     }
     document.addEventListener("keydown", handleKeyDown, true)
     return () => document.removeEventListener("keydown", handleKeyDown, true)
-  }, [handleSave, onClose])
+  }, [footerMode, handleUpdateLinked, handleSaveNew, onClose])
 
-  // ── Notices ─────────────────────────────────────────────────────────────────
+  // ── Long conversation notice ─────────────────────────────────────────────────
 
   const showLengthNotice = format === "document" && !selectedMessage && (() => {
     const tokens = estimateTokens(formatRawTranscript(toTranscript(messages)))
     return getLengthBand(tokens) === "long"
   })()
+
+  // ── Derived: target note label for append button ─────────────────────────────
+
+  const appendTargetNote = locationId ? notes.find((n) => n.id === locationId) : null
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -505,15 +602,26 @@ export function SaveNoteDialog({
             <div className="relative">
               <input
                 value={noteName}
-                onChange={(e) => setNoteName(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-idemora-border bg-idemora-bg-primary
-                  text-sm text-idemora-text-normal placeholder-idemora-text-muted
+                onChange={(e) => handleNameChange(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg border border-idemora-border bg-idemora-bg-primary
+                  text-sm placeholder-idemora-text-muted
                   focus:outline-none focus:ring-1 focus:ring-violet-400
-                  transition-colors duration-100"
+                  transition-colors duration-100
+                  ${isLinked && !linkBroken
+                    ? "text-idemora-text-muted pr-8"
+                    : "text-idemora-text-normal"
+                  }`}
                 placeholder="Note name…"
                 autoFocus={!nameLoading}
               />
-              {nameLoading && (
+              {/* Lock icon — shown when linked and name not yet edited */}
+              {isLinked && !linkBroken && (
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <LockIcon />
+                </div>
+              )}
+              {/* AI loading spinner */}
+              {nameLoading && !isLinked && (
                 <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
                   <svg width="11" height="11" viewBox="0 0 12 12" className="animate-spin text-idemora-text-muted" fill="none">
                     <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 7" strokeLinecap="round"/>
@@ -521,6 +629,12 @@ export function SaveNoteDialog({
                 </div>
               )}
             </div>
+            {/* Link-broken hint */}
+            {linkBroken && (
+              <p className="text-[10px] text-amber-500 px-0.5 leading-relaxed">
+                Will create a new note — link to previous save broken
+              </p>
+            )}
           </div>
 
           {/* Format */}
@@ -542,8 +656,8 @@ export function SaveNoteDialog({
             </label>
             <LocationDropdown
               excludeNoteId={null}
-              value={parentId}
-              onChange={setParentId}
+              value={locationId}
+              onChange={setLocationId}
             />
           </div>
 
@@ -574,41 +688,41 @@ export function SaveNoteDialog({
                 <button
                   onClick={async () => {
                     setSaving(true)
-                    const session    = useChatSessionStore.getState().getSession(paneId)
-                    const linkedNote = await getNoteById(session.linkedNoteId!)
+                    const s          = useChatSessionStore.getState().getSession(paneId)
+                    const linkedNote = await getNoteById(s.linkedNoteId!)
                     if (linkedNote) {
-                      await saveManualVersion(session.linkedNoteId!)
-                      await updateNote(session.linkedNoteId!, conflictPending)
-                      onSaveSuccess(session.linkedNoteId!, linkedNote.title)
+                      // Preserve subPage nodes even during conflict overwrite.
+                      const existingSubPageNodes = extractSubPageNodes(linkedNote.content ?? "")
+                      const content = reappendSubPageNodes(conflictPending.content, existingSubPageNodes)
+                      await saveManualVersion(s.linkedNoteId!)
+                      await updateNote(s.linkedNoteId!, { content, plaintext: conflictPending.plaintext })
+                      onSaveSuccess(s.linkedNoteId!, linkedNote.title)
                       useChatSessionStore.getState().stampSavedAt(paneId)
                     }
                     setConflictPending(null)
                     onClose()
                   }}
                   className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium
-                    bg-amber-100 text-amber-800 hover:bg-amber-200
-                    transition-colors duration-75"
+                    bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors duration-75"
                 >
                   Overwrite with chat version (version history preserved)
                 </button>
                 <button
                   onClick={() => setConflictPending(null)}
                   className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium border border-idemora-border
-                    text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
-                    transition-colors duration-75"
+                    text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-75"
                 >
                   Keep manual edits — cancel save
                 </button>
                 <button
                   onClick={async () => {
                     setSaving(true)
-                    const session          = useChatSessionStore.getState().getSession(paneId)
-                    const resolvedParentId = session.linkedNoteId
-                    const savedNote        = await createNote({
+                    const s         = useChatSessionStore.getState().getSession(paneId)
+                    const savedNote = await createNote({
                       title:     noteName.trim() || generateNoteName(toTranscript(messages)),
                       content:   conflictPending.content,
                       plaintext: conflictPending.plaintext,
-                      parent_id: resolvedParentId,
+                      parent_id: s.linkedNoteId,
                     })
                     window.dispatchEvent(new CustomEvent("idemora:insert-subpage", {
                       detail: { noteId: savedNote.id }
@@ -619,8 +733,7 @@ export function SaveNoteDialog({
                     onClose()
                   }}
                   className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium border border-idemora-border
-                    text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
-                    transition-colors duration-75"
+                    text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-75"
                 >
                   Save as new note — keep both
                 </button>
@@ -643,48 +756,128 @@ export function SaveNoteDialog({
         {/* ── Footer ── */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-idemora-border shrink-0">
 
-          {/* Append — visible bordered button, understated but unmissable */}
-          <button
-            onClick={handleAppend}
-            disabled={!currentNoteId || saving}
-            title={currentNoteId ? `Append to "${currentNote?.title}"` : "No note open"}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-idemora-border
-              text-[11px] text-idemora-text-muted
-              hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
-              disabled:opacity-30 disabled:cursor-not-allowed
-              transition-colors duration-100"
-          >
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-              <path d="M4.5 1v5.5M2 5l2.5 2.5L7 5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M1.5 8h6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-            </svg>
-            Append
-          </button>
+          {/* ── Mode A: linked note selected, name untouched ── */}
+          {footerMode === "linked" && (
+            <>
+              <button
+                onClick={handleAppend}
+                disabled={saving}
+                title={`Append to "${appendTargetNote?.title}"`}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px]
+                  border-idemora-border text-idemora-text-muted
+                  hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+                  disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
+              >
+                <AppendIcon />
+                Append
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-idemora-text-muted select-none">⌘↵</span>
+                <button
+                  onClick={onClose}
+                  className="px-3 py-1.5 text-xs rounded-lg border border-idemora-border
+                    text-idemora-text-muted
+                    hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+                    transition-colors duration-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateLinked}
+                  disabled={saving || !noteName.trim()}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-500 text-white
+                    hover:bg-violet-600 active:scale-[0.98]
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    transition-colors duration-100"
+                >
+                  {saving ? "Saving…" : "Update note"}
+                </button>
+                <button
+                  onClick={handleSaveNew}
+                  disabled={saving || !noteName.trim()}
+                  title="Create a new subnote under the linked note"
+                  className="px-3 py-1.5 text-xs rounded-lg border border-idemora-border
+                    text-idemora-text-muted
+                    hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+                    disabled:opacity-30 disabled:cursor-not-allowed
+                    transition-colors duration-100"
+                >
+                  Save as subnote
+                </button>
+              </div>
+            </>
+          )}
 
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-idemora-text-muted select-none">⌘↵</span>
-            <button
-              onClick={onClose}
-              className="px-3 py-1.5 text-xs rounded-lg border border-idemora-border
-                text-idemora-text-muted
-                hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
-                transition-colors duration-100"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving || !noteName.trim()}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-500 text-white
-                hover:bg-violet-600 active:scale-[0.98]
-                disabled:opacity-40 disabled:cursor-not-allowed
-                transition-colors duration-100"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
+          {/* ── Mode B: any other note selected (or link broken) ── */}
+          {footerMode === "other-note" && (
+            <>
+              <button
+                onClick={handleAppend}
+                disabled={saving}
+                title={`Append to "${appendTargetNote?.title}"`}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px]
+                  border-idemora-border text-idemora-text-muted
+                  hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+                  disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
+              >
+                <AppendIcon />
+                Append to note
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-idemora-text-muted select-none">⌘↵</span>
+                <button
+                  onClick={onClose}
+                  className="px-3 py-1.5 text-xs rounded-lg border border-idemora-border
+                    text-idemora-text-muted
+                    hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+                    transition-colors duration-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveNew}
+                  disabled={saving || !noteName.trim()}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-500 text-white
+                    hover:bg-violet-600 active:scale-[0.98]
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    transition-colors duration-100"
+                >
+                  {saving ? "Saving…" : "Save as subnote"}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── Mode C: root selected ── */}
+          {footerMode === "root" && (
+            <>
+              <div /> {/* spacer */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-idemora-text-muted select-none">⌘↵</span>
+                <button
+                  onClick={onClose}
+                  className="px-3 py-1.5 text-xs rounded-lg border border-idemora-border
+                    text-idemora-text-muted
+                    hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07]
+                    transition-colors duration-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveNew}
+                  disabled={saving || !noteName.trim()}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-500 text-white
+                    hover:bg-violet-600 active:scale-[0.98]
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    transition-colors duration-100"
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </>
+          )}
+
         </div>
-
       </div>
     </div>
   )

@@ -27,6 +27,14 @@ function todayPrefix(): string {
   return `${y}-${m}-${day}`
 }
 
+// ─── Sanitise message content ─────────────────────────────────────────────────
+// Strips web-search citation markers (e.g. [web:1]) that are rendered
+// decoratively in the chat UI but should never appear in saved notes.
+
+function stripCitations(text: string): string {
+  return text.replace(/\[web:\d+\]/g, "").replace(/ {2,}/g, " ").trim()
+}
+
 // ─── Note name (fallback) ─────────────────────────────────────────────────────
 
 export function generateNoteName(messages: TranscriptMessage[]): string {
@@ -107,16 +115,17 @@ export function formatRawTranscript(messages: TranscriptMessage[]): string {
   const lines: string[] = [`# ${headingText}`, ""]
 
   for (const msg of messages) {
-    if (!msg.content.trim()) continue
+    const content = stripCitations(msg.content)
+    if (!content) continue
 
     const label = msg.role === "user" ? "**User:**" : "**Assistant:**"
 
-    if (msg.content.includes("\n")) {
+    if (content.includes("\n")) {
       lines.push(label)
       lines.push("")
-      lines.push(msg.content)
+      lines.push(content)
     } else {
-      lines.push(`${label} ${msg.content}`)
+      lines.push(`${label} ${content}`)
     }
 
     lines.push("")
@@ -145,8 +154,9 @@ export function formatSingleResponse(
 
   const lines: string[] = [`# ${headingText}`, ""]
 
-  if (assistantMsg.content.trim()) {
-    lines.push(assistantMsg.content.trim())
+  const assistantContent = stripCitations(assistantMsg.content)
+  if (assistantContent) {
+    lines.push(assistantContent)
   }
 
   return lines.join("\n")
