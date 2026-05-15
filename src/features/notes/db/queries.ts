@@ -2132,13 +2132,19 @@ export async function upsertEmbedding(
   )
 }
 
-export async function getAllEmbeddings(modelId: string): Promise<EmbeddingWithVector[]> {
+// AFTER
+export async function getAllEmbeddings(
+  modelId: string,
+  limit = 10_000
+): Promise<EmbeddingWithVector[]> {
   const db   = await getDb()
   const rows = await db.select<EmbeddingRow[]>(
     `SELECT block_id, note_id, model_id, vector, updated_at
      FROM embeddings
-     WHERE model_id = $1`,
-    [modelId]
+     WHERE model_id = $1
+     ORDER BY updated_at DESC
+     LIMIT $2`,
+    [modelId, limit]
   )
   return rows.map((r) => ({
     ...r,

@@ -53,16 +53,22 @@ export async function semanticSearch(
   const embedProvider = useAIStore.getState().embeddingProvider
   const modelId       = embeddingModelId(embedProvider)
 
-  const embeddings = await getAllEmbeddings(modelId)
-  if (embeddings.length === 0) return []
+  // AFTER
+const MAX_VECTORS = 5_000          // never load more than this
+const MIN_SCORE   = 0.45           // cosine threshold — below this is noise
 
-  const scored = embeddings.map((e) => ({
-    block_id: e.block_id,
-    note_id:  e.note_id,
-    score:    cosineSimilarity(queryVector, e.vector),
-  }))
+const embeddings = await getAllEmbeddings(modelId, MAX_VECTORS)
+if (embeddings.length === 0) return []
 
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
+const scored: SemanticResult[] = []
+for (const e of embeddings) {
+  const score = cosineSimilarity(queryVector, e.vector)
+  if (score >= MIN_SCORE) {
+    scored.push({ block_id: e.block_id, note_id: e.note_id, score })
+  }
+}
+
+return scored
+  .sort((a, b) => b.score - a.score)
+  .slice(0, topK)
 }
