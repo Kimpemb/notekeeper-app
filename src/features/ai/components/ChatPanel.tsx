@@ -2,7 +2,8 @@
 //
 // RAG v3 — Milestone 8 + Phase 3 (M14 scope, save flow)
 
-import { useEffect, useRef, useState, useCallback, useMemo, type ReactElement } from "react";import { subscribeToIndexerStatus } from "@/features/ai/lib/indexer";
+import { useEffect, useRef, useState, useCallback, useMemo, type ReactElement } from "react";
+import { subscribeToIndexerStatus } from "@/features/ai/lib/indexer";
 import { onRecovery } from "@/features/ai/lib/client";
 import {
   streamChatWithNotes,
@@ -655,6 +656,62 @@ async function handleDirectWebSearch() {
     await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)])
   }
 
+  const handleRetry = useCallback(async () => {
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+  const lastUser      = [...messages].reverse().find((m) => m.role === "user")
+  if (!lastAssistant || !lastUser) return
+
+  setCallError(null)
+  setLoading(true)
+  setStreamingId(lastAssistant.id)
+  setMessageContent(noteId, lastAssistant.id, "")
+
+  const scopeNoteIds = await resolveScopeNoteIds()
+
+  try {
+    const meta = await streamChatWithNotes(
+      lastUser.content,
+      notes,
+      noteId,
+      currentNote,
+      scopeNoteIds,
+      {
+        onChunk: (token) => {
+          const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
+          const existing = current.messages.find((m) => m.id === lastAssistant.id)
+          setMessageContent(noteId, lastAssistant.id, (existing?.content ?? "") + token)
+        },
+        onDone:  () => { setStreamingId(null); setLoading(false) },
+        onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err) },
+      },
+    )
+
+    const pm: PersistedMeta = {
+      messageId:      lastAssistant.id,
+      confidence:     meta.confidence,
+      citations:      meta.sourceTitles.map((title, i) => ({
+        noteId:       meta.sourceNoteIds[i],
+        title,
+        isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+      })),
+      usedWeb:        meta.webNudge !== undefined,
+      usedEmbeddings: meta.usedEmbeddings,
+    }
+    setPersistedMeta(noteId, lastAssistant.id, pm)
+    await saveSession(noteId)
+
+    setRuntimeMetaMap((prev) => new Map(prev).set(lastAssistant.id, {
+      sourceTitles:        meta.sourceTitles,
+      sourceNoteIds:       meta.sourceNoteIds,
+      relatedNotes:        meta.relatedNotes,
+      tier1Results:        meta.tier1Results,
+      excludedNoteNotices: meta.excludedNoteNotices,
+      titleMatchedNoteIds: meta.titleMatchedNoteIds,
+      webNudge:            meta.webNudge,
+    }))
+  } catch { /* handled by onError */ }
+}, [messages, notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession])
+
   function handleOpenNote(id: string) {
     if (paneId === 2) openTabInPane2(id);
     else openTab(id);
@@ -860,61 +917,69 @@ async function handleDirectWebSearch() {
               </div>
             )}
             {messages.map((msg, idx) => {
-              const meta        = metaMap.get(msg.id);
-              const isStreaming = msg.id === streamingId;
-              const isLatest    = idx === messages.length - 1;
-              const prevMsg     = idx > 0 ? messages[idx - 1] : null;
-              return (
-                <div key={msg.id} className="group/msg relative">
-                  <MessageBubble message={msg} isStreaming={isStreaming} />
-                  {msg.role === "assistant" && meta && !isStreaming && (
-                    <MessageFooter
-                      meta={meta}
-                      onOpenNote={handleOpenNote}
-                      onOneTimeInclusion={handleOneTimeInclusion}
-                      webSources={webResultsMap.get(msg.id)}
-                    />
-                  )}
-                  {msg.role === "assistant" && meta && !isStreaming && meta.webNudge && !isStreaming &&
-                   !dismissedNudges.has(msg.id) && !suppressedNudges.has(msg.id) && (
-                    <WebNudge
-                      messageId={msg.id}
-                      nudge={meta.webNudge}
-                      query={prevMsg?.role === "user" ? prevMsg.content : ""}
-                      onSearchComplete={(id, results) => {
-                        setSuppressedNudges((prev) => new Set(prev).add(id))
-                        const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
-                        if (userQuery) handleWebSearch(userQuery, results)
-                      }}
-                      onDismiss={(id) => {
-                        setDismissedNudges((prev) => new Set(prev).add(id));
-                      }}
-                    />
-                  )}
-                  {msg.role === "assistant" && !isStreaming && !isFreeTier && (
-                    <div className={`px-4 pb-1 ${isLatest ? "flex" : "hidden group-hover/msg:flex"}`}>
-                      <button
-                        onClick={() => {
-                          const userMsg = prevMsg?.role === "user" ? prevMsg : null;
-                          setSelectedMessage(userMsg ? {
-                            user:      { role: "user",      content: userMsg.content },
-                            assistant: { role: "assistant", content: msg.content },
-                          } : null);
-                          setSaveDialogOpen(true);
-                        }}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-500 border border-transparent hover:border-violet-200 transition-colors duration-100"
-                      >
-                        <svg width="8" height="8" viewBox="0 0 9 9" fill="none">
-                          <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
-                            stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                        Save to note ↓
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+  const meta        = metaMap.get(msg.id)
+  const isStreaming = msg.id === streamingId
+  const isLatest    = idx === messages.length - 1
+  const prevMsg     = idx > 0 ? messages[idx - 1] : null
+ 
+  return (
+    <div key={msg.id} className="group/msg relative">
+      <MessageBubble
+        message={msg}
+        isStreaming={isStreaming}
+        isLatest={isLatest}
+        onCopy={(content) => {
+          const plain = content.replace(/\[web:\d+\]/g, "").replace(/\[\d+\]/g, "").trim()
+          navigator.clipboard.writeText(plain).catch(console.error)
+          addToast("Copied")
+        }}
+        onRetry={isLatest && msg.role === "assistant" ? handleRetry : undefined}
+        showRetry={isLatest && msg.role === "assistant" && (!!callError || msg.content === "")}
+        // Edit prefills the textarea — user bubble only
+        onEdit={msg.role === "user" ? (content) => setInput(content) : undefined}
+        // Save-to-note callback — assistant bubble weaves this into its action row
+        onSave={msg.role === "assistant" && !isFreeTier ? () => {
+          const userMsg = prevMsg?.role === "user" ? prevMsg : null
+          setSelectedMessage(userMsg ? {
+            user:      { role: "user",      content: userMsg.content },
+            assistant: { role: "assistant", content: msg.content },
+          } : null)
+          setSaveDialogOpen(true)
+        } : undefined}
+      />
+ 
+      {/* Source footer — unchanged */}
+      {msg.role === "assistant" && meta && !isStreaming && (
+        <MessageFooter
+          meta={meta}
+          onOpenNote={handleOpenNote}
+          onOneTimeInclusion={handleOneTimeInclusion}
+          webSources={webResultsMap.get(msg.id)}
+        />
+      )}
+ 
+      {/* Web nudge — unchanged */}
+      {msg.role === "assistant" && meta && !isStreaming && meta.webNudge &&
+       !dismissedNudges.has(msg.id) && !suppressedNudges.has(msg.id) && (
+        <WebNudge
+          messageId={msg.id}
+          nudge={meta.webNudge}
+          query={prevMsg?.role === "user" ? prevMsg.content : ""}
+          onSearchComplete={(id, results) => {
+            setSuppressedNudges((prev) => new Set(prev).add(id))
+            const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
+            if (userQuery) handleWebSearch(userQuery, results)
+          }}
+          onDismiss={(id) => {
+            setDismissedNudges((prev) => new Set(prev).add(id))
+          }}
+        />
+      )}
+ 
+      {/* ── OLD standalone save row removed — now inside MessageBubble ── */}
+    </div>
+  )
+})}
             {callError && !allExhausted && (
               <div className="mx-3 mt-1">
                 <ErrorCard error={callError} onDismiss={() => setCallError(null)} />
@@ -1062,75 +1127,197 @@ async function handleDirectWebSearch() {
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStreaming: boolean }) {
-  const isUser = message.role === "user";
+function MessageBubble({
+  message,
+  isStreaming,
+  isLatest,
+  onCopy,
+  onRetry,
+  showRetry,
+  onEdit,
+  onSave,   // ← add this
+}: {
+  message:     ChatMessage
+  isStreaming:  boolean
+  isLatest:    boolean
+  onCopy:      (content: string) => void
+  onRetry?:    () => void
+  showRetry?:  boolean
+  onEdit?:     (content: string) => void   // pre-fills input; user bubbles only
+  onSave?:     () => void                  // opens SaveNoteDialog; assistant bubbles only
+}) {
+  const isUser = message.role === "user"
+ 
+  // ── Markdown renderer (assistant only) ────────────────────────────────────
+  function renderWithCitations(text: string) {
+    const cleaned = text.replace(/\[web:\d+\]/g, "")
+    const html = marked.parse(cleaned, { async: false }) as string
+    const parts = html.split(/(\[\d+(?:,\s*\d+)*\])/g)
+    return (
+      <div className="text-sm text-idemora-text-normal
+        [&_strong]:font-semibold [&_strong]:text-idemora-text-normal
+        [&_em]:italic
+        [&_p]:my-0 [&_p]:leading-relaxed
+        [&_ul]:list-disc [&_ul]:pl-3 [&_ul]:mt-0.5 [&_ul]:mb-0
+        [&_ol]:list-decimal [&_ol]:pl-3 [&_ol]:mt-0.5 [&_ol]:mb-0
+        [&_li]:my-0 [&_li]:leading-snug
+        [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mt-2 [&_h1]:mb-0.5
+        [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-0.5
+        [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mt-1.5 [&_h3]:mb-0.5
+        [&_pre]:bg-idemora-bg-secondary [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-1 [&_pre]:overflow-x-auto
+        [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
+        [&_pre_code]:bg-transparent [&_pre_code]:p-0
+        [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 [&_blockquote]:border-idemora-border [&_blockquote]:pl-3 [&_blockquote]:my-1">
+        {parts.map((part, i) => {
+          const match = part.match(/^\[(\d+(?:,\s*\d+)*)\]$/)
+          if (match) {
+            return (
+              <sup
+                key={i}
+                className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-violet-100 text-violet-600 text-[8px] font-bold mx-0.5 cursor-default"
+                title={`Source ${match[1]}`}
+              >
+                {match[1]}
+              </sup>
+            )
+          }
+          return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />
+        })}
+      </div>
+    )
+  }
+ 
+  // ── Shared micro-buttons ───────────────────────────────────────────────────
+  const [copied, setCopied] = useState(false)
 
-function renderWithCitations(text: string) {
-  const cleaned = text.replace(/\[web:\d+\]/g, "")
-  const html = marked.parse(cleaned, { async: false }) as string
-  console.log('[marked] html:', html.slice(0, 500))
-  const parts = html.split(/(\[\d+(?:,\s*\d+)*\])/g)
+const CopyBtn = () => (
+  <button
+    onClick={() => {
+      onCopy(message.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }}
+    className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+    title="Copy"
+  >
+    {copied ? (
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ) : (
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+        <path d="M2 7H1.5A.5.5 0 011 6.5v-5A.5.5 0 011.5 1h5a.5.5 0 01.5.5V2" stroke="currentColor" strokeWidth="1.1"/>
+      </svg>
+    )}
+  </button>
+)
+
+const RetryBtn = () =>
+  onRetry && showRetry ? (
+    <button
+      onClick={onRetry}
+      className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+      title="Retry"
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M1 1v2.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    </button>
+  ) : null
+
+const EditBtn = () =>
+  onEdit ? (
+    <button
+      onClick={() => onEdit(message.content)}
+      className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+      title="Edit and resend"
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M6.5 1.5l2 2L3 9H1V7L6.5 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M5.5 2.5l2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+      </svg>
+    </button>
+  ) : null
+  // ── User bubble ────────────────────────────────────────────────────────────
+if (isUser) {
   return (
-    <div className="text-sm text-idemora-text-normal
-      [&_strong]:font-semibold [&_strong]:text-idemora-text-normal
-      [&_em]:italic
-      [&_p]:my-0 [&_p]:leading-relaxed
-      [&_ul]:list-disc [&_ul]:pl-3 [&_ul]:mt-0.5 [&_ul]:mb-0
-      [&_ol]:list-decimal [&_ol]:pl-3 [&_ol]:mt-0.5 [&_ol]:mb-0
-      [&_li]:my-0 [&_li]:leading-snug
-      [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mt-2 [&_h1]:mb-0.5
-      [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-0.5
-      [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mt-1.5 [&_h3]:mb-0.5
-      [&_pre]:bg-idemora-bg-secondary [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-1 [&_pre]:overflow-x-auto
-    [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
-      [&_pre_code]:bg-transparent [&_pre_code]:p-0
-      [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 [&_blockquote]:border-idemora-border [&_blockquote]:pl-3 [&_blockquote]:my-1">      {parts.map((part, i) => {
-    const match = part.match(/^\[(\d+(?:,\s*\d+)*)\]$/)
-        if (match) {
-          return (
-            <sup
-              key={i}
-              className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-violet-100 text-violet-600 text-[8px] font-bold mx-0.5 cursor-default"
-              title={`Source ${match[1]}`}
-            >
-              {match[1]}
-            </sup>
-          )
-        }
-        return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />
-      })}
+    <div className="px-4 py-1.5 flex justify-end">
+      <div className="flex flex-col items-end gap-0.5 max-w-[85%] group/bubble">
+        {/* bubble */}
+        <div className="w-full px-3 py-2 rounded-2xl rounded-tr-sm bg-violet-500 text-white text-sm leading-relaxed">
+          {message.content}
+        </div>
+
+        {/* action row — sits right below bubble, aligned to its right edge */}
+        <div className={`flex items-center gap-0.5 transition-opacity duration-150
+          ${isLatest
+            ? "opacity-100"
+            : "opacity-0 group-hover/bubble:opacity-100 group-hover/bubble:delay-0 delay-700"
+          }`}
+        >
+          <CopyBtn />
+          <EditBtn />
+        </div>
+      </div>
     </div>
   )
 }
-
+ 
+  // ── Assistant bubble ───────────────────────────────────────────────────────
+  // Copy + Retry are NOT rendered here — they're rendered by ChatPanel in the
+  // same flex row as "Save to note ↓" so everything sits on one line.
+  // We expose them via the `data-msgid` attribute pattern; ChatPanel already
+  // renders that row, so we just need to remove them from inside the bubble.
   return (
-    <div className={`px-4 py-1.5 ${isUser ? "flex justify-end" : ""}`}>
-      {isUser ? (
-        <div className="max-w-[85%] px-3 py-2 rounded-2xl rounded-tr-sm bg-violet-500 text-white text-sm leading-relaxed">
-          {message.content}
-        </div>
-      ) : (
-        <div className="space-y-1">
-          {isStreaming && message.content === "" && (
-            <div className="flex items-center gap-1 py-1">
-              {[0, 1, 2].map((i) => (
-                <span key={i} className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
-                  style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }} />
-              ))}
-            </div>
-          )}
-          {message.content !== "" && (
-            <div className="text-sm text-idemora-text-normal leading-relaxed whitespace-pre-wrap">
-              {renderWithCitations(message.content)}
-              {isStreaming && (
-                <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
-              )}
-            </div>
-          )}
-        </div>
-      )}
+    <div className="px-4 py-1.5">
+      <div className="space-y-1">
+        {/* Typing indicator */}
+        {isStreaming && message.content === "" && (
+          <div className="flex items-center gap-1 py-1">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
+                style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }}
+              />
+            ))}
+          </div>
+        )}
+ 
+        {/* Content */}
+        {message.content !== "" && (
+          <div className="text-sm text-idemora-text-normal leading-relaxed">
+            {renderWithCitations(message.content)}
+            {isStreaming && (
+              <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
+            )}
+          </div>
+        )}
+ 
+        {/* ── Action row: copy · retry · save-to-note — all on one line ── */}
+        {!isStreaming && (
+          <div className={`flex items-center gap-1 mt-0.5 ${isLatest ? "flex" : "hidden group-hover/msg:flex"}`}>
+            <CopyBtn />
+            <RetryBtn />
+            {onSave && (
+              <button
+                onClick={onSave}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-500 border border-transparent hover:border-violet-200 transition-colors duration-100"
+              >
+                <svg width="8" height="8" viewBox="0 0 9 9" fill="none">
+                  <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
+                    stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Save to note ↓
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
-  );
+  )
 }
 
 // ─── Message footer ───────────────────────────────────────────────────────────
