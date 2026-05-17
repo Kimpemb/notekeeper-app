@@ -972,23 +972,39 @@ function buildPrompt(
   historyBlock: string,
   currentNote?: Note,
   webResults?:  WebSearchResult[],
+  injectVault?: boolean,
 ): string {
-const currentNoteBlock = currentNote
-  ? `\nCurrently open note: "${currentNote.title}"`
-  : ""
+  const currentNoteBlock = currentNote
+    ? `\nCurrently open note: "${currentNote.title}"`
+    : ""
+
+  const hasVault = injectVault && pipeline.excerptBlock && pipeline.chunkCount > 0
+  const hasWeb   = webResults && webResults.length > 0
 
   const excerptSection = pipeline.inventoryMode
     ? pipeline.excerptBlock
-    : pipeline.excerptBlock
+    : hasVault
       ? `[NOTE AND VAULT EXCERPTS]\n${pipeline.excerptBlock}`
-      : "(No matching content found in your notes.)"
+      : hasWeb
+        ? "(No matching content found in your notes — answering from web search only.)"
+        : "(No matching content found in your notes.)"
 
   const titleDirectedInstruction = pipeline.isTitleDirected
     ? `The user is asking about a specific note by title. Prioritise excerpts from the directly matched note(s) and answer from their content. Do not speculate beyond what those excerpts contain.\n`
     : ""
 
+  const combinedSourceInstruction = hasVault && hasWeb
+    ? `You have access to both the user's personal notes and live web search results.
+Cite vault excerpts as [N] and web results as [web:N].
+When vault excerpts and web results cover the same topic, compare them explicitly.
+If they contradict each other, flag the discrepancy — do not silently favour one source.
+Prefer vault content for personal context and decisions; prefer web content for current facts and external information.\n`
+    : hasWeb
+      ? `You have access to live web search results. Cite them as [web:N].\n`
+      : ""
+
   return `You are an assistant with access to the user's personal notes vault.
-${titleDirectedInstruction}You will be given numbered excerpts [1], [2], [3]... from different notes.
+${titleDirectedInstruction}${combinedSourceInstruction}You will be given numbered excerpts [1], [2], [3]... from different notes.
 Read ALL excerpts carefully before forming your answer — the relevant information may appear in any excerpt, not just the first ones.
 Cite every note excerpt you draw from using its number: [1], [2] etc.
 When using web search results, cite them as [web:1], [web:2] etc.
@@ -1005,10 +1021,9 @@ Format your response using markdown:
 - Place citations inline immediately after the claim they support, not clustered at the end: "The save flow runs in Phase 1 [1], while RAG scoping is Phase 3 [2]."
 - Never restate the question, summarise what you just said, or add filler closing sentences
 ${historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
-[EXCERPTS FROM YOUR NOTES]
-${excerptSection}
+${hasVault ? `[EXCERPTS FROM YOUR NOTES]\n${excerptSection}\n` : `${excerptSection}\n`}
 ${currentNoteBlock ? `[CURRENTLY OPEN NOTE]\nUse this as additional context. Do not cite it with a number — refer to it as "current note" if relevant.\n${currentNoteBlock}\n` : ""}
-${webResults && webResults.length > 0 ? buildWebResultsBlock(webResults) : ""}
+${hasWeb ? buildWebResultsBlock(webResults!) : ""}
 [QUESTION]
 ${query}
 
@@ -1027,7 +1042,7 @@ export async function streamChatWithNotes(
   overrideNoteIds?: string[],
   webResults?:      WebSearchResult[],
 ): Promise<Omit<ChatResult, "answer">> {
-  
+
   // Tier 1 — no AI key configured
   if (!isAIReady()) {
     const pipeline   = await runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds)
@@ -1049,57 +1064,27 @@ export async function streamChatWithNotes(
       tier1Results:        tier1Cards,
       excludedNoteNotices: pipeline.excludedNoteNotices,
       titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-      webNudge:            deriveWebNudge(pipeline), // No assembled available in Tier 1
+      webNudge:            deriveWebNudge(pipeline),
     }
   }
 
   // Tier 2 — full AI pipeline
-  // Tier 2 — full AI pipeline
-
-  // Web-only path — skip pipeline entirely when web results are provided
-  if (webResults && webResults.length > 0) {
-    const webPrompt = `You are a helpful assistant. Answer the user's question using the web search results below. Cite sources as [web:1], [web:2] etc. Do not use the phrase "Source:" — inline citations only.
-
-${buildWebResultsBlock(webResults)}
-
-[QUESTION]
-${query}
-
-Answer:`
-
-    let assembled = ""
-    try {
-      const result = await callPrimary([{ role: "user", content: webPrompt }])
-      assembled    = result.text
-      streaming.onChunk(assembled)
-      streaming.onDone?.()
-    } catch (err) {
-      streaming.onError?.(err as AICallError)
-    }
-
-    return {
-      sourceTitles:        [],
-      sourceNoteIds:       [],
-      usedEmbeddings:      false,
-      confidence:          "high",
-      relatedNotes:        [],
-      excludedNoteNotices: [],
-      titleMatchedNoteIds: [],
-      webNudge:            undefined,
-      webGrounded:         true,
-    }
-  }
-
+  // Run history and pipeline in parallel regardless of web results
   const [historyBlock, pipeline] = await Promise.all([
     buildHistoryBlock(noteId),
     runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds),
   ])
 
+  // Gate vault injection — only inject when retrieval was meaningful
+  const injectVault = (webResults && webResults.length > 0)
+    ? pipeline.chunkCount > 0 && pipeline.confidence !== "low"
+    : true  // always inject on non-web path
+
   let assembled = ""
 
-  // Short-circuit — no chunks means nothing to ground the model on
-  if (pipeline.chunkCount === 0 && !pipeline.inventoryMode) {
-    console.log('[streamChat] chunkCount=0, short-circuiting before model call')
+  // Short-circuit — no chunks and no web results means nothing to ground the model on
+  if (pipeline.chunkCount === 0 && !pipeline.inventoryMode && (!webResults || webResults.length === 0)) {
+    console.log('[streamChat] chunkCount=0 and no web results, short-circuiting before model call')
     assembled = "Nothing found in your notes about this."
     streaming.onChunk(assembled)
     streaming.onDone?.()
@@ -1115,7 +1100,7 @@ Answer:`
     }
   }
 
-  const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote, webResults)
+  const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote, webResults, injectVault)
   const messages: ProviderMessage[] = [{ role: "user", content: prompt }]
 
   try {
@@ -1142,9 +1127,9 @@ Answer:`
     streaming.onError?.(err as AICallError)
   }
 
-  // Cross-note connection pass
+  // Cross-note connection pass — skip on web-grounded responses
   const citedNoteIds = new Set(pipeline.sourceNoteIds)
-  const relatedNotes = (pipeline.chunkCount === 0 || pipeline.confidence === "low")
+  const relatedNotes = (pipeline.chunkCount === 0 || pipeline.confidence === "low" || (webResults && webResults.length > 0))
     ? []
     : await findRelatedNotes(
         assembled,
@@ -1153,7 +1138,7 @@ Answer:`
         pipeline.confidence,
       )
 
-  // FIX: filter sources to only notes the model actually cited with [N] markers.
+  // Filter sources to only notes the model actually cited with [N] markers
   const cited = extractCitedIndices(assembled)
   const { titles, noteIds } = filterSourcesByCitations(
     pipeline.sourceTitles,
@@ -1162,14 +1147,15 @@ Answer:`
   )
 
   return {
-    sourceTitles:        titles,
-    sourceNoteIds:       noteIds,
+    sourceTitles:        injectVault ? titles  : [],
+    sourceNoteIds:       injectVault ? noteIds : [],
     usedEmbeddings:      pipeline.usedEmbeddings,
     confidence:          pipeline.confidence,
     relatedNotes,
     excludedNoteNotices: pipeline.excludedNoteNotices,
     titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-    webNudge:            deriveWebNudge(pipeline, assembled), // Pass assembled for Tier 2
+    webNudge:            deriveWebNudge(pipeline, assembled),
+    webGrounded:         webResults && webResults.length > 0 ? true : undefined,
   }
 }
 
@@ -1187,7 +1173,7 @@ export async function chatWithNotes(
     runPipeline(query, currentNote, scopeNoteIds),
   ])
 
-  const prompt = buildPrompt(query, pipeline, historyBlock, currentNote)
+  const prompt = buildPrompt(query, pipeline, historyBlock, currentNote, undefined, true)
   const answer = await promptPrimary(prompt)
 
   await appendAIHistory(noteId, "user",      query)
