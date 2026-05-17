@@ -212,26 +212,28 @@ Summarize what topics and areas are covered in this vault in 2-3 sentences.`
 
 // ─── Context assembly ─────────────────────────────────────────────────────────
 
-function buildExcerptBlock(results: HybridResult[]): string {
+function buildExcerptBlock(results: HybridResult[]): { block: string; includedCount: number } {
   const chunks: string[] = []
-  let total = 0
+  let total        = 0
+  let includedCount = 0
 
   for (let i = 0; i < results.length; i++) {
     const r    = results[i]
     console.log(`[breadcrumb] result ${i + 1}: note="${r.note_title}" breadcrumb="${(r as any).breadcrumb ?? 'MISSING'}"`)
-    const text = r.expanded_context ?? r.plaintext
-    const heading    = r.chunk_heading ? ` — Section "${r.chunk_heading}"` : ""
-    const location   = r.breadcrumb && r.breadcrumb !== r.note_title
+    const text     = r.expanded_context ?? r.plaintext
+    const heading  = r.chunk_heading ? ` — Section "${r.chunk_heading}"` : ""
+    const location = r.breadcrumb && r.breadcrumb !== r.note_title
       ? ` [${r.breadcrumb}]`
       : ""
-    const label   = `[${i + 1}] From "${r.note_title}"${location} (${r.source_type})${heading}:\n${text}`
+    const label = `[${i + 1}] From "${r.note_title}"${location} (${r.source_type})${heading}:\n${text}`
 
     if (total + label.length > MAX_CONTEXT_CHARS) break
     chunks.push(label)
     total += label.length
+    includedCount++
   }
 
-  return chunks.join("\n\n")
+  return { block: chunks.join("\n\n"), includedCount }
 }
 
 // ─── Citation filtering ───────────────────────────────────────────────────────
@@ -900,19 +902,27 @@ async function runPipeline(
   const chunkNoteIds = merged.map((r) => r.note_id)
   const confidence   = merged[0]?.confidence ?? "low"
 
+  const { block: excerptBlock, includedCount } = buildExcerptBlock(merged)
+
+  // Slice source arrays to only what the model actually saw inside the 12k cap.
+  // Prevents filterSourcesByCitations from resolving [N] markers to notes
+  // that were retrieved but never included in the prompt.
+  const visibleTitles  = chunkTitles.slice(0, includedCount)
+  const visibleNoteIds = chunkNoteIds.slice(0, includedCount)
+
   console.log('[pipeline] Building final response:', {
-    totalChunks:     merged.length,
+    totalChunks:      merged.length,
+    includedInPrompt: includedCount,
     confidence,
-    topScore:        merged[0]?.final_score ?? 0,
-    uniqueNoteCount: new Set(chunkNoteIds).size,
-    noteDistribution: chunkTitles.reduce((acc, title) => {
+    topScore:         merged[0]?.final_score ?? 0,
+    uniqueNoteCount:  new Set(visibleNoteIds).size,
+    noteDistribution: visibleTitles.reduce((acc, title) => {
       acc[title] = (acc[title] || 0) + 1
       return acc
     }, {} as Record<string, number>)
   })
 
-  const excerptBlock = buildExcerptBlock(merged)
-  const tier1Cards   = buildTier1Cards(merged)
+  const tier1Cards = buildTier1Cards(merged)
 
   const excludedNoteNotices: ExcludedTitleMatch[] = excludedOverridden
     ? []
@@ -927,8 +937,8 @@ async function runPipeline(
 
   const finalResult = {
     excerptBlock:        titleNotice ? `${titleNotice}\n\n${excerptBlock}` : excerptBlock,
-    sourceTitles:        chunkTitles,
-    sourceNoteIds:       chunkNoteIds,
+    sourceTitles:        visibleTitles,
+    sourceNoteIds:       visibleNoteIds,
     usedEmbeddings,
     confidence,
     tier1Cards,
@@ -944,6 +954,7 @@ async function runPipeline(
   console.log('[pipeline] Final result summary:', {
     excerptBlockLength: finalResult.excerptBlock.length,
     sourceCount:        finalResult.sourceTitles.length,
+    includedInPrompt:   includedCount,
     confidence:         finalResult.confidence,
     isTitleDirected:    finalResult.isTitleDirected,
     chunkCount:         finalResult.chunkCount,

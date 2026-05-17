@@ -2353,8 +2353,8 @@ export async function getSurroundingBlocks(
 ): Promise<string[]> {
   const db = await getDb()
 
-  const allBlocks = await db.select<{ block_id: string; plaintext: string }[]>(
-    `SELECT block_id, plaintext
+  const allBlocks = await db.select<{ block_id: string; plaintext: string; chunk_heading: string | null }[]>(
+    `SELECT block_id, plaintext, chunk_heading
      FROM note_blocks
      WHERE note_id = $1
        AND plaintext != ''
@@ -2367,8 +2367,23 @@ export async function getSurroundingBlocks(
   const idx = allBlocks.findIndex((b) => b.block_id === blockId)
   if (idx === -1) return []
 
-  const start = Math.max(0, idx - windowSize)
-  const end   = Math.min(allBlocks.length - 1, idx + windowSize)
+  const matchedHeading = allBlocks[idx].chunk_heading
+
+  // Expand backwards — stop when heading changes
+  let start = idx
+  for (let i = idx - 1; i >= Math.max(0, idx - windowSize); i--) {
+    if (allBlocks[i].chunk_heading !== matchedHeading) break
+    start = i
+  }
+
+  // Expand forwards — stop when heading changes
+  let end = idx
+  for (let i = idx + 1; i <= Math.min(allBlocks.length - 1, idx + windowSize); i++) {
+    if (allBlocks[i].chunk_heading !== matchedHeading) break
+    end = i
+  }
+
+  console.log('[surrounding] blockId:', blockId, 'matchedHeading:', matchedHeading, 'start:', start, 'end:', end, 'headings:', allBlocks.slice(start, end + 1).map(b => b.chunk_heading))
 
   return allBlocks.slice(start, end + 1).map((b) => b.plaintext).filter(Boolean)
 }
