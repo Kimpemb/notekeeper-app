@@ -888,7 +888,7 @@ async function handleDirectWebSearch() {
             ))}
           </div>
         ) : messages.length === 0 && !callError ? (
-          <EmptyState currentNoteTitle={currentNote?.title} />
+          <EmptyState currentNoteTitle={currentNote?.title} onSuggest={(text) => { setInput(text); inputRef.current?.focus(); }} />
         ) : (
           <div className="py-3 space-y-1">
             {allExhausted && (
@@ -1072,7 +1072,7 @@ async function handleDirectWebSearch() {
                 onClick={handleDirectWebSearch}
                 disabled={!input.trim() || loading}
                 title="Search the web directly"
-                className="w-7 h-7 flex items-center justify-center rounded-lg border border-sky-300 text-sky-500 hover:bg-sky-50/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-idemora-text-muted hover:text-sky-400 hover:bg-white/[0.04] border border-idemora-border hover:border-sky-400/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
               >
                 <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                   <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -1620,48 +1620,59 @@ function FreeTierState() {
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
-function EmptyState({ currentNoteTitle }: { currentNoteTitle?: string }) {
+function EmptyState({ currentNoteTitle, onSuggest }: { currentNoteTitle?: string; onSuggest: (text: string) => void }) {
   const suggestions = [
     "What do I know about this topic?",
     "Summarize the key themes across my notes",
     currentNoteTitle ? "How does this relate to my other notes?" : "What connections exist between my notes?",
+    "What gaps exist in my understanding?",
   ];
+
   return (
-    <div className="flex flex-col gap-4 px-4 py-6">
-      <div className="flex flex-col items-center gap-3 text-center py-4">
-        <div className="w-12 h-12 rounded-2xl bg-violet-50/50 flex items-center justify-center">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" className="text-violet-400">
-            <path d="M11 2C6.58 2 3 5.32 3 9.4c0 2.44 1.17 4.62 3 6.03V20l3.5-1.7c.48.1.98.1 1.5.1 4.42 0 8-3.32 8-7.4S15.42 2 11 2z"
-              stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-            <path d="M7 9h8M7 12h5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-          </svg>
-        </div>
-        <div>
-          <p className="text-sm font-medium text-idemora-text-normal">Ask your notes anything</p>
-          <p className="text-xs text-idemora-text-muted mt-0.5 leading-relaxed">
-            I'll search your vault and answer using what you've written.
-          </p>
-        </div>
+    <div className="flex flex-col px-5 py-6 gap-5">
+
+      {/* Heading block */}
+      <div className="space-y-2">
+        <p className="text-lg font-bold text-idemora-text-normal leading-snug">
+          Ask your notes anything
+        </p>
+        <p className="text-sm text-idemora-text-muted leading-relaxed">
+          Search your vault, or the web — your choice.
+        </p>
       </div>
+
+      <div className="border-t border-idemora-border/30" />
+
+      {/* Suggestions */}
+      <div className="space-y-1">
+        <p className="text-sm font-bold text-idemora-text-normal mb-2">Try asking</p>
+        {suggestions.map((s, i) => (
+          <SuggestionChip key={i} text={s} onClick={() => onSuggest(s)} />
+        ))}
+      </div>
+
+      <div className="border-t border-idemora-border/30" />
+
+      {/* Tip */}
       <div className="space-y-1.5">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted px-0.5">
-          Try asking
-        </p>
-        {suggestions.map((s, i) => <SuggestionChip key={i} text={s} />)}
-      </div>
-      <div className="p-2.5 rounded-lg bg-idemora-bg-primary border border-idemora-border">
-        <p className="text-[10px] text-idemora-text-muted leading-relaxed">
-          💡 Use <span className="font-medium text-idemora-text-muted">Summarize</span> on your notes first — it builds context that makes answers much richer.
+        <p className="text-sm font-bold text-idemora-text-normal">Tip</p>
+        <p className="text-sm text-idemora-text-muted leading-relaxed">
+          Run <span className="font-semibold text-idemora-text-normal">Summarize</span> on a note first — it builds context that makes answers much richer.
         </p>
       </div>
+
     </div>
   );
 }
 
-function SuggestionChip({ text }: { text: string }) {
+function SuggestionChip({ text, onClick }: { text: string; onClick: () => void }) {
   return (
-    <div className="px-3 py-2 rounded-lg border border-idemora-border bg-idemora-bg-primary text-xs text-idemora-text-muted leading-relaxed cursor-default hover:text-violet-400 transition-colors duration-100">
-      {text}
-    </div>
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-2.5 px-1 py-1.5 rounded-md text-sm text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.03] transition-all duration-150 text-left group"
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-idemora-text-muted/40 shrink-0 mt-px group-hover:bg-violet-400 transition-colors duration-150" />
+      <span className="leading-snug">{text}</span>
+    </button>
   );
 }
