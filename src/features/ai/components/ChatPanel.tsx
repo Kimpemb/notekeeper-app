@@ -217,6 +217,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [loading, setLoading]       = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [callError, setCallError]   = useState<AICallError | null>(null);
+  const [streamStatus, setStreamStatus] = useState<string | null>(null)
   const [indexingPaused, setIndexingPaused] = useState(false);
   const [allExhausted, setAllExhausted]     = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -489,23 +490,25 @@ async function handleDirectWebSearch() {
 
     try {
       const meta = await streamChatWithNotes(
-        userQuery,
-        notes,
-        noteId,
-        currentNote,
-        scopeNoteIds,
-        {
-          onChunk: (token) => {
-            const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
-            const existing = current.messages.find(m => m.id === assistantId)
-            setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
-          },
-          onDone:  () => { setStreamingId(null); setLoading(false) },
-          onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err) },
-        },
-        undefined,    // overrideNoteIds — not applicable for web search turns
-        webResults,   // injected web results
-      )
+  userQuery,
+  notes,
+  noteId,
+  currentNote,
+  scopeNoteIds,
+  {
+    onChunk: (token) => {
+      const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+      const existing = current.messages.find(m => m.id === assistantId)
+      setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+      setStreamStatus(null)
+    },
+    onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+    onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
+    onStatus: (msg) => setStreamStatus(msg),
+  },
+  undefined,
+  webResults,
+)
 
       // Persist the durable subset
       const pm: PersistedMeta = {
@@ -564,38 +567,41 @@ async function handleDirectWebSearch() {
       const scopeNoteIds = await resolveScopeNoteIds();
 
       const meta = await streamChatWithNotes(
-        q,
-        notes,
-        noteId,
-        currentNote,
-        scopeNoteIds,
-        {
-          onChunk: (token) => {
-            const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
-            const existing = current.messages.find(m => m.id === assistantId)
-            setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
-          },
-          onDone: () => {
-            setStreamingId(null);
-            setLoading(false);
-          },
-          onError: (err: AICallError) => {
-            errorHandled = true;
-            // roll back the assistant placeholder
-            useChatSessionStore.setState((s) => {
-              const sess = s.sessions[noteId]
-              if (!sess) return s
-              return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
-            })
-            if (err.code === "AUTH_FAILED" || err.code === "QUOTA_EXCEEDED") {
-              setProviderStatus(primarySlot.provider, "error", err.message);
-            }
-            setCallError(err);
-            setStreamingId(null);
-            setLoading(false);
-          },
-        }
-      );
+  q,
+  notes,
+  noteId,
+  currentNote,
+  scopeNoteIds,
+  {
+    onChunk: (token) => {
+      const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+      const existing = current.messages.find(m => m.id === assistantId)
+      setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+      setStreamStatus(null)
+    },
+    onDone: () => {
+      setStreamStatus(null)
+      setStreamingId(null)
+      setLoading(false)
+    },
+    onError: (err: AICallError) => {
+      errorHandled = true
+      setStreamStatus(null)
+      useChatSessionStore.setState((s) => {
+        const sess = s.sessions[noteId]
+        if (!sess) return s
+        return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
+      })
+      if (err.code === "AUTH_FAILED" || err.code === "QUOTA_EXCEEDED") {
+        setProviderStatus(primarySlot.provider, "error", err.message)
+      }
+      setCallError(err)
+      setStreamingId(null)
+      setLoading(false)
+    },
+    onStatus: (msg) => setStreamStatus(msg),
+  }
+)
 
       // Persist the durable subset
       const pm: PersistedMeta = {
@@ -679,21 +685,23 @@ async function handleDirectWebSearch() {
 
   try {
     const meta = await streamChatWithNotes(
-      lastUser.content,
-      notes,
-      noteId,
-      currentNote,
-      scopeNoteIds,
-      {
-        onChunk: (token) => {
-          const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
-          const existing = current.messages.find((m) => m.id === lastAssistant.id)
-          setMessageContent(noteId, lastAssistant.id, (existing?.content ?? "") + token)
-        },
-        onDone:  () => { setStreamingId(null); setLoading(false) },
-        onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err) },
-      },
-    )
+  lastUser.content,
+  notes,
+  noteId,
+  currentNote,
+  scopeNoteIds,
+  {
+    onChunk: (token) => {
+      const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
+      const existing = current.messages.find((m) => m.id === lastAssistant.id)
+      setMessageContent(noteId, lastAssistant.id, (existing?.content ?? "") + token)
+      setStreamStatus(null)
+    },
+    onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+    onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
+    onStatus: (msg) => setStreamStatus(msg),
+  },
+)
 
     const pm: PersistedMeta = {
       messageId:      lastAssistant.id,
@@ -746,22 +754,24 @@ async function handleDirectWebSearch() {
 
   try {
     const meta = await streamChatWithNotes(
-      lastUserMsg.content,
-      notes,
-      noteId,
-      currentNote,
-      scopeNoteIds,
-      {
-        onChunk: (token) => {
-          const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
-          const existing = current.messages.find(m => m.id === assistantId)
-          setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
-        },
-        onDone:  () => { setStreamingId(null); setLoading(false); },
-        onError: (err) => { setStreamingId(null); setLoading(false); setCallError(err); },
-      },
-      allInclusions,
-    );
+  lastUserMsg.content,
+  notes,
+  noteId,
+  currentNote,
+  scopeNoteIds,
+  {
+    onChunk: (token) => {
+      const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+      const existing = current.messages.find(m => m.id === assistantId)
+      setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+      setStreamStatus(null)
+    },
+    onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+    onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
+    onStatus: (msg) => setStreamStatus(msg),
+  },
+  allInclusions,
+)
     // Persist the durable subset
     const pm: PersistedMeta = {
       messageId:      assistantId,
@@ -937,6 +947,7 @@ async function handleDirectWebSearch() {
         message={msg}
         isStreaming={isStreaming}
         isLatest={isLatest}
+        streamStatus={isStreaming ? streamStatus : null}
         onCopy={(content) => {
           const plain = content.replace(/\[web:\d+\]/g, "").replace(/\[\d+\]/g, "").trim()
           navigator.clipboard.writeText(plain).catch(console.error)
@@ -1140,16 +1151,17 @@ async function handleDirectWebSearch() {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  message, isStreaming, isLatest, onCopy, onRetry, showRetry, onEdit, onSave,
+  message, isStreaming, isLatest, onCopy, onRetry, showRetry, onEdit, onSave, streamStatus,
 }: {
-  message:     ChatMessage
+  message:      ChatMessage
   isStreaming:  boolean
-  isLatest:    boolean
-  onCopy:      (content: string) => void
-  onRetry?:    () => void
-  showRetry?:  boolean
-  onEdit?:     (content: string) => void
-  onSave?:     () => void
+  isLatest:     boolean
+  onCopy:       (content: string) => void
+  onRetry?:     () => void
+  showRetry?:   boolean
+  onEdit?:      (content: string) => void
+  onSave?:      () => void
+  streamStatus?: string | null
 }) {
   const isUser = message.role === "user"
 
@@ -1270,8 +1282,11 @@ function MessageBubble({
 
         {/* Typing indicator */}
         {isStreaming && message.content === "" && (
-          <div className="flex items-center gap-px py-1">
-            <span className="inline-block w-0.5 h-4 bg-violet-400 animate-pulse rounded-full" />
+          <div className="flex items-center gap-2 py-1">
+            <span className="inline-block w-0.5 h-4 bg-violet-400 animate-pulse rounded-full shrink-0" />
+            {streamStatus && (
+              <span className="text-xs text-idemora-text-muted animate-pulse">{streamStatus}</span>
+            )}
           </div>
         )}
 

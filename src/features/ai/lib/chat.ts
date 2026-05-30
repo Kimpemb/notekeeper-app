@@ -92,9 +92,10 @@ export interface ChatResult {
 }
 
 export interface StreamingChatOptions {
-  onChunk:  (token: string) => void
-  onDone?:  () => void
-  onError?: (err: AICallError) => void
+  onChunk:   (token: string) => void
+  onDone?:   () => void
+  onError?:  (err: AICallError) => void
+  onStatus?: (message: string) => void
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1070,10 +1071,24 @@ export async function streamChatWithNotes(
 
   // Tier 2 — full AI pipeline
   // Run history and pipeline in parallel regardless of web results
+  // Tier 2 — full AI pipeline
+  streaming.onStatus?.("Searching your notes…")
+
   const [historyBlock, pipeline] = await Promise.all([
     buildHistoryBlock(noteId),
     runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds),
   ])
+
+  // Status after pipeline resolves
+  if (webResults && webResults.length > 0) {
+    streaming.onStatus?.("Searching the web…")
+  } else if (pipeline.chunkCount === 0) {
+    streaming.onStatus?.("No matches found…")
+  } else if (pipeline.chunkCount === 1) {
+    streaming.onStatus?.("Found 1 relevant note…")
+  } else {
+    streaming.onStatus?.(`Found ${pipeline.chunkCount} relevant chunks…`)
+  }
 
   // Gate vault injection — only inject when retrieval was meaningful
   const injectVault = (webResults && webResults.length > 0)
@@ -1102,6 +1117,8 @@ export async function streamChatWithNotes(
 
   const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote, webResults, injectVault)
   const messages: ProviderMessage[] = [{ role: "user", content: prompt }]
+
+  streaming.onStatus?.("Generating answer…")
 
   try {
     const result = await callPrimary(messages)
