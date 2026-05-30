@@ -248,6 +248,8 @@ function cycleChatWidth() {
   const inputRef       = useRef<HTMLTextAreaElement>(null);
   const prevProviderRef = useRef<string | null>(null);
   const prevModelRef    = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null)
+
 
   // Use a ref to always have current ragScope / session inside handleSend
   // without needing them in the useCallback dep array
@@ -656,6 +658,13 @@ async function handleDirectWebSearch() {
     await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)])
   }
 
+  function handleStop() {
+  abortRef.current?.abort()
+  abortRef.current = null
+  setStreamingId(null)
+  setLoading(false)
+}
+
   const handleRetry = useCallback(async () => {
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
   const lastUser      = [...messages].reverse().find((m) => m.role === "user")
@@ -1055,9 +1064,8 @@ async function handleDirectWebSearch() {
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Ask anything about your notes…"
-        disabled={loading}
         rows={1}
-        className="w-full resize-none px-3 py-1.5 text-sm bg-transparent text-idemora-text-normal placeholder-idemora-text-muted/50 focus:outline-none disabled:opacity-50 leading-relaxed"
+        className="w-full resize-none px-3 py-1.5 text-sm bg-transparent text-idemora-text-normal placeholder-idemora-text-muted/50 focus:outline-none  leading-relaxed"
         style={{ height: "auto", minHeight: "38px", maxHeight: "128px" }}
         onInput={(e) => {
           const el = e.currentTarget;
@@ -1081,21 +1089,25 @@ async function handleDirectWebSearch() {
           </svg>
         </button>
         <button
-          onClick={handleSend}
-          disabled={!input.trim() || loading}
-          title="Send (Enter)"
-          className="w-7 h-7 flex items-center justify-center rounded-lg bg-violet-500 hover:bg-violet-400 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-all duration-150"
-        >
-          {loading ? (
-            <svg width="11" height="11" viewBox="0 0 12 12" className="animate-spin" fill="none">
-              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="14 7" strokeLinecap="round"/>
-            </svg>
-          ) : (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          )}
-        </button>
+  onClick={loading ? handleStop : handleSend}
+  disabled={!loading && !input.trim()}
+  title={loading ? "Stop" : "Send (Enter)"}
+  className={`w-7 h-7 flex items-center justify-center rounded-lg text-white transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${
+    loading ? "bg-violet-600 hover:bg-violet-700" : "bg-violet-500 hover:bg-violet-400"
+  }`}
+>
+  {loading ? (
+    <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+  <circle cx="6" cy="6" r="5.5" stroke="currentColor" strokeWidth="1"/>
+  <rect x="3.5" y="3.5" width="5" height="5" rx="0.8" fill="currentColor"/>
+</svg>
+
+  ) : (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+      <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )}
+</button>
       </div>
     </div>
   </div>
@@ -1128,14 +1140,7 @@ async function handleDirectWebSearch() {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  message,
-  isStreaming,
-  isLatest,
-  onCopy,
-  onRetry,
-  showRetry,
-  onEdit,
-  onSave,   // ← add this
+  message, isStreaming, isLatest, onCopy, onRetry, showRetry, onEdit, onSave,
 }: {
   message:     ChatMessage
   isStreaming:  boolean
@@ -1143,12 +1148,11 @@ function MessageBubble({
   onCopy:      (content: string) => void
   onRetry?:    () => void
   showRetry?:  boolean
-  onEdit?:     (content: string) => void   // pre-fills input; user bubbles only
-  onSave?:     () => void                  // opens SaveNoteDialog; assistant bubbles only
+  onEdit?:     (content: string) => void
+  onSave?:     () => void
 }) {
   const isUser = message.role === "user"
- 
-  // ── Markdown renderer (assistant only) ────────────────────────────────────
+
   function renderWithCitations(text: string) {
     const cleaned = text.replace(/\[web:\d+\]/g, "")
     const html = marked.parse(cleaned, { async: false }) as string
@@ -1174,7 +1178,7 @@ function MessageBubble({
             return (
               <sup
                 key={i}
-                className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-violet-100 text-violet-600 text-[8px] font-bold mx-0.5 cursor-default"
+                className="inline-flex items-center justify-center w-3 h-3 rounded-full bg-violet-500/15 text-violet-400 text-[7px] font-semibold mx-0.5 cursor-default align-super"
                 title={`Source ${match[1]}`}
               >
                 {match[1]}
@@ -1186,106 +1190,91 @@ function MessageBubble({
       </div>
     )
   }
- 
-  // ── Shared micro-buttons ───────────────────────────────────────────────────
+
   const [copied, setCopied] = useState(false)
 
-const CopyBtn = () => (
-  <button
-    onClick={() => {
-      onCopy(message.content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }}
-    className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
-    title="Copy"
-  >
-    {copied ? (
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-    ) : (
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-        <path d="M2 7H1.5A.5.5 0 011 6.5v-5A.5.5 0 011.5 1h5a.5.5 0 01.5.5V2" stroke="currentColor" strokeWidth="1.1"/>
-      </svg>
-    )}
-  </button>
-)
-
-const RetryBtn = () =>
-  onRetry && showRetry ? (
+  const CopyBtn = () => (
     <button
-      onClick={onRetry}
-      className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
-      title="Retry"
+      onClick={() => {
+        onCopy(message.content)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }}
+      className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
+      title="Copy"
     >
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M1 1v2.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
+      {copied ? (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ) : (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M2 7H1.5A.5.5 0 011 6.5v-5A.5.5 0 011.5 1h5a.5.5 0 01.5.5V2" stroke="currentColor" strokeWidth="1.1"/>
+        </svg>
+      )}
     </button>
-  ) : null
+  )
 
-const EditBtn = () =>
-  onEdit ? (
-    <button
-      onClick={() => onEdit(message.content)}
-      className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
-      title="Edit and resend"
-    >
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M6.5 1.5l2 2L3 9H1V7L6.5 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M5.5 2.5l2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-      </svg>
-    </button>
-  ) : null
+  const RetryBtn = () =>
+    onRetry && showRetry ? (
+      <button
+        onClick={onRetry}
+        className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
+        title="Retry"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M1 1v2.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+    ) : null
+
+  const EditBtn = () =>
+    onEdit ? (
+      <button
+        onClick={() => onEdit(message.content)}
+        className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
+        title="Edit and resend"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M6.5 1.5l2 2L3 9H1V7L6.5 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M5.5 2.5l2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+        </svg>
+      </button>
+    ) : null
+
   // ── User bubble ────────────────────────────────────────────────────────────
-if (isUser) {
-  return (
-    <div className="px-4 py-1.5 flex justify-end">
-      <div className="flex flex-col items-end gap-0.5 max-w-[85%] group/bubble">
-        {/* bubble */}
-        <div className="w-full px-3 py-2 rounded-2xl rounded-tr-sm bg-violet-500 text-white text-sm leading-relaxed">
-          {message.content}
-        </div>
-
-        {/* action row — sits right below bubble, aligned to its right edge */}
-        <div className={`flex items-center gap-0.5 transition-opacity duration-150
-          ${isLatest
-            ? "opacity-100"
-            : "opacity-0 group-hover/bubble:opacity-100 group-hover/bubble:delay-0 delay-700"
-          }`}
-        >
-          <CopyBtn />
-          <EditBtn />
+  if (isUser) {
+    return (
+      <div className="px-4 py-1.5 flex justify-end">
+        <div className="flex flex-col items-end gap-0.5 max-w-[85%] group/bubble">
+          <div className="w-full px-3 py-2 rounded-2xl rounded-tr-sm bg-violet-500 text-white text-sm leading-relaxed">
+            {message.content}
+          </div>
+          <div className={`flex items-center gap-0.5 transition-opacity duration-150 ${
+            isLatest ? "opacity-100" : "opacity-0 group-hover/bubble:opacity-100"
+          }`}>
+            <CopyBtn />
+            <EditBtn />
+          </div>
         </div>
       </div>
-    </div>
-  )
-}
- 
+    )
+  }
+
   // ── Assistant bubble ───────────────────────────────────────────────────────
-  // Copy + Retry are NOT rendered here — they're rendered by ChatPanel in the
-  // same flex row as "Save to note ↓" so everything sits on one line.
-  // We expose them via the `data-msgid` attribute pattern; ChatPanel already
-  // renders that row, so we just need to remove them from inside the bubble.
   return (
     <div className="px-4 py-1.5">
       <div className="space-y-1">
+
         {/* Typing indicator */}
         {isStreaming && message.content === "" && (
-          <div className="flex items-center gap-1 py-1">
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
-                style={{ animationDelay: `${i * 150}ms`, animationDuration: "800ms" }}
-              />
-            ))}
+          <div className="flex items-center gap-px py-1">
+            <span className="inline-block w-0.5 h-4 bg-violet-400 animate-pulse rounded-full" />
           </div>
         )}
- 
+
         {/* Content */}
         {message.content !== "" && (
           <div className="text-sm text-idemora-text-normal leading-relaxed">
@@ -1295,22 +1284,24 @@ if (isUser) {
             )}
           </div>
         )}
- 
-        {/* ── Action row: copy · retry · save-to-note — all on one line ── */}
+
+        {/* Action row */}
         {!isStreaming && (
-          <div className={`flex items-center gap-1 mt-0.5 ${isLatest ? "flex" : "hidden group-hover/msg:flex"}`}>
+          <div className={`flex items-center gap-0.5 mt-0.5 transition-opacity duration-150 ${
+            isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+          }`}>
             <CopyBtn />
             <RetryBtn />
             {onSave && (
               <button
                 onClick={onSave}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-500 border border-transparent hover:border-violet-200 transition-colors duration-100"
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-400 border border-transparent hover:border-violet-400/30 hover:bg-violet-500/5 transition-all duration-100"
               >
                 <svg width="8" height="8" viewBox="0 0 9 9" fill="none">
                   <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
                     stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                Save to note ↓
+                Save to note
               </button>
             )}
           </div>
@@ -1326,7 +1317,7 @@ function formatWebUrl(url: string, title: string): string {
   try {
     const u = new URL(url)
     const domain = u.hostname.replace(/^www\./, "")
-    const shortTitle = title.length > 40 ? title.slice(0, 40) + "…" : title
+    const shortTitle = title.length > 35 ? title.slice(0, 35) + "…" : title
     return `${domain} · ${shortTitle}`
   } catch {
     return title
@@ -1335,7 +1326,7 @@ function formatWebUrl(url: string, title: string): string {
 
 function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
   const [expanded, setExpanded] = useState(false)
-  const visible = expanded ? sources : sources.slice(0, 1)
+  const visible = expanded ? sources : sources.slice(0, 2)
 
   return (
     <div className="flex flex-wrap gap-1">
@@ -1343,7 +1334,7 @@ function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
         <button
           key={i}
           onClick={() => window.open(source.url, "_blank", "noreferrer")}
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-sky-50/30 text-sky-500 border border-sky-200 hover:bg-sky-100/40 transition-colors duration-100 max-w-[14rem]"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] bg-sky-500/8 text-sky-400 border border-sky-400/20 hover:bg-sky-500/15 hover:border-sky-400/40 transition-all duration-100 max-w-[16rem]"
           title={source.url}
         >
           <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
@@ -1352,18 +1343,18 @@ function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
               stroke="currentColor" strokeWidth="0.7" strokeLinecap="round"/>
           </svg>
           <span className="truncate">{formatWebUrl(source.url, source.title)}</span>
-          <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60">
+          <svg width="6" height="6" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-50">
             <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
               stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
       ))}
-      {sources.length > 1 && (
+      {sources.length > 2 && (
         <button
           onClick={() => setExpanded((prev) => !prev)}
-          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] text-idemora-text-muted border border-idemora-border hover:text-sky-500 hover:border-sky-200 transition-colors duration-100"
+          className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] text-idemora-text-muted border border-idemora-border/60 hover:text-sky-400 hover:border-sky-400/30 transition-all duration-100"
         >
-          {expanded ? "show less" : `+${sources.length - 1} more`}
+          {expanded ? "show less" : `+${sources.length - 2} more`}
         </button>
       )}
     </div>
@@ -1371,10 +1362,7 @@ function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
 }
 
 function MessageFooter({
-  meta,
-  onOpenNote,
-  onOneTimeInclusion,
-  webSources,
+  meta, onOpenNote, onOneTimeInclusion, webSources,
 }: {
   meta:                MessageMeta;
   onOpenNote:          (id: string) => void;
@@ -1385,21 +1373,18 @@ function MessageFooter({
     return <Tier1ResultCards cards={meta.tier1Results} onOpenNote={onOpenNote} />;
   }
   return (
-    <div className="px-4 pb-2 pl-9 space-y-1.5">
+    <div className="px-4 pb-2 space-y-1.5">
       {webSources && webSources.length > 0 && (
         <WebSourceChips sources={webSources.slice(0, 6)} />
       )}
       {meta.confidence === "low" && !meta.webGrounded && (
         <div className="flex items-center gap-1.5">
-          <svg width="10" height="10" viewBox="0 0 8 8" fill="none" className="text-amber-400 shrink-0">
+          <svg width="9" height="9" viewBox="0 0 8 8" fill="none" className="text-amber-400 shrink-0">
             <path d="M4 1L7 7H1L4 1z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             <path d="M4 3.5v2M4 6v.1" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
           </svg>
-          <p className="text-[10px] text-amber-500 leading-relaxed">Limited matches — answer may be incomplete</p>
+          <p className="text-[10px] text-amber-500">Limited matches — answer may be incomplete</p>
         </div>
-      )}
-      {meta.confidence === "medium" && !meta.webGrounded && (
-        <p className="text-[10px] text-idemora-text-muted">Sourced from your notes</p>
       )}
       {meta.sourceTitles.length > 0 && !(meta.webNudge && meta.confidence === "low") && (
         <div className="flex flex-wrap gap-1">
@@ -1409,11 +1394,10 @@ function MessageFooter({
               <button
                 key={meta.sourceNoteIds[i]}
                 onClick={() => onOpenNote(meta.sourceNoteIds[i])}
-                // updated
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors duration-100 max-w-[9rem] border ${
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] transition-all duration-100 max-w-[11rem] border ${
                   isTitleMatch
-                    ? "bg-violet-50/40 text-violet-500 border-violet-200 hover:bg-violet-100/50 hover:text-violet-600"
-                    : "bg-idemora-bg-primary text-idemora-text-muted border-transparent hover:text-violet-400 hover:border-violet-200 hover:bg-violet-50/20"
+                    ? "bg-violet-500/10 text-violet-400 border-violet-400/30 hover:bg-violet-500/20"
+                    : "text-idemora-text-muted border-idemora-border/50 hover:text-violet-400 hover:border-violet-400/30 hover:bg-violet-500/5"
                 }`}
                 title={`Open note: ${title}`}
               >
@@ -1428,14 +1412,11 @@ function MessageFooter({
         </div>
       )}
       {meta.excludedNoteNotices && meta.excludedNoteNotices.length > 0 && (
-        <div className="pt-0.5 space-y-1">
+        <div className="space-y-1">
           {meta.excludedNoteNotices.map((n) => (
             <p key={n.note_id} className="text-[10px] text-idemora-text-muted leading-relaxed">
-              <span className="font-medium">"{n.note_title}"</span> may be relevant but is excluded from search.{" "}
-              <button
-                onClick={() => onOneTimeInclusion(n.note_id)}
-                className="text-violet-500 hover:underline"
-              >
+              <span className="font-medium">"{n.note_title}"</span> may be relevant but excluded.{" "}
+              <button onClick={() => onOneTimeInclusion(n.note_id)} className="text-violet-400 hover:underline">
                 Include it?
               </button>
             </p>
@@ -1443,14 +1424,14 @@ function MessageFooter({
         </div>
       )}
       {meta.relatedNotes.length > 0 && meta.confidence !== "low" && (
-        <div className="pt-0.5">
+        <div>
           <p className="text-[10px] text-idemora-text-muted mb-1">Related</p>
           <div className="flex flex-wrap gap-1">
             {meta.relatedNotes.map((note) => (
               <button
                 key={note.noteId}
                 onClick={() => onOpenNote(note.noteId)}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-50/30 text-blue-500 hover:bg-blue-950/50 transition-colors duration-100 max-w-[9rem]"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] text-idemora-text-muted border border-idemora-border/50 hover:text-violet-400 hover:border-violet-400/30 hover:bg-violet-500/5 transition-all duration-100 max-w-[11rem]"
                 title={note.title}
               >
                 <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
@@ -1462,8 +1443,8 @@ function MessageFooter({
           </div>
         </div>
       )}
-      <p className="text-[10px] text-idemora-text-muted">
-        {meta.webGrounded ? "⊕ web search" : meta.usedEmbeddings ? "✦ semantic search" : "◦ keyword search"}
+      <p className="text-[10px] text-idemora-text-muted/50">
+        {meta.webGrounded ? "web search" : meta.usedEmbeddings ? "semantic search" : "keyword search"}
       </p>
     </div>
   );
