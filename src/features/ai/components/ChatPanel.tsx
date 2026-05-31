@@ -1577,48 +1577,48 @@ function MessageFooter({
         </div>
       )}
 
-      {/* Action row — copy, save, retry */}
-      <div className={`flex items-center gap-0.5 pt-0.5 border-t border-idemora-border/20 transition-opacity duration-150 ${
+      {/* Action row — icon only */}
+      <div className={`flex items-center gap-0.5 pt-1 border-t border-idemora-border/20 transition-opacity duration-150 ${
         isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
       }`}>
         <button
           onClick={() => { onCopy(); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-idemora-text-normal border border-transparent hover:border-idemora-border/60 transition-all duration-100"
+          title={copied ? "Copied!" : "Copy"}
+          className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
         >
           {copied ? (
-            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+            <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
               <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           ) : (
-            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+            <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
               <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
               <path d="M2 7H1.5A.5.5 0 011 6.5v-5A.5.5 0 011.5 1h5a.5.5 0 01.5.5V2" stroke="currentColor" strokeWidth="1.1"/>
             </svg>
           )}
-          {copied ? "Copied" : "Copy"}
         </button>
         {onSave && (
           <button
             onClick={onSave}
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-400 border border-transparent hover:border-violet-400/30 hover:bg-violet-500/5 transition-all duration-100"
+            title="Save to note"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-violet-400 hover:bg-violet-500/5 transition-colors duration-100"
           >
-            <svg width="8" height="8" viewBox="0 0 9 9" fill="none">
+            <svg width="15" height="15" viewBox="0 0 9 9" fill="none">
               <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
                 stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            Save to note
           </button>
         )}
         {onRetry && (
           <button
             onClick={onRetry}
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-idemora-text-normal border border-transparent hover:border-idemora-border/60 transition-all duration-100"
+            title="Retry"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
           >
-            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+            <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
               <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M1 1v2.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            Retry
           </button>
         )}
       </div>
