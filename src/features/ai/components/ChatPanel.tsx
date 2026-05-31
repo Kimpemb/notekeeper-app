@@ -236,8 +236,10 @@ const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set())
 
   
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef       = useRef<HTMLTextAreaElement>(null);
+  const messagesEndRef    = useRef<HTMLDivElement>(null);
+  const inputRef          = useRef<HTMLTextAreaElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const prevProviderRef = useRef<string | null>(null);
   const prevModelRef    = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null)
@@ -392,6 +394,14 @@ useEffect(() => {
   }, [messages]);
 
   useEffect(() => {
+    if (!streamingId) return
+    const t = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }, 80)
+    return () => clearTimeout(t)
+  }, [streamingId]);
+
+  useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [noteId]);
 
@@ -403,6 +413,19 @@ useEffect(() => {
     setSuppressedNudges(new Set())
     setRuntimeMetaMap(new Map())
   }, [noteId]);
+
+   
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    function onScroll() {
+      const distFromBottom = el!.scrollHeight - el!.scrollTop - el!.clientHeight
+      setShowScrollBtn(distFromBottom > 100)
+    }
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, []);
 
   // M5: Reactive subscription — watch note store for linked note lifecycle events
   useEffect(() => {
@@ -476,6 +499,7 @@ async function handleDirectWebSearch() {
     setLoading(true)
     setStreamingId(assistantId)
     setCallError(null)
+    setStreamStatus("Searching the web…")
 
     const scopeNoteIds = await resolveScopeNoteIds()
 
@@ -872,7 +896,7 @@ async function handleDirectWebSearch() {
       )}
 
       {/* ── Body ── */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto relative">
         {isFreeTier ? (
           <FreeTierState />
         ) : isLoading ? (
@@ -987,6 +1011,19 @@ async function handleDirectWebSearch() {
             <div ref={messagesEndRef} />
           </div>
         )}
+      {showScrollBtn && (
+<div className="sticky bottom-3 flex justify-center pointer-events-none">
+          <button
+            onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
+            className="pointer-events-auto w-8 h-8 flex items-center justify-center rounded-full bg-idemora-bg-secondary border border-idemora-border/60 text-idemora-text-muted hover:text-idemora-text-normal hover:border-idemora-border shadow-sm transition-all duration-150 cursor-pointer"
+            title="Scroll to bottom"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <path d="M6.5 2v9M3 8l3.5 3.5L10 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      )}
       </div>
 
       {/* ── Input area ── */}
@@ -1342,10 +1379,12 @@ const [copied, setCopied] = useState(false)
         {/* Typing indicator */}
         {isStreaming && message.content === "" && (
           <div className="flex items-center gap-2.5 py-2">
-            <div className="flex gap-0.5 shrink-0">
-              <span className="w-0.5 h-3.5 bg-violet-400 rounded-full animate-pulse" />
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce [animation-delay:0ms]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce [animation-delay:150ms]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce [animation-delay:300ms]" />
             </div>
-            <span className="text-sm text-idemora-text-normal/70 animate-pulse">
+            <span className="text-sm text-idemora-text-normal/70">
               {streamStatus ?? "Thinking…"}
             </span>
           </div>
