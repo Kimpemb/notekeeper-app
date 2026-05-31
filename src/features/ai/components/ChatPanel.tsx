@@ -826,7 +826,6 @@ async function handleDirectWebSearch() {
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-3 py-2 shrink-0">
         <div className="flex items-center min-w-0">
-          {!isFreeTier && <QuickSwitch />}
           {isFreeTier && (
             <span className="text-sm font-semibold text-idemora-text-normal truncate">
               Ask your notes
@@ -1019,59 +1018,6 @@ async function handleDirectWebSearch() {
   <div className="shrink-0 px-3 pt-2 pb-3">
     <div className="rounded-2xl border border-idemora-border/60 bg-idemora-bg-secondary transition-all duration-150 focus-within:border-violet-500/30 focus-within:shadow-[0_0_0_1px_rgba(139,92,246,0.15)]">
 
-      {/* Top row — scope + linked note chip */}
-      <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1 flex-wrap">
-        <button
-          onClick={handleScopeToggle}
-          title={
-            ragScope === "note"
-              ? `Scoped to "${currentNote?.title ?? "this note"}" and sub-notes — click to search all notes`
-              : `Searching all notes — click to scope to "${currentNote?.title ?? "this note"}" and sub-notes`
-          }
-          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all duration-150 ${
-            ragScope === "note"
-              ? "text-violet-400 border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20"
-              : "text-idemora-text-muted border-idemora-border/60 hover:text-violet-400 hover:border-violet-400/40"
-          }`}
-        >
-          <svg width="8" height="8" viewBox="0 0 9 9" fill="none" className="shrink-0">
-            <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/>
-            <path d="M4.5 2.5v4M2.5 4.5h4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-          </svg>
-          {ragScope === "note" && currentNote?.title
-            ? `Scoped: ${currentNote.title.slice(0, 18)}${currentNote.title.length > 18 ? "…" : ""}`
-            : "All notes"}
-        </button>
-        {linkedNoteId && !linkedNoteDeleted && (
-          <button
-            onClick={() => {
-              if (linkedNoteId) {
-                if (paneId === 2) openTabInPane2(linkedNoteId);
-                else openTab(linkedNoteId);
-              }
-            }}
-            title={`Saves going to "${linkedNoteTitle ?? "note"}"`}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-violet-400 border border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20 transition-all duration-150 min-w-0"
-          >
-            <svg width="7" height="7" viewBox="0 0 8 8" fill="none" className="shrink-0">
-              <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
-              <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-            </svg>
-            <span className="truncate max-w-24">{linkedNoteTitle ?? "Saved"}</span>
-            <svg width="6" height="6" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60">
-              <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5"
-                stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        )}
-        {linkedNoteTrashed && (
-          <span className="text-[10px] text-amber-500">Linked note in trash</span>
-        )}
-        {linkedNoteDeleted && (
-          <span className="text-[10px] text-idemora-text-muted">Note deleted — next save creates new</span>
-        )}
-      </div>
-
       {/* Textarea */}
       <textarea
         ref={inputRef}
@@ -1080,7 +1026,7 @@ async function handleDirectWebSearch() {
         onKeyDown={handleKeyDown}
         placeholder="Ask anything about your notes…"
         rows={1}
-        className="w-full resize-none px-3 py-1.5 text-sm bg-transparent text-idemora-text-normal placeholder-idemora-text-muted/50 focus:outline-none  leading-relaxed"
+        className="w-full resize-none px-3 pt-3 pb-1 text-sm bg-transparent text-idemora-text-normal placeholder-idemora-text-muted/50 focus:outline-none leading-relaxed"
         style={{ height: "auto", minHeight: "38px", maxHeight: "128px" }}
         onInput={(e) => {
           const el = e.currentTarget;
@@ -1089,40 +1035,106 @@ async function handleDirectWebSearch() {
         }}
       />
 
-      {/* Bottom row — actions */}
-      <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5 pt-1">
-        <button
-          onClick={handleDirectWebSearch}
-          disabled={!input.trim() || loading}
-          title="Search the web directly"
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-idemora-text-muted hover:text-sky-400 hover:bg-white/[0.04] border border-idemora-border/60 hover:border-sky-400/40 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
-        >
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M6 1.5C5 3 4.5 4.5 4.5 6s.5 3 1.5 4.5M6 1.5C7 3 7.5 4.5 7.5 6S7 9 6 10.5M1.5 6h9"
-              stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-          </svg>
-        </button>
-        <button
-  onClick={loading ? handleStop : handleSend}
-  disabled={!loading && !input.trim()}
-  title={loading ? "Stop" : "Send (Enter)"}
-  className={`w-7 h-7 flex items-center justify-center rounded-lg text-white transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${
-    loading ? "bg-violet-600 hover:bg-violet-700" : "bg-violet-500 hover:bg-violet-400"
-  }`}
->
-  {loading ? (
-    <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
-  <circle cx="6" cy="6" r="5.5" stroke="currentColor" strokeWidth="1"/>
-  <rect x="3.5" y="3.5" width="5" height="5" rx="0.8" fill="currentColor"/>
-</svg>
+      {/* Toolbar */}
+      <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-1">
 
-  ) : (
-    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-      <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  )}
-</button>
+        {/* Left — context controls */}
+        <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
+          <button
+            onClick={handleScopeToggle}
+            title={
+              ragScope === "note"
+                ? `Scoped to "${currentNote?.title ?? "this note"}" — click to search all notes`
+                : `Searching all notes — click to scope to "${currentNote?.title ?? "this note"}"`
+            }
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-all duration-150 shrink-0 ${
+              ragScope === "note"
+                ? "text-violet-400 border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20"
+                : "text-idemora-text-muted border-idemora-border/60 hover:text-violet-400 hover:border-violet-400/40"
+            }`}
+          >
+            <svg width="10" height="10" viewBox="0 0 9 9" fill="none" className="shrink-0" aria-hidden="true">
+              {ragScope === "note" ? (
+                <><circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/><path d="M4.5 2.5v4M2.5 4.5h4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/></>
+              ) : (
+                <><rect x="1" y="1" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1"/><path d="M2.5 3h4M2.5 4.5h4M2.5 6h2.5" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/></>
+              )}
+            </svg>
+            {ragScope === "note" && currentNote?.title
+              ? `${currentNote.title.slice(0, 16)}${currentNote.title.length > 16 ? "…" : ""}`
+              : "All notes"}
+          </button>
+
+          {linkedNoteId && !linkedNoteDeleted && (
+            <button
+              onClick={() => {
+                if (linkedNoteId) {
+                  if (paneId === 2) openTabInPane2(linkedNoteId);
+                  else openTab(linkedNoteId);
+                }
+              }}
+              title={`Saves going to "${linkedNoteTitle ?? "note"}"`}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-violet-400 border border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20 transition-all duration-150 min-w-0 max-w-[120px]"
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0" aria-hidden="true">
+                <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
+                <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+              </svg>
+              <span className="truncate">{linkedNoteTitle ?? "Saved"}</span>
+              <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60" aria-hidden="true">
+                <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+
+          {linkedNoteTrashed && (
+            <span className="text-[10px] text-amber-500 shrink-0">Linked note in trash</span>
+          )}
+          {linkedNoteDeleted && (
+            <span className="text-[10px] text-idemora-text-muted shrink-0">Note deleted</span>
+          )}
+        </div>
+
+        {/* Right — execution controls */}
+        <div className="flex items-center gap-1 shrink-0">
+
+          {/* Web search */}
+          <button
+            onClick={handleDirectWebSearch}
+            disabled={!input.trim() || loading}
+            title="Search the web directly"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-idemora-text-muted hover:text-sky-400 hover:bg-white/[0.04] border border-idemora-border/60 hover:border-sky-400/40 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M6 1.5C5 3 4.5 4.5 4.5 6s.5 3 1.5 4.5M6 1.5C7 3 7.5 4.5 7.5 6S7 9 6 10.5M1.5 6h9" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+            </svg>
+          </button>
+
+          {/* Model picker */}
+          <QuickSwitch />
+
+          {/* Send / Stop */}
+          <button
+            onClick={loading ? handleStop : handleSend}
+            disabled={!loading && !input.trim()}
+            title={loading ? "Stop" : "Send (Enter)"}
+            className={`w-7 h-7 flex items-center justify-center rounded-lg text-white transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${
+              loading ? "bg-violet-600 hover:bg-violet-700" : "bg-violet-500 hover:bg-violet-400"
+            }`}
+          >
+            {loading ? (
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <circle cx="6" cy="6" r="5.5" stroke="currentColor" strokeWidth="1"/>
+                <rect x="3.5" y="3.5" width="5" height="5" rx="0.8" fill="currentColor"/>
+              </svg>
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   </div>
