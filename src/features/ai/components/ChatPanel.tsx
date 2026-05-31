@@ -924,23 +924,11 @@ async function handleDirectWebSearch() {
         isLatest={isLatest}
         streamStatus={isStreaming ? streamStatus : null}
         onCopy={(content) => {
-          const plain = content.replace(/\[web:\d+\]/g, "").replace(/\[\d+\]/g, "").trim()
+          const plain = content.replace(/\[web:[^\]]+\]/g, "").replace(/\[\d+\]/g, "").trim()
           navigator.clipboard.writeText(plain).catch(console.error)
           addToast("Copied")
         }}
-        onRetry={isLatest && msg.role === "assistant" ? handleRetry : undefined}
-        showRetry={isLatest && msg.role === "assistant" && (!!callError || msg.content === "")}
-        // Edit prefills the textarea — user bubble only
         onEdit={msg.role === "user" ? (content) => setInput(content) : undefined}
-        // Save-to-note callback — assistant bubble weaves this into its action row
-        onSave={msg.role === "assistant" && !isFreeTier ? () => {
-          const userMsg = prevMsg?.role === "user" ? prevMsg : null
-          setSelectedMessage(userMsg ? {
-            user:      { role: "user",      content: userMsg.content },
-            assistant: { role: "assistant", content: msg.content },
-          } : null)
-          setSaveDialogOpen(true)
-        } : undefined}
       />
  
       {/* Source footer — unchanged */}
@@ -1215,11 +1203,11 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
 function MessageBubble({
   message, isStreaming, isLatest, onCopy, onEdit, streamStatus,
 }: {
-  message:      ChatMessage
-  isStreaming:  boolean
-  isLatest:     boolean
-  onCopy:       (content: string) => void
-  onEdit?:      (content: string) => void
+  message:       ChatMessage
+  isStreaming:   boolean
+  isLatest:      boolean
+  onCopy:        (content: string) => void
+  onEdit?:       (content: string) => void
   streamStatus?: string | null
 }) {
   const isUser = message.role === "user"
@@ -1294,31 +1282,7 @@ const cleaned = text
   )
 }
 
-  const [copied, setCopied] = useState(false)
-
-  const CopyBtn = () => (
-    <button
-      onClick={() => {
-        onCopy(message.content)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      }}
-      className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
-      title="Copy"
-    >
-      {copied ? (
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      ) : (
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-          <path d="M2 7H1.5A.5.5 0 011 6.5v-5A.5.5 0 011.5 1h5a.5.5 0 01.5.5V2" stroke="currentColor" strokeWidth="1.1"/>
-        </svg>
-      )}
-    </button>
-  )
-
+const [copied, setCopied] = useState(false)
 
    
 
@@ -1328,13 +1292,42 @@ const cleaned = text
     return (
       <div className="px-4 py-1.5 flex justify-end">
         <div className="flex flex-col items-end gap-0.5 max-w-[85%] group/bubble">
-          <div className="w-full px-3 py-2 rounded-2xl rounded-tr-sm bg-violet-500 text-white text-sm leading-relaxed">
+          <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed">
             {message.content}
           </div>
           <div className={`flex items-center gap-0.5 transition-opacity duration-150 ${
             isLatest ? "opacity-100" : "opacity-0 group-hover/bubble:opacity-100"
           }`}>
-            <CopyBtn />
+            {/* Copy */}
+            <button
+              onClick={() => { onCopy(message.content); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+              title={copied ? "Copied!" : "Copy"}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-white/60 hover:text-white hover:bg-white/[0.1] transition-colors duration-100"
+            >
+              {copied ? (
+                <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
+                  <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
+                  <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+                  <path d="M2 7H1.5A.5.5 0 011 6.5v-5A.5.5 0 011.5 1h5a.5.5 0 01.5.5V2" stroke="currentColor" strokeWidth="1.1"/>
+                </svg>
+              )}
+            </button>
+            {/* Edit */}
+            {onEdit && (
+              <button
+                onClick={() => onEdit(message.content)}
+                title="Edit and resend"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-white/60 hover:text-white hover:bg-white/[0.1] transition-colors duration-100"
+              >
+                <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
+                  <path d="M6.5 1.5l2 2L3 9H1V7L6.5 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M5.5 2.5l2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       </div>
