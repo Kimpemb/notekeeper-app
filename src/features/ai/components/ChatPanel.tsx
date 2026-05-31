@@ -950,6 +950,22 @@ async function handleDirectWebSearch() {
           onOpenNote={handleOpenNote}
           onOneTimeInclusion={handleOneTimeInclusion}
           webSources={webResultsMap.get(msg.id)}
+          onCopy={() => {
+            const plain = msg.content.replace(/\[web:[^\]]+\]/g, "").replace(/\[\d+\]/g, "").trim()
+            navigator.clipboard.writeText(plain).catch(console.error)
+            addToast("Copied")
+          }}
+          onSave={!isFreeTier ? (() => {
+            const prevMsg = idx > 0 ? messages[idx - 1] : null
+            const userMsg = prevMsg?.role === "user" ? prevMsg : null
+            setSelectedMessage(userMsg ? {
+              user:      { role: "user",      content: userMsg.content },
+              assistant: { role: "assistant", content: msg.content },
+            } : null)
+            setSaveDialogOpen(true)
+          }) : undefined}
+          onRetry={isLatest && (!!callError || msg.content === "") ? handleRetry : undefined}
+          isLatest={isLatest}
         />
       )}
  
@@ -1197,16 +1213,13 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  message, isStreaming, isLatest, onCopy, onRetry, showRetry, onEdit, onSave, streamStatus,
+  message, isStreaming, isLatest, onCopy, onEdit, streamStatus,
 }: {
   message:      ChatMessage
   isStreaming:  boolean
   isLatest:     boolean
   onCopy:       (content: string) => void
-  onRetry?:     () => void
-  showRetry?:   boolean
   onEdit?:      (content: string) => void
-  onSave?:      () => void
   streamStatus?: string | null
 }) {
   const isUser = message.role === "user"
@@ -1215,7 +1228,7 @@ function MessageBubble({
 const cleaned = text
   .replace(/\[web:[^\]]+\]/g, "")
   .replace(/ \./g, ".")
-  
+
   // Custom marked renderer for code blocks and tables
   const renderer = new marked.Renderer()
 
@@ -1258,7 +1271,8 @@ const cleaned = text
   [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-0.5 [&_h2]:text-idemora-text-normal [&_h2]:border-b [&_h2]:border-idemora-border/40 [&_h2]:pb-0.5
   [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-0.5 [&_h3]:text-idemora-text-normal
   [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 
-  [&_blockquote]:border-idemora-border [&_blockquote]:pl-3 [&_blockquote]:my-1
+  [&_blockquote]:border-violet-400/50 [&_blockquote]:pl-3 [&_blockquote]:py-1.5 [&_blockquote]:my-2 [&_blockquote]:bg-idemora-bg-secondary 
+  [&_blockquote]:rounded-r-md [&_blockquote]:pr-3
   [&_hr]:border-none [&_hr]:border-t [&_hr]:border-idemora-border/40 [&_hr]:my-3
   [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
   [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:my-2
@@ -1305,33 +1319,9 @@ const cleaned = text
     </button>
   )
 
-  const RetryBtn = () =>
-    onRetry && showRetry ? (
-      <button
-        onClick={onRetry}
-        className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
-        title="Retry"
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M1 1v2.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </button>
-    ) : null
 
-  const EditBtn = () =>
-    onEdit ? (
-      <button
-        onClick={() => onEdit(message.content)}
-        className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
-        title="Edit and resend"
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M6.5 1.5l2 2L3 9H1V7L6.5 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M5.5 2.5l2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-        </svg>
-      </button>
-    ) : null
+   
+
 
   // ── User bubble ────────────────────────────────────────────────────────────
   if (isUser) {
@@ -1345,7 +1335,6 @@ const cleaned = text
             isLatest ? "opacity-100" : "opacity-0 group-hover/bubble:opacity-100"
           }`}>
             <CopyBtn />
-            <EditBtn />
           </div>
         </div>
       </div>
@@ -1379,27 +1368,7 @@ const cleaned = text
           </div>
         )}
 
-        {/* Action row */}
-        {!isStreaming && (
-          <div className={`flex items-center gap-0.5 mt-0.5 transition-opacity duration-150 ${
-            isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
-          }`}>
-            <CopyBtn />
-            <RetryBtn />
-            {onSave && (
-              <button
-                onClick={onSave}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-400 border border-transparent hover:border-violet-400/30 hover:bg-violet-500/5 transition-all duration-100"
-              >
-                <svg width="8" height="8" viewBox="0 0 9 9" fill="none">
-                  <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
-                    stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                Save to note
-              </button>
-            )}
-          </div>
-        )}
+        
       </div>
     </div>
   )
@@ -1420,7 +1389,7 @@ function formatWebUrl(url: string, title: string): string {
 
 function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
   const [expanded, setExpanded] = useState(false)
-  const visible = expanded ? sources : sources.slice(0, 2)
+  const visible = expanded ? sources : sources.slice(0, 1)
 
   return (
     <div className="flex flex-wrap gap-1">
@@ -1443,12 +1412,58 @@ function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
           </svg>
         </button>
       ))}
-      {sources.length > 2 && (
+      {sources.length > 1 && (
         <button
           onClick={() => setExpanded((prev) => !prev)}
           className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] text-idemora-text-muted border border-idemora-border/60 hover:text-sky-400 hover:border-sky-400/30 transition-all duration-100"
         >
-          {expanded ? "show less" : `+${sources.length - 2} more`}
+          {expanded ? "show less" : `+${sources.length - 1} more`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function NoteSourceChips({
+  titles, noteIds, titleMatchedNoteIds, onOpenNote,
+}: {
+  titles:               string[];
+  noteIds:              string[];
+  titleMatchedNoteIds?: string[];
+  onOpenNote:           (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? titles : titles.slice(0, 2)
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {visible.map((title, i) => {
+        const isTitleMatch = titleMatchedNoteIds?.includes(noteIds[i])
+        return (
+          <button
+            key={noteIds[i]}
+            onClick={() => onOpenNote(noteIds[i])}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] transition-all duration-100 max-w-[11rem] border ${
+              isTitleMatch
+                ? "bg-violet-500/10 text-violet-400 border-violet-400/30 hover:bg-violet-500/20"
+                : "text-idemora-text-muted border-idemora-border/50 hover:text-violet-400 hover:border-violet-400/30 hover:bg-violet-500/5"
+            }`}
+            title={`Open note: ${title}`}
+          >
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+              <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
+              <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+            </svg>
+            <span className="truncate">[{i + 1}] {title}</span>
+          </button>
+        )
+      })}
+      {titles.length > 2 && (
+        <button
+          onClick={() => setExpanded((prev) => !prev)}
+          className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] text-idemora-text-muted border border-idemora-border/60 hover:text-violet-400 hover:border-violet-400/30 transition-all duration-100"
+        >
+          {expanded ? "show less" : `+${titles.length - 2} more`}
         </button>
       )}
     </div>
@@ -1456,21 +1471,33 @@ function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
 }
 
 function MessageFooter({
-  meta, onOpenNote, onOneTimeInclusion, webSources,
+  meta, onOpenNote, onOneTimeInclusion, webSources, onCopy, onSave, onRetry, isLatest,
 }: {
   meta:                MessageMeta;
   onOpenNote:          (id: string) => void;
   onOneTimeInclusion:  (noteId: string) => void;
   webSources?:         WebSearchResult[];
+  onCopy:              () => void;
+  onSave?:             () => void;
+  onRetry?:            () => void;
+  isLatest:            boolean;
 }) {
+  const [relatedExpanded, setRelatedExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
+
   if (meta.tier1Results && meta.tier1Results.length > 0) {
     return <Tier1ResultCards cards={meta.tier1Results} onOpenNote={onOpenNote} />;
   }
+
+  const hasNoteSources = meta.sourceTitles.length > 0 && !(meta.webNudge && meta.confidence === "low")
+  const hasWebSources  = webSources && webSources.length > 0
+  const hasRelated     = meta.relatedNotes.length > 0 && meta.confidence !== "low"
+  const hasExcluded    = meta.excludedNoteNotices && meta.excludedNoteNotices.length > 0
+
   return (
-    <div className="px-4 pb-2 space-y-1.5">
-      {webSources && webSources.length > 0 && (
-        <WebSourceChips sources={webSources.slice(0, 6)} />
-      )}
+    <div className="px-4 pb-3 space-y-2">
+
+      {/* Low confidence warning */}
       {meta.confidence === "low" && !meta.webGrounded && (
         <div className="flex items-center gap-1.5">
           <svg width="9" height="9" viewBox="0 0 8 8" fill="none" className="text-amber-400 shrink-0">
@@ -1480,35 +1507,32 @@ function MessageFooter({
           <p className="text-[10px] text-amber-500">Limited matches — answer may be incomplete</p>
         </div>
       )}
-      {meta.sourceTitles.length > 0 && !(meta.webNudge && meta.confidence === "low") && (
-        <div className="flex flex-wrap gap-1">
-          {meta.sourceTitles.map((title, i) => {
-            const isTitleMatch = meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]);
-            return (
-              <button
-                key={meta.sourceNoteIds[i]}
-                onClick={() => onOpenNote(meta.sourceNoteIds[i])}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] transition-all duration-100 max-w-[11rem] border ${
-                  isTitleMatch
-                    ? "bg-violet-500/10 text-violet-400 border-violet-400/30 hover:bg-violet-500/20"
-                    : "text-idemora-text-muted border-idemora-border/50 hover:text-violet-400 hover:border-violet-400/30 hover:bg-violet-500/5"
-                }`}
-                title={`Open note: ${title}`}
-              >
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
-                  <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
-                  <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-                </svg>
-                <span className="truncate">[{i + 1}] {title}</span>
-              </button>
-            );
-          })}
-        </div>
+
+      {/* Web sources */}
+      {hasWebSources && (
+        <WebSourceChips sources={webSources!.slice(0, 6)} />
       )}
-      {meta.excludedNoteNotices && meta.excludedNoteNotices.length > 0 && (
-        <div className="space-y-1">
-          {meta.excludedNoteNotices.map((n) => (
-            <p key={n.note_id} className="text-[10px] text-idemora-text-muted leading-relaxed">
+
+      {/* Divider between web and note sources when both present */}
+      {hasWebSources && hasNoteSources && (
+        <div className="border-t border-idemora-border/30" />
+      )}
+
+      {/* Note source chips — 2 visible, rest folded */}
+      {hasNoteSources && (
+        <NoteSourceChips
+          titles={meta.sourceTitles}
+          noteIds={meta.sourceNoteIds}
+          titleMatchedNoteIds={meta.titleMatchedNoteIds}
+          onOpenNote={onOpenNote}
+        />
+      )}
+
+      {/* Excluded note notices */}
+      {hasExcluded && (
+        <div className="pl-2 border-l border-idemora-border/40 space-y-1">
+          {meta.excludedNoteNotices!.map((n) => (
+            <p key={n.note_id} className="text-[10px] text-idemora-text-muted/70 leading-relaxed">
               <span className="font-medium">"{n.note_title}"</span> may be relevant but excluded.{" "}
               <button onClick={() => onOneTimeInclusion(n.note_id)} className="text-violet-400 hover:underline">
                 Include it?
@@ -1517,29 +1541,88 @@ function MessageFooter({
           ))}
         </div>
       )}
-      {meta.relatedNotes.length > 0 && meta.confidence !== "low" && (
+
+      {/* Related notes — collapsed by default */}
+      {hasRelated && (
         <div>
-          <p className="text-[10px] text-idemora-text-muted mb-1">Related</p>
-          <div className="flex flex-wrap gap-1">
-            {meta.relatedNotes.map((note) => (
-              <button
-                key={note.noteId}
-                onClick={() => onOpenNote(note.noteId)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] text-idemora-text-muted border border-idemora-border/50 hover:text-violet-400 hover:border-violet-400/30 hover:bg-violet-500/5 transition-all duration-100 max-w-[11rem]"
-                title={note.title}
-              >
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
-                  <path d="M1 4h6M4 1l3 3-3 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <span className="truncate">{note.title}</span>
-              </button>
-            ))}
-          </div>
+          <button
+            onClick={() => setRelatedExpanded((prev) => !prev)}
+            className="flex items-center gap-1 text-[10px] text-idemora-text-muted/60 hover:text-idemora-text-muted transition-colors duration-100 mb-1"
+          >
+            <svg
+              width="8" height="8" viewBox="0 0 8 8" fill="none"
+              className={`shrink-0 transition-transform duration-150 ${relatedExpanded ? "rotate-90" : ""}`}
+            >
+              <path d="M2.5 1.5l3 2.5-3 2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            {relatedExpanded ? "hide related" : `${meta.relatedNotes.length} related`}
+          </button>
+          {relatedExpanded && (
+            <div className="flex flex-wrap gap-1">
+              {meta.relatedNotes.map((note) => (
+                <button
+                  key={note.noteId}
+                  onClick={() => onOpenNote(note.noteId)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] text-idemora-text-muted border border-idemora-border/50 hover:text-violet-400 hover:border-violet-400/30 hover:bg-violet-500/5 transition-all duration-100 max-w-[11rem]"
+                  title={note.title}
+                >
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                    <path d="M1 4h6M4 1l3 3-3 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="truncate">{note.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      <p className="text-[10px] text-idemora-text-muted/50">
-        {meta.webGrounded ? "web search" : meta.usedEmbeddings ? "semantic search" : "keyword search"}
-      </p>
+
+      {/* Action row — copy, save, retry */}
+      <div className={`flex items-center gap-0.5 pt-0.5 border-t border-idemora-border/20 transition-opacity duration-150 ${
+        isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+      }`}>
+        <button
+          onClick={() => { onCopy(); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-idemora-text-normal border border-transparent hover:border-idemora-border/60 transition-all duration-100"
+        >
+          {copied ? (
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+              <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          ) : (
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+              <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M2 7H1.5A.5.5 0 011 6.5v-5A.5.5 0 011.5 1h5a.5.5 0 01.5.5V2" stroke="currentColor" strokeWidth="1.1"/>
+            </svg>
+          )}
+          {copied ? "Copied" : "Copy"}
+        </button>
+        {onSave && (
+          <button
+            onClick={onSave}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-violet-400 border border-transparent hover:border-violet-400/30 hover:bg-violet-500/5 transition-all duration-100"
+          >
+            <svg width="8" height="8" viewBox="0 0 9 9" fill="none">
+              <path d="M1.5 6.5V8h6V6.5M4.5 1v5M2.5 4l2 2 2-2"
+                stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Save to note
+          </button>
+        )}
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-idemora-text-muted hover:text-idemora-text-normal border border-transparent hover:border-idemora-border/60 transition-all duration-100"
+          >
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+              <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M1 1v2.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Retry
+          </button>
+        )}
+      </div>
+
     </div>
   );
 }
