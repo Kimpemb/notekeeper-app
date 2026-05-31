@@ -232,18 +232,7 @@ const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]
 const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set());
   const { toasts, addToast } = useToasts();
 
-  const CHAT_WIDTHS = ["w-72", "w-96", "w-[480px]"] as const
-const [chatWidthIdx, setChatWidthIdx] = useState(() => {
-  const saved = localStorage.getItem("idemora-chat-width")
-  return saved ? parseInt(saved) : 0
-})
-const chatWidth = CHAT_WIDTHS[chatWidthIdx]
-
-function cycleChatWidth() {
-  const next = (chatWidthIdx + 1) % CHAT_WIDTHS.length
-  setChatWidthIdx(next)
-  localStorage.setItem("idemora-chat-width", String(next))
-}
+  
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLTextAreaElement>(null);
@@ -821,18 +810,17 @@ async function handleDirectWebSearch() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className={`flex flex-col h-full ${chatWidth} shrink-0 border-l border-idemora-border bg-idemora-bg-primary`}>
-
+<div className="flex flex-col h-full w-[480px] shrink-0 border-l border-idemora-border bg-idemora-bg-primary">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between px-3 py-2 shrink-0">
+<div className="flex items-center justify-between px-3 py-1.5 shrink-0 border-b border-idemora-border/60">
         <div className="flex items-center min-w-0">
           {isFreeTier && (
-            <span className="text-sm font-semibold text-idemora-text-normal truncate">
+            <span className="text-sm font-medium text-idemora-text-muted truncate">
               Ask your notes
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0">
           {messages.length > 0 && (
             <>
               <button
@@ -841,51 +829,33 @@ async function handleDirectWebSearch() {
                   setSaveDialogOpen(true)
                 }}
                 title="Save conversation to note"
-                className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
               >
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M1.5 6.5V9h8V6.5M5.5 1v5.5M3 4.5l2.5 2 2.5-2"
-                    stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                  <rect x="2" y="2" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.3"/>
+                  <rect x="4.5" y="2" width="6" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+                  <rect x="4" y="8.5" width="7" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.1"/>
                 </svg>
               </button>
               <button
                 onClick={handleClear}
                 title="Clear conversation"
-                className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
               >
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M1.5 3h8M3.5 3V2h4v1M4 5v3.5M7 5v3.5M2.5 3l.5 6.5h5l.5-6.5"
+                <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                  <path d="M2.5 4.5h10M6 4.5V3.5h3v1M6.5 7v4M8.5 7v4M3.5 4.5l.7 8h6.6l.7-8"
                     stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </button>
             </>
           )}
           <button
-            onClick={cycleChatWidth}
-            title={chatWidthIdx === 0 ? "Expand chat" : chatWidthIdx === 1 ? "Expand chat more" : "Collapse chat"}
-            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
-          >
-            {chatWidthIdx === 0 ? (
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <path d="M9 5.5H2M4.5 3L2 5.5l2.5 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            ) : chatWidthIdx === 1 ? (
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <path d="M6 3L3.5 5.5 6 8M9 3L6.5 5.5 9 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            ) : (
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                <path d="M2 5.5h7M6.5 3L9 5.5l-2.5 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            )}
-          </button>
-          <button
             onClick={() => closeChat(paneId)}
             title="Close chat"
-            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
           >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M1.5 1.5l8 8M9.5 1.5l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <path d="M2.5 2.5l10 10M12.5 2.5l-10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </button>
         </div>
