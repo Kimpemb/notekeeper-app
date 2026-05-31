@@ -557,6 +557,10 @@ async function handleDirectWebSearch() {
     addMessage(noteId, assistantMsg);
     await saveSession(noteId);
     setInput("");
+    setInput("")
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto"
+    }
     setLoading(true);
     setStreamingId(assistantId);
     setCallError(null);
@@ -1282,11 +1286,13 @@ function MessageBubble({
 
         {/* Typing indicator */}
         {isStreaming && message.content === "" && (
-          <div className="flex items-center gap-2 py-1">
-            <span className="inline-block w-0.5 h-4 bg-violet-400 animate-pulse rounded-full shrink-0" />
-            {streamStatus && (
-              <span className="text-xs text-idemora-text-muted animate-pulse">{streamStatus}</span>
-            )}
+          <div className="flex items-center gap-2.5 py-2">
+            <div className="flex gap-0.5 shrink-0">
+              <span className="w-0.5 h-3.5 bg-violet-400 rounded-full animate-pulse" />
+            </div>
+            <span className="text-sm text-idemora-text-normal/70 animate-pulse">
+              {streamStatus ?? "Thinking…"}
+            </span>
           </div>
         )}
 
