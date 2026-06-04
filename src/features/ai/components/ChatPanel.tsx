@@ -7,6 +7,8 @@ import { subscribeToIndexerStatus } from "@/features/ai/lib/indexer";
 import { onRecovery } from "@/features/ai/lib/client";
 import {
   streamChatWithNotes,
+  runPipeline,
+  type PipelineResult,
   type ChatMessage,
   type RelatedNote,
   type Tier1ResultCard,
@@ -464,66 +466,78 @@ useEffect(() => {
 
   // ── M19: handleWebSearch function ─────────────────────────────────────────
 async function handleDirectWebSearch() {
-    const q = input.trim()
-    if (!q || loading) return
+  const q = input.trim()
+  if (!q || loading) return
 
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
-    }
-    addMessage(noteId, userMsg);
-    setInput("")
-    setLoading(true)
-
-    try {
-      const provider = getWebSearchProvider()
-      const results  = await provider.search(q)
-      await handleWebSearch(q, results)
-    } catch {
-      setLoading(false)
-    }
+  const userMsg: ChatMessage = {
+    id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
   }
+  addMessage(noteId, userMsg)
+  setInput("")
+  if (inputRef.current) inputRef.current.style.height = "auto"
+  setLoading(true)
+  setStreamStatus("Searching…")
+
+  try {
+    const scopeNoteIds = await resolveScopeNoteIds()
+
+    // Fire web search and note pipeline simultaneously
+    const [webResults, pipeline] = await Promise.all([
+      getWebSearchProvider().search(q).catch(() => [] as WebSearchResult[]),
+      runPipeline(q, currentNote, scopeNoteIds, undefined, setStreamStatus),
+    ])
+
+    await handleWebSearch(q, webResults, scopeNoteIds, pipeline)
+  } catch {
+    setLoading(false)
+    setStreamStatus(null)
+  }
+}
 
   
   async function handleWebSearch(
-    userQuery:  string,
-    webResults: import("@/features/ai/lib/search/webSearchProvider").WebSearchResult[],
+    userQuery:             string,
+    webResults:            WebSearchResult[],
+    resolvedScopeNoteIds?: string[],
+    prebuiltPipeline?:     PipelineResult,
   ) {
-    const assistantId  = crypto.randomUUID()
+    const assistantId = crypto.randomUUID()
     setWebResultsMap((prev) => new Map(prev).set(assistantId, webResults))
     const assistantMsg: ChatMessage = {
       id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
     }
 
-    addMessage(noteId, assistantMsg);
-    await saveSession(noteId);
+    addMessage(noteId, assistantMsg)
+    await saveSession(noteId)
     setLoading(true)
     setStreamingId(assistantId)
     setCallError(null)
-    setStreamStatus("Searching the web…")
+    setStreamStatus(prebuiltPipeline ? "Generating answer…" : "Searching the web…")
 
-    const scopeNoteIds = await resolveScopeNoteIds()
+    const scopeNoteIds = resolvedScopeNoteIds ?? await resolveScopeNoteIds()
 
     try {
       const meta = await streamChatWithNotes(
-  userQuery,
-  notes,
-  noteId,
-  currentNote,
-  scopeNoteIds,
-  {
-    onChunk: (token) => {
-      const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
-      const existing = current.messages.find(m => m.id === assistantId)
-      setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
-      setStreamStatus(null)
-    },
-    onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
-    onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
-    onStatus: (msg) => setStreamStatus(msg),
-  },
-  undefined,
-  webResults,
-)
+        userQuery,
+        notes,
+        noteId,
+        currentNote,
+        scopeNoteIds,
+        {
+          onChunk: (token) => {
+            const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
+            const existing = current.messages.find(m => m.id === assistantId)
+            setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+            setStreamStatus(null)
+          },
+          onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+          onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
+          onStatus: (msg) => setStreamStatus(msg),
+        },
+        undefined,
+        webResults,
+        prebuiltPipeline,
+      )
 
       // Persist the durable subset
       const pm: PersistedMeta = {

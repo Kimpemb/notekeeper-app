@@ -24,7 +24,8 @@ import { callEmbedding, AICallError }     from "@/features/ai/lib/client"
 import { embeddingModelId }               from "@/features/ai/lib/provider"
 import { useAIStore }                     from "@/features/ai/store/useAIStore"
 import type { ProviderName }              from "@/features/ai/store/useAIStore"
-import { waitForDb } from "@/features/notes/db/queries"
+import { waitForDb }                      from "@/features/notes/db/queries"
+import { invalidateEmbeddingCache, warmEmbeddingCache } from "@/features/ai/lib/search/semantic"
 
 import {
   claimPendingJobs,
@@ -184,6 +185,10 @@ async function tick(): Promise<void> {
 
         await markJobDone(job.block_id)
 
+        // Invalidate the in-memory embedding cache so the next
+        // semantic search picks up the newly written embedding
+        invalidateEmbeddingCache()
+
         // Re-check budget after each successful embed — stop this tick
         // immediately if we just hit the ceiling rather than burning
         // through the rest of the batch first.
@@ -314,6 +319,9 @@ export async function startIndexer(): Promise<void> {
   intervalHandle = setInterval(tick, TICK_INTERVAL_MS)
   await emitStatus()
   console.info("[indexer] started")
+
+  // Warm embedding cache immediately — eliminates cold load on first search
+  warmEmbeddingCache().catch(() => {})
 }
 
 /**
