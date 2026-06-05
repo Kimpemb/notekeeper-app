@@ -100,32 +100,98 @@ export interface StreamingChatOptions {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MAX_CONTEXT_CHARS           = 12_000
+const MAX_CONTEXT_CHARS = 32_000
 const MEDIUM_CONFIDENCE_THRESHOLD = 0.08
+
+
+const PERSONAL_SIGNAL_PATTERNS = /\b(my|i|i'm|i've|i have|i wrote|i said|i asked|i want|we|our|this note|the note)\b/i
+
+function hasPersonalSignals(query: string): boolean {
+  return PERSONAL_SIGNAL_PATTERNS.test(query)
+}
+// ─── Query mode budget allocator ──────────────────────────────────────────────
+
+interface ContextBudget {
+  historyChars: number
+  vaultChars:   number
+}
+
+function allocateBudget(intent: import("@/features/ai/lib/search/intentDetection").QueryIntent): ContextBudget {
+  switch (intent) {
+    case "edit":
+      return { historyChars: 20_000, vaultChars: 0 }
+    case "hybrid":
+      return { historyChars: 8_000,  vaultChars: 6_000 }
+    case "exploration":
+      return { historyChars: 4_000,  vaultChars: 8_000 }
+    case "inventory":
+      return { historyChars: 2_000,  vaultChars: 0 }
+    case "scoped":
+    case "lookup":
+    default:
+      return { historyChars: 3_000,  vaultChars: 9_000 }
+  }
+}
+
 
 // ─── Rolling session memory ───────────────────────────────────────────────────
 
-async function buildHistoryBlock(noteId: string): Promise<string> {
-  const [history, summaryRow] = await Promise.all([
-    getAIHistory(noteId),
-    getConversationSummary(noteId),
-  ])
+const HISTORY_CHAR_THRESHOLD = 24_000
+const HISTORY_SUMMARY_LIMIT  = 40
+
+async function buildHistoryBlock(
+  noteId:          string,
+  charBudget:      number = 6_000,
+  sessionMessages?: ChatMessage[],
+): Promise<string> {
+  // Prefer in-memory session messages — avoids DB round-trip and gets full fidelity
+  // Fall back to DB read if session messages not provided
+  const history: { role: string; content: string }[] = sessionMessages
+    ? sessionMessages.map((m) => ({ role: m.role, content: m.content }))
+    : await getAIHistory(noteId, HISTORY_SUMMARY_LIMIT)
+
+  const summaryRow = await getConversationSummary(noteId)
+
+  // Compute total chars
+  const totalChars = history.reduce((sum, h) => sum + h.content.length, 0)
+
+  // Trigger summary if history is large
+  if (totalChars > HISTORY_CHAR_THRESHOLD && history.length > 0) {
+    const existingRow = await getConversationSummary(noteId)
+    if (!existingRow || history.length > (existingRow.message_count ?? 0) + 10) {
+      const allContent = history
+        .map((h) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content}`)
+        .join("\n")
+      updateRollingSummary(noteId, allContent, existingRow?.summary ?? null)
+    }
+  }
 
   const parts: string[] = []
 
   if (summaryRow?.summary) {
-    parts.push(`Summary of earlier conversation:\n${summaryRow.summary}`)
+    parts.push(`[Earlier conversation summary]\n${summaryRow.summary}`)
   }
 
-  if (history.length > 0) {
-    const lines = history.map((h) =>
-      `${h.role === "user" ? "User" : "Assistant"}: ${h.content.slice(0, 400)}`
-    )
-    parts.push(`Recent conversation:\n${lines.join("\n")}`)
+  // Assemble newest-first until budget exhausted, then reverse
+  let assembled = 0
+  const kept: string[] = []
+
+  for (let i = history.length - 1; i >= 0; i--) {
+    const h    = history[i]
+    const line = `${h.role === "user" ? "User" : "Assistant"}: ${h.content}`
+    if (assembled + line.length > charBudget) break
+    kept.unshift(line)
+    assembled += line.length
+  }
+
+  if (kept.length > 0) {
+    parts.push(`[Recent conversation]\n${kept.join("\n")}`)
   }
 
   return parts.length > 0 ? `\n${parts.join("\n\n")}\n` : ""
 }
+
+
 
 async function updateRollingSummary(
   noteId:          string,
@@ -213,14 +279,16 @@ Summarize what topics and areas are covered in this vault in 2-3 sentences.`
 
 // ─── Context assembly ─────────────────────────────────────────────────────────
 
-function buildExcerptBlock(results: HybridResult[]): { block: string; includedCount: number } {
+function buildExcerptBlock(
+  results: HybridResult[],
+  maxChars: number = MAX_CONTEXT_CHARS,
+): { block: string; includedCount: number } {
   const chunks: string[] = []
   let total        = 0
   let includedCount = 0
 
   for (let i = 0; i < results.length; i++) {
     const r    = results[i]
-    console.log(`[breadcrumb] result ${i + 1}: note="${r.note_title}" breadcrumb="${(r as any).breadcrumb ?? 'MISSING'}"`)
     const text     = r.expanded_context ?? r.plaintext
     const heading  = r.chunk_heading ? ` — Section "${r.chunk_heading}"` : ""
     const location = r.breadcrumb && r.breadcrumb !== r.note_title
@@ -228,7 +296,7 @@ function buildExcerptBlock(results: HybridResult[]): { block: string; includedCo
       : ""
     const label = `[${i + 1}] From "${r.note_title}"${location} (${r.source_type})${heading}:\n${text}`
 
-    if (total + label.length > MAX_CONTEXT_CHARS) break
+    if (total + label.length > maxChars) break
     chunks.push(label)
     total += label.length
     includedCount++
@@ -236,6 +304,8 @@ function buildExcerptBlock(results: HybridResult[]): { block: string; includedCo
 
   return { block: chunks.join("\n\n"), includedCount }
 }
+
+
 
 // ─── Citation filtering ───────────────────────────────────────────────────────
 //
@@ -555,7 +625,13 @@ async function fetchTitleMatchChunks(
 function deriveWebNudge(
   pipeline: PipelineResult,
   answerText?: string,
+  query?: string,
 ): "limited" | "zero" | undefined {
+  const intent = query ? detectIntent(query).intent : pipeline.detectedIntent
+
+  // Exploration and non-personal lookups don't benefit from web search
+  if (intent === "exploration") return undefined
+  if (intent === "lookup" && query && !hasPersonalSignals(query)) return undefined
   if (pipeline.inventoryMode)   return undefined
   if (pipeline.isTitleDirected) return undefined
 
@@ -602,6 +678,21 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
   return `[WEB SEARCH RESULTS]\nThe following results were retrieved from a live web search. Cite them as [web:1], [web:2] etc.\n\n${lines.join("\n\n")}\n`
 }
 
+// ─── Edit prompt builder ──────────────────────────────────────────────────────
+
+function buildEditPrompt(
+  query:        string,
+  historyBlock: string,
+  _sessionMessages?: ChatMessage[],
+): string {
+  return `You are helping the user edit or update content from the conversation.
+${historyBlock}
+[QUESTION]
+${query}
+
+Answer:`
+}
+
 // ─── Main pipeline ────────────────────────────────────────────────────────────
 export interface PipelineResult {
   excerptBlock:         string
@@ -616,7 +707,9 @@ export interface PipelineResult {
   isTitleDirected:      boolean
   topScore:             number
   chunkCount:           number
+  detectedIntent:       import("@/features/ai/lib/search/intentDetection").QueryIntent
 }
+
 
 export async function runPipeline(
   query:            string,
@@ -632,8 +725,30 @@ export async function runPipeline(
   console.log('[pipeline] overrideNoteIds:', overrideNoteIds || 'none')
 
   const { intent, scope, cleanQuery } = detectIntent(query)
-  const t0 = performance.now()  // ← add this line
+  const t0 = performance.now()
   console.log('[pipeline] Intent detection:', { intent, scope, cleanQuery })
+
+  // ── Edit intent — instruction against in-context content ─────────────────
+  // Pipeline not needed — conversation history is the context.
+  // No vault search, no web nudge, no embeddings.
+  if (intent === "edit") {
+    console.log('[pipeline] EDIT MODE — skipping retrieval, history is context')
+    return {
+      excerptBlock:        "",
+      sourceTitles:        [],
+      sourceNoteIds:       [],
+      usedEmbeddings:      false,
+      confidence:          "high",
+      tier1Cards:          [],
+      inventoryMode:       false,
+      excludedNoteNotices: [],
+      titleMatchedNoteIds: [],
+      isTitleDirected:     false,
+      topScore:            1,
+      chunkCount:          0,
+      detectedIntent:      "edit",
+    }
+  }
 
   if (intent === "inventory") {
     console.log('[pipeline] INVENTORY MODE - building inventory context')
@@ -652,6 +767,7 @@ export async function runPipeline(
       isTitleDirected:     false,
       topScore:            1,
       chunkCount:          1,
+      detectedIntent:      "inventory",
     }
   }
 
@@ -684,6 +800,7 @@ export async function runPipeline(
         isTitleDirected:     true,
         topScore:            1,
         chunkCount:          1,
+        detectedIntent:      intent,
       }
     }
     console.log('[pipeline] deixis: no plaintext available — falling through to hybrid search')
@@ -760,6 +877,7 @@ export async function runPipeline(
       isTitleDirected:     true,
       topScore:            0,
       chunkCount:          0,
+      detectedIntent:      intent,
     }
   }
 
@@ -789,6 +907,7 @@ export async function runPipeline(
         isTitleDirected:     true,
         topScore:            1,
         chunkCount:          0,
+        detectedIntent:      intent,
       }
     }
   }
@@ -871,6 +990,7 @@ export async function runPipeline(
     isTitleDirected:     effectiveTitleMatches.length > 0,
     topScore:            merged[0]?.final_score ?? 0,
     chunkCount:          merged.length,
+    detectedIntent:      intent,
   }
 
   console.log(`[perf] pipeline total: ${(performance.now() - t0).toFixed(0)}ms`)
@@ -883,6 +1003,7 @@ export async function runPipeline(
     isTitleDirected:    finalResult.isTitleDirected,
     chunkCount:         finalResult.chunkCount,
     topScore:           finalResult.topScore,
+    detectedIntent:     finalResult.detectedIntent,
   })
 
   return finalResult
@@ -898,6 +1019,9 @@ function buildPrompt(
   webResults?:  WebSearchResult[],
   injectVault?: boolean,
 ): string {
+  const intent = pipeline.detectedIntent
+  const historyBeforeQuestion = intent === "edit" || intent === "hybrid"
+
   const currentNoteBlock = currentNote
     ? `\nCurrently open note: "${currentNote.title}"`
     : ""
@@ -910,8 +1034,8 @@ function buildPrompt(
     : hasVault
       ? `[NOTE AND VAULT EXCERPTS]\n${pipeline.excerptBlock}`
       : hasWeb
-        ? "(No matching content found in your notes — answering from web search only.)"
-        : "(No matching content found in your notes.)"
+          ? "(No matching content found in your notes — answering from web search only.)"
+          : ""
 
   const titleDirectedInstruction = pipeline.isTitleDirected
     ? `The user is asking about a specific note by title. Prioritise excerpts from the directly matched note(s) and answer from their content. Do not speculate beyond what those excerpts contain.\n`
@@ -934,25 +1058,30 @@ Cite every note excerpt you draw from using its number: [1], [2] etc.
 When using web search results, cite them as [web:1], [web:2] etc.
 Excerpts include a location path (e.g. "Projects / Vitobu / Day 1") — use this to give context about where information lives when it adds clarity.
 Synthesise across excerpts when the answer is spread across multiple notes.
-If after reading ALL excerpts the information is genuinely absent, say so in one sentence.
-Do not say information is unavailable if it appears anywhere in the excerpts, even partially.
+When multiple retrieved notes point to the same underlying theme or project, synthesise across them rather than listing them separately.
+When the current question connects to topics already in the conversation history, draw that connection explicitly.
+You may make inferences well-supported by the retrieved content — state them explicitly as inferences using language like "this suggests" or "taken together, these notes indicate". Never cite a source for an inference not directly stated in that source.
+If after reading ALL excerpts the information is genuinely absent, say so in one sentence. Do not say information is unavailable if it appears anywhere in the excerpts, even partially.
+Never mention the vault or note system unless the user's question is specifically about their notes.
 Format your response using markdown:
 - Use **bold** for key terms and important concepts
 - Use headers (## or ###) only when the response covers multiple distinct topics; never use h1
-- Always use fenced code blocks with the correct language tag for any code (e.g. \`\`\`python, \`\`\`ts)
+- Always use fenced code blocks with the correct language tag for any code
 - Use bullet points for lists of 3 or more items; use prose for shorter enumerations
 - Match response length to the question — a simple question gets a short answer, a complex one gets a thorough one; never pad
-- Place citations inline immediately after the claim they support, not clustered at the end: "The save flow runs in Phase 1 [1], while RAG scoping is Phase 3 [2]."
+- Place citations inline immediately after the claim they support
 - Never restate the question, summarise what you just said, or add filler closing sentences
-${historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
-${hasVault ? `[EXCERPTS FROM YOUR NOTES]\n${excerptSection}\n` : `${excerptSection}\n`}
+${!historyBeforeQuestion && historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
+${hasVault ? `[EXCERPTS FROM YOUR NOTES]\n${excerptSection}\n` : excerptSection ? `${excerptSection}\n` : ""}
 ${currentNoteBlock ? `[CURRENTLY OPEN NOTE]\nUse this as additional context. Do not cite it with a number — refer to it as "current note" if relevant.\n${currentNoteBlock}\n` : ""}
 ${hasWeb ? buildWebResultsBlock(webResults!) : ""}
+${historyBeforeQuestion && historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
 [QUESTION]
 ${query}
 
 Answer:`
 }
+
 
 // ─── Streaming chat (primary path) ───────────────────────────────────────────
 
@@ -966,7 +1095,11 @@ export async function streamChatWithNotes(
   overrideNoteIds?:  string[],
   webResults?:       WebSearchResult[],
   prebuiltPipeline?: PipelineResult,
+  sessionMessages?:  ChatMessage[],   // NEW — pass store messages directly
 ): Promise<Omit<ChatResult, "answer">> {
+
+  // Declare assembled early to avoid TDZ errors
+  let assembled = ""
 
   // Tier 1 — no AI key configured
   if (!isAIReady()) {
@@ -995,11 +1128,14 @@ export async function streamChatWithNotes(
 
   // Tier 2 — full AI pipeline
   // Run history and pipeline in parallel regardless of web results
-  // Tier 2 — full AI pipeline
   streaming.onStatus?.("Searching your notes…")
 
+  // Detect intent for budget allocation
+  const { intent } = detectIntent(query)
+  const budget     = allocateBudget(intent)
+
   const [historyBlock, pipeline] = await Promise.all([
-    buildHistoryBlock(noteId),
+    buildHistoryBlock(noteId, budget.historyChars, sessionMessages),
     prebuiltPipeline
       ? Promise.resolve(prebuiltPipeline)
       : runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds, streaming.onStatus),
@@ -1016,17 +1152,144 @@ export async function streamChatWithNotes(
     streaming.onStatus?.(`Found ${pipeline.chunkCount} relevant chunks…`)
   }
 
+  // AFTER pipeline resolves, before building the prompt:
+  // PATCH START — Scoped empty routing
+  const isScopedSearch = scopeNoteIds && scopeNoteIds.length > 0
+  const scopedButEmpty = isScopedSearch && pipeline.chunkCount === 0
+
+  if (scopedButEmpty && !pipeline.inventoryMode && (!webResults || webResults.length === 0)) {
+    console.log('[streamChat] scoped search returned 0 chunks — routing to history/general knowledge')
+
+    const generalPrompt = `You are a helpful assistant engaged in an ongoing conversation.
+${historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
+The user's notes scoped to the current context contain no matching content for this query.
+Answer from your general knowledge and the conversation history above.
+Do not mention notes, vaults, or any note-taking system unless the user specifically asks about them.
+
+[QUESTION]
+${query}
+
+Answer:`
+
+    const messages: ProviderMessage[] = [{ role: "user", content: generalPrompt }]
+    streaming.onStatus?.("Generating answer…")
+
+    try {
+      const result = await callPrimary(messages)
+      assembled    = result.text
+      streaming.onChunk(assembled)
+      await appendAIHistory(noteId, "user",      query)
+      await appendAIHistory(noteId, "assistant", assembled)
+      streaming.onDone?.()
+    } catch (err: unknown) {
+      streaming.onError?.(err as AICallError)
+    }
+
+    return {
+      sourceTitles:        [],
+      sourceNoteIds:       [],
+      usedEmbeddings:      false,
+      confidence:          "low",
+      relatedNotes:        [],
+      excludedNoteNotices: pipeline.excludedNoteNotices,
+      titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+      webNudge:            undefined,   // don't nudge web search on scoped misses
+    }
+  }
+  // PATCH END — Scoped empty routing
+
+  // Special handling for edit intent — use history directly, no vault injection
+  if (intent === "edit") {
+    console.log('[streamChat] EDIT INTENT — using conversation history only')
+    
+    // Build prompt for edit (no vault content)
+    const editPrompt = buildEditPrompt(query, historyBlock, sessionMessages)
+    const messages: ProviderMessage[] = [{ role: "user", content: editPrompt }]
+    
+    streaming.onStatus?.("Applying changes…")
+    
+    try {
+      const result = await callPrimary(messages)
+      assembled = result.text
+      
+      streaming.onChunk(assembled)
+      
+      await appendAIHistory(noteId, "user", query)
+      await appendAIHistory(noteId, "assistant", assembled)
+      
+      const history = await getAIHistory(noteId)
+      if (history.length >= 6) {
+        const existingRow = await getConversationSummary(noteId)
+        const droppedLines = [
+          `User: ${query}`,
+          `Assistant: ${assembled.slice(0, 300)}`,
+        ].join("\n")
+        updateRollingSummary(noteId, droppedLines, existingRow?.summary ?? null)
+      }
+      
+      streaming.onDone?.()
+    } catch (err: unknown) {
+      streaming.onError?.(err as AICallError)
+    }
+    
+    return {
+      sourceTitles:        [],
+      sourceNoteIds:       [],
+      usedEmbeddings:      false,
+      confidence:          "high",
+      relatedNotes:        [],
+      excludedNoteNotices: [],
+      titleMatchedNoteIds: [],
+      webNudge:            undefined,  
+      webGrounded:         false,
+    }
+  }
+
   // Gate vault injection — only inject when retrieval was meaningful
   const injectVault = (webResults && webResults.length > 0)
     ? pipeline.chunkCount > 0 && pipeline.confidence !== "low"
     : true  // always inject on non-web path
 
-  let assembled = ""
-
-  // Short-circuit — no chunks and no web results means nothing to ground the model on
+  // Short-circuit — no chunks and no web results
+  // If query has no personal signals, answer from general knowledge instead of
+  // returning a vault-miss message (fixes Jay-Z / tree traversal / Ghana cases).
   if (pipeline.chunkCount === 0 && !pipeline.inventoryMode && (!webResults || webResults.length === 0)) {
-    console.log('[streamChat] chunkCount=0 and no web results, short-circuiting before model call')
-    assembled = "Nothing found in your notes about this."
+    if (!hasPersonalSignals(query)) {
+      console.log('[streamChat] chunkCount=0, no personal signals — routing to general knowledge')
+      // Fall through to model call with a general knowledge instruction injected
+      const generalKnowledgePrompt = `You are a knowledgeable assistant. Answer the following question from your general knowledge. Do not mention notes, vaults, or any note-taking system.
+
+[QUESTION]
+${query}
+
+Answer:`
+      const messages: ProviderMessage[] = [{ role: "user", content: generalKnowledgePrompt }]
+      streaming.onStatus?.("Generating answer…")
+      try {
+        const result = await callPrimary(messages)
+        assembled    = result.text
+        streaming.onChunk(assembled)
+        await appendAIHistory(noteId, "user",      query)
+        await appendAIHistory(noteId, "assistant", assembled)
+        streaming.onDone?.()
+      } catch (err: unknown) {
+        streaming.onError?.(err as AICallError)
+      }
+      return {
+        sourceTitles:        [],
+        sourceNoteIds:       [],
+        usedEmbeddings:      false,
+        confidence:          "low",
+        relatedNotes:        [],
+        excludedNoteNotices: pipeline.excludedNoteNotices,
+        titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+        webNudge:            deriveWebNudge(pipeline),
+      }
+    }
+
+    // Has personal signals — vault miss is meaningful, report it
+    console.log('[streamChat] chunkCount=0 with personal signals — short-circuiting')
+    assembled = "I couldn't find anything relevant in your notes for that."
     streaming.onChunk(assembled)
     streaming.onDone?.()
     return {
@@ -1037,7 +1300,7 @@ export async function streamChatWithNotes(
       relatedNotes:        [],
       excludedNoteNotices: pipeline.excludedNoteNotices,
       titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-      webNudge:            deriveWebNudge(pipeline),
+      webNudge:            deriveWebNudge(pipeline, assembled),
     }
   }
 

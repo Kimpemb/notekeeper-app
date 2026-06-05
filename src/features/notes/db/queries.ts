@@ -2047,16 +2047,19 @@ export interface AIHistoryRow {
   created_at: number;
 }
 
-const AI_HISTORY_LIMIT = 6;
+const AI_HISTORY_LIMIT = 200;
 
-export async function getAIHistory(noteId: string): Promise<AIHistoryRow[]> {
+export async function getAIHistory(
+  noteId: string,
+  limit: number = 40
+): Promise<AIHistoryRow[]> {
   const db = await getDb();
   const rows = await db.select<AIHistoryRow[]>(
     `SELECT * FROM ai_history
     WHERE note_id = $1
     ORDER BY created_at DESC
     LIMIT $2`,
-    [noteId, AI_HISTORY_LIMIT]
+    [noteId, limit]
   );
   return rows.reverse();
 }

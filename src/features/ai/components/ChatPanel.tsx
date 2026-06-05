@@ -33,6 +33,7 @@ import {
   getWebSearchProvider,
   type WebSearchResult,
 } from "@/features/ai/lib/search/webSearchProvider"
+import { detectIntent } from "@/features/ai/lib/search/intentDetection"  // ← ADD THIS
 
 interface Props {
   noteId: string;
@@ -340,6 +341,13 @@ useEffect(() => {
   const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
   if (!userQuery) return
 
+  // Suppress auto-search for edit/intent and short declarative statements
+const { intent } = detectIntent(userQuery)
+if (intent === "edit" || intent === "inventory" || intent === "exploration") return
+  const words = userQuery.trim().split(/\s+/)
+  const QUESTION_WORDS = /\b(what|who|how|why|when|where|does|is|can|which)\b/i
+  if (words.length <= 8 && !QUESTION_WORDS.test(userQuery)) return
+
   console.log('[autoSearch] firing auto web search for:', userQuery)
   const provider = getWebSearchProvider()
   provider.search(userQuery).then((results) => {
@@ -537,6 +545,7 @@ async function handleDirectWebSearch() {
         undefined,
         webResults,
         prebuiltPipeline,
+        messages.slice(0, -2),
       )
 
       // Persist the durable subset
@@ -600,41 +609,45 @@ async function handleDirectWebSearch() {
       const scopeNoteIds = await resolveScopeNoteIds();
 
       const meta = await streamChatWithNotes(
-  q,
-  notes,
-  noteId,
-  currentNote,
-  scopeNoteIds,
-  {
-    onChunk: (token) => {
-      const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
-      const existing = current.messages.find(m => m.id === assistantId)
-      setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
-      setStreamStatus(null)
-    },
-    onDone: () => {
-      setStreamStatus(null)
-      setStreamingId(null)
-      setLoading(false)
-    },
-    onError: (err: AICallError) => {
-      errorHandled = true
-      setStreamStatus(null)
-      useChatSessionStore.setState((s) => {
-        const sess = s.sessions[noteId]
-        if (!sess) return s
-        return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
-      })
-      if (err.code === "AUTH_FAILED" || err.code === "QUOTA_EXCEEDED") {
-        setProviderStatus(primarySlot.provider, "error", err.message)
-      }
-      setCallError(err)
-      setStreamingId(null)
-      setLoading(false)
-    },
-    onStatus: (msg) => setStreamStatus(msg),
-  }
-)
+        q,
+        notes,
+        noteId,
+        currentNote,
+        scopeNoteIds,
+        {
+          onChunk: (token) => {
+            const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+            const existing = current.messages.find(m => m.id === assistantId)
+            setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+            setStreamStatus(null)
+          },
+          onDone: () => {
+            setStreamStatus(null)
+            setStreamingId(null)
+            setLoading(false)
+          },
+          onError: (err: AICallError) => {
+            errorHandled = true
+            setStreamStatus(null)
+            useChatSessionStore.setState((s) => {
+              const sess = s.sessions[noteId]
+              if (!sess) return s
+              return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
+            })
+            if (err.code === "AUTH_FAILED" || err.code === "QUOTA_EXCEEDED") {
+              setProviderStatus(primarySlot.provider, "error", err.message)
+            }
+            setCallError(err)
+            setStreamingId(null)
+            setLoading(false)
+          },
+          onStatus: (msg) => setStreamStatus(msg),
+        },
+        undefined,   // overrideNoteIds
+        undefined,   // webResults
+        undefined,   // prebuiltPipeline
+        messages.slice(0, -2),    // sessionMessages
+      )
 
       // Persist the durable subset
       const pm: PersistedMeta = {
@@ -718,23 +731,27 @@ async function handleDirectWebSearch() {
 
   try {
     const meta = await streamChatWithNotes(
-  lastUser.content,
-  notes,
-  noteId,
-  currentNote,
-  scopeNoteIds,
-  {
-    onChunk: (token) => {
-      const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
-      const existing = current.messages.find((m) => m.id === lastAssistant.id)
-      setMessageContent(noteId, lastAssistant.id, (existing?.content ?? "") + token)
-      setStreamStatus(null)
-    },
-    onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
-    onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
-    onStatus: (msg) => setStreamStatus(msg),
-  },
-)
+      lastUser.content,
+      notes,
+      noteId,
+      currentNote,
+      scopeNoteIds,
+      {
+        onChunk: (token) => {
+          const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
+          const existing = current.messages.find((m) => m.id === lastAssistant.id)
+          setMessageContent(noteId, lastAssistant.id, (existing?.content ?? "") + token)
+          setStreamStatus(null)
+        },
+        onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+        onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
+        onStatus: (msg) => setStreamStatus(msg),
+      },
+      undefined,   // overrideNoteIds
+      undefined,   // webResults
+      undefined,   // prebuiltPipeline
+      messages.slice(0, -2),    // sessionMessages
+    )
 
     const pm: PersistedMeta = {
       messageId:      lastAssistant.id,
@@ -787,24 +804,27 @@ async function handleDirectWebSearch() {
 
   try {
     const meta = await streamChatWithNotes(
-  lastUserMsg.content,
-  notes,
-  noteId,
-  currentNote,
-  scopeNoteIds,
-  {
-    onChunk: (token) => {
-      const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
-      const existing = current.messages.find(m => m.id === assistantId)
-      setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
-      setStreamStatus(null)
-    },
-    onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
-    onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
-    onStatus: (msg) => setStreamStatus(msg),
-  },
-  allInclusions,
-)
+      lastUserMsg.content,
+      notes,
+      noteId,
+      currentNote,
+      scopeNoteIds,
+      {
+        onChunk: (token) => {
+          const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+          const existing = current.messages.find(m => m.id === assistantId)
+          setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+          setStreamStatus(null)
+        },
+        onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+        onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
+        onStatus: (msg) => setStreamStatus(msg),
+      },
+      allInclusions,  // overrideNoteIds
+      undefined,      // webResults
+      undefined,      // prebuiltPipeline
+      messages.slice(0, -1),  // sessionMessages
+    )
     // Persist the durable subset
     const pm: PersistedMeta = {
       messageId:      assistantId,

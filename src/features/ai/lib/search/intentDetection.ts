@@ -2,11 +2,13 @@
 //
 // RAG v3 — Query intent classifier and scoped search parser.
 //
-// Four intent types:
+// Six intent types:
 //   inventory   — "what notes do you have", "what do you know about"
 //   lookup      — "what is", "how does", "define", "explain" (default)
 //   exploration — "what have I written about", "summarise my thoughts"
 //   scoped      — "in my [tag] notes", "from last week", "in [note title]"
+//   edit        — "change the table to 3pm", "update that list"
+//   hybrid      — "based on my notes, rewrite the schedule"
 //
 // Scoped queries are parsed for:
 //   - source_type filter  ("in my vault entries", "notes only")
@@ -15,8 +17,7 @@
 //   - note title filter   ("in the RAG postmortem note")
 //   - folder filter       ("in my Work folder")
 
-export type QueryIntent = "inventory" | "lookup" | "exploration" | "scoped"
-
+export type QueryIntent = "inventory" | "lookup" | "exploration" | "scoped" | "edit" | "hybrid"
 export type SourceTypeFilter = "note" | "vault_entry" | null
 
 export interface DateRangeFilter {
@@ -59,6 +60,47 @@ const EXPLORATION_PATTERNS = [
   /throughout (my )?notes/i,
   /overview of (my|everything)/i,
   /recap (of|everything)/i,
+  /how (should|do) (i|we) (organize|structure|set up|arrange)/i,
+  /into what (folders|categories|sections)/i,
+  /suggest.*(folder|structure|organiz)/i,
+  /best (way|approach) to (organize|structure)/i,
+  /what (folders|sections|categories) (should|would)/i,
+]
+
+// ─── Edit intent patterns ─────────────────────────────────────────────────────
+//
+// Narrow to structural/artifact-referencing patterns only.
+// Must reference something visible in conversation — "the table", "that list", "this".
+// Avoids catching conceptual imperatives like "change how Python handles memory".
+
+const EDIT_PATTERNS = [
+  /change\s+.+\s+to\s+.+/i,
+  /update\s+(the|that|this)\s+\w+/i,
+  /remove\s+(the|that|this)\s+\w+/i,
+  /rewrite\s+(the|that|this)\s+\w+/i,
+  /rename\s+.+\s+to\s+.+/i,
+  /replace\s+.+\s+with\s+.+/i,
+  /use\s+.+\s+instead/i,
+  /\bis\s+(actually|now|in)\s+\w+/i,       // "X is actually Y", "X is now Y", "X is in C15"
+  /\bwas\s+supposed\s+to\s+be\b/i,
+  /\bshould\s+be\s+\w+/i,
+  /\badd\s+(the|that|this|a)\s+\w+/i,
+  /\bmove\s+(the|that|this)\s+\w+/i,
+]
+
+// Artifact reference signals — edit only fires when one of these is also present,
+// OR when the query is under 12 words (short corrections are almost always edits)
+const ARTIFACT_REFS = /\b(the table|that table|the list|that list|the timetable|the schedule|that row|this row|the row|that entry|the entry|the last|that last|the previous|it|that)\b/i
+
+// ─── Hybrid intent patterns ───────────────────────────────────────────────────
+//
+// References both vault content and conversation context.
+
+const HYBRID_PATTERNS = [
+  /based on (my notes|what you found|the results)/i,
+  /using (my notes|what you retrieved|the notes)/i,
+  /from (my notes|the vault),?\s+(rewrite|update|edit|change)/i,
+  /taking (my notes|that) into account/i,
 ]
 
 // ─── Scope pattern maps ───────────────────────────────────────────────────────
@@ -132,6 +174,28 @@ export function detectIntent(query: string): DetectedIntent {
   if (INVENTORY_PATTERNS.some((p) => p.test(q))) {
     return {
       intent:     "inventory",
+      scope:      {},
+      cleanQuery: q,
+    }
+  }
+
+  // ── Check hybrid first — references both vault and conversation ───────────
+  if (HYBRID_PATTERNS.some((p) => p.test(q))) {
+    return {
+      intent:     "hybrid",
+      scope:      {},
+      cleanQuery: q,
+    }
+  }
+
+  // ── Check edit intent — instruction against in-context content ────────────
+  const isEditPattern   = EDIT_PATTERNS.some((p) => p.test(q))
+  const hasArtifactRef  = ARTIFACT_REFS.test(q)
+  const isShortQuery    = q.trim().split(/\s+/).length <= 12
+
+  if (isEditPattern && (hasArtifactRef || isShortQuery)) {
+    return {
+      intent:     "edit",
       scope:      {},
       cleanQuery: q,
     }

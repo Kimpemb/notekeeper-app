@@ -25,7 +25,7 @@ import { embeddingModelId }               from "@/features/ai/lib/provider"
 import { useAIStore }                     from "@/features/ai/store/useAIStore"
 import type { ProviderName }              from "@/features/ai/store/useAIStore"
 import { waitForDb }                      from "@/features/notes/db/queries"
-import { invalidateEmbeddingCache, warmEmbeddingCache } from "@/features/ai/lib/search/semantic"
+import { addToEmbeddingCache, warmEmbeddingCache } from "@/features/ai/lib/search/semantic"
 
 import {
   claimPendingJobs,
@@ -155,6 +155,7 @@ async function tick(): Promise<void> {
       return
     }
 
+
     for (const job of jobs) {
       try {
         const { getDb } = await import("@/features/notes/db/client")
@@ -184,10 +185,13 @@ async function tick(): Promise<void> {
         )
 
         await markJobDone(job.block_id)
-
-        // Invalidate the in-memory embedding cache so the next
-        // semantic search picks up the newly written embedding
-        invalidateEmbeddingCache()
+        addToEmbeddingCache({
+          block_id:   job.block_id,
+          note_id:    job.note_id,
+          model_id:   modelId,
+          vector,
+          updated_at: Date.now(),
+        })
 
         // Re-check budget after each successful embed — stop this tick
         // immediately if we just hit the ceiling rather than burning
@@ -220,6 +224,10 @@ async function tick(): Promise<void> {
         await markJobFailed(job.block_id, message, job.attempts, retryable)
       }
     }
+
+    // Invalidate cache once per tick if any embeddings were written —
+    // avoids cold reload on every job (was causing 12-27s search delays)
+    
 
   } catch (err) {
     // Outer catch — DB error or store read threw unexpectedly

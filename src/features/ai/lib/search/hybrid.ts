@@ -213,12 +213,34 @@ async function ftsPass(
 
     // $1 = currentNoteId (for untitled exclusion)
     // scope clause params start at $2
-    const scopeClause = buildScopeClause(scope, 2)
 
     // Block-level FTS — plaintext + chunk_heading
     // FIX: exclude untitled notes unless they are the currently open note.
     try {
-      const rows = await db.select<FtsRow[]>(
+      // When noteIds scope is active, push the filter INSIDE the FTS subquery
+// so FTS5 only ranks blocks belonging to the scoped notes.
+// Without this, FTS picks the global top-20 first; scoped notes may never appear.
+// Full param-safe version:
+const hasScopeNoteIds = scope.noteIds && scope.noteIds.length > 0
+const scopeNoteIds    = scope.noteIds ?? []
+
+// Build inner filter with params starting at $1
+const innerParams: unknown[] = []
+let   innerParamIdx = 1
+let   innerFilter   = ""
+if (hasScopeNoteIds) {
+  const phs = scopeNoteIds.map(() => `$${innerParamIdx++}`).join(", ")
+  innerFilter = `AND note_id IN (${phs})`
+  innerParams.push(...scopeNoteIds)
+}
+
+// Outer clause params start after inner params
+const outerScopeClause = buildScopeClause(
+  { ...scope, noteIds: undefined },   // noteIds handled inside
+  innerParamIdx + 1                   // +1 because $innerParamIdx is currentNoteId
+)
+
+const rows = await db.select<FtsRow[]>(
   `SELECT
   sub.block_id,
   sub.note_id,
@@ -234,19 +256,20 @@ FROM (
   SELECT block_id, note_id, rank AS fts_rank
   FROM blocks_fts
   WHERE blocks_fts MATCH '${sanitized}'
+  ${innerFilter}
   ORDER BY rank
-  LIMIT ${topK}
+  LIMIT ${topK * 3}
 ) sub
 JOIN note_blocks nb ON nb.block_id = sub.block_id
 JOIN notes n        ON n.id        = sub.note_id
 LEFT JOIN embeddings e          ON e.block_id  = sub.block_id
 LEFT JOIN note_title_chunks ntc ON ntc.note_id = sub.note_id
 WHERE n.deleted_at IS NULL
-  AND (n.id = $1 OR n.title NOT LIKE 'Untitled%')
-  ${scopeClause.sql}
+  AND (n.id = $${innerParamIdx} OR n.title NOT LIKE 'Untitled%')
+  ${outerScopeClause.sql}
   LIMIT ${topK}`,
-      [currentNoteId ?? "", ...scopeClause.params]
-      )
+  [...innerParams, currentNoteId ?? "", ...outerScopeClause.params]
+)
 
       for (const row of rows) {
         if (row.rag_excluded === 1 && !overrideSet.has(row.note_id)) continue
@@ -357,12 +380,13 @@ async function vectorPass(
   topK:           number,
   currentNoteId?: string,
   overrideSet?:   Set<string>,
+  ftsCount?:      number,       // passed to semanticSearch for adaptive threshold
 ): Promise<Map<string, { note_id: string; rank: number }>> {
   const results      = new Map<string, { note_id: string; rank: number }>()
   const _overrideSet = overrideSet ?? new Set<string>()
 
   try {
-    const semanticResults = await semanticSearch(query, topK)
+    const semanticResults = await semanticSearch(query, topK, ftsCount ?? 0)
     if (semanticResults.length === 0) return results
 
     let filtered = semanticResults
@@ -542,7 +566,7 @@ async function enrichMissingRows(
 
 // ─── Context expansion ────────────────────────────────────────────────────────
 
-const MAX_CONTEXT_CHARS = 12_000
+const MAX_CONTEXT_CHARS = 32_000
 
 export async function expandContext(results: HybridResult[]): Promise<HybridResult[]> {
   let totalChars = 0
@@ -604,10 +628,12 @@ export async function hybridSearch(
   const excludedTitleMatches = new Map<string, string>()
   const overrideSet   = new Set(overrideNoteIds ?? [])
 
-  const [ftsResults, vectorResults] = await Promise.all([
-    ftsPass(allQueries, resolvedScope, 20, currentNoteId, excludedTitleMatches, overrideNoteIds),
-    vectorPass(query, resolvedScope, 20, currentNoteId, overrideSet),
-  ])
+  const ftsResults = await ftsPass(
+  allQueries, resolvedScope, 20, currentNoteId, excludedTitleMatches, overrideNoteIds
+)
+const vectorResults = await vectorPass(
+  query, resolvedScope, 20, currentNoteId, overrideSet, ftsResults.size
+)
 
   console.log(`[hybrid] query="${query.slice(0, 60)}"`)
   console.log(`[hybrid] FTS hits: ${ftsResults.size}  vector hits: ${vectorResults.size}`)

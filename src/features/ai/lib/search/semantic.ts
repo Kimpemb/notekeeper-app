@@ -41,6 +41,17 @@ export function invalidateEmbeddingCache(): void {
   console.log("[semantic] embedding cache invalidated")
 }
 
+
+export function addToEmbeddingCache(entry: EmbeddingWithVector): void {
+  if (!_cache) return  // no cache loaded yet — nothing to update
+  const idx = _cache.embeddings.findIndex(e => e.block_id === entry.block_id)
+  if (idx !== -1) {
+    _cache.embeddings[idx] = entry  // update existing
+  } else {
+    _cache.embeddings.push(entry)   // append new
+  }
+}
+
 async function getEmbeddingsForModel(modelId: string): Promise<EmbeddingWithVector[]> {
   // Cache hit — same model already loaded
   if (_cache && _cache.modelId === modelId) {
@@ -98,8 +109,9 @@ async function embedQuery(query: string): Promise<Float32Array | null> {
 // ─── Main search function ─────────────────────────────────────────────────────
 
 export async function semanticSearch(
-  query: string,
-  topK:  number = 15
+  query:    string,
+  topK:     number = 15,
+  ftsCount: number = 0,   // hint from hybrid.ts — suppresses fallback when FTS is strong
 ): Promise<SemanticResult[]> {
   if (!query.trim()) return []
 
@@ -116,17 +128,27 @@ export async function semanticSearch(
   if (!queryVector)          return []
   if (embeddings.length === 0) return []
 
-  const MIN_SCORE = 0.45
+  // AFTER
+const PRIMARY_THRESHOLD  = 0.45
+const FALLBACK_THRESHOLD = 0.35
 
-  const scored: SemanticResult[] = []
+const scoreAt = (threshold: number): SemanticResult[] => {
+  const out: SemanticResult[] = []
   for (const e of embeddings) {
-    const score = cosineSimilarity(queryVector, e.vector)
-    if (score >= MIN_SCORE) {
-      scored.push({ block_id: e.block_id, note_id: e.note_id, score })
-    }
+    const s = cosineSimilarity(queryVector, e.vector)
+    if (s >= threshold) out.push({ block_id: e.block_id, note_id: e.note_id, score: s })
   }
+  return out.sort((a, b) => b.score - a.score).slice(0, topK)
+}
 
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
+const primary = scoreAt(PRIMARY_THRESHOLD)
+
+// Adaptive fallback: widen threshold only when primary is empty AND
+// FTS is also weak. ftsCount is passed by vectorPass in hybrid.ts.
+// Prevents vault noise on general queries while recovering borderline
+// results on ambiguous ones.
+if (primary.length > 0 || ftsCount >= 3) return primary
+
+console.log('[semantic] primary empty + weak FTS — retrying at', FALLBACK_THRESHOLD)
+return scoreAt(FALLBACK_THRESHOLD)
 }
