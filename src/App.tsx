@@ -37,6 +37,7 @@ import { OutlinePanel } from "@/features/editor/components/Editor/OutlinePanel";
 import { ChatPanel } from "@/features/ai/components/ChatPanel";
 import { useChatSessionStore } from "@/features/ai/store/useChatSessionStore";
 import { CanvasWorkspace } from "@/features/canvas/components/CanvasWorkspace";
+import { PDFViewerPanel } from "@/features/viewer/components/PDFViewerPanel";
 import { MoveBlockModal } from "@/features/ui/components/MoveBlockModal";
 // PATCH: 1. Add import near the top with other modal imports
 import { AISetupModal } from "@/features/ai/components/AISetupModal";
@@ -476,17 +477,19 @@ useEffect(() => {
                 {tab.noteId === null ? (
                   <NewTabScreen paneId={paneId} />
                 ) : (() => {
-                  const noteId = tab.noteId!;
-                  const note = notes.find((n) => n.id === noteId);
-                  return note?.is_canvas
-                    ? <CanvasWorkspace key={noteId} noteId={noteId} paneId={paneId} />
-                    : <Editor
-                        key={noteId}
-                        noteId={noteId}
-                        paneId={paneId}
-                        initialScrollTop={scrollPositions.current.get(noteId) ?? 0}
-                        onScrollChange={(top) => scrollPositions.current.set(noteId, top)}
-                      />;
+                const noteId = tab.noteId!;
+                const note = notes.find((n) => n.id === noteId);
+                if (note?.is_canvas)
+                  return <CanvasWorkspace key={noteId} noteId={noteId} paneId={paneId} />;
+                if (note?.source_type === "pdf")
+                  return <PDFViewerPanel key={noteId} noteId={noteId} paneId={paneId} />;
+                return <Editor
+                  key={noteId}
+                  noteId={noteId}
+                  paneId={paneId}
+                  initialScrollTop={scrollPositions.current.get(noteId) ?? 0}
+                  onScrollChange={(top) => scrollPositions.current.set(noteId, top)}
+                />;
                 })()}
               </div>
             );

@@ -2,7 +2,7 @@
 import { getDb } from "@/features/notes/db/client";
 import { ALL_MIGRATIONS } from "@/features/notes/db/schema";
 import { deleteImage } from "@/lib/tauri/fs";
-import type { Note, NoteVersion, Backlink, BookmarkItem, NoteBookmark, BookmarkGroup } from "@/types";
+import type { Note, NoteVersion, Backlink, BookmarkItem, NoteBookmark, BookmarkGroup, NoteSourceType } from "@/types";
 import { blobToVector, vectorToBlob } from "@/features/ai/lib/provider"
 import {
   getSimilarityResults,
@@ -482,7 +482,8 @@ export async function getAllNotes(): Promise<Note[]> {
   return db.select<Note[]>(
     `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
             created_at, updated_at, deleted_at, sort_order,
-            is_canvas, canvas_state, COALESCE(rag_excluded, 0) AS rag_excluded
+            is_canvas, canvas_state, COALESCE(rag_excluded, 0) AS rag_excluded,
+            source_type, source_file, source_meta
      FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
 }
@@ -492,7 +493,8 @@ export async function getAllNotesMeta(): Promise<Note[]> {
   return db.select<Note[]>(
     `SELECT id, title, plaintext, tags, frontmatter, parent_id, sync_id,
             created_at, updated_at, deleted_at, sort_order, is_canvas,
-            COALESCE(rag_excluded, 0) AS rag_excluded
+            COALESCE(rag_excluded, 0) AS rag_excluded,
+            source_type, source_file, source_meta
      FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
   );
 }
@@ -510,7 +512,8 @@ export async function getNoteById(id: string): Promise<Note | null> {
   const rows = await db.select<Note[]>(
     `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
             created_at, updated_at, deleted_at, sort_order,
-            COALESCE(rag_excluded, 0) AS rag_excluded
+            COALESCE(rag_excluded, 0) AS rag_excluded,
+            source_type, source_file, source_meta
      FROM notes WHERE id = $1`, 
     [id]
   );
@@ -523,29 +526,34 @@ export async function getNotesByParent(parentId: string | null): Promise<Note[]>
     return db.select<Note[]>(
       `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
               created_at, updated_at, deleted_at, sort_order,
-              COALESCE(rag_excluded, 0) AS rag_excluded
+              COALESCE(rag_excluded, 0) AS rag_excluded,
+              source_type, source_file, source_meta
        FROM notes WHERE parent_id IS NULL AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
     );
   }
   return db.select<Note[]>(
     `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
             created_at, updated_at, deleted_at, sort_order,
-            COALESCE(rag_excluded, 0) AS rag_excluded
+            COALESCE(rag_excluded, 0) AS rag_excluded,
+            source_type, source_file, source_meta
      FROM notes WHERE parent_id = $1 AND deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`,
     [parentId]
   );
 }
 
 export interface CreateNoteInput {
-  title?: string;
-  content?: string;
-  plaintext?: string;
-  tags?: string | null;
-  frontmatter?: string | null;
-  parent_id?: string | null;
-  sort_order?: number;
-  is_canvas?: boolean;
-  canvas_state?: string | null;
+  title?:        string
+  content?:      string
+  plaintext?:    string
+  tags?:         string | null
+  frontmatter?:  string | null
+  parent_id?:    string | null
+  sort_order?:   number
+  is_canvas?:    boolean
+  canvas_state?: string | null
+  source_type?:  NoteSourceType
+  source_file?:  string
+  source_meta?:  string
 }
 
 export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
@@ -560,7 +568,7 @@ export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
     sort_order = (rows[0]?.max_order ?? -1) + 1;
   }
 
-  const note: Note = {
+const note: Note = {
     id: uuid(),
     title: input.title ?? "Untitled",
     content: input.content ?? JSON.stringify({ type: "doc", content: [] }),
@@ -576,16 +584,22 @@ export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
     is_canvas: input.is_canvas ?? false,
     canvas_state: input.canvas_state ?? null,
     rag_excluded: 0,
-  };
+    source_type: input.source_type ?? 'note',
+    source_file: input.source_file,
+    source_meta: input.source_meta,
+  };   
 
-  await db.execute(
+
+await db.execute(
     `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id,
                         sync_id, created_at, updated_at, deleted_at, sort_order,
-                        is_canvas, canvas_state, rag_excluded)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                        is_canvas, canvas_state, rag_excluded,
+                        source_type, source_file, source_meta)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
     [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
      note.parent_id, note.sync_id, note.created_at, note.updated_at, null, note.sort_order,
-     note.is_canvas ? 1 : 0, note.canvas_state, 0]
+     note.is_canvas ? 1 : 0, note.canvas_state, 0,
+     note.source_type, note.source_file ?? null, note.source_meta ?? null]
   );
 
   // M11 — write initial breadcrumb for the new note
@@ -711,7 +725,8 @@ export async function getTrashedNotes(): Promise<Note[]> {
   return db.select<Note[]>(
     `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
             created_at, updated_at, deleted_at, sort_order,
-            COALESCE(rag_excluded, 0) AS rag_excluded
+            COALESCE(rag_excluded, 0) AS rag_excluded,
+            source_type, source_file, source_meta
      FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`
   );
 }
@@ -732,7 +747,8 @@ export async function purgeTrashedNotes(): Promise<void> {
   const expired = await db.select<Note[]>(
     `SELECT id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
             created_at, updated_at, deleted_at, sort_order,
-            COALESCE(rag_excluded, 0) AS rag_excluded
+            COALESCE(rag_excluded, 0) AS rag_excluded,
+            source_type, source_file, source_meta
      FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
     [thirtyDaysAgo]
   );
@@ -1273,21 +1289,24 @@ function sanitizeNote(raw: Record<string, unknown>): Note {
   const content = typeof raw.content === "string" && raw.content.trim()
     ? raw.content
     : JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
-  const plaintext  = typeof raw.plaintext  === "string" ? raw.plaintext  : "";
-  const tags       = typeof raw.tags       === "string" ? raw.tags       : null;
+  const plaintext   = typeof raw.plaintext   === "string" ? raw.plaintext   : "";
+  const tags        = typeof raw.tags        === "string" ? raw.tags        : null;
   const frontmatter = typeof raw.frontmatter === "string" ? raw.frontmatter : null;
-  const parent_id  = typeof raw.parent_id  === "string" ? raw.parent_id  : null;
-  const sort_order = typeof raw.sort_order === "number" ? raw.sort_order : 0;
-  const id         = typeof raw.id         === "string" && raw.id.trim() ? raw.id.trim() : crypto.randomUUID();
-  const sync_id    = typeof raw.sync_id    === "string" && raw.sync_id.trim() ? raw.sync_id.trim() : crypto.randomUUID();
-  const created_at = typeof raw.created_at === "number" ? raw.created_at : now_;
-  const updated_at = typeof raw.updated_at === "number" ? raw.updated_at : now_;
-  return { 
-    id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, 
+  const parent_id   = typeof raw.parent_id   === "string" ? raw.parent_id   : null;
+  const sort_order  = typeof raw.sort_order  === "number" ? raw.sort_order  : 0;
+  const id          = typeof raw.id          === "string" && raw.id.trim() ? raw.id.trim() : crypto.randomUUID();
+  const sync_id     = typeof raw.sync_id     === "string" && raw.sync_id.trim() ? raw.sync_id.trim() : crypto.randomUUID();
+  const created_at  = typeof raw.created_at  === "number" ? raw.created_at  : now_;
+  const updated_at  = typeof raw.updated_at  === "number" ? raw.updated_at  : now_;
+  return {
+    id, title, content, plaintext, tags, frontmatter, parent_id, sync_id,
     created_at, updated_at, deleted_at: null, sort_order,
     is_canvas: false,
     canvas_state: null,
     rag_excluded: 0,
+    source_type: typeof raw.source_type === 'string' ? raw.source_type as NoteSourceType : 'note',
+    source_file:  typeof raw.source_file === 'string' ? raw.source_file : undefined,
+    source_meta:  typeof raw.source_meta === 'string' ? raw.source_meta : undefined,
   };
 }
 

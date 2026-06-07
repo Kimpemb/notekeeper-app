@@ -67,6 +67,19 @@
     return (path as string) ?? null;
   }
 
+export async function pickPdfFile(): Promise<string | null> {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  return (path as string) ?? null;
+}
+
+export async function copyPdfToAttachments(srcPath: string, destFileName: string): Promise<void> {
+  const data = await invoke<number[]>("read_file_bytes", { path: srcPath });
+  await invoke("save_attachment", { fileName: destFileName, data });
+}
+
   // ─── Backup helpers ───────────────────────────────────────────────────────────
 
   /**

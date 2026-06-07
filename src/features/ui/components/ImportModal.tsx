@@ -6,6 +6,7 @@ import { importNotesFromFile } from "@/lib/tauri/fs";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Note } from "@/types";
+import { importPDF } from "@/features/importer/lib/importPDF";
 
 type Strategy = "skip" | "overwrite" | "copy";
 type Stage = "idle" | "preview" | "importing" | "done" | "error";
@@ -209,7 +210,8 @@ export function ImportModal() {
           sort_order: maxSortOrder + 1,
           is_canvas: false,
           canvas_state: null,
-          rag_excluded: 0,  // ← Added: 0 = included in RAG index
+          rag_excluded: 0,
+          source_type: "note",
         };
 
         const notesByTitle = new Map<string, string>(
@@ -257,6 +259,17 @@ export function ImportModal() {
       await parseFile(result.content, result.ext);
     } catch (err) { setError(String(err)); setStage("error"); }
   }
+
+  async function handleImportPDF() {
+  closeImport();
+  try {
+    const noteId = await importPDF();
+    if (noteId) useUIStore.getState().openTab(noteId);
+  } catch (err) {
+    setError(String(err));
+    setStage("error");
+  }
+}
 
   useEffect(() => {
     if (!importOpen) return;
@@ -326,8 +339,22 @@ export function ImportModal() {
                 <p className="text-xs text-idemora-text-muted  mt-0.5">or</p>
               </div>
               <button onClick={handlePickFile} className="px-4 py-2 rounded-lg text-sm font-medium bg-idemora-bg-primary  text-idemora-text-normal    transition-colors duration-150">Choose file</button>
+              <div className="w-full border-t border-idemora-border pt-3 mt-1 flex flex-col items-center gap-2">
+                <p className="text-xs text-idemora-text-muted">or import a document</p>
+                <button
+                  onClick={handleImportPDF}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-idemora-bg-primary text-idemora-text-normal border border-idemora-border hover:bg-idemora-bg-secondary transition-colors duration-150"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M8 1H3a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V5L8 1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                    <path d="M8 1v4h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Import PDF
+                </button>
+              </div>
+
               <p className="text-xs text-idemora-text-muted text-center mt-1">
-                <span className="font-medium">.md</span> imports text and wikilinks only.{" "}
+                <span className="font-medium">.md</span> imports text and wikilinks only.
                 Use <span className="font-medium">.json</span> for full fidelity — tags, embeds, and dataview blocks.
               </p>
             </div>

@@ -847,7 +847,8 @@ declare module "@tiptap/core" {
 
 export { BlockIdExtension } from "./BlockIdExtension";
 export { BlockRefNode }     from "./BlockRefNode";
-export { DataviewNode } from "./DataviewNode";
+export { DataviewNode }     from "./DataviewNode";
+export { PDFLinkNode }      from "./PDFLinkNode";
 
 // ── Markdown paste handler ────────────────────────────────────────────────────
 const URL_REGEX = /^https?:\/\/[^\s]+$/

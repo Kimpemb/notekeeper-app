@@ -34,6 +34,7 @@ import { TableToolbar } from "./TableToolbar";
 import { TagBar } from "./TagBar";
 import { SubPagesSection } from "./SubPagesSection";
 import { SubPageNode } from "./SubPageNode";
+import { PDFLinkNode } from "./PDFLinkNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
@@ -121,7 +122,7 @@ interface EditorProps {
 
 function reconcileSubPageBlocks(
   contentJson: string,
-  children: { id: string; title: string }[]
+  children: { id: string; title: string; source_type?: string }[]
 ): string | null {
   if (children.length === 0) return null;
   let doc: { type: string; content: unknown[] };
@@ -130,7 +131,7 @@ function reconcileSubPageBlocks(
   const existingIds = new Set<string>();
 for (const node of doc.content ?? []) {
   const n = node as { type: string; attrs?: { noteId?: string | null } };
-  if (n.type === "subPage" && n.attrs?.noteId) {
+  if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
     existingIds.add(n.attrs.noteId);
   }
 }
@@ -138,10 +139,11 @@ for (const node of doc.content ?? []) {
 const missing = children.filter((c) => !existingIds.has(c.id));
 if (missing.length === 0) return null;
 
-  const newBlocks = missing.map((c) => ({
-    type: "subPage",
-    attrs: { noteId: c.id, title: c.title, mode: "display" },
-  }));
+const newBlocks = missing.map((c) =>
+  c.source_type === "pdf"
+    ? { type: "pdfLink", attrs: { noteId: c.id, title: c.title } }
+    : { type: "subPage", attrs: { noteId: c.id, title: c.title, mode: "display" } }
+);
 
   const last = doc.content[doc.content.length - 1] as { type: string; content?: unknown[] } | undefined;
   const lastIsEmptyPara = last?.type === "paragraph" && (!last.content || last.content.length === 0);
@@ -285,7 +287,7 @@ useEffect(() => {
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
-      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, BlockIdExtension, BlockRefNode, DataviewNode,
+      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, PDFLinkNode, BlockIdExtension, BlockRefNode, DataviewNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
       MarkdownPasteExtension,
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
@@ -546,17 +548,17 @@ useEffect(() => {
   if (!editor || !note) return;
   if (subPageCreatingRef.current) return;
 
-  // Don't reconcile until content is fully loaded — avoids wiping real content
-  // when the note is still a stub on first mount.
-  const isStub = !note.content ||
-    note.content === "null" ||
-    note.content === "" ||
-    note.content === '{"type":"doc","content":[]}';
-  if (isStub) return;
 
   const children = notes
     .filter((n) => n.parent_id === noteId && !n.deleted_at)
     .sort((a, b) => a.sort_order - b.sort_order);
+
+  const isStub = !note.content ||
+    note.content === "null" ||
+    note.content === "" ||
+    note.content === '{"type":"doc","content":[]}';
+  // Only bail on stub if there are no children to reconcile
+  if (isStub && children.length === 0) return;
 
   if (children.length === 0) return;
 

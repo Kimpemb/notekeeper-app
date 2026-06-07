@@ -1,51 +1,63 @@
 // src/types/index.ts
 
+export type NoteSourceType = 'note' | 'pdf' | 'docx' | 'pptx'
+
+export interface NoteSourceMeta {
+  pageCount?:   number
+  importedAt:   number
+  originalName: string
+  fileSize:     number
+}
+
 export interface Note {
-  id: string;
-  title: string;
-  content: string;
-  plaintext: string;
-  tags: string | null;
-  frontmatter: string | null;
-  parent_id: string | null;
-  sync_id: string;
-  created_at: number;
-  updated_at: number;
-  deleted_at: number | null;
-  sort_order: number;
-  is_canvas: boolean;
-  canvas_state: string | null;
-  rag_excluded: number; // 0 = included, 1 = excluded from RAG index
+  id:           string
+  title:        string
+  content:      string
+  plaintext:    string
+  tags:         string | null
+  frontmatter:  string | null
+  parent_id:    string | null
+  sync_id:      string
+  created_at:   number
+  updated_at:   number
+  deleted_at:   number | null
+  sort_order:   number
+  is_canvas:    boolean
+  canvas_state: string | null
+  rag_excluded: number        // 0 = included, 1 = excluded from RAG index
+  source_type:  NoteSourceType
+  source_file?: string
+  source_meta?: string        // JSON string — parse with NoteSourceMeta
 }
 
 export interface NoteVersion {
-  id: string;
-  note_id: string;
-  content: string;
-  plaintext: string;
-  created_at: number;
+  id:         string
+  note_id:    string
+  content:    string
+  plaintext:  string
+  created_at: number
 }
 
 export interface Backlink {
-  source_id: string;
-  target_id: string;
+  source_id: string
+  target_id: string
 }
 
 export interface NoteBookmark {
-  kind: "note";
-  id: string;
-  noteId: string;
-  label: string | null;
-  groupId: string | null;
-  sort_order: number;
+  kind:       'note'
+  id:         string
+  noteId:     string
+  label:      string | null
+  groupId:    string | null
+  sort_order: number
 }
 
 export interface BookmarkGroup {
-  kind: "group";
-  id: string;
-  name: string;
-  collapsed: boolean;
-  sort_order: number;
+  kind:       'group'
+  id:         string
+  name:       string
+  collapsed:  boolean
+  sort_order: number
 }
 
-export type BookmarkItem = NoteBookmark | BookmarkGroup;
+export type BookmarkItem = NoteBookmark | BookmarkGroup

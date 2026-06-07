@@ -324,4 +324,12 @@ export const ALL_MIGRATIONS: string[] = [
     updated_at         INTEGER  NOT NULL
   )`,
 
+// ── File Import (feature/file-import) ────────────────────────────────────
+
+  `ALTER TABLE notes ADD COLUMN source_type TEXT NOT NULL DEFAULT 'note'`,
+
+  `ALTER TABLE notes ADD COLUMN source_file TEXT`,
+
+  `ALTER TABLE notes ADD COLUMN source_meta TEXT`,
+
 ];
