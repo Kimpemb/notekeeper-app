@@ -1232,7 +1232,7 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
   return (
     <div className="my-1.5 rounded-lg overflow-hidden border border-idemora-border/60">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-idemora-bg-secondary border-b border-idemora-border/40">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-idemora-bg-secondary border-b border-idemora-border/40 sticky top-0 z-10">
         <span className="text-[10px] font-medium text-idemora-text-muted uppercase tracking-wider">
           {language ?? "code"}
         </span>
@@ -1259,7 +1259,7 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
         </button>
       </div>
       {/* Code body */}
-      <pre className="overflow-x-auto p-3 text-xs leading-relaxed bg-[#22272e] m-0">
+      <pre className="overflow-x-auto p-3 text-xs leading-relaxed bg-[#22272e] dark:bg-[#22272e] bg-[#f6f8fa] dark:text-white m-0">
         <code
           dangerouslySetInnerHTML={{ __html: highlighted }}
           className="font-mono"

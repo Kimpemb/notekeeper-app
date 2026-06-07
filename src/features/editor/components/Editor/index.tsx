@@ -52,6 +52,7 @@ import {
   BlockIdExtension,
   BlockRefNode,
   DataviewNode, Color, TextStyle, MultiHighlight,
+  MarkdownPasteExtension,
 } from "./extensions";
 
 import {
@@ -286,6 +287,7 @@ useEffect(() => {
       CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, BlockIdExtension, BlockRefNode, DataviewNode,
       NoteLink.configure({ onNavigate: setActiveNote }),
+      MarkdownPasteExtension,
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({ name: "findReplacePlugin",     addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
       Extension.create({ name: "searchHighlightPlugin", addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),

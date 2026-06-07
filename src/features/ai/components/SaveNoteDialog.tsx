@@ -59,13 +59,24 @@ function extractSubPageNodes(content: string): object[] {
   }
 }
 
+// AFTER
 function reappendSubPageNodes(docJson: string, subPageNodes: object[]): string {
   if (subPageNodes.length === 0) return docJson
   try {
     const doc = JSON.parse(docJson)
+    const existingIds = new Set(
+      (doc.content ?? [])
+        .filter((n: { type: string }) => n.type === "subPage")
+        .map((n: { attrs?: { noteId?: string } }) => n.attrs?.noteId)
+        .filter(Boolean)
+    )
+    const toAppend = subPageNodes.filter(
+      (n: object) => !existingIds.has((n as { attrs?: { noteId?: string } }).attrs?.noteId)
+    )
+    if (toAppend.length === 0) return docJson
     return JSON.stringify({
       ...doc,
-      content: [...(doc.content ?? []), ...subPageNodes],
+      content: [...(doc.content ?? []), ...toAppend],
     })
   } catch {
     return docJson
