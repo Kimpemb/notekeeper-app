@@ -861,23 +861,31 @@ export const MarkdownPasteExtension = Extension.create({
         key: new PluginKey("markdownPaste"),
         props: {
           handlePaste(view, event) {
-            const text = event.clipboardData?.getData("text/plain")?.trim()
-            if (!text) return false
+            const plain = event.clipboardData?.getData("text/plain")?.trim()
+            const html  = event.clipboardData?.getData("text/html")?.trim()
+            if (!plain) return false
 
             // ── URL only → show inline prompt ─────────────────────────────
-            if (URL_REGEX.test(text)) {
+            if (URL_REGEX.test(plain)) {
               window.dispatchEvent(
                 new CustomEvent("idemora:url-paste", {
-                  detail: { url: text, view },
+                  detail: { url: plain, view },
                 })
               )
               return true
             }
 
+            // ── If HTML is present (copied from ChatPanel or browser),
+            //    check if plain text looks like markdown.
+            //    If yes, use our markdown pipeline instead of Tiptap's
+            //    HTML paste — gives consistent formatting regardless of source.
+            //    If no, let Tiptap handle the HTML natively.
+            if (html && !looksLikeMarkdown(plain)) return false
+
             // ── Markdown → parse and insert ───────────────────────────────
-            if (looksLikeMarkdown(text)) {
+            if (looksLikeMarkdown(plain)) {
               try {
-                const doc   = markdownToDoc(text) as { content: unknown[] }
+                const doc   = markdownToDoc(plain) as { content: unknown[] }
                 const nodes = doc.content
                 if (!nodes?.length) return false
 
@@ -894,7 +902,6 @@ export const MarkdownPasteExtension = Extension.create({
               }
             }
 
-            // ── Plain prose → default Tiptap paste behaviour ──────────────
             return false
           },
         },

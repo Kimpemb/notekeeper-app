@@ -54,10 +54,17 @@ export function markdownToContent(md: string): { content: string; plaintext: str
 }
 
 export function looksLikeMarkdown(text: string): boolean {
-  return /^#{1,6} /m.test(text)       // headings
-    || /\*\*.+\*\*/s.test(text)        // bold
-    || /^- /m.test(text)               // bullet list
-    || /^\d+\. /m.test(text)           // ordered list
-    || /```/.test(text)                // code fence
-    || /^> /m.test(text)               // blockquote
+  return /^#{1,6} /m.test(text)          // headings
+    || /\*\*.+\*\*/s.test(text)           // bold
+    || /\*.+\*/s.test(text)               // italic
+    || /^- /m.test(text)                  // bullet list
+    || /^\* /m.test(text)                 // bullet list (asterisk)
+    || /^\d+\. /m.test(text)              // ordered list
+    || /```/.test(text)                   // code fence
+    || /^> /m.test(text)                  // blockquote
+    || /^---$/m.test(text)                // horizontal rule
+    || /\[.+\]\(.+\)/.test(text)          // link
+    || /`[^`]+`/.test(text)               // inline code
+    || /~~.+~~/.test(text)                // strikethrough
+    || /^\|.+\|/m.test(text)              // table
 }
