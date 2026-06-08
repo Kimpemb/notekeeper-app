@@ -423,6 +423,7 @@ export function NoteTreeItem({
         <span className={`shrink-0 ${
           note.source_type === "pdf"  ? "opacity-80 text-red-400"  :
           note.source_type === "docx" ? "opacity-80 text-blue-400" :
+          note.source_type === "pptx" ? "opacity-80 text-orange-400" :
           "opacity-40"
         }`}>
           {note.is_canvas ? (
@@ -442,6 +443,13 @@ export function NoteTreeItem({
                 <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
                 <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
                 <path d="M4 6.5h4M4 8.5h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              </svg>
+            ) : note.source_type === "pptx" ? (
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                <circle cx="5" cy="7" r="1.5" stroke="currentColor" strokeWidth="1"/>
+                <path d="M5 5.5V4M6.5 7H8" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
               </svg>
             ) : hasChildren ? (
             <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
@@ -501,6 +509,9 @@ export function NoteTreeItem({
             )}
             {note.source_type === "docx" && (
               <span className="shrink-0 text-[9px] font-semibold tracking-wide text-blue-400 opacity-70">DOC</span>
+            )}
+            {note.source_type === "pptx" && (
+              <span className="shrink-0 text-[9px] font-semibold tracking-wide text-orange-400 opacity-70">PPT</span>
             )}
           </>
         )}

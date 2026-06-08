@@ -142,3 +142,10 @@ export async function copyPdfToAttachments(srcPath: string, destFileName: string
     await invoke("write_file", { path: fullPath, contents });
     return fullPath;
   }
+export async function pickPptxFile(): Promise<string | null> {
+  const path = await open({
+    multiple: false,
+    filters: [{ name: "PowerPoint", extensions: ["pptx"] }],
+  });
+  return (path as string) ?? null;
+}

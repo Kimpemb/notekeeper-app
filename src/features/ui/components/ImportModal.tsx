@@ -8,6 +8,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Note } from "@/types";
 import { importPDF }  from "@/features/importer/lib/importPDF";
 import { importDocx } from "@/features/importer/lib/importDocx";
+import { importPptx } from "@/features/importer/lib/importPptx";
 type Strategy = "skip" | "overwrite" | "copy";
 type Stage = "idle" | "preview" | "importing" | "done" | "error";
 
@@ -271,6 +272,17 @@ export function ImportModal() {
   }
 }
 
+async function handleImportPptx() {
+  closeImport();
+  try {
+    const noteId = await importPptx();
+    if (noteId) useUIStore.getState().openTab(noteId);
+  } catch (err) {
+    setError(String(err));
+    setStage("error");
+  }
+}
+
 async function handleImportDocx() {
   closeImport();
   try {
@@ -371,6 +383,16 @@ async function handleImportDocx() {
                     <path d="M8 1v4h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                   Import Word
+                </button>
+                <button
+                  onClick={handleImportPptx}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-idemora-bg-primary text-idemora-text-normal border border-idemora-border hover:bg-idemora-bg-secondary transition-colors duration-150"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M8 1H3a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V5L8 1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                    <path d="M8 1v4h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Import PowerPoint
                 </button>
               </div>
 
