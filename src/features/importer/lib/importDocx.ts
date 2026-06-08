@@ -1,44 +1,75 @@
-// src/features/importer/lib/importDocx.ts
-
 import { pickDocxFile } from "@/lib/tauri/fs"
 import { useNoteStore } from "@/features/notes/store/useNoteStore"
+import { getDb } from "@/features/notes/db/client"
 import { convertDocx } from "./convertDocx"
 import { invoke } from "@tauri-apps/api/core"
 import type { NoteSourceMeta } from "@/types"
+import { markdownToDoc } from "@/features/ai/lib/save/parseMarkdown"
+import { checkFileSize, ImportError } from "./importErrors"
 
-// Reuse the markdown→ProseMirror pipeline already in the codebase
+async function checkDuplicate(originalName: string): Promise<string | null> {
+  const db = await getDb()
+  const rows = await db.select<{ id: string }[]>(
+    `SELECT id FROM notes
+     WHERE source_file = $1
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [originalName]
+  )
+  return rows[0]?.id ?? null
+}
 
-export async function importDocx(): Promise<string | null> {
-  // 1. Pick file
+export async function importDocx(
+  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">
+): Promise<string | null> {
   const srcPath = await pickDocxFile()
   if (!srcPath) return null
 
-  // 2. Read bytes via Tauri
   const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
-  const arrayBuffer = new Uint8Array(bytes).buffer
 
-  // 3. Original filename for display and fallback title
+  checkFileSize(bytes.length)
+
   const originalName = srcPath.replace(/\\/g, "/").split("/").pop() ?? "document.docx"
   const filenameWithoutExt = originalName.replace(/\.docx$/i, "")
 
-  // 4. Convert DOCX → markdown with filename as fallback
-  const { doc, markdown, title, pageCount } = await convertDocx(arrayBuffer, filenameWithoutExt)
+  const existingId = await checkDuplicate(originalName)
+  if (existingId && onDuplicateFound) {
+    const existing = useNoteStore.getState().notes.find(n => n.id === existingId)
+    const action = await onDuplicateFound(existingId, existing?.title ?? originalName)
+    if (action === "cancel") return null
+    if (action === "replace") await useNoteStore.getState().deleteNote(existingId)
+  }
 
-  const content = JSON.stringify(doc)
+  const arrayBuffer = new Uint8Array(bytes).buffer
 
-  const plaintext = markdown
-    .replace(/^#+\s+/gm, "")
-    .replace(/[*_`~]/g, "")
-    .trim()
+  let markdown: string
+  let title: string
+  let pageCount: number
+
+  try {
+    const result = await convertDocx(arrayBuffer, filenameWithoutExt)
+    markdown = result.markdown
+    title = result.title
+    pageCount = result.pageCount
+  } catch {
+    throw new ImportError("CORRUPT_FILE", "This file could not be read. It may be damaged.")
+  }
+
+  if (!markdown.trim() || markdown.replace(/\s/g, "").length < 100) {
+    throw new ImportError("EMPTY_CONVERSION", "This file appears to have no readable text content.")
+  }
+
+  const doc = markdownToDoc(markdown) as { content: unknown[] }
+  const content = JSON.stringify({ type: "doc", content: doc.content ?? [] })
+  const plaintext = markdown.replace(/^#+\s+/gm, "").replace(/[*_`~]/g, "").trim()
 
   const meta: NoteSourceMeta = {
     pageCount,
     originalName,
     importedAt: Date.now(),
-    fileSize:   bytes.length,
+    fileSize: bytes.length,
   }
 
-  // 5. Create note row — DOCX becomes a normal editable note
   const note = await useNoteStore.getState().createNote({
     title,
     content,

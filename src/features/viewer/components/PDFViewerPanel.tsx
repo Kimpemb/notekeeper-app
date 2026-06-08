@@ -78,7 +78,7 @@ export function PDFViewerPanel({ noteId, paneId }: PDFViewerPanelProps) {
   const showButtons = isActiveTab && activePaneId === paneId;
   const chatActive  = paneId === 1 ? chatOpen1 : chatOpen2;
 
-  const [loadState, setLoadState]   = useState<LoadState>("idle");
+  const [loadState, setLoadState]   = useState<LoadState>("loading");
   const [errorMsg, setErrorMsg]     = useState<string | null>(null);
   const [pdfDoc, setPdfDoc]         = useState<PDFDocumentProxy | null>(null);
   const [pageCount, setPageCount]   = useState(0);
@@ -113,15 +113,22 @@ export function PDFViewerPanel({ noteId, paneId }: PDFViewerPanelProps) {
         await initialisePdfjsWorker();
         const pdfjs = await import("pdfjs-dist");
 
-        const { invoke } = await import("@tauri-apps/api/core");
-        const appDataDir = await getAppDataDir();
-        const sep = appDataDir.includes("\\") ? "\\" : "/";
-        const fullPath = `${appDataDir}${sep}attachments${sep}${note!.source_file}`;
+const appDataDir = await getAppDataDir();
 
-        const bytes = await invoke<number[]>("read_file_bytes", { path: fullPath });
-        const data = new Uint8Array(bytes).buffer;
-
-        const loadingTask = pdfjs.getDocument({ data });
+let loadingTask;
+if (import.meta.env.DEV) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const sep = appDataDir.includes("\\") ? "\\" : "/";
+  const fullPath = `${appDataDir}${sep}attachments${sep}${note!.source_file}`;
+  await new Promise(r => setTimeout(r, 0));
+  const bytes = await invoke<number[]>("read_file_bytes", { path: fullPath });
+  const data = new Uint8Array(bytes).buffer;
+  loadingTask = pdfjs.getDocument({ data });
+} else {
+  const normalised = appDataDir.replace(/\\/g, "/").replace(/\/$/, "");
+  const assetUrl = `asset://localhost/${normalised}/attachments/${note!.source_file}`;
+  loadingTask = pdfjs.getDocument({ url: assetUrl });
+}
         const doc = await loadingTask.promise;
         if (cancelled) { doc.cleanup(); return; }
 

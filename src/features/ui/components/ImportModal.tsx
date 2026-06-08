@@ -6,9 +6,11 @@ import { importNotesFromFile } from "@/lib/tauri/fs";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Note } from "@/types";
-import { importPDF }  from "@/features/importer/lib/importPDF";
+import { importPDF } from "@/features/importer/lib/importPDF";
 import { importDocx } from "@/features/importer/lib/importDocx";
 import { importPptx } from "@/features/importer/lib/importPptx";
+import { userFriendlyMessage } from "@/features/importer/lib/importErrors";
+
 type Strategy = "skip" | "overwrite" | "copy";
 type Stage = "idle" | "preview" | "importing" | "done" | "error";
 
@@ -156,11 +158,21 @@ export function ImportModal() {
   const [imported, setImported] = useState<number>(0);
   const [error,    setError]    = useState<string>("");
   const [dragging, setDragging] = useState(false);
+  
+  // Add duplicate state
+  const [duplicatePromise, setDuplicatePromise] = useState<{
+    resolve: (action: "replace" | "copy" | "cancel") => void
+    title: string
+  } | null>(null)
+  
+  const [scannedPdfNoteId, setScannedPdfNoteId] = useState<string | null>(null)
 
   useEffect(() => {
     if (importOpen) {
       setStage("idle"); setStrategy("skip"); setPreview(null);
       setRawJson(""); setImported(0); setError("");
+      setScannedPdfNoteId(null);
+      setDuplicatePromise(null);
     }
   }, [importOpen]);
 
@@ -179,6 +191,12 @@ export function ImportModal() {
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [importOpen, closeImport]);
+
+  // Shared duplicate resolver — passed into all importers
+  function makeDuplicateHandler() {
+    return (_existingId: string, title: string): Promise<"replace" | "copy" | "cancel"> =>
+      new Promise((resolve) => setDuplicatePromise({ resolve, title }))
+  }
 
   const parseFile = useCallback(async (content: string, ext: string) => {
     try {
@@ -262,37 +280,65 @@ export function ImportModal() {
   }
 
   async function handleImportPDF() {
-  closeImport();
-  try {
-    const noteId = await importPDF();
-    if (noteId) useUIStore.getState().openTab(noteId);
-  } catch (err) {
-    setError(String(err));
-    setStage("error");
+    setStage("importing")
+    try {
+      const noteId = await importPDF(makeDuplicateHandler())
+      if (!noteId) {
+        setStage("idle")  // user cancelled duplicate dialog
+        return
+      }
+      closeImport()
+      useUIStore.getState().openTab(noteId)
+    } catch (err) {
+      // Scanned PDF — note was created, just warn
+      if (err instanceof Error && err.message.startsWith("__SCANNED__:")) {
+        const noteId = err.message.split(":")[1]
+        setScannedPdfNoteId(noteId)
+        setStage("idle") // stay open to show warning
+        return
+      }
+      setError(userFriendlyMessage(err))
+      setStage("error")
+    } finally {
+      setDuplicatePromise(null)
+    }
   }
-}
 
-async function handleImportPptx() {
-  closeImport();
-  try {
-    const noteId = await importPptx();
-    if (noteId) useUIStore.getState().openTab(noteId);
-  } catch (err) {
-    setError(String(err));
-    setStage("error");
+  async function handleImportDocx() {
+    setStage("importing")
+    try {
+      const noteId = await importDocx(makeDuplicateHandler())
+      if (!noteId) {
+        setStage("idle")  // user cancelled duplicate dialog
+        return
+      }
+      closeImport()
+      useUIStore.getState().openTab(noteId)
+    } catch (err) {
+      setError(userFriendlyMessage(err))
+      setStage("error")
+    } finally {
+      setDuplicatePromise(null)
+    }
   }
-}
 
-async function handleImportDocx() {
-  closeImport();
-  try {
-    const noteId = await importDocx();
-    if (noteId) useUIStore.getState().openTab(noteId);
-  } catch (err) {
-    setError(String(err));
-    setStage("error");
+  async function handleImportPptx() {
+    setStage("importing")
+    try {
+      const noteId = await importPptx(makeDuplicateHandler())
+      if (!noteId) {
+        setStage("idle")  // user cancelled duplicate dialog
+        return
+      }
+      closeImport()
+      useUIStore.getState().openTab(noteId)
+    } catch (err) {
+      setError(userFriendlyMessage(err))
+      setStage("error")
+    } finally {
+      setDuplicatePromise(null)
+    }
   }
-}
 
   useEffect(() => {
     if (!importOpen) return;
@@ -501,6 +547,54 @@ async function handleImportDocx() {
             {stage === "done" && (
               <button onClick={closeImport} className="px-4 py-2 rounded-lg text-sm font-medium bg-idemora-bg-primary  text-idemora-text-normal    transition-colors duration-150">Done</button>
             )}
+          </div>
+        )}
+
+        {/* Duplicate detection dialog */}
+        {duplicatePromise && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 rounded-xl">
+            <div className="bg-idemora-bg-primary border border-idemora-border rounded-xl p-5 mx-4 w-full max-w-sm shadow-xl">
+              <p className="text-sm font-medium text-idemora-text-normal mb-1">File already imported</p>
+              <p className="text-xs text-idemora-text-muted mb-4">
+                A note from <span className="font-medium">{duplicatePromise.title}</span> already exists.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button onClick={() => { duplicatePromise.resolve("replace"); setDuplicatePromise(null) }}
+                  className="px-3 py-2 rounded-lg text-sm text-idemora-text-normal border border-idemora-border hover:bg-idemora-bg-secondary transition-colors">
+                  Replace existing
+                </button>
+                <button onClick={() => { duplicatePromise.resolve("copy"); setDuplicatePromise(null) }}
+                  className="px-3 py-2 rounded-lg text-sm text-idemora-text-normal border border-idemora-border hover:bg-idemora-bg-secondary transition-colors">
+                  Import as new copy
+                </button>
+                <button onClick={() => { duplicatePromise.resolve("cancel"); setDuplicatePromise(null) }}
+                  className="px-3 py-2 rounded-lg text-sm text-idemora-text-muted transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Scanned PDF warning */}
+        {scannedPdfNoteId && (
+          <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-50/10 px-4 py-3 text-xs text-amber-600">
+            <p className="font-medium mb-1">Image-only PDF detected</p>
+            <p>This PDF appears to be scanned. It will open for reading but won't be searchable by AI.</p>
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => {
+                const id = scannedPdfNoteId
+                setScannedPdfNoteId(null)
+                closeImport()
+                useUIStore.getState().openTab(id)
+              }} className="px-3 py-1.5 rounded-md text-xs font-medium bg-amber-100/20 border border-amber-400/30 text-amber-600 hover:bg-amber-100/40 transition-colors">
+                Open anyway
+              </button>
+              <button onClick={() => setScannedPdfNoteId(null)}
+                className="px-3 py-1.5 rounded-md text-xs text-idemora-text-muted transition-colors">
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
       </div>

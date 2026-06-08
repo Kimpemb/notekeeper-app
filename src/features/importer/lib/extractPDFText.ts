@@ -83,3 +83,59 @@ async function hashText(text: string): Promise<string> {
     .join("")
     .slice(0, 32)
 }
+
+export async function backfillPdfBlocks(): Promise<void> {
+  const { getSetting, setSetting } = await import("@/features/notes/db/queries")
+  const alreadyDone = await getSetting("pdf_blocks_backfill_done")
+  if (alreadyDone === "1") return
+
+  const { getDb } = await import("@/features/notes/db/client")
+  const db = await getDb()
+
+  const pdfs = await db.select<{ id: string; source_file: string }[]>(
+    `SELECT n.id, n.source_file
+     FROM notes n
+     WHERE n.source_type = 'pdf'
+       AND n.deleted_at IS NULL
+       AND n.source_file IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM note_blocks nb WHERE nb.note_id = n.id
+       )`
+  )
+
+  if (pdfs.length === 0) {
+    await setSetting("pdf_blocks_backfill_done", "1")
+    return
+  }
+
+  console.log(`[backfillPdfBlocks] ${pdfs.length} unindexed PDFs found`)
+
+const { invoke } = await import("@tauri-apps/api/core")
+const { getAppDataDir } = await import("@/lib/tauri/fs")
+const appDataDir = await getAppDataDir()
+const sep = appDataDir.includes("\\") ? "\\" : "/"
+const attachmentsDir = `${appDataDir}${sep}attachments`
+
+for (const { id, source_file } of pdfs) {
+  try {
+    const fullPath = `${attachmentsDir}${sep}${source_file}`
+    const data = await invoke<number[]>("read_file_bytes", { path: fullPath })
+    const bytes = new Uint8Array(data)
+    await extractAndIndexPDF(id, bytes.buffer)
+
+      const newBlocks = await db.select<{ block_id: string }[]>(
+        `SELECT block_id FROM note_blocks WHERE note_id = $1`,
+        [id]
+      )
+      const { enqueueEmbeddingJobs } = await import("@/features/notes/db/queries")
+      await enqueueEmbeddingJobs(newBlocks.map(b => ({ blockId: b.block_id, noteId: id })))
+
+      console.log(`[backfillPdfBlocks] indexed: ${source_file}`)
+    } catch (err) {
+      console.warn(`[backfillPdfBlocks] skipped ${source_file}:`, err)
+    }
+  }
+
+  await setSetting("pdf_blocks_backfill_done", "1")
+  console.log("[backfillPdfBlocks] complete")
+}

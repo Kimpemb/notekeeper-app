@@ -4,6 +4,7 @@ import { ALL_MIGRATIONS } from "@/features/notes/db/schema";
 import { deleteImage } from "@/lib/tauri/fs";
 import type { Note, NoteVersion, Backlink, BookmarkItem, NoteBookmark, BookmarkGroup, NoteSourceType } from "@/types";
 import { blobToVector, vectorToBlob } from "@/features/ai/lib/provider"
+import { backfillPdfBlocks } from "@/features/importer/lib/extractPDFText"
 import {
   getSimilarityResults,
   type FeedbackEntry,
@@ -459,7 +460,8 @@ export async function initDb(): Promise<void> {
     await migrateNoteBlocksV3();
     await fixBlocksFtsUpdateTrigger();
     await backfillNoteBlocks()
-    await backfillUnblockedNotes()  
+    await backfillUnblockedNotes()
+    await backfillPdfBlocks()
     await backfillBacklinks()
     await backfillBreadcrumbs();
     await backfillExcludedTitleChunks();

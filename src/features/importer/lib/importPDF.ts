@@ -1,55 +1,119 @@
-// src/features/importer/lib/importPDF.ts
+import { pickPdfFile, copyPdfToAttachments } from "@/lib/tauri/fs"
+import { useNoteStore } from "@/features/notes/store/useNoteStore"
+import { getDb } from "@/features/notes/db/client"
+import type { NoteSourceMeta } from "@/types"
+import {
+  ImportError,
+  checkFileSize,
+} from "./importErrors"
 
-import { pickPdfFile, copyPdfToAttachments } from "@/lib/tauri/fs";
-import { useNoteStore } from "@/features/notes/store/useNoteStore";
-import type { NoteSourceMeta } from "@/types";
+const SCANNED_PDF_CHARS_PER_PAGE = 50
 
 function inferTitle(filePath: string): string {
-  const name = filePath.replace(/\\/g, "/").split("/").pop() ?? "Document";
-  return name.replace(/\.pdf$/i, "");
+  const name = filePath.replace(/\\/g, "/").split("/").pop() ?? "Document"
+  return name.replace(/\.pdf$/i, "")
 }
 
-export async function importPDF(): Promise<string | null> {
-  // 1. Pick file
-  const srcPath = await pickPdfFile();
-  if (!srcPath) return null;
+async function checkDuplicate(originalName: string): Promise<string | null> {
+  const db = await getDb()
+  const rows = await db.select<{ id: string; title: string }[]>(
+    `SELECT id, title FROM notes
+     WHERE source_file IS NOT NULL
+       AND source_meta LIKE $1
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [`%"originalName":"${originalName}"%`]
+  )
+  return rows[0]?.id ?? null
+}
 
-  // 2. Get page count via pdfjs (lazy-loaded, non-fatal if it fails)
-  let pageCount = 0;
+export async function importPDF(
+  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">
+): Promise<string | null> {
+  const srcPath = await pickPdfFile()
+  if (!srcPath) return null
+
+  const { invoke } = await import("@tauri-apps/api/core")
+  const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
+
+  // 1. Oversized check
+  checkFileSize(bytes.length)
+
+  const originalName = (srcPath.replace(/\\/g, "/").split("/").pop() ?? "document.pdf")
+
+  // 2. Duplicate check
+  const existingId = await checkDuplicate(originalName)
+  if (existingId && onDuplicateFound) {
+    const existing = useNoteStore.getState().notes.find(n => n.id === existingId)
+    const action = await onDuplicateFound(existingId, existing?.title ?? originalName)
+    if (action === "cancel") return null
+    if (action === "replace") {
+      // trash the old one before importing fresh
+      await useNoteStore.getState().deleteNote(existingId)
+    }
+    // "copy" falls through — creates a new note alongside
+  }
+
+  const arrayBuffer = new Uint8Array(bytes).buffer
+
+  // 3. Load PDF — catches ENCRYPTED_PDF and CORRUPT_FILE
+  let pageCount = 0
+  let isScanned = false
+
   try {
-    const pdfjs = await import("pdfjs-dist");
+    const pdfjs = await import("pdfjs-dist")
     if (!pdfjs.GlobalWorkerOptions.workerSrc) {
       pdfjs.GlobalWorkerOptions.workerSrc = new URL(
         "pdfjs-dist/build/pdf.worker.mjs",
         import.meta.url
-      ).href;
+      ).href
     }
-    // Read bytes we already have from Tauri rather than fetching via URL
-    const { invoke } = await import("@tauri-apps/api/core");
-    const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath });
-    const data = new Uint8Array(bytes).buffer;
-    const doc = await pdfjs.getDocument({ data }).promise;
-    pageCount = doc.numPages;
-    doc.cleanup();
-  } catch {
-    // non-fatal — viewer will still open, pageCount stays 0
+
+    let doc: Awaited<ReturnType<typeof pdfjs.getDocument>>["promise"] extends Promise<infer T> ? T : never
+    try {
+      doc = await pdfjs.getDocument({ data: arrayBuffer }).promise
+    } catch (e) {
+      const msg = String(e)
+      if (msg.toLowerCase().includes("password")) {
+        throw new ImportError("ENCRYPTED_PDF", "This PDF is password-protected and cannot be imported.")
+      }
+      throw new ImportError("CORRUPT_FILE", "This file could not be read. It may be damaged.")
+    }
+
+    pageCount = doc.numPages
+
+    // 4. Scanned PDF detection — sample up to 5 pages
+    const samplePages = Math.min(5, pageCount)
+    let totalChars = 0
+    for (let i = 1; i <= samplePages; i++) {
+      const page = await doc.getPage(i)
+      const textContent = await page.getTextContent()
+      totalChars += textContent.items
+        .map((item: any) => ("str" in item ? item.str : ""))
+        .join("").length
+    }
+    const avgCharsPerPage = samplePages > 0 ? totalChars / samplePages : 0
+    isScanned = avgCharsPerPage < SCANNED_PDF_CHARS_PER_PAGE
+
+    doc.cleanup()
+  } catch (e) {
+    if (e instanceof ImportError) throw e
+    throw new ImportError("CORRUPT_FILE", "This file could not be read. It may be damaged.")
   }
 
-  // 3. Copy to $APPDATA/attachments/{uuid}.pdf
-  const uuid = crypto.randomUUID();
-  const destFileName = `${uuid}.pdf`;
-  await copyPdfToAttachments(srcPath, destFileName);
+  // 5. Copy to $APPDATA/attachments/
+  const uuid = crypto.randomUUID()
+  const destFileName = `${uuid}.pdf`
+  await copyPdfToAttachments(srcPath, destFileName)
 
-  // 4. Build source_meta
-  const originalName = inferTitle(srcPath) + ".pdf";
   const meta: NoteSourceMeta = {
     pageCount,
     originalName,
     importedAt: Date.now(),
-    fileSize: 0,
-  };
+    fileSize: bytes.length,  // fixed: was hardcoded 0
+  }
 
-  // 5. Create note row
+  // 6. Create note row
   const note = await useNoteStore.getState().createNote({
     title: inferTitle(srcPath),
     content: JSON.stringify({ type: "doc", content: [] }),
@@ -57,38 +121,41 @@ export async function importPDF(): Promise<string | null> {
     source_type: "pdf",
     source_file: destFileName,
     source_meta: JSON.stringify(meta),
-  });
+  })
 
-// 5b. Extract text for RAG — non-blocking, runs after note creation
+  // 7. RAG extraction — non-blocking
   try {
-    const { invoke } = await import("@tauri-apps/api/core")
-    const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
-    const ab    = new Uint8Array(bytes).buffer
     const { extractAndIndexPDF } = await import("./extractPDFText")
-    extractAndIndexPDF(note.id, ab) // intentionally not awaited
-  } catch {
-    // non-fatal
-  }
+    extractAndIndexPDF(note.id, arrayBuffer) // intentionally not awaited
+  } catch { /* non-fatal */ }
 
-  // Insert a pdfLink block into the currently active note (if any and different from the PDF note)
-  const { activeNoteId, notes: storeNotes, updateNote } = useNoteStore.getState();
+  // 8. Insert pdfLink block into active note if different
+  const { activeNoteId, notes: storeNotes, updateNote } = useNoteStore.getState()
   if (activeNoteId && activeNoteId !== note.id) {
-    const activeNote = storeNotes.find((n) => n.id === activeNoteId);
-    if (activeNote && activeNote.source_type === "note") {
-      let doc: { type: string; content: unknown[] };
+    const activeNote = storeNotes.find(n => n.id === activeNoteId)
+    if (activeNote?.source_type === "note") {
+      let doc: { type: string; content: unknown[] }
       try {
-        doc = activeNote.content ? JSON.parse(activeNote.content) : { type: "doc", content: [] };
+        doc = activeNote.content ? JSON.parse(activeNote.content) : { type: "doc", content: [] }
       } catch {
-        doc = { type: "doc", content: [] };
+        doc = { type: "doc", content: [] }
       }
-      if (!Array.isArray(doc.content)) doc.content = [];
-      doc.content.push({ type: "pdfLink", attrs: { noteId: note.id, title: note.title } });
-      await updateNote(activeNoteId, { content: JSON.stringify(doc) });
+      if (!Array.isArray(doc.content)) doc.content = []
+      doc.content.push({ type: "pdfLink", attrs: { noteId: note.id, title: note.title } })
+      await updateNote(activeNoteId, { content: JSON.stringify(doc) })
       window.dispatchEvent(new CustomEvent("idemora:content-updated", {
         detail: { noteId: activeNoteId, content: JSON.stringify(doc) },
-      }));
+      }))
     }
   }
 
-  return note.id;
+  // Return noteId with scanned flag attached so modal can show warning
+  if (isScanned) {
+    throw new ImportError(
+      "SCANNED_PDF",
+      `__SCANNED__:${note.id}` // special sentinel — modal unwraps this
+    )
+  }
+
+  return note.id
 }
