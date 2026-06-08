@@ -36,37 +36,24 @@ export const Breadcrumb = memo(({ noteId, paneId = 1 }: Props) => {
   const replaceTab = useUIStore((s) => s.replaceTab);
   const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
   const expandNode = useUIStore((s) => s.expandNode);
-  const activeSidebarPanel = useUIStore((s) => s.activeSidebarPanel);
-  const setActiveSidebarPanel = useUIStore((s) => s.setActiveSidebarPanel);
+
 
   const ancestors = getAncestors(noteId, notes);
 
-  const handleClick = useCallback(
-    (id: string) => {
-      setActive(id);
+ const handleClick = useCallback(
+  (id: string) => {
+    setActive(id);
 
-      if (paneId === 2) {
-        replacePane2Tab(id);
-      } else {
-        replaceTab(id);
-      }
+    if (paneId === 2) {
+      replacePane2Tab(id);
+    } else {
+      replaceTab(id);
+    }
 
-      expandNode(id);
-
-      if (!activeSidebarPanel) {
-        setActiveSidebarPanel("notes");
-      }
-    },
-    [
-      paneId,
-      setActive,
-      replaceTab,
-      replacePane2Tab,
-      expandNode,
-      activeSidebarPanel,
-      setActiveSidebarPanel,
-    ]
-  );
+    expandNode(id);
+  },
+  [paneId, setActive, replaceTab, replacePane2Tab, expandNode]
+);
 
   if (ancestors.length === 0) return null;
 
