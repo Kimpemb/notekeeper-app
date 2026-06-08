@@ -156,6 +156,8 @@ export default function App() {
   const chatOpen2           = useUIStore((s) => s.chatOpen2);
   const activeEditor = useUIStore((s) => s.activeEditor);
   const openEmptyTab = useUIStore((s) => s.openEmptyTab);
+  const reopenClosedTab = useUIStore((s) => s.reopenClosedTab);
+
 
   
   // Right panel state from store (single source of truth)
@@ -403,6 +405,7 @@ useEffect(() => {
 }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
     if (ctrl && e.key === "w")  { e.preventDefault(); closeActiveTab(); }
+if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") { e.preventDefault(); useUIStore.getState().reopenClosedTab(); return; }
     if (ctrl && e.key === "[") {
       e.preventDefault();
       const { pane2GoBack } = useUIStore.getState();
@@ -433,8 +436,8 @@ useEffect(() => {
     }
     if (ctrl && e.key === ",") { e.preventDefault(); openSettings(); }
   }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, openBacklinks, closeBacklinks, openOutline, closeOutline,
-    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, backlinkActive, outlineActive, setRightPanelOpen]);
-
+    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, backlinkActive, outlineActive, setRightPanelOpen, reopenClosedTab]);
+    
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);

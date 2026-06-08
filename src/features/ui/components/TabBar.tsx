@@ -20,8 +20,12 @@ export function TabBar() {
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
   const setActivePaneId = useUIStore((s) => s.setActivePaneId);
 
-  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+const [emptySpaceMenu, setEmptySpaceMenu] = useState<{ x: number; y: number; flip: boolean } | null>(null);
+const menuRef = useRef<HTMLDivElement>(null);
+const emptyMenuRef = useRef<HTMLDivElement>(null);
+const closedTabs = useUIStore((s) => s.closedTabs);
+const reopenClosedTab = useUIStore((s) => s.reopenClosedTab);
   const scrollRef = useRef<HTMLDivElement>(null);
 
 useEffect(() => {
@@ -33,22 +37,36 @@ useEffect(() => {
   }
 }, [tabs.length, activeTabId]);
 
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handle = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setContextMenu(null);
-    };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [contextMenu]);
+useEffect(() => {
+  if (!contextMenu) return;
+  const handle = (e: MouseEvent) => {
+    if (menuRef.current && !menuRef.current.contains(e.target as Node)) setContextMenu(null);
+  };
+  document.addEventListener("mousedown", handle);
+  return () => document.removeEventListener("mousedown", handle);
+}, [contextMenu]);
+
+useEffect(() => {
+  if (!emptySpaceMenu) return;
+  const handle = (e: MouseEvent) => {
+    if (emptyMenuRef.current && !emptyMenuRef.current.contains(e.target as Node)) setEmptySpaceMenu(null);
+  };
+  document.addEventListener("mousedown", handle);
+  return () => document.removeEventListener("mousedown", handle);
+}, [emptySpaceMenu]);
 
   return (
     <div className="relative flex items-center flex-1 min-w-0 h-full ml-8">
       <div
-        ref={scrollRef}
-        className="flex items-center h-full overflow-x-auto min-w-0 flex-1 gap-1 px-2"
-        style={{ scrollbarWidth: "none" }}
-      >
+  ref={scrollRef}
+  className="flex items-center h-full overflow-x-auto min-w-0 flex-1 gap-1 px-2"
+  style={{ scrollbarWidth: "none" }}
+  onContextMenu={(e) => {
+    if ((e.target as HTMLElement).closest("[data-tab]")) return;
+    e.preventDefault();
+    setEmptySpaceMenu({ x: e.clientX, y: e.clientY, flip: window.innerHeight - e.clientY < 260 });
+  }}
+>
         {tabs.map((tab) => {
           const note = tab.noteId ? notes.find((n) => n.id === tab.noteId) : null;
           let title = "";
@@ -61,8 +79,9 @@ useEffect(() => {
 
           return (
             <div
-              key={tab.id}
-              onClick={() => {
+  key={tab.id}
+  data-tab="true"
+  onClick={() => {
                 setActive(tab.id);
                 if (tab.noteId) setActiveNote(tab.noteId, true);
               }}
@@ -163,19 +182,84 @@ useEffect(() => {
           className="min-w-44 py-1 rounded-lg shadow-xl bg-idemora-bg-secondary border border-idemora-border"
         >
           <button
-            onClick={() => { activePaneId === 1 ? useUIStore.getState().openTab(contextMenu.noteId) : openTabInPane2(contextMenu.noteId); setContextMenu(null); }}
-            className="w-full text-left px-3 py-2 text-xs hover:bg-black/4 dark:hover:bg-white/4"
-          >
-            Open in new tab
-          </button>
-          <button
-            onClick={() => { activePaneId === 1 ? openInSplit(contextMenu.noteId) : (useUIStore.getState().openTab(contextMenu.noteId), setActivePaneId(1)); setContextMenu(null); }}
-            className="w-full text-left px-3 py-2 text-xs hover:bg-black/4 dark:hover:bg-white/4"
-          >
-            {activePaneId === 1 ? "Open in split pane" : "Open in main pane"}
-          </button>
+  onClick={() => { activePaneId === 1 ? useUIStore.getState().openTab(contextMenu.noteId) : openTabInPane2(contextMenu.noteId); setContextMenu(null); }}
+  className="w-full text-left px-3 py-2 text-xs hover:bg-black/4 dark:hover:bg-white/4"
+>
+  Open in new tab
+</button>
+<button
+  onClick={() => { activePaneId === 1 ? openInSplit(contextMenu.noteId) : (useUIStore.getState().openTab(contextMenu.noteId), setActivePaneId(1)); setContextMenu(null); }}
+  className="w-full text-left px-3 py-2 text-xs hover:bg-black/4 dark:hover:bg-white/4"
+>
+  {activePaneId === 1 ? "Open in split pane" : "Open in main pane"}
+</button>
+<div className="my-1 border-t border-idemora-border" />
+<button
+  onClick={() => { reopenClosedTab(); setContextMenu(null); }}
+  disabled={closedTabs.length === 0}
+  className="w-full text-left px-3 py-2 text-xs hover:bg-black/4 dark:hover:bg-white/4 disabled:opacity-30 disabled:cursor-default"
+>
+  Reopen closed tab
+</button>
         </div>
       )}
+
+      {emptySpaceMenu && (
+  <div
+    ref={emptyMenuRef}
+    style={{
+      position: "fixed",
+      left: emptySpaceMenu.x,
+      ...(emptySpaceMenu.flip ? { bottom: window.innerHeight - emptySpaceMenu.y } : { top: emptySpaceMenu.y }),
+      zIndex: 100,
+    }}
+    className="min-w-52 py-1 rounded-lg shadow-xl bg-idemora-bg-secondary border border-idemora-border"
+  >
+    <button
+      disabled
+      className="w-full text-left px-3 py-2 text-xs opacity-30 cursor-default"
+    >
+      Open in new tab
+    </button>
+    <button
+      disabled
+      className="w-full text-left px-3 py-2 text-xs opacity-30 cursor-default"
+    >
+      Open in split pane
+    </button>
+    <div className="my-1 border-t border-idemora-border" />
+    {closedTabs.length === 0 ? (
+      <button disabled className="w-full text-left px-3 py-2 text-xs opacity-30 cursor-default">
+        No recently closed tabs
+      </button>
+    ) : (
+      <>
+        <div className="px-3 py-1 text-[10px] text-idemora-text-faint uppercase tracking-wider">Recently closed</div>
+        {[...closedTabs].reverse().map((ct, i) => {
+          const note = notes.find((n) => n.id === ct.noteId);
+          return (
+            <button
+              key={i}
+              onClick={() => {
+                const state = useUIStore.getState();
+                const idx = closedTabs.length - 1 - i;
+                // reopen specific tab by splicing it to the end then calling reopenClosedTab
+                const reordered = [...closedTabs.filter((_, j) => j !== idx), closedTabs[idx]];
+                state.clearSelection?.();
+                useUIStore.setState({ closedTabs: reordered });
+                state.reopenClosedTab();
+                setEmptySpaceMenu(null);
+              }}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-black/4 dark:hover:bg-white/4 truncate"
+            >
+              {note?.title ?? "Untitled"}
+            </button>
+          );
+        })}
+      </>
+    )}
+  </div>
+)}
     </div>
   );
 }
