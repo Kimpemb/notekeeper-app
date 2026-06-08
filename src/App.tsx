@@ -53,6 +53,46 @@ document.addEventListener("keydown", (e) => {
 const LEFT_ZONE_OPEN   = 272;
 const LEFT_ZONE_CLOSED = 40;
 
+function TabContent({
+  tab, isActive, notes, paneId, scrollPositions,
+}: {
+  tab: { id: string; noteId: string | null };
+  isActive: boolean;
+  notes: import("@/types").Note[];
+  paneId: 1 | 2;
+  scrollPositions: React.MutableRefObject<Map<string, number>>;
+}) {
+  const noteId = tab.noteId;
+  const note = noteId ? notes.find((n) => n.id === noteId) : null;
+  const isPdfOrCanvas = note?.is_canvas || note?.source_type === "pdf";
+
+  // PDF and canvas: unmount when inactive to kill rAF loops and pdfjs workers
+  if (!isActive && isPdfOrCanvas) return null;
+
+  return (
+    <div
+      className="flex-1 flex overflow-hidden"
+      style={{ display: isActive ? "flex" : "none" }}
+    >
+      {noteId === null ? (
+        <NewTabScreen paneId={paneId} />
+      ) : note?.is_canvas ? (
+        <CanvasWorkspace key={noteId} noteId={noteId} paneId={paneId} />
+      ) : note?.source_type === "pdf" ? (
+        <PDFViewerPanel key={noteId} noteId={noteId} paneId={paneId} />
+      ) : (
+        <Editor
+          key={noteId}
+          noteId={noteId}
+          paneId={paneId}
+          initialScrollTop={scrollPositions.current.get(noteId) ?? 0}
+          onScrollChange={(top) => scrollPositions.current.set(noteId, top)}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const appWindow = getCurrentWindow();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
@@ -473,25 +513,14 @@ useEffect(() => {
           {paneTabs.length === 0 ? <EmptyState /> : paneTabs.map((tab) => {
             const isActive = tab.id === paneActiveTabId;
             return (
-              <div key={tab.noteId && notes.find(n => n.id === tab.noteId)?.is_canvas ? `${tab.id}-${isActive}` : tab.id} className="flex-1 flex overflow-hidden" style={{ display: isActive ? "flex" : "none" }}>
-                {tab.noteId === null ? (
-                  <NewTabScreen paneId={paneId} />
-                ) : (() => {
-                const noteId = tab.noteId!;
-                const note = notes.find((n) => n.id === noteId);
-                if (note?.is_canvas)
-                  return <CanvasWorkspace key={noteId} noteId={noteId} paneId={paneId} />;
-                if (note?.source_type === "pdf")
-                  return <PDFViewerPanel key={noteId} noteId={noteId} paneId={paneId} />;
-                return <Editor
-                  key={noteId}
-                  noteId={noteId}
-                  paneId={paneId}
-                  initialScrollTop={scrollPositions.current.get(noteId) ?? 0}
-                  onScrollChange={(top) => scrollPositions.current.set(noteId, top)}
-                />;
-                })()}
-              </div>
+<TabContent
+  key={tab.id}
+  tab={tab}
+  isActive={isActive}
+  notes={notes}
+  paneId={paneId}
+  scrollPositions={scrollPositions}
+/>
             );
           })}
           {(paneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) && <FileTreePanel paneId={paneId} />}

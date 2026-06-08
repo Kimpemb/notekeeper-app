@@ -123,7 +123,7 @@ export function PDFViewerPanel({ noteId, paneId }: PDFViewerPanelProps) {
 
         const loadingTask = pdfjs.getDocument({ data });
         const doc = await loadingTask.promise;
-        if (cancelled) { await loadingTask.destroy(); return; }
+        if (cancelled) { doc.cleanup(); return; }
 
         setPdfDoc(doc);
         setPageCount(doc.numPages);
@@ -210,7 +210,11 @@ export function PDFViewerPanel({ noteId, paneId }: PDFViewerPanelProps) {
 useEffect(() => {
   return () => {
     renderTaskRef.current?.cancel();
-    pdfDoc?.cleanup();
+    // cleanup() frees rendering resources; destroy() releases the document
+    // and allows the worker to GC its memory for this document
+    if (pdfDoc) {
+      pdfDoc.cleanup();
+    }
   };
 }, [pdfDoc]);
 
@@ -273,7 +277,7 @@ useEffect(() => {
           </button>
 
           {/* Filename breadcrumb */}
-          <span className="text-xs text-idemora-text-muted ml-1 truncate max-w-[200px]" title={originalName}>
+          <span className="text-xs text-idemora-text-muted ml-1 truncate max-w-50" title={originalName}>
             {originalName}
           </span>
         </div>
