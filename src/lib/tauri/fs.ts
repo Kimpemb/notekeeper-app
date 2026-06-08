@@ -67,8 +67,15 @@
     return (path as string) ?? null;
   }
 
-export async function pickPdfFile(): Promise<string | null> {
+export async function pickDocxFile(): Promise<string | null> {
   const path = await open({
+    multiple: false,
+    filters: [{ name: "Word Document", extensions: ["docx"] }],
+  });
+  return (path as string) ?? null;
+}
+
+export async function pickPdfFile(): Promise<string | null> {  const path = await open({
     multiple: false,
     filters: [{ name: "PDF", extensions: ["pdf"] }],
   });

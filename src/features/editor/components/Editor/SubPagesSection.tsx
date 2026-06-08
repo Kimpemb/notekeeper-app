@@ -152,11 +152,17 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
                   className="w-full text-left p-3 bg-transparent"
                 >
                 <div className="flex items-center gap-2 mb-1">
-                  {child.source_type === "pdf" ? (
-                    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-red-400 shrink-0">
-                      <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-                      <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-                    </svg>
+                {child.source_type === "pdf" ? (
+                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-red-400 shrink-0">
+                    <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                    <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                  </svg>
+                ) : child.source_type === "docx" ? (
+                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-blue-400 shrink-0">
+                    <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                    <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                    <path d="M4 6.5h4M4 8.5h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                  </svg>
                   ) : (
                     <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="text-idemora-text-muted shrink-0">
                       <rect x="1.5" y="1" width="9" height="10" rx="1" stroke="currentColor" strokeWidth="1.1"/>
@@ -164,14 +170,17 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
                     </svg>
                   )}
                   <span className={`text-sm font-medium truncate pr-12 ${
-                    child.source_type === "pdf"
-                      ? "text-red-400"
-                      : isUntitled ? "text-idemora-text-muted italic" : "text-idemora-text-normal"
+                    child.source_type === "pdf"  ? "text-red-400"  :
+                    child.source_type === "docx" ? "text-blue-400" :
+                    isUntitled ? "text-idemora-text-muted italic" : "text-idemora-text-normal"
                   }`}>
-                    {isUntitled && child.source_type !== "pdf" ? "Untitled" : child.title}
+                    {isUntitled && !["pdf","docx"].includes(child.source_type ?? "") ? "Untitled" : child.title}
                   </span>
                   {child.source_type === "pdf" && (
                     <span className="text-[9px] font-semibold tracking-wide text-red-400 opacity-60 shrink-0">PDF</span>
+                  )}
+                  {child.source_type === "docx" && (
+                    <span className="text-[9px] font-semibold tracking-wide text-blue-400 opacity-60 shrink-0">DOC</span>
                   )}
                 </div>
                   {snippet && (

@@ -420,7 +420,11 @@ export function NoteTreeItem({
             <path d="M2 1.5l3 2.5-3 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </span>
-        <span className={`shrink-0 ${note.source_type === "pdf" ? "opacity-80 text-red-400" : "opacity-40"}`}>
+        <span className={`shrink-0 ${
+          note.source_type === "pdf"  ? "opacity-80 text-red-400"  :
+          note.source_type === "docx" ? "opacity-80 text-blue-400" :
+          "opacity-40"
+        }`}>
           {note.is_canvas ? (
             <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
               <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -428,12 +432,18 @@ export function NoteTreeItem({
               <circle cx="8" cy="4" r="1" fill="currentColor"/>
               <path d="M3 8l2-2 2 1.5 2-2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-          ) : note.source_type === "pdf" ? (
-            <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
-              <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-              <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
-            </svg>
-          ) : hasChildren ? (
+            ) : note.source_type === "pdf" ? (
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+              </svg>
+            ) : note.source_type === "docx" ? (
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                <path d="M4 6.5h4M4 8.5h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              </svg>
+            ) : hasChildren ? (
             <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
               <path d="M1 3a1 1 0 011-1h2.5l1 1.5H10a1 1 0 011 1V9a1 1 0 01-1 1H2a1 1 0 01-1-1V3z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
             </svg>
@@ -487,9 +497,10 @@ export function NoteTreeItem({
               </span>
             )}
             {note.source_type === "pdf" && (
-              <span className="shrink-0 text-[9px] font-semibold tracking-wide text-red-400 opacity-70">
-                PDF
-              </span>
+              <span className="shrink-0 text-[9px] font-semibold tracking-wide text-red-400 opacity-70">PDF</span>
+            )}
+            {note.source_type === "docx" && (
+              <span className="shrink-0 text-[9px] font-semibold tracking-wide text-blue-400 opacity-70">DOC</span>
             )}
           </>
         )}
