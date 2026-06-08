@@ -1,13 +1,14 @@
 // src/features/importer/lib/convertDocx.ts
-
-// mammoth ships a browser build that works in Tauri's webview — no Node APIs needed.
-// We import it via the browser entry point to avoid Node-only dependencies.
-import mammoth from "mammoth/mammoth.browser";
+import mammoth from "mammoth/mammoth.browser"
+import { generateJSON } from "@tiptap/core"
+import { PARSE_EXTENSIONS } from "@/features/ai/lib/save/parseMarkdown"
+import JSZip from "jszip"
 
 export interface ConvertDocxResult {
+  doc:       object
   markdown:  string
   title:     string
-  pageCount: number   // word count approximation — actual pages unknowable without layout engine
+  pageCount: number
 }
 
 const STYLE_MAP = [
@@ -15,47 +16,95 @@ const STYLE_MAP = [
   "p[style-name='Heading 2'] => h2:fresh",
   "p[style-name='Heading 3'] => h3:fresh",
   "p[style-name='Heading 4'] => h4:fresh",
+  "p[style-name='Heading 5'] => h5:fresh",
+  "p[style-name='Heading 6'] => h6:fresh",
   "p[style-name='Title']     => h1:fresh",
   "p[style-name='Subtitle']  => h2:fresh",
+  "r[style-name='Strong']    => strong",
+  "r[style-name='Emphasis']  => em",
 ].join("\n")
 
-export async function convertDocx(arrayBuffer: ArrayBuffer): Promise<ConvertDocxResult> {
-  const result = await mammoth.convertToMarkdown(
+function cleanHtml(html: string): string {
+  return html
+    // Unwrap <li> that contains ONLY a nested list (no text before the list)
+    .replace(/<li>(\s*<[ou]l>[\s\S]*?<\/[ou]l>\s*)<\/li>/g, "$1")
+    // Remove completely empty <li></li>
+    .replace(/<li>\s*<\/li>/g, "")
+    // Unwrap nested <ul> that appears alone inside a <li> after text — move ol up
+    .replace(/(<li>[^<]*(?:<(?!\/li)[^>]*>[^<]*)*)<ul>\s*(<ol>[\s\S]*?<\/ol>)\s*<\/ul>/g, "$1$2")
+}
+
+async function extractDocxTitle(arrayBuffer: ArrayBuffer): Promise<string | null> {
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer)
+    if (!zip.files["docProps/core.xml"]) return null
+    const xml = await zip.files["docProps/core.xml"].async("string")
+    const match = xml.match(/<dc:title>(.*?)<\/dc:title>/i)
+    const title = match?.[1]?.trim()
+    return title || null
+  } catch {
+    return null
+  }
+}
+
+function extractTitle(html: string, filenameFallback: string): string {
+  // Try <h1> first
+  const h1Match = html.match(/<h1[^>]*>(.*?)<\/h1>/i)
+  if (h1Match?.[1]) {
+    const title = h1Match[1].replace(/<[^>]+>/g, "").trim()
+    if (title) return title
+  }
+
+  // Try bold paragraphs as fallback
+  const boldPMatch = html.match(/<p[^>]*><strong>(.*?)<\/strong><\/p>/i)
+  if (boldPMatch?.[1]) {
+    const title = boldPMatch[1].replace(/<[^>]+>/g, "").trim()
+    if (title) return title
+  }
+
+  // Fallback to filename
+  return filenameFallback
+}
+
+export async function convertDocx(
+  arrayBuffer: ArrayBuffer,
+  filenameFallback = "Untitled"
+): Promise<ConvertDocxResult> {
+  const metaTitle = await extractDocxTitle(arrayBuffer)
+
+  // ── Convert to HTML (preserves bold, italic, tables, lists) ───────────────
+  const result = await mammoth.convertToHtml(
     { arrayBuffer },
     { styleMap: STYLE_MAP }
   )
 
-  const raw = result.value
+  // Clean the HTML to fix empty bullet issues
+  const html = cleanHtml(result.value)
 
-  // ── Post-processing ────────────────────────────────────────────────────────
-  const lines = raw.split("\n")
-  const processed: string[] = []
-  let blankRun = 0
+  // ── HTML → ProseMirror JSON directly ──────────────────────────────────────
+  const doc = generateJSON(html, PARSE_EXTENSIONS)
 
-  for (const line of lines) {
-    const trimmed = line.trimEnd()
-    if (trimmed === "") {
-      blankRun++
-      // Collapse more than 1 consecutive blank line into 1
-      if (blankRun <= 1) processed.push("")
-    } else {
-      blankRun = 0
-      processed.push(trimmed)
-    }
-  }
+  // ── Plaintext for RAG/search ───────────────────────────────────────────────
+  const markdown = html
+    .replace(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi, (_, t) => `# ${t}\n`)
+    .replace(/<strong>(.*?)<\/strong>/gi, "**$1**")
+    .replace(/<em>(.*?)<\/em>/gi, "_$1_")
+    .replace(/<li[^>]*>(.*?)<\/li>/gi, (_, t) => `- ${t}\n`)
+    .replace(/<p[^>]*>(.*?)<\/p>/gi, (_, t) => `${t}\n`)
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 
-  const markdown = processed.join("\n").trim()
+  // ── Title extraction with proper fallback chain ───────────────────────────
+  // Fallback chain: metadata title > filename > content (h1/bold paragraph)
+  const title = metaTitle 
+    ?? (filenameFallback !== "Untitled" ? filenameFallback : extractTitle(html, filenameFallback))
 
-  // ── Title extraction ───────────────────────────────────────────────────────
-  // First # heading, fallback to first non-empty line, fallback to "Untitled"
-  const h1Match = markdown.match(/^#\s+(.+)$/m)
-  const firstLine = markdown.split("\n").find((l) => l.trim().length > 0) ?? ""
-  const title = h1Match
-    ? h1Match[1].trim()
-    : firstLine.replace(/^#+\s*/, "").trim() || "Untitled"
-
-  // ── Word count as proxy for "size" ────────────────────────────────────────
   const wordCount = markdown.split(/\s+/).filter(Boolean).length
 
-  return { markdown, title, pageCount: wordCount }
+  return { doc, markdown, title, pageCount: wordCount }
 }

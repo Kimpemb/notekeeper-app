@@ -7,7 +7,6 @@ import { invoke } from "@tauri-apps/api/core"
 import type { NoteSourceMeta } from "@/types"
 
 // Reuse the markdown→ProseMirror pipeline already in the codebase
-import { markdownToDoc } from "@/features/ai/lib/save/parseMarkdown"
 
 export async function importDocx(): Promise<string | null> {
   // 1. Pick file
@@ -18,18 +17,19 @@ export async function importDocx(): Promise<string | null> {
   const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
   const arrayBuffer = new Uint8Array(bytes).buffer
 
-  // 3. Convert DOCX → markdown
-  const { markdown, title, pageCount } = await convertDocx(arrayBuffer)
-
-  // 4. markdown → ProseMirror JSON
-  const doc = markdownToDoc(markdown) as { content: unknown[] }
-  const content = JSON.stringify({ type: "doc", content: doc.content ?? [] })
-
-  // 5. Extract plaintext
-  const plaintext = markdown.replace(/^#+\s+/gm, "").replace(/[*_`~]/g, "").trim()
-
-  // 6. Original filename for display
+  // 3. Original filename for display and fallback title
   const originalName = srcPath.replace(/\\/g, "/").split("/").pop() ?? "document.docx"
+  const filenameWithoutExt = originalName.replace(/\.docx$/i, "")
+
+  // 4. Convert DOCX → markdown with filename as fallback
+  const { doc, markdown, title, pageCount } = await convertDocx(arrayBuffer, filenameWithoutExt)
+
+  const content = JSON.stringify(doc)
+
+  const plaintext = markdown
+    .replace(/^#+\s+/gm, "")
+    .replace(/[*_`~]/g, "")
+    .trim()
 
   const meta: NoteSourceMeta = {
     pageCount,
@@ -38,7 +38,7 @@ export async function importDocx(): Promise<string | null> {
     fileSize:   bytes.length,
   }
 
-  // 7. Create note row — DOCX becomes a normal editable note
+  // 5. Create note row — DOCX becomes a normal editable note
   const note = await useNoteStore.getState().createNote({
     title,
     content,

@@ -47,6 +47,16 @@
 .tiptap ol { list-style: decimal; padding-left: 1.5rem; margin-bottom: 0.55rem; }
 .tiptap li { margin-bottom: 0.15rem; }
 
+/* ─── Nested lists ───────────────────────────────────────────────────────── */
+.tiptap ul ul,
+.tiptap ul ol,
+.tiptap ol ul,
+.tiptap ol ol {
+  padding-left: 1.5rem;
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
+}
+
 /* ─── Blockquotes ────────────────────────────────────────────────────────── */
 .tiptap blockquote {
   border-left: 3px solid currentColor;
