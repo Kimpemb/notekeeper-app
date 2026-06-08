@@ -59,6 +59,17 @@ export async function importPDF(): Promise<string | null> {
     source_meta: JSON.stringify(meta),
   });
 
+// 5b. Extract text for RAG — non-blocking, runs after note creation
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
+    const ab    = new Uint8Array(bytes).buffer
+    const { extractAndIndexPDF } = await import("./extractPDFText")
+    extractAndIndexPDF(note.id, ab) // intentionally not awaited
+  } catch {
+    // non-fatal
+  }
+
   // Insert a pdfLink block into the currently active note (if any and different from the PDF note)
   const { activeNoteId, notes: storeNotes, updateNote } = useNoteStore.getState();
   if (activeNoteId && activeNoteId !== note.id) {
