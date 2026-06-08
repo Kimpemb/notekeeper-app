@@ -50,6 +50,11 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   const graphMode     = (editor.storage as any)?.graphMode === true;
   const graphNavigate = (editor.storage as any)?.graphNavigate as ((nodeId: string) => void) | undefined;
 
+  // Get source_type from the store for the icon
+  const noteSourceType = useNoteStore((s) =>
+    noteId ? (s.notes.find((n) => n.id === noteId)?.source_type ?? "note") : "note"
+  )
+
   useEffect(() => {
     if (mode !== "editing") return;
     const el = inputRef.current;
@@ -207,10 +212,20 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
           onClick={handleClick}
           title={graphMode ? "Click to open in graph" : "Click to open · Ctrl+click for new tab"}
         >
-          <PageIcon className="text-idemora-text-muted shrink-0 group-hover:text-blue-400 transition-colors duration-150" />
+          <NoteIcon
+            sourceType={noteSourceType}
+            className="shrink-0 transition-colors duration-150"
+          />
           <span className="flex-1 text-base text-idemora-text-normal select-none group-hover:text-blue-400 transition-colors duration-150">
             {liveTitle}
           </span>
+          {(noteSourceType === "docx" || noteSourceType === "pptx") && (
+            <span className={`shrink-0 text-[9px] font-semibold tracking-wide opacity-60 mr-1 ${
+              noteSourceType === "docx" ? "text-blue-400" : "text-orange-400"
+            }`}>
+              {noteSourceType === "docx" ? "DOCX" : "PPTX"}
+            </span>
+          )}
         </div>
       )}
 
@@ -241,4 +256,46 @@ function PageIcon({ className = "" }: { className?: string }) {
       <path d="M6 8h4M6 11h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
     </svg>
   );
+}
+
+function NoteIcon({ sourceType, className = "" }: { sourceType: string; className?: string }) {
+  if (sourceType === "pdf") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className={`text-red-400 ${className}`}>
+        <path d="M4 2h6l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"
+          stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+        <path d="M10 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+        <path d="M6 8h4M6 11h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+      </svg>
+    )
+  }
+  if (sourceType === "docx") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className={`text-blue-400 ${className}`}>
+        <path d="M4 2h6l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"
+          stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+        <path d="M10 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+        <path d="M5.5 7.5h5M5.5 9.5h5M5.5 11.5h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+      </svg>
+    )
+  }
+  if (sourceType === "pptx") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className={`text-orange-400 ${className}`}>
+        <rect x="2" y="4" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+        <path d="M6 7h4M6 9.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+        <circle cx="4.5" cy="7" r="0.8" fill="currentColor"/>
+        <circle cx="4.5" cy="9.5" r="0.8" fill="currentColor"/>
+      </svg>
+    )
+  }
+  // default note icon
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" className={`text-idemora-text-muted ${className}`}>
+      <path d="M4 2h6l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"
+        stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M10 2v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M6 8h4M6 11h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+    </svg>
+  )
 }

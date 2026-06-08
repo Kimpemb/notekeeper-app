@@ -40,7 +40,7 @@ export function TabBar() {
       >
         {tabs.map((tab) => {
           const note = tab.noteId ? notes.find((n) => n.id === tab.noteId) : null;
-         let title = "";
+          let title = "";
           if (tab.noteId === null) {
             title = "New tab";
           } else {
@@ -52,9 +52,9 @@ export function TabBar() {
             <div
               key={tab.id}
               onClick={() => {
-  setActive(tab.id);
-  if (tab.noteId) setActiveNote(tab.noteId, true);
-}}
+                setActive(tab.id);
+                if (tab.noteId) setActiveNote(tab.noteId, true);
+              }}
               onAuxClick={(e) => { if (e.button === 1) closeTab(tab.id); }}
               onContextMenu={(e) => {
                 if (!tab.noteId) return;
@@ -70,21 +70,45 @@ export function TabBar() {
               `}
             >
               {/* Vertical Alignment Guard: Icon and Text */}
-              <span className="shrink-0 opacity-50">
-  {note?.is_canvas ? (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
-      <circle cx="4" cy="4" r="1" fill="currentColor"/>
-      <circle cx="8" cy="4" r="1" fill="currentColor"/>
-      <path d="M3 8l2-2 2 1.5 2-2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  ) : (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
-      <path d="M3.5 4h5M3.5 6h5M3.5 8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-    </svg>
-  )}
-</span>
+              <span className={`shrink-0 opacity-60 ${
+                note?.source_type === "pdf"  ? "text-red-400"    :
+                note?.source_type === "docx" ? "text-blue-400"   :
+                note?.source_type === "pptx" ? "text-orange-400" :
+                "opacity-50"
+              }`}>
+                {note?.is_canvas ? (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                    <circle cx="4" cy="4" r="1" fill="currentColor"/>
+                    <circle cx="8" cy="4" r="1" fill="currentColor"/>
+                    <path d="M3 8l2-2 2 1.5 2-2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                ) : note?.source_type === "pdf" ? (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                    <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M3.5 6.5h5M3.5 8.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                  </svg>
+                ) : note?.source_type === "docx" ? (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 1.5h5.5L10 4v6.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                    <path d="M7.5 1.5V4H10" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M3.5 5.5h5M3.5 7h5M3.5 8.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                  </svg>
+                ) : note?.source_type === "pptx" ? (
+                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                    <rect x="1" y="2.5" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+                    <path d="M4.5 5.5h3M4.5 7.5h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                    <circle cx="3.5" cy="5.5" r="0.7" fill="currentColor"/>
+                    <circle cx="3.5" cy="7.5" r="0.7" fill="currentColor"/>
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                    <path d="M3.5 4h5M3.5 6h5M3.5 8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                )}
+              </span>
               
               <span className="flex-1 truncate">{title}</span>
 
