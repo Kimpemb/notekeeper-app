@@ -22,6 +22,16 @@ export function TabBar() {
 
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+useEffect(() => {
+  if (scrollRef.current) {
+    scrollRef.current.scrollTo({
+      left: scrollRef.current.scrollWidth,
+      behavior: "smooth",
+    });
+  }
+}, [tabs.length, activeTabId]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -35,6 +45,7 @@ export function TabBar() {
   return (
     <div className="relative flex items-center flex-1 min-w-0 h-full ml-8">
       <div
+        ref={scrollRef}
         className="flex items-center h-full overflow-x-auto min-w-0 flex-1 gap-1 px-2"
         style={{ scrollbarWidth: "none" }}
       >
