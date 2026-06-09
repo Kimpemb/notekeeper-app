@@ -88,32 +88,49 @@ export function buildSearchHighlightPlugin(): Plugin {
 
 
 // ── Scroll to query string and temporarily highlight it ───────────────────────
+export function countMatches(editor: Editor, query: string): number {
+  if (!query.trim()) return 0;
+  const needle  = query.trim().toLowerCase();
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex   = new RegExp(escaped, "gi");
+  let count = 0;
+  editor.state.doc.descendants((node) => {
+    if (!node.isText || !node.text) return true;
+    const matches = node.text.match(regex);
+    if (matches) count += matches.length;
+  });
+  return count;
+}
+
 export function scrollToQuery(
   editor: Editor,
   query: string,
-  scrollContainer: HTMLElement | null
+  scrollContainer: HTMLElement | null,
+  matchIndex: number = 0,
 ): void {
   if (!query.trim()) return;
 
-  const needle = query.trim().toLowerCase();
+  const needle  = query.trim().toLowerCase();
   const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(escaped, "i");
+  const regex   = new RegExp(escaped, "i");
 
-  // Search directly in ProseMirror doc text nodes — no getText() drift
-  let from: number | null = null;
-  let to: number | null = null;
+  // Collect all matches across text nodes
+  const allMatches: { from: number; to: number }[] = [];
 
   editor.state.doc.descendants((node, pos) => {
-    if (from !== null) return false;
     if (!node.isText || !node.text) return true;
-    const match = regex.exec(node.text);
-    if (match) {
-      from = pos + match.index;
-      to   = from + match[0].length;
+    let match: RegExpExecArray | null;
+    const localRegex = new RegExp(escaped, "gi");
+    while ((match = localRegex.exec(node.text)) !== null) {
+      allMatches.push({ from: pos + match.index, to: pos + match.index + match[0].length });
     }
   });
 
-  if (from === null || to === null) return;
+  if (allMatches.length === 0) return;
+
+  // Clamp index and pick target match
+  const target = allMatches[Math.min(matchIndex, allMatches.length - 1)];
+  const { from, to } = target;
 
   // Place caret at match start
   editor.commands.setTextSelection(from);

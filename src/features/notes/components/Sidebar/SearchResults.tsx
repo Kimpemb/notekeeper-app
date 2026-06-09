@@ -1,6 +1,5 @@
 // src/features/notes/components/Sidebar/SearchResults.tsx
 import { useEffect, useState, useRef } from "react";
-import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteSearch } from "@/features/notes/hooks/useNoteSearch";
 import { useOpenNoteWithScroll } from "@/features/notes/hooks/useOpenNoteWithScroll";
@@ -11,20 +10,95 @@ interface Props {
   query: string;
 }
 
+// ── Match count reader ────────────────────────────────────────────────────────
+// Reads match count from the active editor after navigation settles
+
+function useEditorMatchCount(query: string, activeNoteId: string | null, onCount: (n: number) => void) {
+  useEffect(() => {
+    if (!activeNoteId || !query.trim()) return;
+    // Wait for editor to mount and scroll to settle
+    const timer = setTimeout(() => {
+const activeEditor = useUIStore.getState().activeEditor
+console.log("[matchCount] activeEditor=", activeEditor, "query=", query)
+if (!activeEditor || activeEditor.isDestroyed) return
+      let count = 0
+      const needle  = query.trim().toLowerCase()
+      const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const regex   = new RegExp(escaped, "gi")
+      activeEditor.state.doc.descendants((node: { isText: boolean; text?: string }) => {
+        if (!node.isText || !node.text) return true
+        const matches = node.text.match(regex)
+        if (matches) count += matches.length
+      })
+      onCount(count)
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [activeNoteId, query, onCount])
+}
+
+// ── Match cycler UI ───────────────────────────────────────────────────────────
+
+function MatchCycler({ current, total, onPrev, onNext }: {
+  current: number;
+  total:   number;
+  onPrev:  () => void;
+  onNext:  () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 px-1">
+      <span className="text-[10px] text-idemora-text-muted tabular-nums">
+        {current + 1}/{total} matches
+      </span>
+      <div className="flex items-center gap-0.5 ml-auto">
+        <button
+          onClick={onPrev}
+          disabled={current === 0}
+          className="w-5 h-5 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-75"
+          title="Previous match"
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+            <path d="M4 6.5L1.5 4 4 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <button
+          onClick={onNext}
+          disabled={current === total - 1}
+          className="w-5 h-5 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-75"
+          title="Next match"
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+            <path d="M4 1.5L6.5 4 4 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function SearchResults({ query }: Props) {
-  const openNote = useOpenNoteWithScroll(1);
+  const openNote             = useOpenNoteWithScroll(1);
   const { results, loading } = useNoteSearch(query);
 
-  const [searched, setSearched] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const setPendingScrollQuery = useUIStore((s) => s.setPendingScrollQuery);
+  const setPendingScrollIndex = useUIStore((s) => s.setPendingScrollIndex);
 
-  const listRef = useRef<HTMLUListElement>(null);
+  const [searched, setSearched]           = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [activeNoteId, setActiveNoteId]   = useState<string | null>(null);
+  const [matchCount, setMatchCount]       = useState(0);
+  const [matchIndex, setMatchIndex]       = useState(0);
+
+  const listRef  = useRef<HTMLUListElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
 
+  // Reset cycling state when query changes
   useEffect(() => {
-    if (!query.trim()) { setSearched(false); setSelectedIndex(0); return; }
+    if (!query.trim()) { setSearched(false); setSelectedIndex(0); setActiveNoteId(null); setMatchCount(0); setMatchIndex(0); return; }
     setSearched(true);
     setSelectedIndex(0);
+    setActiveNoteId(null);
+    setMatchCount(0);
+    setMatchIndex(0);
   }, [query]);
 
   // ── Keyboard navigation ─────────────────────────────
@@ -70,8 +144,28 @@ export function SearchResults({ query }: Props) {
   // ── Handle click ─────────────────────────────
   function handleResultClick(result: SearchResult, index: number) {
     setSelectedIndex(index);
+    setActiveNoteId(result.id);
+    setMatchIndex(0);
+    // We don't know matchCount yet — editor will scroll to index 0
+    // matchCount gets set via the counter UI after editor mounts
     openNote(result.id, query);
   }
+
+function handleCycleMatch(dir: 1 | -1) {
+  const next = Math.max(0, Math.min(matchCount - 1, matchIndex + dir));
+  setMatchIndex(next);
+  setPendingScrollQuery(null);
+  setTimeout(() => {
+    setPendingScrollIndex(next);
+    setPendingScrollQuery(query);
+  }, 0);
+}
+
+  function handleMatchCount(count: number) {
+    setMatchCount(count);
+  }
+
+  useEditorMatchCount(query, activeNoteId, handleMatchCount);
 
   // ── Loading / No results ─────────────────────────────
   if (loading) {
@@ -187,6 +281,17 @@ export function SearchResults({ query }: Props) {
           <p className="text-[10px] text-idemora-text-normal tabular-nums">
             {results.length} result{results.length !== 1 ? "s" : ""}
           </p>
+        </li>
+      )}
+
+      {activeNoteId && matchCount > 1 && (
+        <li className="px-2.5 py-1.5">
+          <MatchCycler
+            current={matchIndex}
+            total={matchCount}
+            onPrev={() => handleCycleMatch(-1)}
+            onNext={() => handleCycleMatch(1)}
+          />
         </li>
       )}
     </ul>

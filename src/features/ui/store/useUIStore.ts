@@ -215,6 +215,8 @@ interface UIStore {
   setPendingScrollHeading: (heading: string | null) => void;
   pendingScrollQuery: string | null;
   setPendingScrollQuery: (query: string | null) => void;
+  pendingScrollIndex: number;
+  setPendingScrollIndex: (index: number) => void;
 
   // ─── Tag filter ───────────────────────────────────────────────────────────
   activeTag: string | null;
@@ -518,6 +520,8 @@ export const useUIStore = create<UIStore>((set, get) => {
     setPendingScrollHeading: (heading) => set({ pendingScrollHeading: heading }),
     pendingScrollQuery: null,
     setPendingScrollQuery: (query) => set({ pendingScrollQuery: query }),
+    pendingScrollIndex: 0,
+    setPendingScrollIndex: (index) => set({ pendingScrollIndex: index }),
 
     // ─── Tag filter ───────────────────────────────────────────────────────────
     activeTag: null,

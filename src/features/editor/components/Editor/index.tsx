@@ -205,6 +205,8 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
   const pendingScrollQuery      = useUIStore((s) => s.pendingScrollQuery);
   const setPendingScrollQuery   = useUIStore((s) => s.setPendingScrollQuery);
+  const pendingScrollIndex      = useUIStore((s) => s.pendingScrollIndex);
+  const setPendingScrollIndex   = useUIStore((s) => s.setPendingScrollIndex);
 
   const spellCheck = useAppSettings((s) => s.settings.spellCheck);
 
@@ -412,6 +414,14 @@ useEffect(() => {
   enqueueNoteForIndexing(noteId).catch(console.warn)
 }, [noteId])
 
+const setActiveEditor = useUIStore((s) => s.setActiveEditor)
+
+useEffect(() => {
+  if (!editor) return
+  setActiveEditor(editor)
+  return () => setActiveEditor(null)
+}, [editor])
+
   useEffect(() => {
     if (!editor) return;
     editor.setOptions({
@@ -594,16 +604,16 @@ useEffect(() => {
     if (!editor || !note || !pendingScrollQuery || !isActiveTab) return;
     const timer = setTimeout(() => {
       const container = getScrollContainer(editor);
-      scrollToQuery(editor, pendingScrollQuery, container);
+      scrollToQuery(editor, pendingScrollQuery, container, pendingScrollIndex);
       setTimeout(() => {
         if (!editor.isDestroyed) {
-          scrollToQuery(editor, pendingScrollQuery, container);
+          scrollToQuery(editor, pendingScrollQuery, container, pendingScrollIndex);
           setPendingScrollQuery(null);
         }
       }, 400);
     }, 50);
     return () => clearTimeout(timer);
-  }, [noteId, pendingScrollQuery, isActiveTab]);
+  }, [noteId, pendingScrollQuery, pendingScrollIndex, isActiveTab]);
 
   useEffect(() => {
     if (!editor || !isActiveTab) return;
