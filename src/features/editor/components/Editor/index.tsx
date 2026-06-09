@@ -566,8 +566,8 @@ useEffect(() => {
 
   useEffect(() => {
   if (!editor || !note) return;
+  if (!contentReady) return;
   if (subPageCreatingRef.current) return;
-
 
   const children = notes
     .filter((n) => n.parent_id === noteId && !n.deleted_at)
@@ -582,20 +582,21 @@ useEffect(() => {
 
   if (children.length === 0) return;
 
-  const newContent = reconcileSubPageBlocks(note.content ?? "", children);
-  if (!newContent) return;
-
-    const apply = () => {
-  if (editor.isDestroyed || editor.isFocused) return;
-  if (subPageCreatingRef.current) return;
-  console.log("[reconciler] applying subpage blocks");
-  contentLoadingRef.current = true;
-  editor.commands.setContent(JSON.parse(newContent));
-  editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
-  lastSavedContent.current = newContent;
-  updateNote(noteId, { content: newContent });
-  setTimeout(() => { contentLoadingRef.current = false; }, 0);
-};
+  const apply = () => {
+    if (editor.isDestroyed || editor.isFocused) return;
+    if (subPageCreatingRef.current) return;
+    // Use live editor content — not note.content from store which may be stale
+    const liveContent = JSON.stringify(editor.getJSON());
+    const newContent = reconcileSubPageBlocks(liveContent, children);
+    if (!newContent) return;
+    console.log("[reconciler] applying subpage blocks");
+    contentLoadingRef.current = true;
+    editor.commands.setContent(JSON.parse(newContent));
+    editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
+    lastSavedContent.current = newContent;
+    updateNote(noteId, { content: newContent });
+    setTimeout(() => { contentLoadingRef.current = false; }, 0);
+  };
 
     const t = setTimeout(apply, 80);
     return () => clearTimeout(t);
