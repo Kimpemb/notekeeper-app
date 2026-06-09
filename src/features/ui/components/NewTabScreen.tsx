@@ -2,8 +2,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { FileText } from "lucide-react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
-import { useUIStore } from "@/features/ui/store/useUIStore";
-import { searchNotes } from "@/features/notes/db/queries";
+import { useNoteSearch } from "@/features/notes/hooks/useNoteSearch";
+import { useOpenNoteWithScroll } from "@/features/notes/hooks/useOpenNoteWithScroll";
+import { SnippetText, snippetKind, TagIcon } from "@/features/notes/components/Sidebar/searchUtils";
 import { TEMPLATES } from "@/lib/templates";
 import type { Template } from "@/lib/templates";
 import type { SearchResult } from "@/features/notes/db/queries";
@@ -20,60 +21,7 @@ type Note = ReturnType<typeof useNoteStore.getState>["notes"][number];
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
-function useOpenNote(paneId: Props["paneId"]) {
-  const setActiveNote = useNoteStore((s) => s.setActiveNote);
-
-  return useCallback(
-    (noteId: string) => {
-      if (paneId === 1) {
-        useUIStore.getState().replaceTab(noteId);
-        setActiveNote(noteId, true);
-      } else {
-        useUIStore.getState().replacePane2Tab(noteId);
-      }
-    },
-    [paneId, setActiveNote]
-  );
-}
-
-function useDebouncedSearch(query: string, delayMs = 150) {
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-
-    timerRef.current = setTimeout(async () => {
-      try {
-        const res = await searchNotes(query);
-        setResults(res);
-      } catch {
-        setResults([]);
-        setError("Search failed. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    }, delayMs);
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [query, delayMs]);
-
-  return { results, loading, error };
-}
+// useOpenNote and useDebouncedSearch replaced by shared hooks above
 
 function useRecentNotes(limit = 8) {
   const notes = useNoteStore((s) => s.notes);
@@ -167,12 +115,27 @@ function NoteRow({ title, timestamp, snippet, isSelected, onClick, onHover }: No
             title
           )}
         </div>
-        {snippet && (
-          <div
-            className="text-[11px] text-idemora-text-muted truncate mt-0.5 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: snippet }}
-          />
-        )}
+        {snippet && (() => {
+          const kind = snippetKind(snippet)
+          if (kind === "tag") {
+            const tags = snippet.slice(5).split(", ")
+            return (
+              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                {tags.map((tag) => (
+                  <span key={tag} className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-idemora-bg-primary text-idemora-text-muted border border-idemora-border">
+                    <TagIcon />
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )
+          }
+          return (
+            <div className="text-[11px] text-idemora-text-muted truncate mt-0.5 leading-relaxed">
+              <SnippetText text={snippet} />
+            </div>
+          )
+        })()}
       </div>
       {timestamp != null && (
         <span className="text-[10px] text-idemora-text-faint shrink-0 tabular-nums w-14 text-right">
@@ -190,7 +153,7 @@ interface SearchResultsViewProps {
   selectedIdx: number;
   query: string;
   error: string | null;
-  onOpen: (id: string) => void;
+  onOpen: (id: string, query?: string) => void;
   onHover: (i: number) => void;
   onCreateFromQuery: () => void;
 }
@@ -224,7 +187,7 @@ function SearchResultsView({
                   title={r.title}
                   snippet={r.snippet}
                   isSelected={i === selectedIdx}
-                  onClick={() => onOpen(r.id)}
+                  onClick={() => onOpen(r.id, query)}
                   onHover={() => onHover(i)}
                 />
               </li>
@@ -258,7 +221,7 @@ function SearchResultsView({
 
 interface RecentNotesViewProps {
   notes: Note[];
-  onOpen: (id: string) => void;
+  onOpen: (id: string, query?: string) => void;
 }
 
 function RecentNotesView({ notes, onOpen }: RecentNotesViewProps) {
@@ -360,10 +323,10 @@ export function NewTabScreen({ paneId }: Props) {
 
   const createNote = useNoteStore((s) => s.createNote);
   const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
-  const openNote = useOpenNote(paneId);
+  const openNote    = useOpenNoteWithScroll(paneId);
   const recentNotes = useRecentNotes();
 
-  const { results, loading, error } = useDebouncedSearch(query);
+  const { results, loading, error } = useNoteSearch(query);
 
   // Search always takes over regardless of view
   const isSearching = Boolean(query.trim());
@@ -404,7 +367,7 @@ export function NewTabScreen({ paneId }: Props) {
   const handleCreateFromQuery = useCallback(async () => {
     if (!query.trim()) return;
     const note = await createNote({ title: query.trim() });
-    openNote(note.id);
+    openNote(note.id);  // no scroll query on create
   }, [query, createNote, openNote]);
 
   const handleKeyDown = useCallback(
@@ -424,7 +387,7 @@ export function NewTabScreen({ paneId }: Props) {
         case "Enter":
           e.preventDefault();
           if (results.length > 0 && selectedIdx < results.length) {
-            openNote(results[selectedIdx].id);
+            openNote(results[selectedIdx].id, query);
           } else if (query.trim()) {
             handleCreateFromQuery();
           }
