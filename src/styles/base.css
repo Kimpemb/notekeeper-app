@@ -2,8 +2,8 @@
 
 html, body {
   overscroll-behavior: none;
-  background-color: #1e1e1e;
-  color: #dadada;
+  background-color: var(--idemora-bg-primary);
+  color: var(--idemora-text-normal);
 }
 
 /* Scrollbar */

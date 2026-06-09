@@ -1012,6 +1012,8 @@ async function handleDirectWebSearch() {
           }) : undefined}
           onRetry={isLatest && (!!callError || msg.content === "") ? handleRetry : undefined}
           isLatest={isLatest}
+          createdAt={msg.createdAt}
+
         />
       )}
  
@@ -1362,19 +1364,22 @@ const [copied, setCopied] = useState(false)
   if (isUser) {
     return (
       <div className="px-4 py-1.5 flex justify-end">
-        <div className="flex flex-col items-end gap-0.5 max-w-[85%] group/bubble">
-          <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed">
-            {message.content}
-          </div>
-          <div className={`flex items-center gap-0.5 transition-opacity duration-150 ${
-            isLatest ? "opacity-100" : "opacity-0 group-hover/bubble:opacity-100"
-          }`}>
-            {/* Copy */}
-            <button
-              onClick={() => { onCopy(message.content); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-              title={copied ? "Copied!" : "Copy"}
-              className="w-7 h-7 flex items-center justify-center rounded-md text-white/60 hover:text-white hover:bg-white/[0.1] transition-colors duration-100"
-            >
+        <div className="flex flex-col items-end gap-0.5 max-w-[85%]">
+  <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed">
+    {message.content}
+  </div>
+  <div className={`flex items-center gap-0.5 transition-opacity duration-150 ${
+    isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+  }`}>
+<span className="text-[10px] text-idemora-text-faint mr-1 select-none">
+  {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+</span>
+{/* Copy */}
+<button
+  onClick={() => { onCopy(message.content); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+  title={copied ? "Copied!" : "Copy"}
+  className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors duration-100"
+>
               {copied ? (
                 <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
                   <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1391,7 +1396,7 @@ const [copied, setCopied] = useState(false)
               <button
                 onClick={() => onEdit(message.content)}
                 title="Edit and resend"
-                className="w-7 h-7 flex items-center justify-center rounded-md text-white/60 hover:text-white hover:bg-white/[0.1] transition-colors duration-100"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors duration-100"
               >
                 <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
                   <path d="M6.5 1.5l2 2L3 9H1V7L6.5 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1537,7 +1542,7 @@ function NoteSourceChips({
 }
 
 function MessageFooter({
-  meta, onOpenNote, onOneTimeInclusion, webSources, onCopy, onSave, onRetry, isLatest,
+  meta, onOpenNote, onOneTimeInclusion, webSources, onCopy, onSave, onRetry, isLatest, createdAt,
 }: {
   meta:                MessageMeta;
   onOpenNote:          (id: string) => void;
@@ -1547,6 +1552,7 @@ function MessageFooter({
   onSave?:             () => void;
   onRetry?:            () => void;
   isLatest:            boolean;
+  createdAt:           number;
 }) {
   const [relatedExpanded, setRelatedExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -1644,13 +1650,16 @@ function MessageFooter({
       )}
 
       {/* Action row — icon only */}
-      <div className={`flex items-center gap-0.5 pt-1 border-t border-idemora-border/20 transition-opacity duration-150 ${
-        isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
-      }`}>
-        <button
-          onClick={() => { onCopy(); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+<div className={`flex items-center gap-0.5 pt-1 border-t border-idemora-border/20 transition-opacity duration-150 ${
+  isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+}`}>
+  <span className="text-[10px] text-idemora-text-faint mr-1 select-none">
+    {new Date(createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+  </span>
+  <button
+    onClick={() => { onCopy(); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
           title={copied ? "Copied!" : "Copy"}
-          className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
+          className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors duration-100"
         >
           {copied ? (
             <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
@@ -1679,7 +1688,7 @@ function MessageFooter({
           <button
             onClick={onRetry}
             title="Retry"
-            className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-white/[0.06] transition-colors duration-100"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors duration-100"
           >
             <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
               <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
