@@ -33,7 +33,7 @@ import {
   getWebSearchProvider,
   type WebSearchResult,
 } from "@/features/ai/lib/search/webSearchProvider"
-import { detectIntent } from "@/features/ai/lib/search/intentDetection"  // ← ADD THIS
+import { detectIntent } from "@/features/ai/lib/search/intentDetection"
 
 interface Props {
   noteId: string;
@@ -225,7 +225,9 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [streamStatus, setStreamStatus] = useState<string | null>(null)
   const [indexingPaused, setIndexingPaused] = useState(false);
   const [allExhausted, setAllExhausted]     = useState(false);
-const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  // Track which user message triggered the current error (for inline error placement)
+  const [errorAfterMessageId, setErrorAfterMessageId] = useState<string | null>(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [embeddingWarningDismissed, setEmbeddingWarningDismissed] = useState(false);
   const [oneTimeInclusions, setOneTimeInclusions] = useState<Set<string>>(new Set());
@@ -234,11 +236,9 @@ const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
     assistant: { role: "user" | "assistant"; content: string };
   } | null>(null);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
-const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
-const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set());
+  const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
+  const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set());
   const { toasts, addToast } = useToasts();
-
-  
 
   const messagesEndRef    = useRef<HTMLDivElement>(null);
   const inputRef          = useRef<HTMLTextAreaElement>(null);
@@ -248,9 +248,6 @@ const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set())
   const prevModelRef    = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null)
 
-
-  // Use a ref to always have current ragScope / session inside handleSend
-  // without needing them in the useCallback dep array
   const ragScopeRef    = useRef<"all" | "note">("all");
   const linkedNoteRef  = useRef<string | null>(null);
 
@@ -274,92 +271,90 @@ const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set())
   const stampSavedAt      = useChatSessionStore((s) => s.stampSavedAt);
   const clearSession      = useChatSessionStore((s) => s.clearSession);
   const setRagScope       = useChatSessionStore((s) => s.setRagScope);
-const paneNoteId      = useChatSessionStore((s) => s.paneNoteId[paneId])
-const _sessions       = useChatSessionStore((s) => s.sessions)
-const _session        = (paneNoteId ? _sessions[paneNoteId] : null) ?? emptySession()
-const messages        = _session.messages
-const ragScope        = _session.ragScope
-const persistedMeta   = _session.persistedMeta
-const linkedNoteId    = _session.linkedNoteId
-const linkedNoteTitle = _session.linkedNoteTitle
-const linkedNoteTrashed = _session.linkedNoteTrashed
-const linkedNoteDeleted = _session.linkedNoteDeleted
-const isLoading       = _session.isLoading
+  const paneNoteId      = useChatSessionStore((s) => s.paneNoteId[paneId])
+  const _sessions       = useChatSessionStore((s) => s.sessions)
+  const _session        = (paneNoteId ? _sessions[paneNoteId] : null) ?? emptySession()
+  const messages        = _session.messages
+  const ragScope        = _session.ragScope
+  const persistedMeta   = _session.persistedMeta
+  const linkedNoteId    = _session.linkedNoteId
+  const linkedNoteTitle = _session.linkedNoteTitle
+  const linkedNoteTrashed = _session.linkedNoteTrashed
+  const linkedNoteDeleted = _session.linkedNoteDeleted
+  const isLoading       = _session.isLoading
 
   // Merge persisted + runtime meta for rendering
   const metaMap = useMemo(() => {
-  const map = new Map<string, MessageMeta>(
-    persistedMeta.map((pm) => {
-      const runtime = runtimeMetaMap.get(pm.messageId) ?? {}
-      return [pm.messageId, {
-        sourceTitles:        runtime.sourceTitles        ?? pm.citations?.map(c => c.title) ?? [],
-        sourceNoteIds:       runtime.sourceNoteIds       ?? pm.citations?.map(c => c.noteId) ?? [],
-        usedEmbeddings:      pm.usedEmbeddings           ?? false,
-        confidence:          pm.confidence               ?? "medium",
-        relatedNotes:        runtime.relatedNotes        ?? [],
-        tier1Results:        runtime.tier1Results,
-        excludedNoteNotices: runtime.excludedNoteNotices ?? [],
-        titleMatchedNoteIds: pm.citations?.filter(c => c.isTitleMatch).map(c => c.noteId) ?? [],
-        webNudge:            runtime.webNudge,
-        webGrounded:         pm.usedWeb                  ?? false,
-      }]
-    })
-  )
-  for (const [id, runtime] of runtimeMetaMap) {
-    if (!map.has(id)) {
-      map.set(id, {
-        sourceTitles:        runtime.sourceTitles        ?? [],
-        sourceNoteIds:       runtime.sourceNoteIds       ?? [],
-        usedEmbeddings:      runtime.usedEmbeddings      ?? false,
-        confidence:          runtime.confidence          ?? "medium",
-        relatedNotes:        runtime.relatedNotes        ?? [],
-        tier1Results:        runtime.tier1Results,
-        excludedNoteNotices: runtime.excludedNoteNotices ?? [],
-        titleMatchedNoteIds: runtime.titleMatchedNoteIds ?? [],
-        webNudge:            runtime.webNudge,
-        webGrounded:         runtime.webGrounded         ?? false,
+    const map = new Map<string, MessageMeta>(
+      persistedMeta.map((pm) => {
+        const runtime = runtimeMetaMap.get(pm.messageId) ?? {}
+        return [pm.messageId, {
+          sourceTitles:        runtime.sourceTitles        ?? pm.citations?.map(c => c.title) ?? [],
+          sourceNoteIds:       runtime.sourceNoteIds       ?? pm.citations?.map(c => c.noteId) ?? [],
+          usedEmbeddings:      pm.usedEmbeddings           ?? false,
+          confidence:          pm.confidence               ?? "medium",
+          relatedNotes:        runtime.relatedNotes        ?? [],
+          tier1Results:        runtime.tier1Results,
+          excludedNoteNotices: runtime.excludedNoteNotices ?? [],
+          titleMatchedNoteIds: pm.citations?.filter(c => c.isTitleMatch).map(c => c.noteId) ?? [],
+          webNudge:            runtime.webNudge,
+          webGrounded:         pm.usedWeb                  ?? false,
+        }]
       })
+    )
+    for (const [id, runtime] of runtimeMetaMap) {
+      if (!map.has(id)) {
+        map.set(id, {
+          sourceTitles:        runtime.sourceTitles        ?? [],
+          sourceNoteIds:       runtime.sourceNoteIds       ?? [],
+          usedEmbeddings:      runtime.usedEmbeddings      ?? false,
+          confidence:          runtime.confidence          ?? "medium",
+          relatedNotes:        runtime.relatedNotes        ?? [],
+          tier1Results:        runtime.tier1Results,
+          excludedNoteNotices: runtime.excludedNoteNotices ?? [],
+          titleMatchedNoteIds: runtime.titleMatchedNoteIds ?? [],
+          webNudge:            runtime.webNudge,
+          webGrounded:         runtime.webGrounded         ?? false,
+        })
+      }
     }
-  }
-  return map
-}, [persistedMeta, runtimeMetaMap])
+    return map
+  }, [persistedMeta, runtimeMetaMap])
 
-const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
+  const appWebSearch        = useAppSettings((s) => s.settings.web_search_enabled === 1)
   const { settings }        = useAppSettings()
   const autoSearch          = settings.web_search_auto_search === 1
 
-useEffect(() => {
-  if (!autoSearch || !appWebSearch) return
+  useEffect(() => {
+    if (!autoSearch || !appWebSearch) return
 
-  const lastMsg = messages[messages.length - 1]
-  if (!lastMsg || lastMsg.role !== "assistant") return
-  const meta = metaMap.get(lastMsg.id)
-  if (!meta || !meta.webNudge) return
-  if (dismissedNudges.has(lastMsg.id)) return
-  if (webResultsMap.has(lastMsg.id)) return
+    const lastMsg = messages[messages.length - 1]
+    if (!lastMsg || lastMsg.role !== "assistant") return
+    const meta = metaMap.get(lastMsg.id)
+    if (!meta || !meta.webNudge) return
+    if (dismissedNudges.has(lastMsg.id)) return
+    if (webResultsMap.has(lastMsg.id)) return
 
-  const prevMsg = messages[messages.length - 2]
-  const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
-  if (!userQuery) return
+    const prevMsg = messages[messages.length - 2]
+    const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
+    if (!userQuery) return
 
-  // Suppress auto-search for edit/intent and short declarative statements
-const { intent } = detectIntent(userQuery)
-if (intent === "edit" || intent === "inventory" || intent === "exploration") return
-  const words = userQuery.trim().split(/\s+/)
-  const QUESTION_WORDS = /\b(what|who|how|why|when|where|does|is|can|which)\b/i
-  if (words.length <= 8 && !QUESTION_WORDS.test(userQuery)) return
+    const { intent } = detectIntent(userQuery)
+    if (intent === "edit" || intent === "inventory" || intent === "exploration") return
+    const words = userQuery.trim().split(/\s+/)
+    const QUESTION_WORDS = /\b(what|who|how|why|when|where|does|is|can|which)\b/i
+    if (words.length <= 8 && !QUESTION_WORDS.test(userQuery)) return
 
-  console.log('[autoSearch] firing auto web search for:', userQuery)
-  const provider = getWebSearchProvider()
-  provider.search(userQuery).then((results) => {
-    console.log('[autoSearch] search results:', results.length, results[0])
-    setSuppressedNudges((prev) => new Set(prev).add(lastMsg.id))
-    handleWebSearch(userQuery, results)
-  }).catch(console.error)
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [messages, metaMap, autoSearch, dismissedNudges, webResultsMap])
+    console.log('[autoSearch] firing auto web search for:', userQuery)
+    const provider = getWebSearchProvider()
+    provider.search(userQuery).then((results) => {
+      console.log('[autoSearch] search results:', results.length, results[0])
+      setSuppressedNudges((prev) => new Set(prev).add(lastMsg.id))
+      handleWebSearch(userQuery, results)
+    }).catch(console.error)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, metaMap, autoSearch, dismissedNudges, webResultsMap])
 
-  // Keep refs in sync so handleSend always reads current values
   useEffect(() => {
     console.log('[ragScope sync] ragScope changed to:', ragScope)
     ragScopeRef.current = ragScope;
@@ -379,7 +374,6 @@ if (intent === "edit" || intent === "inventory" || intent === "exploration") ret
     });
   }, [addToast]);
 
-
   const primaryRotation = useAIStore((s) => s.primaryRotation);
   useEffect(() => {
     if (prevProviderRef.current === null) {
@@ -396,26 +390,39 @@ if (intent === "edit" || intent === "inventory" || intent === "exploration") ret
     prevModelRef.current    = primaryRotation.model;
   }, [primaryRotation, addToast]);
 
-useEffect(() => {
-  if (callError?.code === "ALL_EXHAUSTED") setAllExhausted(true);
-}, [callError]);
+  useEffect(() => {
+    if (callError?.code === "ALL_EXHAUSTED") setAllExhausted(true);
+  }, [callError]);
 
-useEffect(() => {
-  if (callError?.code !== "NETWORK_ERROR") return;
-  let remaining = 5;
-  setRetryCountdown(remaining);
-  const tick = setInterval(() => {
-    remaining -= 1;
-    if (remaining <= 0) {
-      clearInterval(tick);
+  // ── Network error: auto-retry with countdown, but also allow immediate retry ──
+  const retryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (callError?.code !== "NETWORK_ERROR") return;
+    let remaining = 5;
+    setRetryCountdown(remaining);
+
+    retryTimerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(retryTimerRef.current!)
+        retryTimerRef.current = null
+        setRetryCountdown(null);
+        handleRetry();
+      } else {
+        setRetryCountdown(remaining);
+      }
+    }, 1000);
+
+    return () => {
+      if (retryTimerRef.current) {
+        clearInterval(retryTimerRef.current)
+        retryTimerRef.current = null
+      }
       setRetryCountdown(null);
-      handleRetry();
-    } else {
-      setRetryCountdown(remaining);
-    }
-  }, 1000);
-  return () => { clearInterval(tick); setRetryCountdown(null); };
-}, [callError]);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callError]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -436,13 +443,12 @@ useEffect(() => {
   useEffect(() => {
     setPaneNote(paneId, noteId)
     setCallError(null)
+    setErrorAfterMessageId(null)
     setDismissedNudges(new Set())
     setWebResultsMap(new Map())
     setSuppressedNudges(new Set())
     setRuntimeMetaMap(new Map())
   }, [noteId]);
-
-   
 
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -455,7 +461,6 @@ useEffect(() => {
     return () => el.removeEventListener("scroll", onScroll)
   }, []);
 
-  // M5: Reactive subscription — watch note store for linked note lifecycle events
   useEffect(() => {
     if (!linkedNoteId) return;
     return useNoteStore.subscribe((state) => {
@@ -478,49 +483,47 @@ useEffect(() => {
   // ── Scope resolution ───────────────────────────────────────────────────────
 
   const resolveScopeNoteIds = useCallback(async (extraNoteIds?: string[]): Promise<string[] | undefined> => {
-  console.log('[scope] ragScope:', ragScopeRef.current, 'noteId:', noteId, 'currentNote:', currentNote?.title)
-  if (ragScopeRef.current === "all" && (!extraNoteIds || extraNoteIds.length === 0)) return undefined
-  let base: string[] = []
-  if (ragScopeRef.current === "note") {
-    const descendants = await getAllDescendants(noteId)
-    base = [noteId, ...descendants.map((d: { id: string }) => d.id)]
-    console.log('[scope] resolved noteIds:', base)
+    console.log('[scope] ragScope:', ragScopeRef.current, 'noteId:', noteId, 'currentNote:', currentNote?.title)
+    if (ragScopeRef.current === "all" && (!extraNoteIds || extraNoteIds.length === 0)) return undefined
+    let base: string[] = []
+    if (ragScopeRef.current === "note") {
+      const descendants = await getAllDescendants(noteId)
+      base = [noteId, ...descendants.map((d: { id: string }) => d.id)]
+      console.log('[scope] resolved noteIds:', base)
+    }
+    const merged = [...new Set([...base, ...(extraNoteIds ?? [])])]
+    return merged.length > 0 ? merged : undefined
+  }, [noteId])
+
+  // ── handleWebSearch ────────────────────────────────────────────────────────
+  async function handleDirectWebSearch() {
+    const q = input.trim()
+    if (!q || loading) return
+
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
+    }
+    addMessage(noteId, userMsg)
+    setInput("")
+    if (inputRef.current) inputRef.current.style.height = "auto"
+    setLoading(true)
+    setStreamStatus("Searching…")
+
+    try {
+      const scopeNoteIds = await resolveScopeNoteIds()
+
+      const [webResults, pipeline] = await Promise.all([
+        getWebSearchProvider().search(q).catch(() => [] as WebSearchResult[]),
+        runPipeline(q, currentNote, scopeNoteIds, undefined, setStreamStatus),
+      ])
+
+      await handleWebSearch(q, webResults, scopeNoteIds, pipeline)
+    } catch {
+      setLoading(false)
+      setStreamStatus(null)
+    }
   }
-  const merged = [...new Set([...base, ...(extraNoteIds ?? [])])]
-  return merged.length > 0 ? merged : undefined
-}, [noteId])
 
-  // ── M19: handleWebSearch function ─────────────────────────────────────────
-async function handleDirectWebSearch() {
-  const q = input.trim()
-  if (!q || loading) return
-
-  const userMsg: ChatMessage = {
-    id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
-  }
-  addMessage(noteId, userMsg)
-  setInput("")
-  if (inputRef.current) inputRef.current.style.height = "auto"
-  setLoading(true)
-  setStreamStatus("Searching…")
-
-  try {
-    const scopeNoteIds = await resolveScopeNoteIds()
-
-    // Fire web search and note pipeline simultaneously
-    const [webResults, pipeline] = await Promise.all([
-      getWebSearchProvider().search(q).catch(() => [] as WebSearchResult[]),
-      runPipeline(q, currentNote, scopeNoteIds, undefined, setStreamStatus),
-    ])
-
-    await handleWebSearch(q, webResults, scopeNoteIds, pipeline)
-  } catch {
-    setLoading(false)
-    setStreamStatus(null)
-  }
-}
-
-  
   async function handleWebSearch(
     userQuery:             string,
     webResults:            WebSearchResult[],
@@ -538,6 +541,7 @@ async function handleDirectWebSearch() {
     setLoading(true)
     setStreamingId(assistantId)
     setCallError(null)
+    setErrorAfterMessageId(null)
     setStreamStatus(prebuiltPipeline ? "Generating answer…" : "Searching the web…")
 
     const scopeNoteIds = resolvedScopeNoteIds ?? await resolveScopeNoteIds()
@@ -566,7 +570,6 @@ async function handleDirectWebSearch() {
         messages.slice(0, -2),
       )
 
-      // Persist the durable subset
       const pm: PersistedMeta = {
         messageId:      assistantId,
         confidence:     meta.confidence,
@@ -581,7 +584,6 @@ async function handleDirectWebSearch() {
       setPersistedMeta(noteId, assistantId, pm)
       await saveSession(noteId)
 
-      // Keep runtime-only fields in local state
       setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
         sourceTitles:        meta.sourceTitles,
         sourceNoteIds:       meta.sourceNoteIds,
@@ -601,8 +603,9 @@ async function handleDirectWebSearch() {
     const q = input.trim();
     if (!q || loading || isFreeTier) return;
 
+    const userMsgId = crypto.randomUUID();
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
+      id: userMsgId, role: "user", content: q, createdAt: Date.now(),
     };
     const assistantId = crypto.randomUUID();
     const assistantMsg: ChatMessage = {
@@ -613,13 +616,14 @@ async function handleDirectWebSearch() {
     addMessage(noteId, assistantMsg);
     await saveSession(noteId);
     setInput("");
-    setInput("")
     if (inputRef.current) {
       inputRef.current.style.height = "auto"
     }
     setLoading(true);
-    setStreamingId(assistantId);
     setCallError(null);
+    setErrorAfterMessageId(null);
+    setStreamingId(assistantId);  // set LAST — this is what gates the typing indicator
+    // streamStatus will be set by onStatus callback from the pipeline
 
     let errorHandled = false;
 
@@ -647,6 +651,7 @@ async function handleDirectWebSearch() {
           onError: (err: AICallError) => {
             errorHandled = true
             setStreamStatus(null)
+            // Remove empty assistant placeholder on error
             useChatSessionStore.setState((s) => {
               const sess = s.sessions[noteId]
               if (!sess) return s
@@ -656,18 +661,19 @@ async function handleDirectWebSearch() {
               setProviderStatus(primarySlot.provider, "error", err.message)
             }
             setCallError(err)
+            // Track which user message this error belongs to for inline rendering
+            setErrorAfterMessageId(userMsgId)
             setStreamingId(null)
             setLoading(false)
           },
           onStatus: (msg) => setStreamStatus(msg),
         },
-        undefined,   // overrideNoteIds
-        undefined,   // webResults
-        undefined,   // prebuiltPipeline
-        messages.slice(0, -2),    // sessionMessages
+        undefined,
+        undefined,
+        undefined,
+        messages.slice(0, -2),
       )
 
-      // Persist the durable subset
       const pm: PersistedMeta = {
         messageId:      assistantId,
         confidence:     meta.confidence,
@@ -682,7 +688,6 @@ async function handleDirectWebSearch() {
       setPersistedMeta(noteId, assistantId, pm)
       await saveSession(noteId)
 
-      // Keep runtime-only fields in local state
       setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
         sourceTitles:        meta.sourceTitles,
         sourceNoteIds:       meta.sourceNoteIds,
@@ -694,22 +699,21 @@ async function handleDirectWebSearch() {
       }))
     } catch (rawErr) {
       if (!errorHandled) {
-        // roll back the assistant placeholder
-            useChatSessionStore.setState((s) => {
-              const sess = s.sessions[noteId]
-              if (!sess) return s
-              return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
-            })
+        useChatSessionStore.setState((s) => {
+          const sess = s.sessions[noteId]
+          if (!sess) return s
+          return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
+        })
         const err = rawErr as Partial<AICallError>;
         setCallError(err?.code ? (rawErr as AICallError) : {
           code: "UNKNOWN", provider: primarySlot.provider, model: primarySlot.model,
           message: "Something went wrong. Please try again.", retryable: false, name: "AICallError",
         } as AICallError);
+        setErrorAfterMessageId(userMsgId)
         setStreamingId(null);
         setLoading(false);
       }
     }
-  // resolveScopeNoteIds uses refs so doesn't need to be a dep
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus, resolveScopeNoteIds]);
 
@@ -719,6 +723,7 @@ async function handleDirectWebSearch() {
 
   async function handleClear() {
     setCallError(null)
+    setErrorAfterMessageId(null)
     setOneTimeInclusions(new Set())
     setDismissedNudges(new Set())
     setWebResultsMap(new Map())
@@ -729,73 +734,101 @@ async function handleDirectWebSearch() {
   }
 
   function handleStop() {
-  abortRef.current?.abort()
-  abortRef.current = null
-  setStreamingId(null)
-  setLoading(false)
-}
+    abortRef.current?.abort()
+    abortRef.current = null
+    setStreamingId(null)
+    setLoading(false)
+  }
 
   const handleRetry = useCallback(async () => {
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
-  const lastUser      = [...messages].reverse().find((m) => m.role === "user")
-  if (!lastAssistant || !lastUser) return
-
-  setCallError(null)
-  setLoading(true)
-  setStreamingId(lastAssistant.id)
-  setMessageContent(noteId, lastAssistant.id, "")
-
-  const scopeNoteIds = await resolveScopeNoteIds()
-
-  try {
-    const meta = await streamChatWithNotes(
-      lastUser.content,
-      notes,
-      noteId,
-      currentNote,
-      scopeNoteIds,
-      {
-        onChunk: (token) => {
-          const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
-          const existing = current.messages.find((m) => m.id === lastAssistant.id)
-          setMessageContent(noteId, lastAssistant.id, (existing?.content ?? "") + token)
-          setStreamStatus(null)
-        },
-        onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
-        onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
-        onStatus: (msg) => setStreamStatus(msg),
-      },
-      undefined,   // overrideNoteIds
-      undefined,   // webResults
-      undefined,   // prebuiltPipeline
-      messages.slice(0, -2),    // sessionMessages
-    )
-
-    const pm: PersistedMeta = {
-      messageId:      lastAssistant.id,
-      confidence:     meta.confidence,
-      citations:      meta.sourceTitles.map((title, i) => ({
-        noteId:       meta.sourceNoteIds[i],
-        title,
-        isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
-      })),
-      usedWeb:        meta.webNudge !== undefined,
-      usedEmbeddings: meta.usedEmbeddings,
+    // Cancel any pending auto-retry countdown
+    if (retryTimerRef.current) {
+      clearInterval(retryTimerRef.current)
+      retryTimerRef.current = null
     }
-    setPersistedMeta(noteId, lastAssistant.id, pm)
-    await saveSession(noteId)
+    setRetryCountdown(null)
 
-    setRuntimeMetaMap((prev) => new Map(prev).set(lastAssistant.id, {
-      sourceTitles:        meta.sourceTitles,
-      sourceNoteIds:       meta.sourceNoteIds,
-      relatedNotes:        meta.relatedNotes,
-      tier1Results:        meta.tier1Results,
-      excludedNoteNotices: meta.excludedNoteNotices,
-      titleMatchedNoteIds: meta.titleMatchedNoteIds,
-      webNudge:            meta.webNudge,
-    }))
-  } catch { /* handled by onError */ }
-}, [messages, notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession])
+    const lastUser = [...messages].reverse().find((m) => m.role === "user")
+    if (!lastUser) return
+
+    // Find or create assistant message to stream into
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+
+    setCallError(null)
+    setErrorAfterMessageId(null)
+    setLoading(true)
+
+    let targetAssistantId: string
+
+    if (lastAssistant) {
+      targetAssistantId = lastAssistant.id
+      setStreamingId(lastAssistant.id)
+      setMessageContent(noteId, lastAssistant.id, "")
+    } else {
+      // No assistant message exists (was removed on error) — create a fresh one
+      targetAssistantId = crypto.randomUUID()
+      const newAssistantMsg: ChatMessage = {
+        id: targetAssistantId, role: "assistant", content: "", createdAt: Date.now(),
+      }
+      addMessage(noteId, newAssistantMsg)
+      setStreamingId(targetAssistantId)
+    }
+
+    const scopeNoteIds = await resolveScopeNoteIds()
+
+    try {
+      const meta = await streamChatWithNotes(
+        lastUser.content,
+        notes,
+        noteId,
+        currentNote,
+        scopeNoteIds,
+        {
+          onChunk: (token) => {
+            const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
+            const existing = current.messages.find((m) => m.id === targetAssistantId)
+            setMessageContent(noteId, targetAssistantId, (existing?.content ?? "") + token)
+            setStreamStatus(null)
+          },
+          onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+          onError: (err) => {
+            setStreamStatus(null); setStreamingId(null); setLoading(false)
+            setCallError(err)
+            setErrorAfterMessageId(lastUser.id)
+          },
+          onStatus: (msg) => setStreamStatus(msg),
+        },
+        undefined,
+        undefined,
+        undefined,
+        messages.slice(0, -2),
+      )
+
+      const pm: PersistedMeta = {
+        messageId:      targetAssistantId,
+        confidence:     meta.confidence,
+        citations:      meta.sourceTitles.map((title, i) => ({
+          noteId:       meta.sourceNoteIds[i],
+          title,
+          isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+        })),
+        usedWeb:        meta.webNudge !== undefined,
+        usedEmbeddings: meta.usedEmbeddings,
+      }
+      setPersistedMeta(noteId, targetAssistantId, pm)
+      await saveSession(noteId)
+
+      setRuntimeMetaMap((prev) => new Map(prev).set(targetAssistantId, {
+        sourceTitles:        meta.sourceTitles,
+        sourceNoteIds:       meta.sourceNoteIds,
+        relatedNotes:        meta.relatedNotes,
+        tier1Results:        meta.tier1Results,
+        excludedNoteNotices: meta.excludedNoteNotices,
+        titleMatchedNoteIds: meta.titleMatchedNoteIds,
+        webNudge:            meta.webNudge,
+      }))
+    } catch { /* handled by onError */ }
+  }, [messages, notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession, addMessage])
 
   function handleOpenNote(id: string) {
     if (paneId === 2) openTabInPane2(id);
@@ -803,94 +836,92 @@ async function handleDirectWebSearch() {
   }
 
   const handleOneTimeInclusion = useCallback(async (inclusionNoteId: string) => {
-  const allInclusions = [...oneTimeInclusions, inclusionNoteId];
-  setOneTimeInclusions(new Set(allInclusions));
+    const allInclusions = [...oneTimeInclusions, inclusionNoteId];
+    setOneTimeInclusions(new Set(allInclusions));
 
-  const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-  if (!lastUserMsg) return;
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
 
-  const assistantId = crypto.randomUUID();
-  const assistantMsg: ChatMessage = {
-    id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
-  };
-  addMessage(noteId, assistantMsg);
-  await saveSession(noteId);
-  setLoading(true);
-  setStreamingId(assistantId);
+    const assistantId = crypto.randomUUID();
+    const assistantMsg: ChatMessage = {
+      id: assistantId, role: "assistant", content: "", createdAt: Date.now(),
+    };
+    addMessage(noteId, assistantMsg);
+    await saveSession(noteId);
+    setLoading(true);
+    setStreamingId(assistantId);
 
-  const scopeNoteIds = await resolveScopeNoteIds(allInclusions);
+    const scopeNoteIds = await resolveScopeNoteIds(allInclusions);
 
-  try {
-    const meta = await streamChatWithNotes(
-      lastUserMsg.content,
-      notes,
-      noteId,
-      currentNote,
-      scopeNoteIds,
-      {
-        onChunk: (token) => {
-          const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
-          const existing = current.messages.find(m => m.id === assistantId)
-          setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
-          setStreamStatus(null)
+    try {
+      const meta = await streamChatWithNotes(
+        lastUserMsg.content,
+        notes,
+        noteId,
+        currentNote,
+        scopeNoteIds,
+        {
+          onChunk: (token) => {
+            const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+            const existing = current.messages.find(m => m.id === assistantId)
+            setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+            setStreamStatus(null)
+          },
+          onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+          onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
+          onStatus: (msg) => setStreamStatus(msg),
         },
-        onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
-        onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
-        onStatus: (msg) => setStreamStatus(msg),
-      },
-      allInclusions,  // overrideNoteIds
-      undefined,      // webResults
-      undefined,      // prebuiltPipeline
-      messages.slice(0, -1),  // sessionMessages
-    )
-    // Persist the durable subset
-    const pm: PersistedMeta = {
-      messageId:      assistantId,
-      confidence:     meta.confidence,
-      citations:      meta.sourceTitles.map((title, i) => ({
-        noteId:       meta.sourceNoteIds[i],
-        title,
-        isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
-      })),
-      usedWeb:        meta.webNudge !== undefined,
-      usedEmbeddings: meta.usedEmbeddings,
-    }
-    setPersistedMeta(noteId, assistantId, pm)
-    await saveSession(noteId)
+        allInclusions,
+        undefined,
+        undefined,
+        messages.slice(0, -1),
+      )
+      const pm: PersistedMeta = {
+        messageId:      assistantId,
+        confidence:     meta.confidence,
+        citations:      meta.sourceTitles.map((title, i) => ({
+          noteId:       meta.sourceNoteIds[i],
+          title,
+          isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+        })),
+        usedWeb:        meta.webNudge !== undefined,
+        usedEmbeddings: meta.usedEmbeddings,
+      }
+      setPersistedMeta(noteId, assistantId, pm)
+      await saveSession(noteId)
 
-    // Keep runtime-only fields in local state
-    setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
-      sourceTitles:        meta.sourceTitles,
-      sourceNoteIds:       meta.sourceNoteIds,
-      relatedNotes:        meta.relatedNotes,
-      tier1Results:        meta.tier1Results,
-      excludedNoteNotices: meta.excludedNoteNotices,
-      titleMatchedNoteIds: meta.titleMatchedNoteIds,
-      webNudge:            meta.webNudge,
-    }))
-  } catch { /* errors handled by onError above */ }
-}, [messages, notes, noteId, currentNote, oneTimeInclusions]);
+      setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
+        sourceTitles:        meta.sourceTitles,
+        sourceNoteIds:       meta.sourceNoteIds,
+        relatedNotes:        meta.relatedNotes,
+        tier1Results:        meta.tier1Results,
+        excludedNoteNotices: meta.excludedNoteNotices,
+        titleMatchedNoteIds: meta.titleMatchedNoteIds,
+        webNudge:            meta.webNudge,
+      }))
+    } catch { /* errors handled by onError above */ }
+  }, [messages, notes, noteId, currentNote, oneTimeInclusions]);
 
   function handleScopeToggle() {
-  if (ragScope === "note") {
-    setRagScope(noteId, "all");
-  } else {
-    setRagScope(noteId, "note");
+    if (ragScope === "note") {
+      setRagScope(noteId, "all");
+    } else {
+      setRagScope(noteId, "note");
+    }
   }
-}
 
   const hasNoEmbeddingMessage = [...metaMap.values()].some((m) => !m.usedEmbeddings);
 
   useEffect(() => {
-  setEmbeddingWarningDismissed(false);
-}, [messages.length]);
+    setEmbeddingWarningDismissed(false);
+  }, [messages.length]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-<div className="flex flex-col h-full w-[480px] shrink-0 border-l border-idemora-border bg-idemora-bg-primary">
+    <div className="flex flex-col h-full w-[480px] shrink-0 border-l border-idemora-border bg-idemora-bg-primary">
       {/* ── Header ── */}
-<div className="flex items-center justify-between px-3 py-1.5 shrink-0 border-b border-idemora-border/60">
+      <div className="flex items-center justify-between px-3 py-1.5 shrink-0 border-b border-idemora-border/60">
         <div className="flex items-center min-w-0">
           {isFreeTier && (
             <span className="text-sm font-medium text-idemora-text-muted truncate">
@@ -986,232 +1017,246 @@ async function handleDirectWebSearch() {
                 </button>
               </div>
             )}
-            {messages.map((msg, idx) => {
-  const meta        = metaMap.get(msg.id)
-  const isStreaming = msg.id === streamingId
-  const isLatest    = idx === messages.length - 1
-  const prevMsg     = idx > 0 ? messages[idx - 1] : null
- 
-  return (
-    <div key={msg.id} className="group/msg relative">
-      <MessageBubble
-        message={msg}
-        isStreaming={isStreaming}
-        isLatest={isLatest}
-        streamStatus={isStreaming ? streamStatus : null}
-        onCopy={(content) => {
-          const plain = content.replace(/\[web:[^\]]+\]/g, "").replace(/\[\d+\]/g, "").trim()
-          navigator.clipboard.writeText(plain).catch(console.error)
-          addToast("Copied")
-        }}
-        onEdit={msg.role === "user" ? (content) => setInput(content) : undefined}
-      />
- 
-      {/* Source footer — unchanged */}
-      {msg.role === "assistant" && meta && !isStreaming && (
-        <MessageFooter
-          meta={meta}
-          onOpenNote={handleOpenNote}
-          onOneTimeInclusion={handleOneTimeInclusion}
-          webSources={webResultsMap.get(msg.id)}
-          onCopy={() => {
-            const plain = msg.content.replace(/\[web:[^\]]+\]/g, "").replace(/\[\d+\]/g, "").trim()
-            navigator.clipboard.writeText(plain).catch(console.error)
-            addToast("Copied")
-          }}
-          onSave={!isFreeTier ? (() => {
-            const prevMsg = idx > 0 ? messages[idx - 1] : null
-            const userMsg = prevMsg?.role === "user" ? prevMsg : null
-            setSelectedMessage(userMsg ? {
-              user:      { role: "user",      content: userMsg.content },
-              assistant: { role: "assistant", content: msg.content },
-            } : null)
-            setSaveDialogOpen(true)
-          }) : undefined}
-          onRetry={isLatest && (!!callError || msg.content === "") ? handleRetry : undefined}
-          isLatest={isLatest}
-          createdAt={msg.createdAt}
 
-        />
-      )}
- 
-      {/* Web nudge — unchanged */}
-      {msg.role === "assistant" && meta && !isStreaming && meta.webNudge &&
-       !dismissedNudges.has(msg.id) && !suppressedNudges.has(msg.id) && (
-        <WebNudge
-          messageId={msg.id}
-          nudge={meta.webNudge}
-          query={prevMsg?.role === "user" ? prevMsg.content : ""}
-          onSearchComplete={(id, results) => {
-            setSuppressedNudges((prev) => new Set(prev).add(id))
-            const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
-            if (userQuery) handleWebSearch(userQuery, results)
-          }}
-          onDismiss={(id) => {
-            setDismissedNudges((prev) => new Set(prev).add(id))
-          }}
-        />
-      )}
- 
-      {/* ── OLD standalone save row removed — now inside MessageBubble ── */}
-    </div>
-  )
-})}
-            {callError && !allExhausted && (
-              <div className="mx-3 mt-1">
-                <ErrorCard
-  error={callError}
-  onDismiss={() => { setCallError(null); setRetryCountdown(null); }}
-  onRetry={handleRetry}
-  onCancelRetry={() => { setRetryCountdown(null); setCallError(null); }}
-  retryCountdown={retryCountdown}
-/>
-              </div>
-            )}
+            {messages.map((msg, idx) => {
+              const meta        = metaMap.get(msg.id)
+              const isStreaming = msg.id === streamingId
+              const isLatest    = idx === messages.length - 1
+              const prevMsg     = idx > 0 ? messages[idx - 1] : null
+
+              // Does this user message have an inline error after it?
+              const hasInlineError = msg.role === "user" && callError && !allExhausted && msg.id === errorAfterMessageId
+
+              return (
+                <div key={msg.id} className="group/msg relative">
+                  <MessageBubble
+                    message={msg}
+                    isStreaming={isStreaming}
+                    isLatest={isLatest}
+                    streamStatus={isStreaming ? streamStatus : null}
+                    onCopy={(content) => {
+                      const plain = content.replace(/\[web:[^\]]+\]/g, "").replace(/\[\d+\]/g, "").trim()
+                      navigator.clipboard.writeText(plain).catch(console.error)
+                      addToast("Copied")
+                    }}
+                    onEdit={msg.role === "user" ? (content) => setInput(content) : undefined}
+                    // Pass retry to user bubbles so the icon shows on hover
+                    onRetry={msg.role === "user" ? handleRetry : undefined}
+                  />
+
+                  {/* ── Inline error card — shown directly after the offending user message ── */}
+                  {hasInlineError && (
+                    <div className="mx-3 mt-1 mb-1">
+                      <ErrorCard
+                        error={callError!}
+                        onDismiss={() => { setCallError(null); setErrorAfterMessageId(null); setRetryCountdown(null); }}
+                        onRetry={handleRetry}
+                        onCancelRetry={() => {
+                          if (retryTimerRef.current) {
+                            clearInterval(retryTimerRef.current)
+                            retryTimerRef.current = null
+                          }
+                          setRetryCountdown(null);
+                          setCallError(null);
+                          setErrorAfterMessageId(null);
+                        }}
+                        retryCountdown={retryCountdown}
+                      />
+                    </div>
+                  )}
+
+                  {/* Source footer */}
+                  {msg.role === "assistant" && meta && !isStreaming && (
+                    <MessageFooter
+                      meta={meta}
+                      onOpenNote={handleOpenNote}
+                      onOneTimeInclusion={handleOneTimeInclusion}
+                      webSources={webResultsMap.get(msg.id)}
+                      onCopy={() => {
+                        const plain = msg.content.replace(/\[web:[^\]]+\]/g, "").replace(/\[\d+\]/g, "").trim()
+                        navigator.clipboard.writeText(plain).catch(console.error)
+                        addToast("Copied")
+                      }}
+                      onSave={!isFreeTier ? (() => {
+                        const prevMsg = idx > 0 ? messages[idx - 1] : null
+                        const userMsg = prevMsg?.role === "user" ? prevMsg : null
+                        setSelectedMessage(userMsg ? {
+                          user:      { role: "user",      content: userMsg.content },
+                          assistant: { role: "assistant", content: msg.content },
+                        } : null)
+                        setSaveDialogOpen(true)
+                      }) : undefined}
+                      onRetry={isLatest && msg.content === "" ? handleRetry : undefined}
+                      isLatest={isLatest}
+                      createdAt={msg.createdAt}
+                    />
+                  )}
+
+                  {/* Web nudge */}
+                  {msg.role === "assistant" && meta && !isStreaming && meta.webNudge &&
+                   !dismissedNudges.has(msg.id) && !suppressedNudges.has(msg.id) && (
+                    <WebNudge
+                      messageId={msg.id}
+                      nudge={meta.webNudge}
+                      query={prevMsg?.role === "user" ? prevMsg.content : ""}
+                      onSearchComplete={(id, results) => {
+                        setSuppressedNudges((prev) => new Set(prev).add(id))
+                        const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
+                        if (userQuery) handleWebSearch(userQuery, results)
+                      }}
+                      onDismiss={(id) => {
+                        setDismissedNudges((prev) => new Set(prev).add(id))
+                      }}
+                    />
+                  )}
+                </div>
+              )
+            })}
+
             <div ref={messagesEndRef} />
           </div>
         )}
-      {showScrollBtn && (
-<div className="sticky bottom-3 flex justify-center pointer-events-none">
-          <button
-            onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
-            className="pointer-events-auto w-8 h-8 flex items-center justify-center rounded-full bg-idemora-bg-secondary border border-idemora-border/60 text-idemora-text-muted hover:text-idemora-text-normal hover:border-idemora-border shadow-sm transition-all duration-150 cursor-pointer"
-            title="Scroll to bottom"
-          >
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <path d="M6.5 2v9M3 8l3.5 3.5L10 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        </div>
-      )}
+        {showScrollBtn && (
+          <div className="sticky bottom-3 flex justify-center pointer-events-none">
+            <button
+              onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
+              className="pointer-events-auto w-8 h-8 flex items-center justify-center rounded-full bg-idemora-bg-secondary border border-idemora-border/60 text-idemora-text-muted hover:text-idemora-text-normal hover:border-idemora-border shadow-sm transition-all duration-150 cursor-pointer"
+              title="Scroll to bottom"
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M6.5 2v9M3 8l3.5 3.5L10 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Input area ── */}
-{!isFreeTier && (
-  <div className="shrink-0 px-3 pt-2 pb-3">
-    <div className="rounded-2xl border border-idemora-border/60 bg-idemora-bg-secondary transition-all duration-150 focus-within:border-violet-500/30 focus-within:shadow-[0_0_0_1px_rgba(139,92,246,0.15)]">
+      {!isFreeTier && (
+        <div className="shrink-0 px-3 pt-2 pb-3">
+          <div className="rounded-2xl border border-idemora-border/60 bg-idemora-bg-secondary transition-all duration-150 focus-within:border-violet-500/30 focus-within:shadow-[0_0_0_1px_rgba(139,92,246,0.15)]">
 
-      {/* Textarea */}
-      <textarea
-        ref={inputRef}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Ask anything about your notes…"
-        rows={1}
-        className="w-full resize-none px-3 pt-3 pb-1 text-sm bg-transparent text-idemora-text-normal placeholder-idemora-text-muted/50 focus:outline-none leading-relaxed"
-        style={{ height: "auto", minHeight: "38px", maxHeight: "128px" }}
-        onInput={(e) => {
-          const el = e.currentTarget;
-          el.style.height = "auto";
-          el.style.height = Math.min(el.scrollHeight, 128) + "px";
-        }}
-      />
-
-      {/* Toolbar */}
-      <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-1">
-
-        {/* Left — context controls */}
-        <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
-          <button
-            onClick={handleScopeToggle}
-            title={
-              ragScope === "note"
-                ? `Scoped to "${currentNote?.title ?? "this note"}" — click to search all notes`
-                : `Searching all notes — click to scope to "${currentNote?.title ?? "this note"}"`
-            }
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-all duration-150 shrink-0 ${
-              ragScope === "note"
-                ? "text-violet-400 border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20"
-                : "text-idemora-text-muted border-idemora-border/60 hover:text-violet-400 hover:border-violet-400/40"
-            }`}
-          >
-            <svg width="10" height="10" viewBox="0 0 9 9" fill="none" className="shrink-0" aria-hidden="true">
-              {ragScope === "note" ? (
-                <><circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/><path d="M4.5 2.5v4M2.5 4.5h4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/></>
-              ) : (
-                <><rect x="1" y="1" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1"/><path d="M2.5 3h4M2.5 4.5h4M2.5 6h2.5" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/></>
-              )}
-            </svg>
-            {ragScope === "note" && currentNote?.title
-              ? `${currentNote.title.slice(0, 16)}${currentNote.title.length > 16 ? "…" : ""}`
-              : "All notes"}
-          </button>
-
-          {linkedNoteId && !linkedNoteDeleted && (
-            <button
-              onClick={() => {
-                if (linkedNoteId) {
-                  if (paneId === 2) openTabInPane2(linkedNoteId);
-                  else openTab(linkedNoteId);
-                }
+            {/* Textarea */}
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask anything about your notes…"
+              rows={1}
+              className="w-full resize-none px-3 pt-3 pb-1 text-sm bg-transparent text-idemora-text-normal placeholder-idemora-text-muted/50 focus:outline-none leading-relaxed"
+              style={{ height: "auto", minHeight: "38px", maxHeight: "128px" }}
+              onInput={(e) => {
+                const el = e.currentTarget;
+                el.style.height = "auto";
+                el.style.height = Math.min(el.scrollHeight, 128) + "px";
               }}
-              title={`Saves going to "${linkedNoteTitle ?? "note"}"`}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-violet-400 border border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20 transition-all duration-150 min-w-0 max-w-[120px]"
-            >
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0" aria-hidden="true">
-                <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
-                <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
-              </svg>
-              <span className="truncate">{linkedNoteTitle ?? "Saved"}</span>
-              <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60" aria-hidden="true">
-                <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          )}
+            />
 
-          {linkedNoteTrashed && (
-            <span className="text-[10px] text-amber-500 shrink-0">Linked note in trash</span>
-          )}
-          {linkedNoteDeleted && (
-            <span className="text-[10px] text-idemora-text-muted shrink-0">Note deleted</span>
-          )}
+            {/* Toolbar */}
+            <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-1">
+
+              {/* Left — context controls */}
+              <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
+                <button
+                  onClick={handleScopeToggle}
+                  title={
+                    ragScope === "note"
+                      ? `Scoped to "${currentNote?.title ?? "this note"}" — click to search all notes`
+                      : `Searching all notes — click to scope to "${currentNote?.title ?? "this note"}"`
+                  }
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-all duration-150 shrink-0 ${
+                    ragScope === "note"
+                      ? "text-violet-400 border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20"
+                      : "text-idemora-text-muted border-idemora-border/60 hover:text-violet-400 hover:border-violet-400/40"
+                  }`}
+                >
+                  <svg width="10" height="10" viewBox="0 0 9 9" fill="none" className="shrink-0" aria-hidden="true">
+                    {ragScope === "note" ? (
+                      <><circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1"/><path d="M4.5 2.5v4M2.5 4.5h4" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/></>
+                    ) : (
+                      <><rect x="1" y="1" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1"/><path d="M2.5 3h4M2.5 4.5h4M2.5 6h2.5" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/></>
+                    )}
+                  </svg>
+                  {ragScope === "note" && currentNote?.title
+                    ? `${currentNote.title.slice(0, 16)}${currentNote.title.length > 16 ? "…" : ""}`
+                    : "All notes"}
+                </button>
+
+                {linkedNoteId && !linkedNoteDeleted && (
+                  <button
+                    onClick={() => {
+                      if (linkedNoteId) {
+                        if (paneId === 2) openTabInPane2(linkedNoteId);
+                        else openTab(linkedNoteId);
+                      }
+                    }}
+                    title={`Saves going to "${linkedNoteTitle ?? "note"}"`}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-violet-400 border border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20 transition-all duration-150 min-w-0 max-w-[120px]"
+                  >
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="shrink-0" aria-hidden="true">
+                      <rect x="1" y="1" width="6" height="6" rx="0.8" stroke="currentColor" strokeWidth="1"/>
+                      <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+                    </svg>
+                    <span className="truncate">{linkedNoteTitle ?? "Saved"}</span>
+                    <svg width="7" height="7" viewBox="0 0 7 7" fill="none" className="shrink-0 opacity-60" aria-hidden="true">
+                      <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                )}
+
+                {linkedNoteTrashed && (
+                  <span className="text-[10px] text-amber-500 shrink-0">Linked note in trash</span>
+                )}
+                {linkedNoteDeleted && (
+                  <span className="text-[10px] text-idemora-text-muted shrink-0">Note deleted</span>
+                )}
+              </div>
+
+              {/* Right — execution controls */}
+              <div className="flex items-center gap-1 shrink-0">
+
+                {/* Web search */}
+                <button
+                  onClick={handleDirectWebSearch}
+                  disabled={!input.trim() || loading}
+                  title="Search the web directly"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-idemora-text-muted hover:text-sky-400 hover:bg-white/[0.04] border border-idemora-border/60 hover:border-sky-400/40 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
+                    <path d="M6 1.5C5 3 4.5 4.5 4.5 6s.5 3 1.5 4.5M6 1.5C7 3 7.5 4.5 7.5 6S7 9 6 10.5M1.5 6h9" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                  </svg>
+                </button>
+
+                {/* Model picker */}
+                <QuickSwitch />
+
+                {/* Send / Stop */}
+                <button
+                  onClick={loading ? handleStop : handleSend}
+                  disabled={!loading && !input.trim()}
+                  title={loading ? "Stop" : "Send (Enter)"}
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg text-white transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${
+                    loading ? "bg-violet-600 hover:bg-violet-700" : "bg-violet-500 hover:bg-violet-400"
+                  }`}
+                >
+                  {loading ? (
+                    <svg width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                      <circle cx="6" cy="6" r="5.5" stroke="currentColor" strokeWidth="1"/>
+                      <rect x="3.5" y="3.5" width="5" height="5" rx="0.8" fill="currentColor"/>
+                    </svg>
+                  ) : (
+                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                      <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-
-        {/* Right — execution controls */}
-        <div className="flex items-center gap-1 shrink-0">
-
-          {/* Web search */}
-          <button
-            onClick={handleDirectWebSearch}
-            disabled={!input.trim() || loading}
-            title="Search the web directly"
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-idemora-text-muted hover:text-sky-400 hover:bg-white/[0.04] border border-idemora-border/60 hover:border-sky-400/40 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M6 1.5C5 3 4.5 4.5 4.5 6s.5 3 1.5 4.5M6 1.5C7 3 7.5 4.5 7.5 6S7 9 6 10.5M1.5 6h9" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-            </svg>
-          </button>
-
-          {/* Model picker */}
-          <QuickSwitch />
-
-          {/* Send / Stop */}
-          <button
-            onClick={loading ? handleStop : handleSend}
-            disabled={!loading && !input.trim()}
-            title={loading ? "Stop" : "Send (Enter)"}
-            className={`w-7 h-7 flex items-center justify-center rounded-lg text-white transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${
-              loading ? "bg-violet-600 hover:bg-violet-700" : "bg-violet-500 hover:bg-violet-400"
-            }`}
-          >
-            {loading ? (
-              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                <circle cx="6" cy="6" r="5.5" stroke="currentColor" strokeWidth="1"/>
-                <rect x="3.5" y="3.5" width="5" height="5" rx="0.8" fill="currentColor"/>
-              </svg>
-            ) : (
-              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+      )}
 
       {/* ── Save dialog ── */}
       {saveDialogOpen && (
@@ -1257,7 +1302,6 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
 
   return (
     <div className="my-1.5 rounded-lg overflow-hidden border border-idemora-border/60">
-      {/* Header bar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-idemora-bg-secondary border-b border-idemora-border/40 sticky top-0 z-10">
         <span className="text-[10px] font-medium text-idemora-text-muted uppercase tracking-wider">
           {language ?? "code"}
@@ -1284,7 +1328,6 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
           )}
         </button>
       </div>
-      {/* Code body */}
       <pre className="overflow-x-auto p-3 text-xs leading-relaxed bg-[#22272e] dark:bg-[#22272e] bg-[#f6f8fa] dark:text-white m-0">
         <code
           dangerouslySetInnerHTML={{ __html: highlighted }}
@@ -1298,112 +1341,103 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  message, isStreaming, isLatest, onCopy, onEdit, streamStatus,
+  message, isStreaming, isLatest, onCopy, onEdit, onRetry, streamStatus,
 }: {
   message:       ChatMessage
   isStreaming:   boolean
   isLatest:      boolean
   onCopy:        (content: string) => void
   onEdit?:       (content: string) => void
+  onRetry?:      () => void
   streamStatus?: string | null
 }) {
   const isUser = message.role === "user"
 
   function renderWithCitations(text: string) {
-const cleaned = text
-  .replace(/\[web:[^\]]+\]/g, "")
-  .replace(/ \./g, ".")
+    const cleaned = text
+      .replace(/\[web:[^\]]+\]/g, "")
+      .replace(/ \./g, ".")
 
-  // Custom marked renderer for code blocks and tables
-  const renderer = new marked.Renderer()
+    const renderer = new marked.Renderer()
 
-  // Code blocks → collect for React rendering
-  const codeBlocks: Array<{ id: string; code: string; language?: string }> = []
-  renderer.code = ({ text: code, lang }) => {
-    const id = `cb-${crypto.randomUUID()}`
-    codeBlocks.push({ id, code, language: lang || undefined })
-    return `<code-block id="${id}"></code-block>`
+    const codeBlocks: Array<{ id: string; code: string; language?: string }> = []
+    renderer.code = ({ text: code, lang }) => {
+      const id = `cb-${crypto.randomUUID()}`
+      codeBlocks.push({ id, code, language: lang || undefined })
+      return `<code-block id="${id}"></code-block>`
+    }
+
+    renderer.table = ({ header, rows }) => {
+      const headerHtml = `<thead><tr>${header.map(h =>
+        `<th>${marked.parseInline(h.text, { async: false }) as string}</th>`
+      ).join("")}</tr></thead>`
+      const bodyHtml = `<tbody>${rows.map(row =>
+        `<tr>${row.map(cell =>
+          `<td>${marked.parseInline(cell.text, { async: false }) as string}</td>`
+        ).join("")}</tr>`
+      ).join("")}</tbody>`
+      return `<div class="table-wrap"><table>${headerHtml}${bodyHtml}</table></div>`
+    }
+
+    const html = marked.parse(cleaned, { async: false, renderer }) as string
+
+    const stripped = html.replace(/\[\d+(?:,\s*\d+)*\]/g, "")
+    const parts = stripped.split(/(<code-block id="[^"]+"><\/code-block>)/g)
+
+    return (
+      <div className="text-sm text-idemora-text-normal
+    [&_strong]:font-semibold [&_strong]:text-idemora-text-normal
+    [&_em]:italic
+    [&_p]:my-2 [&_p]:leading-relaxed [&_p]:first:mt-0 [&_p]:last:mb-0
+    [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:ml-4 [&_ul]:mt-1.5 [&_ul]:mb-1.5
+    [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:ml-4 [&_ol]:mt-1.5 [&_ol]:mb-1.5
+    [&_li]:my-1 [&_li]:leading-relaxed
+    [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-1 [&_h1]:text-idemora-text-normal [&_h1]:leading-snug
+    [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-0.5 [&_h2]:text-idemora-text-normal [&_h2]:border-b [&_h2]:border-idemora-border/40 [&_h2]:pb-0.5
+    [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-0.5 [&_h3]:text-idemora-text-normal
+    [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 
+    [&_blockquote]:border-violet-400/50 [&_blockquote]:pl-3 [&_blockquote]:py-1.5 [&_blockquote]:my-2 [&_blockquote]:bg-idemora-bg-secondary 
+    [&_blockquote]:rounded-r-md [&_blockquote]:pr-3
+    [&_hr]:border-none [&_hr]:border-t [&_hr]:border-idemora-border/40 [&_hr]:my-3
+    [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
+    [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:my-2
+    [&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_table]:border [&_table]:border-idemora-border/60
+    [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-semibold [&_th]:text-idemora-text-normal [&_th]:bg-idemora-bg-secondary [&_th]:border [&_th]:border-idemora-border/60
+    [&_td]:px-3 [&_td]:py-2 [&_td]:text-idemora-text-muted [&_td]:border [&_td]:border-idemora-border/60">
+        {parts.map((part, i) => {
+          const cbMatch = part.match(/^<code-block id="([^"]+)"><\/code-block>$/)
+          if (cbMatch) {
+            const block = codeBlocks.find((b) => b.id === cbMatch[1])
+            if (block) return <CodeBlock key={i} code={block.code} language={block.language} />
+          }
+          return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />
+        })}
+      </div>
+    )
   }
 
-  // Tables → wrap in scroll container
-  renderer.table = ({ header, rows }) => {
-    const headerHtml = `<thead><tr>${header.map(h =>
-      `<th>${marked.parseInline(h.text, { async: false }) as string}</th>`
-    ).join("")}</tr></thead>`
-    const bodyHtml = `<tbody>${rows.map(row =>
-      `<tr>${row.map(cell =>
-        `<td>${marked.parseInline(cell.text, { async: false }) as string}</td>`
-      ).join("")}</tr>`
-    ).join("")}</tbody>`
-    return `<div class="table-wrap"><table>${headerHtml}${bodyHtml}</table></div>`
-  }
-
-  const html = marked.parse(cleaned, { async: false, renderer }) as string
-
-  // Split on citations AND code-block placeholders
-  const stripped = html.replace(/\[\d+(?:,\s*\d+)*\]/g, "")
-  const parts = stripped.split(/(<code-block id="[^"]+"><\/code-block>)/g)
-
-  return (
-    <div className="text-sm text-idemora-text-normal
-  [&_strong]:font-semibold [&_strong]:text-idemora-text-normal
-  [&_em]:italic
-  [&_p]:my-2 [&_p]:leading-relaxed [&_p]:first:mt-0 [&_p]:last:mb-0
-  [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:ml-4 [&_ul]:mt-1.5 [&_ul]:mb-1.5
-  [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:ml-4 [&_ol]:mt-1.5 [&_ol]:mb-1.5
-  [&_li]:my-1 [&_li]:leading-relaxed
-  [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-1 [&_h1]:text-idemora-text-normal [&_h1]:leading-snug
-  [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-0.5 [&_h2]:text-idemora-text-normal [&_h2]:border-b [&_h2]:border-idemora-border/40 [&_h2]:pb-0.5
-  [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-0.5 [&_h3]:text-idemora-text-normal
-  [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 
-  [&_blockquote]:border-violet-400/50 [&_blockquote]:pl-3 [&_blockquote]:py-1.5 [&_blockquote]:my-2 [&_blockquote]:bg-idemora-bg-secondary 
-  [&_blockquote]:rounded-r-md [&_blockquote]:pr-3
-  [&_hr]:border-none [&_hr]:border-t [&_hr]:border-idemora-border/40 [&_hr]:my-3
-  [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
-  [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:my-2
-  [&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_table]:border [&_table]:border-idemora-border/60
-  [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-semibold [&_th]:text-idemora-text-normal [&_th]:bg-idemora-bg-secondary [&_th]:border [&_th]:border-idemora-border/60
-  [&_td]:px-3 [&_td]:py-2 [&_td]:text-idemora-text-muted [&_td]:border [&_td]:border-idemora-border/60">
-      {parts.map((part, i) => {
-       
-        // Code block placeholder
-        const cbMatch = part.match(/^<code-block id="([^"]+)"><\/code-block>$/)
-        if (cbMatch) {
-          const block = codeBlocks.find((b) => b.id === cbMatch[1])
-          if (block) return <CodeBlock key={i} code={block.code} language={block.language} />
-        }
-        // Regular HTML
-        return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />
-      })}
-    </div>
-  )
-}
-
-const [copied, setCopied] = useState(false)
-
-   
-
+  const [copied, setCopied] = useState(false)
 
   // ── User bubble ────────────────────────────────────────────────────────────
   if (isUser) {
     return (
       <div className="px-4 py-1.5 flex justify-end">
         <div className="flex flex-col items-end gap-0.5 max-w-[85%]">
-  <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed">
-    {message.content}
-  </div>
-  <div className={`flex items-center gap-0.5 transition-opacity duration-150 ${
-    isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
-  }`}>
-<span className="text-[10px] text-idemora-text-faint mr-1 select-none">
-  {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-</span>
-{/* Copy */}
-<button
-  onClick={() => { onCopy(message.content); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-  title={copied ? "Copied!" : "Copy"}
-  className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors duration-100"
->
+          <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed">
+            {message.content}
+          </div>
+          <div className={`flex items-center gap-0.5 transition-opacity duration-150 ${
+            isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+          }`}>
+            <span className="text-[10px] text-idemora-text-faint mr-1 select-none">
+              {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+            {/* Copy */}
+            <button
+              onClick={() => { onCopy(message.content); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+              title={copied ? "Copied!" : "Copy"}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors duration-100"
+            >
               {copied ? (
                 <svg width="15" height="15" viewBox="0 0 10 10" fill="none">
                   <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1428,6 +1462,19 @@ const [copied, setCopied] = useState(false)
                 </svg>
               </button>
             )}
+            {/* Retry — always present on user bubbles, shown on hover */}
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                title="Retry this message"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors duration-100"
+              >
+                <svg width="13" height="13" viewBox="0 0 10 10" fill="none">
+                  <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M1 1v2.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1439,7 +1486,7 @@ const [copied, setCopied] = useState(false)
     <div className="px-4 py-1.5">
       <div className="space-y-1">
 
-        {/* Typing indicator */}
+        {/* Typing indicator — only shown when streaming and no content yet */}
         {isStreaming && message.content === "" && (
           <div className="flex items-center gap-2.5 py-2">
             <div className="flex items-center gap-1 shrink-0">
@@ -1462,8 +1509,6 @@ const [copied, setCopied] = useState(false)
             )}
           </div>
         )}
-
-        
       </div>
     </div>
   )
@@ -1614,7 +1659,7 @@ function MessageFooter({
         <div className="border-t border-idemora-border/30" />
       )}
 
-      {/* Note source chips — 2 visible, rest folded */}
+      {/* Note source chips */}
       {hasNoteSources && (
         <NoteSourceChips
           titles={meta.sourceTitles}
@@ -1638,7 +1683,7 @@ function MessageFooter({
         </div>
       )}
 
-      {/* Related notes — collapsed by default */}
+      {/* Related notes */}
       {hasRelated && (
         <div>
           <button
@@ -1673,15 +1718,15 @@ function MessageFooter({
         </div>
       )}
 
-      {/* Action row — icon only */}
-<div className={`flex items-center gap-0.5 pt-1 border-t border-idemora-border/20 transition-opacity duration-150 ${
-  isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
-}`}>
-  <span className="text-[10px] text-idemora-text-faint mr-1 select-none">
-    {new Date(createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-  </span>
-  <button
-    onClick={() => { onCopy(); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+      {/* Action row */}
+      <div className={`flex items-center gap-0.5 pt-1 border-t border-idemora-border/20 transition-opacity duration-150 ${
+        isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+      }`}>
+        <span className="text-[10px] text-idemora-text-faint mr-1 select-none">
+          {new Date(createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </span>
+        <button
+          onClick={() => { onCopy(); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
           title={copied ? "Copied!" : "Copy"}
           className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.06] transition-colors duration-100"
         >
@@ -1849,15 +1894,16 @@ function ErrorCard({ error, onDismiss, onRetry, onCancelRetry, retryCountdown }:
           <QuickSwitch defaultOpen={false} />
         </div>
       )}
-{cfg.showRetry && error.retryable && (
+      {cfg.showRetry && error.retryable && (
         <div className="flex items-center gap-2 pt-0.5">
+          {/* Retry button — clickable even during countdown to skip the wait */}
           <button
             onClick={() => { onDismiss(); onRetry?.(); }}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-600 border border-red-200 hover:bg-red-200 transition-colors duration-100"
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-600 border border-red-200 hover:bg-red-200 active:bg-red-300 transition-colors duration-100"
           >
-            {retryCountdown != null ? `Retrying in ${retryCountdown}s…` : "Retry"}
+            {retryCountdown != null ? `Retry now (${retryCountdown}s)` : "Retry"}
           </button>
-{retryCountdown != null && onCancelRetry && (
+          {retryCountdown != null && onCancelRetry && (
             <button
               onClick={onCancelRetry}
               className="text-[10px] text-red-400 hover:text-red-600 transition-colors duration-100"
@@ -1908,8 +1954,6 @@ function EmptyState({ currentNoteTitle, onSuggest }: { currentNoteTitle?: string
 
   return (
     <div className="flex flex-col px-5 py-6 gap-5">
-
-      {/* Heading block */}
       <div className="space-y-2">
         <p className="text-lg font-bold text-idemora-text-normal leading-snug">
           Ask your notes anything
@@ -1921,7 +1965,6 @@ function EmptyState({ currentNoteTitle, onSuggest }: { currentNoteTitle?: string
 
       <div className="border-t border-idemora-border/30" />
 
-      {/* Suggestions */}
       <div className="space-y-1">
         <p className="text-sm font-bold text-idemora-text-normal mb-2">Try asking</p>
         {suggestions.map((s, i) => (
@@ -1931,14 +1974,12 @@ function EmptyState({ currentNoteTitle, onSuggest }: { currentNoteTitle?: string
 
       <div className="border-t border-idemora-border/30" />
 
-      {/* Tip */}
       <div className="space-y-1.5">
         <p className="text-sm font-bold text-idemora-text-normal">Tip</p>
         <p className="text-sm text-idemora-text-muted leading-relaxed">
           Run <span className="font-semibold text-idemora-text-normal">Summarize</span> on a note first — it builds context that makes answers much richer.
         </p>
       </div>
-
     </div>
   );
 }

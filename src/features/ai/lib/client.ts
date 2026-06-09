@@ -66,9 +66,9 @@ export class AICallError extends Error {
     this.name = "AICallError";
   }
 
-  get retryable(): boolean {
-    return this.code === "RATE_LIMITED" || this.code === "OVERLOADED";
-  }
+get retryable(): boolean {
+  return this.code === "RATE_LIMITED" || this.code === "OVERLOADED" || this.code === "NETWORK_ERROR";
+}
 }
 
 // ─── RPM/RPD classification ───────────────────────────────────────────────────
@@ -641,13 +641,27 @@ async function dispatchChat(
         continue;
       }
 
-      // Non-retryable (AUTH_FAILED, NETWORK_ERROR, etc.)
-      logCallError({
-        slot: logSlot, provider, model, latencyMs,
-        errorCode:    normalised.code,
-        errorMessage: normalised.message,
-      });
-      throw normalised;
+      // NETWORK_ERROR — retry with backoff
+if (normalised.code === "NETWORK_ERROR") {
+  logCallError({
+    slot: logSlot, provider, model, latencyMs,
+    errorCode:    normalised.code,
+    errorMessage: `${normalised.message} — retry attempt ${attempt + 1}/${RETRY_ATTEMPTS}`,
+  });
+  if (attempt < RETRY_ATTEMPTS - 1) {
+    await sleep(backoffMs(attempt));
+    continue;
+  }
+  throw normalised;
+}
+
+// Non-retryable (AUTH_FAILED, etc.)
+logCallError({
+  slot: logSlot, provider, model, latencyMs,
+  errorCode:    normalised.code,
+  errorMessage: normalised.message,
+});
+throw normalised;
     }
   }
 
