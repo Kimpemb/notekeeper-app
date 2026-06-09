@@ -54,9 +54,14 @@ export function markdownToContent(md: string): { content: string; plaintext: str
 }
 
 export function looksLikeMarkdown(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return false
+  }
+
   return /^#{1,6} /m.test(text)          // headings
-    || /\*\*.+\*\*/s.test(text)           // bold
-    || /\*.+\*/s.test(text)               // italic
+    || /\*\*.+\*\*/m.test(text)           // bold (no dotall — must be same line)
+    || /(?<!\*)\*(?!\*)[^\n*\/]+\*(?!\*)/m.test(text) // italic (same line, not ** or /*/)
     || /^- /m.test(text)                  // bullet list
     || /^\* /m.test(text)                 // bullet list (asterisk)
     || /^\d+\. /m.test(text)              // ordered list
@@ -65,6 +70,6 @@ export function looksLikeMarkdown(text: string): boolean {
     || /^---$/m.test(text)                // horizontal rule
     || /\[.+\]\(.+\)/.test(text)          // link
     || /`[^`]+`/.test(text)               // inline code
-    || /~~.+~~/.test(text)                // strikethrough
+    || /~~.+~~/m.test(text)               // strikethrough (no dotall)
     || /^\|.+\|/m.test(text)              // table
 }

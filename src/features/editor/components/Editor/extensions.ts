@@ -864,7 +864,22 @@ export const MarkdownPasteExtension = Extension.create({
           handlePaste(view, event) {
             const plain = event.clipboardData?.getData("text/plain")?.trim()
             const html  = event.clipboardData?.getData("text/html")?.trim()
+           
             if (!plain) return false
+
+            const { $from } = view.state.selection
+            for (let d = $from.depth; d >= 0; d--) {
+            }
+
+            const inCodeBlock = $from.parent.type.name === "codeBlock"
+              || (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "codeBlock") return true } return false })()
+            if (inCodeBlock) {
+              const { state, dispatch } = view
+              const { from, to } = state.selection
+              const tr = state.tr.insertText(plain, from, to)
+              dispatch(tr)
+              return true
+            }
 
             // ── URL only → show inline prompt ─────────────────────────────
             if (URL_REGEX.test(plain)) {
@@ -876,12 +891,60 @@ export const MarkdownPasteExtension = Extension.create({
               return true
             }
 
-            // ── If HTML is present (copied from ChatPanel or browser),
-            //    check if plain text looks like markdown.
-            //    If yes, use our markdown pipeline instead of Tiptap's
-            //    HTML paste — gives consistent formatting regardless of source.
-            //    If no, let Tiptap handle the HTML natively.
-            if (html && !looksLikeMarkdown(plain)) return false
+            // ── If HTML is present, check if it looks like code/config.
+            //    If so, wrap in a code fence so it pastes as a single block.
+            if (html) {
+              const trimmed = plain.trim()
+              const looksLikeCode = (() => {
+                try {
+                  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                    JSON.parse(trimmed)
+                    return true
+                  }
+                } catch { /* not valid JSON */ }
+                // Multi-line content with no markdown signals — treat as code
+                const lines = trimmed.split("\n")
+                if (lines.length > 3 && !looksLikeMarkdown(plain)) return true
+                return false
+              })()
+
+              if (looksLikeCode) {
+                try {
+                  const doc = markdownToDoc("```\n" + plain + "\n```") as { content: unknown[] }
+                  const nodes = doc.content
+                  if (!nodes?.length) return false
+                  const { state, dispatch } = view
+                  const { from, to } = state.selection
+                  const parsedSlice = state.schema.nodeFromJSON({ type: "doc", content: nodes })
+                  const tr = state.tr.replaceWith(from, to, parsedSlice.content)
+                  dispatch(tr)
+                  return true
+                } catch (err) {
+                  console.warn("[markdownPaste] code wrap failed:", err)
+                  return false
+                }
+              }
+
+              if (!looksLikeMarkdown(plain)) return false
+            }
+
+            // ── Plain code/JSON (no HTML source) → wrap in code block ─────
+            if (!html && !looksLikeMarkdown(plain) && plain.includes("\n")) {
+              try {
+                const { state, dispatch } = view
+                const { from, to } = state.selection
+                const codeBlock = state.schema.nodes.codeBlock.create(
+                  { language: null },
+                  state.schema.text(plain)
+                )
+                const tr = state.tr.replaceWith(from, to, codeBlock)
+                dispatch(tr)
+                return true
+              } catch (err) {
+                console.warn("[markdownPaste] code block wrap failed:", err)
+                return false
+              }
+            }
 
             // ── Markdown → parse and insert ───────────────────────────────
             if (looksLikeMarkdown(plain)) {
