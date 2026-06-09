@@ -175,9 +175,52 @@ function SearchResultsView({
     );
   }
 
+  const hasResults = results.length > 0;
+
   return (
-    <div className="space-y-4">
-      {results.length > 0 && (
+    <div className="space-y-2">
+      {/* Create button — always at top, prominent when no results, muted when results exist */}
+      {hasResults ? (
+        <button
+          onClick={onCreateFromQuery}
+          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-left hover:bg-idemora-bg-secondary transition-all duration-150 group"
+        >
+          <div className="w-4 h-4 rounded flex items-center justify-center text-idemora-text-faint group-hover:text-idemora-text-muted transition-colors shrink-0">
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+              <path d="M4 1v6M1 4h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </div>
+          <span className="text-xs text-idemora-text-faint group-hover:text-idemora-text-muted transition-colors">
+            Create <span className="font-medium">"{query}"</span>
+          </span>
+          <kbd className="ml-auto px-1.5 py-0.5 text-[9px] font-mono bg-idemora-bg-secondary border border-idemora-border rounded text-idemora-text-faint shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            ↵
+          </kbd>
+        </button>
+      ) : (
+        <button
+          onClick={onCreateFromQuery}
+          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-dashed border-idemora-border/60 hover:border-blue-500/40 hover:bg-blue-500/[0.04] transition-all duration-150 group"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-5 h-5 rounded-md bg-idemora-bg-secondary border border-idemora-border flex items-center justify-center group-hover:border-blue-500/40 transition-colors shrink-0">
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                <path d="M4 1v6M1 4h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </div>
+            <span className="text-sm text-idemora-text-muted group-hover:text-idemora-text-normal transition-colors">
+              Create{" "}
+              <span className="font-medium text-idemora-text-normal">"{query}"</span>
+            </span>
+          </div>
+          <kbd className="px-1.5 py-0.5 text-[9px] font-mono bg-idemora-bg-secondary border border-idemora-border rounded text-idemora-text-faint shrink-0">
+            ↵
+          </kbd>
+        </button>
+      )}
+
+      {/* Results */}
+      {hasResults && (
         <div>
           <SectionLabel aside={`${results.length} found`}>Results</SectionLabel>
           <ul className="space-y-0.5">
@@ -195,26 +238,6 @@ function SearchResultsView({
           </ul>
         </div>
       )}
-
-      <button
-        onClick={onCreateFromQuery}
-        className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-dashed border-idemora-border/60 hover:border-blue-500/40 hover:bg-blue-500/[0.04] transition-all duration-150 group"
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="w-5 h-5 rounded-md bg-idemora-bg-secondary border border-idemora-border flex items-center justify-center group-hover:border-blue-500/40 transition-colors shrink-0">
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-              <path d="M4 1v6M1 4h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </div>
-          <span className="text-sm text-idemora-text-muted group-hover:text-idemora-text-normal transition-colors">
-            Create{" "}
-            <span className="font-medium text-idemora-text-normal">"{query}"</span>
-          </span>
-        </div>
-        <kbd className="px-1.5 py-0.5 text-[9px] font-mono bg-idemora-bg-secondary border border-idemora-border rounded text-idemora-text-faint shrink-0">
-          ↵
-        </kbd>
-      </button>
     </div>
   );
 }

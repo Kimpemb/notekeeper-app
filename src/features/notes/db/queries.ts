@@ -1050,6 +1050,16 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     await runBodyLike();
   }
 
+  // Boost title matches to the top — exact first, then startsWith, then contains
+  const needle = bare.toLowerCase();
+  results.sort((a, b) => {
+    const aTitle = a.title.toLowerCase();
+    const bTitle = b.title.toLowerCase();
+    const score = (t: string) =>
+      t === needle ? 3 : t.startsWith(needle) ? 2 : t.includes(needle) ? 1 : 0;
+    return score(bTitle) - score(aTitle);
+  });
+
   return results.slice(0, limit);
 }
 
