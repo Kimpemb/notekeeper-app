@@ -225,6 +225,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [streamStatus, setStreamStatus] = useState<string | null>(null)
   const [indexingPaused, setIndexingPaused] = useState(false);
   const [allExhausted, setAllExhausted]     = useState(false);
+const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [embeddingWarningDismissed, setEmbeddingWarningDismissed] = useState(false);
   const [oneTimeInclusions, setOneTimeInclusions] = useState<Set<string>>(new Set());
@@ -395,9 +396,26 @@ if (intent === "edit" || intent === "inventory" || intent === "exploration") ret
     prevModelRef.current    = primaryRotation.model;
   }, [primaryRotation, addToast]);
 
-  useEffect(() => {
-    if (callError?.code === "ALL_EXHAUSTED") setAllExhausted(true);
-  }, [callError]);
+useEffect(() => {
+  if (callError?.code === "ALL_EXHAUSTED") setAllExhausted(true);
+}, [callError]);
+
+useEffect(() => {
+  if (callError?.code !== "NETWORK_ERROR") return;
+  let remaining = 5;
+  setRetryCountdown(remaining);
+  const tick = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      clearInterval(tick);
+      setRetryCountdown(null);
+      handleRetry();
+    } else {
+      setRetryCountdown(remaining);
+    }
+  }, 1000);
+  return () => { clearInterval(tick); setRetryCountdown(null); };
+}, [callError]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1041,7 +1059,13 @@ async function handleDirectWebSearch() {
 })}
             {callError && !allExhausted && (
               <div className="mx-3 mt-1">
-                <ErrorCard error={callError} onDismiss={() => setCallError(null)} />
+                <ErrorCard
+  error={callError}
+  onDismiss={() => { setCallError(null); setRetryCountdown(null); }}
+  onRetry={handleRetry}
+  onCancelRetry={() => { setRetryCountdown(null); setCallError(null); }}
+  retryCountdown={retryCountdown}
+/>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -1784,10 +1808,16 @@ function Tier1ResultCards({ cards, onOpenNote }: { cards: Tier1ResultCard[]; onO
 
 // ─── Error card ───────────────────────────────────────────────────────────────
 
-function ErrorCard({ error, onDismiss }: { error: AICallError; onDismiss: () => void }) {
+function ErrorCard({ error, onDismiss, onRetry, onCancelRetry, retryCountdown }: {
+  error:            AICallError;
+  onDismiss:        () => void;
+  onRetry?:         () => void;
+  onCancelRetry?:   () => void;
+  retryCountdown?:  number | null;
+}) {
   const configs: Record<string, { title: string; body: string; showSwitch: boolean; showRetry: boolean }> = {
-    NETWORK_ERROR: { title: "No connection",        body: "Couldn't reach the provider. Check your internet and try again.", showSwitch: false, showRetry: false },
-    AUTH_FAILED:   { title: "Invalid API key",      body: `Your ${error.provider} key was rejected. Switch to another provider or update the key in Settings → AI.`, showSwitch: true, showRetry: false },
+    NETWORK_ERROR: { title: "No connection",        body: "Couldn't reach the provider. Check your internet and try again.", showSwitch: false, showRetry: true },
+    AUTH_FAILED:   { title: "Invalid API key",     body: `The API key for ${error.provider} was rejected. Check your key in Settings → AI, or switch providers.`, showSwitch: true, showRetry: false },
     QUOTA_EXCEEDED:{ title: "Quota exhausted",      body: `You've hit your ${error.provider} limit. Switch providers or upgrade your plan.`, showSwitch: true, showRetry: false },
     RATE_LIMITED:  { title: "Rate limited",         body: `Too many requests to ${error.provider}. Wait a moment, or switch to another provider.`, showSwitch: true, showRetry: true },
     OVERLOADED:    { title: "Provider overloaded",  body: `${error.provider} is under heavy load right now. Try again or switch.`, showSwitch: true, showRetry: true },
@@ -1819,8 +1849,23 @@ function ErrorCard({ error, onDismiss }: { error: AICallError; onDismiss: () => 
           <QuickSwitch defaultOpen={false} />
         </div>
       )}
-      {cfg.showRetry && error.retryable && (
-        <p className="text-[10px] text-red-400">Dismiss this and try again — it may resolve itself.</p>
+{cfg.showRetry && error.retryable && (
+        <div className="flex items-center gap-2 pt-0.5">
+          <button
+            onClick={() => { onDismiss(); onRetry?.(); }}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-600 border border-red-200 hover:bg-red-200 transition-colors duration-100"
+          >
+            {retryCountdown != null ? `Retrying in ${retryCountdown}s…` : "Retry"}
+          </button>
+{retryCountdown != null && onCancelRetry && (
+            <button
+              onClick={onCancelRetry}
+              className="text-[10px] text-red-400 hover:text-red-600 transition-colors duration-100"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
