@@ -5,6 +5,8 @@ import { useNoteSearch } from "@/features/notes/hooks/useNoteSearch";
 import { useOpenNoteWithScroll } from "@/features/notes/hooks/useOpenNoteWithScroll";
 import { snippetKind, SnippetText, TagIcon } from "./searchUtils";
 import type { SearchResult } from "@/features/notes/db/queries";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { countMatchesInContent } from "@/features/editor/components/Editor/editorUtils";
 
 interface Props {
   query: string;
@@ -18,9 +20,8 @@ function useEditorMatchCount(query: string, activeNoteId: string | null, onCount
     if (!activeNoteId || !query.trim()) return;
     // Wait for editor to mount and scroll to settle
     const timer = setTimeout(() => {
-const activeEditor = useUIStore.getState().activeEditor
-console.log("[matchCount] activeEditor=", activeEditor, "query=", query)
-if (!activeEditor || activeEditor.isDestroyed) return
+      const activeEditor = useUIStore.getState().activeEditor
+      if (!activeEditor || activeEditor.isDestroyed) return
       let count = 0
       const needle  = query.trim().toLowerCase()
       const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -38,46 +39,56 @@ if (!activeEditor || activeEditor.isDestroyed) return
 
 // ── Match cycler UI ───────────────────────────────────────────────────────────
 
-function MatchCycler({ current, total, onPrev, onNext }: {
+function TileMatchControl({ count, active, current, onPrev, onNext }: {
+  count:   number;
+  active:  boolean;
   current: number;
-  total:   number;
   onPrev:  () => void;
   onNext:  () => void;
 }) {
-  return (
-    <div className="flex items-center gap-1.5 px-1">
-      <span className="text-[10px] text-idemora-text-muted tabular-nums">
-        {current + 1}/{total} matches
+  if (count === 0) return null;
+
+  if (!active) {
+    return (
+      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-idemora-text-muted opacity-50">
+        {count}×
       </span>
-      <div className="flex items-center gap-0.5 ml-auto">
-        <button
-          onClick={onPrev}
-          disabled={current === 0}
-          className="w-5 h-5 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-75"
-          title="Previous match"
-        >
-          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-            <path d="M4 6.5L1.5 4 4 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        <button
-          onClick={onNext}
-          disabled={current === total - 1}
-          className="w-5 h-5 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-75"
-          title="Next match"
-        >
-          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-            <path d="M4 1.5L6.5 4 4 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-      </div>
+    );
+  }
+
+  return (
+    <div className="ml-auto flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={(e) => { e.stopPropagation(); onPrev(); }}
+        disabled={current === 0}
+        className="w-4 h-4 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-75"
+        title="Previous match"
+      >
+        <svg width="7" height="7" viewBox="0 0 8 8" fill="none">
+          <path d="M1.5 5.5L4 2.5l2.5 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      <span className="text-[10px] tabular-nums text-idemora-text-muted min-w-[24px] text-center">
+        {current + 1}/{count}
+      </span>
+      <button
+        onClick={(e) => { e.stopPropagation(); onNext(); }}
+        disabled={current === count - 1}
+        className="w-4 h-4 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-75"
+        title="Next match"
+      >
+        <svg width="7" height="7" viewBox="0 0 8 8" fill="none">
+          <path d="M1.5 2.5L4 5.5l2.5-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
     </div>
-  )
+  );
 }
 
 export function SearchResults({ query }: Props) {
   const openNote             = useOpenNoteWithScroll(1);
   const { results, loading } = useNoteSearch(query);
+  const notes                = useNoteStore((s) => s.notes);
 
   const setPendingScrollQuery = useUIStore((s) => s.setPendingScrollQuery);
   const setPendingScrollIndex = useUIStore((s) => s.setPendingScrollIndex);
@@ -88,11 +99,13 @@ export function SearchResults({ query }: Props) {
   const [matchCount, setMatchCount]       = useState(0);
   const [matchIndex, setMatchIndex]       = useState(0);
 
-  const listRef  = useRef<HTMLUListElement>(null);
-  const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
+  const listRef       = useRef<HTMLUListElement>(null);
+  const itemRefs      = useRef<(HTMLLIElement | null)[]>([]);
+  const noteIndexMap  = useRef<Map<string, number>>(new Map());
 
   // Reset cycling state when query changes
   useEffect(() => {
+    noteIndexMap.current.clear();
     if (!query.trim()) { setSearched(false); setSelectedIndex(0); setActiveNoteId(null); setMatchCount(0); setMatchIndex(0); return; }
     setSearched(true);
     setSelectedIndex(0);
@@ -145,21 +158,22 @@ export function SearchResults({ query }: Props) {
   function handleResultClick(result: SearchResult, index: number) {
     setSelectedIndex(index);
     setActiveNoteId(result.id);
-    setMatchIndex(0);
-    // We don't know matchCount yet — editor will scroll to index 0
-    // matchCount gets set via the counter UI after editor mounts
+    const savedIndex = noteIndexMap.current.get(result.id) ?? 0;
+    setMatchIndex(savedIndex);
+    setPendingScrollIndex(savedIndex);
     openNote(result.id, query);
   }
 
-function handleCycleMatch(dir: 1 | -1) {
-  const next = Math.max(0, Math.min(matchCount - 1, matchIndex + dir));
-  setMatchIndex(next);
-  setPendingScrollQuery(null);
-  setTimeout(() => {
-    setPendingScrollIndex(next);
-    setPendingScrollQuery(query);
-  }, 0);
-}
+  function handleCycleMatch(dir: 1 | -1) {
+    const next = Math.max(0, Math.min(matchCount - 1, matchIndex + dir));
+    setMatchIndex(next);
+    if (activeNoteId) noteIndexMap.current.set(activeNoteId, next);
+    setPendingScrollQuery(null);
+    setTimeout(() => {
+      setPendingScrollIndex(next);
+      setPendingScrollQuery(query);
+    }, 0);
+  }
 
   function handleMatchCount(count: number) {
     setMatchCount(count);
@@ -236,9 +250,16 @@ function handleCycleMatch(dir: 1 | -1) {
                     strokeLinecap="round"
                   />
                 </svg>
-                <span className="text-xs font-medium text-idemora-text-normal truncate">
+                <span className="text-xs font-medium text-idemora-text-normal truncate flex-1">
                   {result.title}
                 </span>
+                <TileMatchControl
+                  count={isActive && result.id === activeNoteId && matchCount > 0 ? matchCount : countMatchesInContent(result.id, notes.find((n) => n.id === result.id)?.content, query)}
+                  active={isActive && result.id === activeNoteId && matchCount > 1}
+                  current={matchIndex}
+                  onPrev={() => handleCycleMatch(-1)}
+                  onNext={() => handleCycleMatch(1)}
+                />
               </div>
               {result.snippet && (() => {
                 const kind = snippetKind(result.snippet);
@@ -281,17 +302,6 @@ function handleCycleMatch(dir: 1 | -1) {
           <p className="text-[10px] text-idemora-text-normal tabular-nums">
             {results.length} result{results.length !== 1 ? "s" : ""}
           </p>
-        </li>
-      )}
-
-      {activeNoteId && matchCount > 1 && (
-        <li className="px-2.5 py-1.5">
-          <MatchCycler
-            current={matchIndex}
-            total={matchCount}
-            onPrev={() => handleCycleMatch(-1)}
-            onNext={() => handleCycleMatch(1)}
-          />
         </li>
       )}
     </ul>

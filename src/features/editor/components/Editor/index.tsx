@@ -58,7 +58,7 @@ import {
 
 import {
   extractNoteLinkIds, scrollToHeadingText, scrollToQuery,
-  buildSearchHighlightPlugin, getScrollContainer,
+  buildSearchHighlightPlugin, getScrollContainer, clearSearchHighlight,
 } from "./editorUtils";
 import {
   pickImageFile, readImageFile, saveImage,
@@ -421,6 +421,16 @@ useEffect(() => {
   setActiveEditor(editor)
   return () => setActiveEditor(null)
 }, [editor])
+
+useEffect(() => {
+  if (!editor) return;
+  const dom = editor.view.dom as HTMLElement;
+  function handleEditorClick() {
+    clearSearchHighlight(editor!);
+  }
+  dom.addEventListener("mousedown", handleEditorClick);
+  return () => dom.removeEventListener("mousedown", handleEditorClick);
+}, [editor]);
 
   useEffect(() => {
     if (!editor) return;

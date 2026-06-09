@@ -81,6 +81,13 @@ export function buildSearchHighlightPlugin(): Plugin {
   });
 }
 
+export function clearSearchHighlight(editor: Editor): void {
+  if (editor.isDestroyed) return;
+  editor.view.dispatch(
+    editor.state.tr.setMeta(searchHighlightKey, DecorationSet.empty)
+  );
+}
+
 // ── Map a char offset from editor.getText() to a ProseMirror doc position ────
 // Uses countdown (remaining) — only subtracts from text nodes, exactly
 // mirroring how textBetween() traverses. Non-text inline nodes (noteLink,
@@ -99,6 +106,41 @@ export function countMatches(editor: Editor, query: string): number {
     const matches = node.text.match(regex);
     if (matches) count += matches.length;
   });
+  return count;
+}
+
+// ── Count matches in raw note content JSON (no live editor needed) ────────────
+// Memoized by a simple module-level cache keyed on noteId + query
+const _matchCache = new Map<string, number>();
+
+export function countMatchesInContent(noteId: string, content: string | null | undefined, query: string): number {
+  if (!query.trim() || !content) return 0;
+  const cacheKey = `${noteId}::${query}`;
+  if (_matchCache.has(cacheKey)) return _matchCache.get(cacheKey)!;
+
+  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex   = new RegExp(escaped, "gi");
+  let count = 0;
+
+  try {
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      const n = node as Record<string, unknown>;
+      if (typeof n.text === "string") {
+        const matches = n.text.match(regex);
+        if (matches) count += matches.length;
+      }
+      if (Array.isArray(n.content)) n.content.forEach(walk);
+    };
+    walk(JSON.parse(content));
+  } catch { /* malformed JSON */ }
+
+  _matchCache.set(cacheKey, count);
+  // Evict cache if it grows large
+  if (_matchCache.size > 500) {
+    const firstKey = _matchCache.keys().next().value;
+    if (firstKey !== undefined) _matchCache.delete(firstKey);
+  }
   return count;
 }
 
@@ -154,13 +196,4 @@ export function scrollToQuery(
   const decoration    = Decoration.inline(from, to, { class: "search-match-highlight" });
   const decorationSet = DecorationSet.create(editor.state.doc, [decoration]);
   editor.view.dispatch(editor.state.tr.setMeta(searchHighlightKey, decorationSet));
-
-  // Remove highlight after 2s
-  setTimeout(() => {
-    if (!editor.isDestroyed) {
-      editor.view.dispatch(
-        editor.state.tr.setMeta(searchHighlightKey, DecorationSet.empty)
-      );
-    }
-  }, 2000);
 }
