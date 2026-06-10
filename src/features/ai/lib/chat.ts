@@ -49,8 +49,8 @@
     saveConversationSummary,
   } from "@/features/notes/db/queries"
   import type { Note } from "@/types"
-  import { WEB_SEARCH_SCORE_THRESHOLD, WEB_SEARCH_MIN_CHUNKS } from "@/features/ai/lib/search/webSearchProvider"
-  import type { WebSearchResult } from "@/features/ai/lib/search/webSearchProvider"
+import { WEB_SEARCH_SCORE_THRESHOLD, WEB_SEARCH_MIN_CHUNKS, getWebSearchProvider } from "@/features/ai/lib/search/webSearchProvider"
+import type { WebSearchResult } from "@/features/ai/lib/search/webSearchProvider"
 
   // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1260,21 +1260,100 @@ function deriveWebNudge(
     if (isFollowUp) {
       console.log('[streamChat] FOLLOWUP INTENT — using conversation history only, suppressing vault')
 // after
-      console.log('[followUp] historyBlock length:', historyBlock.length)
-      console.log('[followUp] historyBlock preview:', historyBlock.slice(0, 200))
+ // after
+      console.log('[followUp] historyBlock length:', effectiveHistoryBlock.length)
+      console.log('[followUp] historyBlock preview:', effectiveHistoryBlock.slice(0, 200))
+
+      // ── Step 1: Extract verifiable claims as targeted search queries ──────
+      let followUpWebResults: WebSearchResult[] = []
+      let followUpWebGrounded = false
+
+      try {
+        streaming.onStatus?.("Identifying claims to verify…")
+
+        const claimExtractionPrompt = `You are a research assistant. Given the conversation below, extract up to 3 specific, verifiable factual claims that could be checked against current real-world data (e.g. pricing, specs, limits, costs).
+
+Return ONLY a valid JSON array of short search query strings — no markdown, no explanation, no backticks.
+Each query should be specific and searchable (e.g. "Railway starter plan pricing 2026", "Supabase Pro plan cost 2026").
+If there are no verifiable external facts (e.g. purely opinion or personal content), return an empty array [].
+
+Conversation:
+${effectiveHistoryBlock}
+
+JSON array of search queries:`
+
+        let searchQueries: string[] = []
+
+        try {
+          const raw     = await promptProcessing(claimExtractionPrompt)
+          const clean   = raw.replace(/```json|```/g, "").trim()
+          const parsed  = JSON.parse(clean)
+          if (Array.isArray(parsed) && parsed.every((q) => typeof q === "string")) {
+            searchQueries = parsed.slice(0, 3)
+          }
+          console.log('[followUp] extracted search queries:', searchQueries)
+        } catch (extractErr) {
+          // Fallback — extract noun phrases from last assistant message
+          console.warn('[followUp] claim extraction failed — using noun phrase fallback:', extractErr)
+          const lastAssistant = effectiveHistoryBlock
+            .split("\n")
+            .filter((l) => l.startsWith("Assistant:"))
+            .pop() ?? ""
+          const nounPhrases = lastAssistant
+            .replace(/Assistant:\s*/, "")
+            .replace(/\*\*|__|~~|\[.*?\]/g, "")
+            .match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b|\$[\d,]+(?:\/month)?|\d+(?:,\d+)*\s*(?:students|users)/g)
+            ?? []
+          const dedupedPhrases = [...new Set(nounPhrases)].slice(0, 3)
+          searchQueries = dedupedPhrases.length > 0
+            ? dedupedPhrases.map((p) => `${p} pricing 2026`)
+            : []
+          console.log('[followUp] fallback search queries:', searchQueries)
+        }
+
+        // ── Step 2: Fire searches in parallel ────────────────────────────────
+        if (searchQueries.length > 0) {
+          streaming.onStatus?.("Checking against live data…")
+          const provider = getWebSearchProvider()
+          const allResults = await Promise.all(
+            searchQueries.map((q) => provider.search(q).catch(() => [] as WebSearchResult[]))
+          )
+
+          // Merge + deduplicate by URL
+          const seen = new Set<string>()
+          for (const resultSet of allResults) {
+            for (const r of resultSet) {
+              if (!seen.has(r.url)) {
+                seen.add(r.url)
+                followUpWebResults.push(r)
+              }
+            }
+          }
+          followUpWebResults = followUpWebResults.slice(0, 8)
+          followUpWebGrounded = followUpWebResults.length > 0
+          console.log('[followUp] web results count:', followUpWebResults.length)
+        }
+      } catch (webErr) {
+        console.warn('[followUp] web search step failed — proceeding without web results:', webErr)
+      }
+
+      // ── Step 3: Build prompt with history + web results ───────────────────
+      const webBlock = followUpWebResults.length > 0
+        ? buildWebResultsBlock(followUpWebResults)
+        : ""
+
       const followUpPrompt = `You are a knowledgeable assistant engaged in an ongoing conversation.
 ${effectiveHistoryBlock ? `[CONVERSATION HISTORY]\n${effectiveHistoryBlock}\n` : ""}
 The user is asking you to verify, cross-check, or confirm something from the conversation above.
-Answer using the conversation history as your primary source. If the claims involve real-world facts (pricing, specs, external data) that you can reason about from general knowledge, do so and flag any uncertainty explicitly.
-Do not mention notes, vaults, or any note-taking system unless the user specifically asks.
-
+${webBlock ? `You have access to live web search results to verify factual claims.\nCompare the claims in the conversation history against the web results explicitly.\nIf they match, confirm it. If they conflict, flag the discrepancy clearly and state which source is more likely correct and why.\nCite web results as [web:1], [web:2] etc.\n` : "If the claims involve real-world facts (pricing, specs, external data) that you can reason about from general knowledge, do so and flag any uncertainty explicitly.\n"}Do not mention notes, vaults, or any note-taking system unless the user specifically asks.
+${webBlock}
 [QUESTION]
 ${query}
 
 Answer:`
 
       const messages: ProviderMessage[] = [{ role: "user", content: followUpPrompt }]
-      streaming.onStatus?.("Checking…")
+      streaming.onStatus?.("Generating answer…")
 
       try {
         const result = await callPrimary(messages)
@@ -1296,7 +1375,7 @@ Answer:`
         excludedNoteNotices: [],
         titleMatchedNoteIds: [],
         webNudge:            undefined,
-        webGrounded:         false,
+        webGrounded:         followUpWebGrounded,
       }
     }
 
