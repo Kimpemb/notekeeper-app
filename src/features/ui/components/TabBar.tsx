@@ -28,6 +28,7 @@ const closedTabs = useUIStore((s) => s.closedTabs);
 const reopenClosedTab = useUIStore((s) => s.reopenClosedTab);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+// Scroll to end when a new tab is added
 useEffect(() => {
   if (scrollRef.current) {
     scrollRef.current.scrollTo({
@@ -35,7 +36,16 @@ useEffect(() => {
       behavior: "smooth",
     });
   }
-}, [tabs.length, activeTabId]);
+}, [tabs.length]);
+
+// Scroll active tab into view when switching via keyboard
+useEffect(() => {
+  if (!scrollRef.current) return;
+  const activeEl = scrollRef.current.querySelector(`[data-tab-id="${activeTabId}"]`) as HTMLElement | null;
+  if (activeEl) {
+    activeEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }
+}, [activeTabId]);
 
 useEffect(() => {
   if (!contextMenu) return;
@@ -81,6 +91,7 @@ useEffect(() => {
             <div
   key={tab.id}
   data-tab="true"
+  data-tab-id={tab.id}
   onClick={() => {
                 setActive(tab.id);
                 if (tab.noteId) setActiveNote(tab.noteId, true);
