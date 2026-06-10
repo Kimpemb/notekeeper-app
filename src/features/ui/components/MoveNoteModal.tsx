@@ -175,6 +175,7 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
 
   return (
     <div
+      data-overlay-sentinel
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
       onClick={onClose}
     >
@@ -200,7 +201,7 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
         </div>
 
         {/* List */}
-        <ul ref={listRef} className="overflow-y-auto py-1">
+        <ul ref={listRef} className="overflow-y-auto py-1 list-none p-0 m-0" style={{ listStyle: 'none' }}>
           {items.length === 0 && (
             <li className="px-4 py-6 text-base text-idemora-text-muted text-center">No notes found</li>
           )}
@@ -209,11 +210,9 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
               <button
                 onMouseEnter={() => setSelectedIdx(i)}
                 onClick={() => confirmMove(item.id)}
-                className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors duration-100 ${
-                  i === selectedIdx
-                    ? "bg-blue-500/10"
-                    : "hover:bg-black/6 dark:hover:bg-white/7"
-                }`}
+               className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors duration-100 ${
+  i === selectedIdx ? "bg-blue-500/10" : ""
+}`}
               >
                 {item.id === "__root__" ? (
                   <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-idemora-text-muted">
