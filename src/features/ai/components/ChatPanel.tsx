@@ -570,7 +570,7 @@ useEffect(() => {
         undefined,
         webResults,
         prebuiltPipeline,
-        messages.slice(0, -2),
+        useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
       )
 
       const pm: PersistedMeta = {
@@ -674,7 +674,7 @@ useEffect(() => {
         undefined,
         undefined,
         undefined,
-        messages.slice(0, -2),
+        useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
       )
 
       const pm: PersistedMeta = {
@@ -804,7 +804,7 @@ useEffect(() => {
         undefined,
         undefined,
         undefined,
-        messages.slice(0, -2),
+        useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
       )
 
       const pm: PersistedMeta = {

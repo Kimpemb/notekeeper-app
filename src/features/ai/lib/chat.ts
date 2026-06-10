@@ -361,7 +361,6 @@
     try {
       // FIX: strip [N] citation markers and truncate before passing to FTS.
       // Raw answer text contains [1], [2] etc. which break FTS5 MATCH syntax.
-      // AFTER
       const query = answerText
         .replace(/\[\d+\]/g, "")                     // strip citation markers
         .replace(/`[^`]+`/g, " ")                    // strip inline code (file paths live here)
@@ -1060,6 +1059,7 @@ function deriveWebNudge(
   When the current question connects to topics already in the conversation history, draw that connection explicitly.
   You may make inferences well-supported by the retrieved content — state them explicitly as inferences using language like "this suggests" or "taken together, these notes indicate". Never cite a source for an inference not directly stated in that source.
   If after reading ALL excerpts the information is genuinely absent, say so in one sentence. Do not say information is unavailable if it appears anywhere in the excerpts, even partially.
+  When the question appears to be a follow-up, clarification, or reference to something already discussed (e.g. "are you sure", "cross check that", "verify those figures", "was that correct"), resolve it primarily from the conversation history above before searching the vault. Do not treat it as a new independent query.
   Never mention the vault or note system unless the user's question is specifically about their notes.
   Format your response using markdown:
   - Use **bold** for key terms and important concepts
@@ -1129,15 +1129,25 @@ function deriveWebNudge(
     streaming.onStatus?.("Searching your notes…")
 
     // Detect intent for budget allocation
-    const { intent, isPersonal } = await detectIntent(query)
+    const { intent, isPersonal, isFollowUp } = await detectIntent(query)
     const budget     = allocateBudget(intent)
 
+// after
     const [historyBlock, pipeline] = await Promise.all([
       buildHistoryBlock(noteId, budget.historyChars, sessionMessages),
       prebuiltPipeline
         ? Promise.resolve(prebuiltPipeline)
         : runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds, streaming.onStatus),
     ])
+
+    // If sessionMessages were passed but historyBlock came back empty,
+    // build it directly from sessionMessages without the DB round-trip.
+    // This handles the case where Q1's response hasn't been persisted yet.
+    const effectiveHistoryBlock = (historyBlock.length === 0 && sessionMessages && sessionMessages.length > 0)
+      ? `\n[Recent conversation]\n${sessionMessages
+          .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+          .join("\n")}\n`
+      : historyBlock
 
     // Status after pipeline resolves
     if (webResults && webResults.length > 0) {
@@ -1244,6 +1254,51 @@ function deriveWebNudge(
     }
 
 
+
+    // Gate vault injection — only inject when retrieval was meaningful
+    // Follow-up gate — suppress vault entirely, answer from history only
+    if (isFollowUp) {
+      console.log('[streamChat] FOLLOWUP INTENT — using conversation history only, suppressing vault')
+// after
+      console.log('[followUp] historyBlock length:', historyBlock.length)
+      console.log('[followUp] historyBlock preview:', historyBlock.slice(0, 200))
+      const followUpPrompt = `You are a knowledgeable assistant engaged in an ongoing conversation.
+${effectiveHistoryBlock ? `[CONVERSATION HISTORY]\n${effectiveHistoryBlock}\n` : ""}
+The user is asking you to verify, cross-check, or confirm something from the conversation above.
+Answer using the conversation history as your primary source. If the claims involve real-world facts (pricing, specs, external data) that you can reason about from general knowledge, do so and flag any uncertainty explicitly.
+Do not mention notes, vaults, or any note-taking system unless the user specifically asks.
+
+[QUESTION]
+${query}
+
+Answer:`
+
+      const messages: ProviderMessage[] = [{ role: "user", content: followUpPrompt }]
+      streaming.onStatus?.("Checking…")
+
+      try {
+        const result = await callPrimary(messages)
+        assembled    = result.text
+        streaming.onChunk(assembled)
+        await appendAIHistory(noteId, "user",      query)
+        await appendAIHistory(noteId, "assistant", assembled)
+        streaming.onDone?.()
+      } catch (err: unknown) {
+        streaming.onError?.(err as AICallError)
+      }
+
+      return {
+        sourceTitles:        [],
+        sourceNoteIds:       [],
+        usedEmbeddings:      false,
+        confidence:          "high",
+        relatedNotes:        [],
+        excludedNoteNotices: [],
+        titleMatchedNoteIds: [],
+        webNudge:            undefined,
+        webGrounded:         false,
+      }
+    }
 
     // Gate vault injection — only inject when retrieval was meaningful
 const injectVault = (webResults && webResults.length > 0)

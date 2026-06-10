@@ -28,6 +28,7 @@ export interface DetectedIntent {
   cleanQuery:  string
   isDeixis:    boolean
   isPersonal:  boolean
+  isFollowUp:  boolean
 }
 
 // ─── Fallback regex (processing slot exhausted) ───────────────────────────────
@@ -89,6 +90,8 @@ const DEIXIS_PATTERNS = /\b(this note|the current note|this page|my current note
 
 const PERSONAL_PATTERNS = /\b(my|i|i'm|i've|i have|i wrote|i said|i asked|i want|we|our)\b/i
 
+const FOLLOWUP_PATTERNS = /\b(are you sure|is that correct|is that right|was that correct|cross.?check|double.?check|verify (that|what|those|this)|check (that|those|the figures?|the numbers?)|fact.?check|are those (correct|right|accurate)|are these (correct|right|accurate)|is that accurate|are you certain|can you confirm that|does that (sound|seem) right)\b/i
+
 const DATE_PATTERNS: Array<{ pattern: RegExp; daysBack: number }> = [
   { pattern: /this week|last 7 days/i,    daysBack: 7   },
   { pattern: /last week/i,                daysBack: 14  },
@@ -128,17 +131,21 @@ export function detectIntentFallback(query: string): DetectedIntent {
   const q = query.trim()
 
   if (INVENTORY_PATTERNS.some((p) => p.test(q))) {
-    return { intent: "inventory", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: true }
+    return { intent: "inventory", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: true, isFollowUp: false }
+  }
+
+  if (FOLLOWUP_PATTERNS.test(q)) {
+    return { intent: "hybrid", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: false, isFollowUp: true }
   }
 
   if (HYBRID_PATTERNS.some((p) => p.test(q))) {
-    return { intent: "hybrid", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: true }
+    return { intent: "hybrid", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: true, isFollowUp: false }
   }
 
   const isEditPattern  = EDIT_PATTERNS.some((p) => p.test(q))
   const hasArtifactRef = ARTIFACT_REFS.test(q)
   if (isEditPattern && hasArtifactRef) {
-    return { intent: "edit", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: false }
+    return { intent: "edit", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: false, isFollowUp: false }
   }
 
   const scope: ScopeFilter = {}
@@ -171,9 +178,9 @@ export function detectIntentFallback(query: string): DetectedIntent {
   const isDeixis    = DEIXIS_PATTERNS.test(q)
   const isPersonal  = PERSONAL_PATTERNS.test(q)
 
-  if (hasScopeSignal) return { intent: "scoped",      scope, cleanQuery, isDeixis, isPersonal }
-  if (EXPLORATION_PATTERNS.some((p) => p.test(q))) return { intent: "exploration", scope: {}, cleanQuery: q, isDeixis, isPersonal }
-  return { intent: "lookup", scope: {}, cleanQuery, isDeixis, isPersonal }
+  if (hasScopeSignal) return { intent: "scoped",      scope, cleanQuery, isDeixis, isPersonal, isFollowUp: false }
+  if (EXPLORATION_PATTERNS.some((p) => p.test(q))) return { intent: "exploration", scope: {}, cleanQuery: q, isDeixis, isPersonal, isFollowUp: false }
+  return { intent: "lookup", scope: {}, cleanQuery, isDeixis, isPersonal, isFollowUp: false }
 }
 
 // ─── AI-first intent detection ────────────────────────────────────────────────
@@ -186,6 +193,7 @@ Fields:
 - intent: one of "inventory" | "lookup" | "exploration" | "scoped" | "edit" | "hybrid"
 - isDeixis: true if the query refers to the currently open note ("this note", "summarize this", "what's on this page", "explain this") — false otherwise
 - isPersonal: true if the query is about the user's own content ("what did I write", "my notes on X", "do I have anything about") — false for general knowledge questions
+- isFollowUp: true if the query is verifying, cross-checking, or challenging something already said in the conversation ("are you sure", "cross check that", "is that correct", "verify those figures", "double check that", "fact check this") — false otherwise
 - cleanQuery: the query with any scope phrases (date ranges, folder names, tag filters) stripped out
 - scope: object with optional fields: sourceType ("note"|"vault_entry"), dateRange ({after: unixMs}), tag (string), noteTitle (string), folder (string)
 
@@ -196,12 +204,16 @@ Intent definitions:
 - edit: instruction to modify something visible in the conversation ("change the table to 3pm", "update that row")
 - hybrid: references both vault content and wants transformation ("based on my notes, rewrite the schedule")
 - lookup: everything else — default
+- hybrid: also use for follow-up verification queries ("are you sure", "is that correct", "cross check that", "verify what you said") — these need both history and vault context
 
 Important:
 - "what did I write about X" is exploration + isPersonal:true, NOT isDeixis
 - "summarize this note" or "what's in the current note" is isDeixis:true
 - "how does climate change work" is lookup + isPersonal:false
+// after
 - "what do I have on vitobu" is exploration + isPersonal:true
+- "are you sure those figures are correct" or "cross check what you just said" is hybrid + isPersonal:false + isFollowUp:true
+- "cross check if what I have in my notes are factually sound" mid-conversation about a specific topic is hybrid + isFollowUp:true
 
 Query: ${JSON.stringify(query)}
 
@@ -211,7 +223,15 @@ export async function detectIntent(query: string): Promise<DetectedIntent> {
   try {
     const raw  = await promptProcessing(INTENT_PROMPT(query))
     const clean = raw.replace(/```json|```/g, "").trim()
+// after
     const parsed = JSON.parse(clean)
+
+    console.log('[intentDetection] AI classifier result:', {
+      intent:     parsed.intent,
+      isFollowUp: parsed.isFollowUp,
+      isDeixis:   parsed.isDeixis,
+      isPersonal: parsed.isPersonal,
+    })
 
     // Validate shape — fall back if malformed
     const validIntents = ["inventory", "lookup", "exploration", "scoped", "edit", "hybrid"]
@@ -221,6 +241,7 @@ export async function detectIntent(query: string): Promise<DetectedIntent> {
       intent:     parsed.intent     as QueryIntent,
       isDeixis:   Boolean(parsed.isDeixis),
       isPersonal: Boolean(parsed.isPersonal),
+      isFollowUp: Boolean(parsed.isFollowUp),
       cleanQuery: typeof parsed.cleanQuery === "string" ? parsed.cleanQuery : query,
       scope:      parsed.scope && typeof parsed.scope === "object" ? parsed.scope : {},
     }
