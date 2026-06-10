@@ -1418,7 +1418,76 @@ function MessageBubble({
       </div>
     )
   }
+// Inside MessageBubble component, before the render section:
 
+const renderedContent = useMemo(() => {
+  const cleaned = message.content
+    .replace(/\[web:[^\]]+\]/g, "")
+    .replace(/ \./g, ".")
+
+  const renderer = new marked.Renderer()
+
+  const codeBlocks: Array<{ id: string; code: string; language?: string }> = []
+  renderer.code = ({ text: code, lang }) => {
+    const id = `cb-${crypto.randomUUID()}`
+    codeBlocks.push({ id, code, language: lang || undefined })
+    return `<code-block id="${id}"></code-block>`
+  }
+
+  renderer.table = ({ header, rows }) => {
+    const headerHtml = `<thead></tr>${header.map(h =>
+      `<th>${marked.parseInline(h.text, { async: false }) as string}</th>`
+    ).join("")}</thead>`
+    const bodyHtml = `<tbody>${rows.map(row =>
+      `<tr>${row.map(cell =>
+        `<td>${marked.parseInline(cell.text, { async: false }) as string}</td>`
+      ).join("")}</tr>`
+    ).join("")}</tbody>`
+    return `<div class="table-wrap"><table>${headerHtml}${bodyHtml}</table></div>`
+  }
+
+  const html = marked.parse(cleaned, { async: false, renderer }) as string
+
+  const stripped = html.replace(/\[\d+(?:,\s*\d+)*\]/g, "")
+  const parts = stripped.split(/(<code-block id="[^"]+"><\/code-block>)/g)
+
+  return (
+    <div className="text-sm text-idemora-text-normal
+      [&_strong]:font-semibold [&_strong]:text-idemora-text-normal
+      [&_em]:italic
+      [&_p]:my-2 [&_p]:leading-relaxed [&_p]:first:mt-0 [&_p]:last:mb-0
+      [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:ml-4 [&_ul]:mt-1.5 [&_ul]:mb-1.5
+      [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:ml-4 [&_ol]:mt-1.5 [&_ol]:mb-1.5
+      [&_li]:my-1 [&_li]:leading-relaxed
+      [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-1 [&_h1]:text-idemora-text-normal [&_h1]:leading-snug
+      [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-0.5 [&_h2]:text-idemora-text-normal [&_h2]:border-b [&_h2]:border-idemora-border/40 [&_h2]:pb-0.5
+      [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-0.5 [&_h3]:text-idemora-text-normal
+      [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 
+      [&_blockquote]:border-violet-400/50 [&_blockquote]:pl-3 [&_blockquote]:py-1.5 [&_blockquote]:my-2 [&_blockquote]:bg-idemora-bg-secondary 
+      [&_blockquote]:rounded-r-md [&_blockquote]:pr-3
+      [&_hr]:border-none [&_hr]:border-t [&_hr]:border-idemora-border/40 [&_hr]:my-3
+      [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
+      [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:my-2
+      [&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_table]:border [&_table]:border-idemora-border/60
+      [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-semibold [&_th]:text-idemora-text-normal [&_th]:bg-idemora-bg-secondary [&_th]:border [&_th]:border-idemora-border/60
+      [&_td]:px-3 [&_td]:py-2 [&_td]:text-idemora-text-muted [&_td]:border [&_td]:border-idemora-border/60">
+      {parts.map((part, i) => {
+        const cbMatch = part.match(/^<code-block id="([^"]+)"><\/code-block>$/)
+        if (cbMatch) {
+          const block = codeBlocks.find((b) => b.id === cbMatch[1])
+          if (block) return <CodeBlock key={i} code={block.code} language={block.language} />
+        }
+        return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />
+      })}
+    </div>
+  )
+}, [message.content])
+
+// Then in the render section, replace the call site.
+// Instead of:
+//   {renderWithCitations(message.content)}
+// Replace with:
+//   {renderedContent}
   const [copied, setCopied] = useState(false)
 
   // ── User bubble ────────────────────────────────────────────────────────────
@@ -1505,13 +1574,13 @@ function MessageBubble({
 
         {/* Content */}
         {message.content !== "" && (
-          <div className="text-sm text-idemora-text-normal leading-relaxed">
-            {renderWithCitations(message.content)}
-            {isStreaming && (
-              <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
-            )}
-          </div>
-        )}
+  <div className="text-sm text-idemora-text-normal leading-relaxed">
+    {renderedContent}
+    {isStreaming && (
+      <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
+    )}
+  </div>
+)}
       </div>
     </div>
   )
