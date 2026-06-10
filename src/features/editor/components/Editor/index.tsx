@@ -120,42 +120,56 @@ interface EditorProps {
   onScrollChange?: (scrollTop: number) => void;
 }
 
+ 
 function reconcileSubPageBlocks(
   contentJson: string,
   children: { id: string; title: string; source_type?: string }[]
 ): string | null {
-  if (children.length === 0) return null;
   let doc: { type: string; content: unknown[] };
   try { doc = JSON.parse(contentJson); } catch { return null; }
 
   const existingIds = new Set<string>();
-for (const node of doc.content ?? []) {
-  const n = node as { type: string; attrs?: { noteId?: string | null } };
-  if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
-    existingIds.add(n.attrs.noteId);
-  }
-}
-
-const missing = children.filter((c) => !existingIds.has(c.id));
-if (missing.length === 0) return null;
-
-const newBlocks = missing.map((c) =>
-  c.source_type === "pdf"
-    ? { type: "pdfLink", attrs: { noteId: c.id, title: c.title } }
-    : { type: "subPage", attrs: { noteId: c.id, title: c.title, mode: "display" } }
-);
-
-  const last = doc.content[doc.content.length - 1] as { type: string; content?: unknown[] } | undefined;
-  const lastIsEmptyPara = last?.type === "paragraph" && (!last.content || last.content.length === 0);
-
-  if (lastIsEmptyPara) {
-    doc.content.splice(doc.content.length - 1, 0, ...newBlocks);
-  } else {
-    doc.content.push(...newBlocks);
+  for (const node of doc.content ?? []) {
+    const n = node as { type: string; attrs?: { noteId?: string | null } };
+    if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
+      existingIds.add(n.attrs.noteId);
+    }
   }
 
-  return JSON.stringify(doc);
+  // Remove blocks for notes no longer children
+  const validIds = new Set(children.map((c) => c.id));
+  const filtered = doc.content.filter((node) => {
+    const n = node as { type: string; attrs?: { noteId?: string | null } };
+    if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
+      return validIds.has(n.attrs.noteId);
+    }
+    return true;
+  });
+
+  // Add missing blocks
+  const missing = children.filter((c) => !existingIds.has(c.id));
+  const newBlocks = missing.map((c) =>
+    c.source_type === "pdf"
+      ? { type: "pdfLink", attrs: { noteId: c.id, title: c.title } }
+      : { type: "subPage", attrs: { noteId: c.id, title: c.title, mode: "display" } }
+  );
+
+  if (filtered.length === doc.content.length && newBlocks.length === 0) return null;
+
+  const finalContent = [...filtered];
+  if (newBlocks.length > 0) {
+    const last = finalContent[finalContent.length - 1] as { type: string; content?: unknown[] } | undefined;
+    const lastIsEmptyPara = last?.type === "paragraph" && (!last.content || last.content.length === 0);
+    if (lastIsEmptyPara) {
+      finalContent.splice(finalContent.length - 1, 0, ...newBlocks);
+    } else {
+      finalContent.push(...newBlocks);
+    }
+  }
+
+  return JSON.stringify({ ...doc, content: finalContent });
 }
+ 
 
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
   const note = useNoteStore(useCallback((s) =>
@@ -268,16 +282,63 @@ useEffect(() => {
   loadNoteContent(noteId).then(() => setContentReady(true));
 }, [noteId, isEmptyContent]);
 
-  const initialContent = (() => {
-    if (!note?.content || note.content === "null" || note.content === "") {
-      return { type: "doc", content: [] };
+// preserve positions; only append genuinely missing children
+const initialContent = (() => {
+  let doc: { type: string; content: unknown[] };
+  try {
+    doc = JSON.parse(
+      !note?.content || note.content === "null" || note.content === ""
+        ? '{"type":"doc","content":[]}'
+        : note.content
+    );
+  } catch {
+    doc = { type: "doc", content: [] };
+  }
+
+  const children = notes
+    .filter((n) => n.parent_id === noteId && !n.deleted_at)
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  // Find which children are already represented in the saved content
+  const existingIds = new Set<string>();
+  for (const node of doc.content) {
+    const n = node as { type: string; attrs?: { noteId?: string | null } };
+    if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
+      existingIds.add(n.attrs.noteId);
     }
-    try {
-      return JSON.parse(note.content);
-    } catch {
-      return { type: "doc", content: [] };
+  }
+
+  // Remove stale blocks (child was deleted/re-parented)
+  const validIds = new Set(children.map((c) => c.id));
+  doc.content = doc.content.filter((node) => {
+    const n = node as { type: string; attrs?: { noteId?: string | null } };
+    if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
+      return validIds.has(n.attrs.noteId);
     }
-  })();
+    return true;
+  });
+
+  // Append only the children not yet in the doc (newly created subpages)
+  const missing = children.filter((c) => !existingIds.has(c.id));
+  if (missing.length > 0) {
+    const newBlocks = missing.map((c) =>
+      c.source_type === "pdf"
+        ? { type: "pdfLink", attrs: { noteId: c.id, title: c.title } }
+        : { type: "subPage", attrs: { noteId: c.id, title: c.title, mode: "display" } }
+    );
+    const last = doc.content[doc.content.length - 1] as
+      { type: string; content?: unknown[] } | undefined;
+    const lastIsEmptyPara =
+      last?.type === "paragraph" && (!last.content || last.content.length === 0);
+    if (lastIsEmptyPara) {
+      doc.content.splice(doc.content.length - 1, 0, ...newBlocks);
+    } else {
+      doc.content.push(...newBlocks);
+    }
+  }
+
+  return doc as import("@tiptap/core").JSONContent;
+})();
 
   const editor = useEditor({
     extensions: [
@@ -521,7 +582,7 @@ useEffect(() => {
       contentLoadingRef.current = true;
       editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
       editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
-      setTimeout(() => { contentLoadingRef.current = false; }, 0);
+      setTimeout(() => { contentLoadingRef.current = false; }, 300);
 
       try {
         const $from = editor.state.doc.resolve(Math.min(from, editor.state.doc.content.size));
@@ -565,42 +626,35 @@ useEffect(() => {
   }, [noteId, editor]);
 
   useEffect(() => {
-  if (!editor || !note) return;
-  if (!contentReady) return;
-  if (subPageCreatingRef.current) return;
-
-  const children = notes
-    .filter((n) => n.parent_id === noteId && !n.deleted_at)
-    .sort((a, b) => a.sort_order - b.sort_order);
-
-  const isStub = !note.content ||
-    note.content === "null" ||
-    note.content === "" ||
-    note.content === '{"type":"doc","content":[]}';
-  // Only bail on stub if there are no children to reconcile
-  if (isStub && children.length === 0) return;
-
-  if (children.length === 0) return;
-
-  const apply = () => {
-    if (editor.isDestroyed || editor.isFocused) return;
+    if (!editor || !note) return;
+    if (!contentReady) return;
     if (subPageCreatingRef.current) return;
-    // Use live editor content — not note.content from store which may be stale
-    const liveContent = JSON.stringify(editor.getJSON());
-    const newContent = reconcileSubPageBlocks(liveContent, children);
-    if (!newContent) return;
-    console.log("[reconciler] applying subpage blocks");
-    contentLoadingRef.current = true;
-    editor.commands.setContent(JSON.parse(newContent));
-    editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
-    lastSavedContent.current = newContent;
-    updateNote(noteId, { content: newContent });
-    setTimeout(() => { contentLoadingRef.current = false; }, 0);
-  };
+
+    const children = notes
+      .filter((n) => n.parent_id === noteId && !n.deleted_at)
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    const apply = () => {
+      if (editor.isDestroyed || editor.isFocused) return;
+      if (subPageCreatingRef.current) return;
+
+      const liveContent = JSON.stringify(editor.getJSON());
+      const newContent = reconcileSubPageBlocks(liveContent, children);
+      if (!newContent) return;
+
+      contentLoadingRef.current = true;
+      editor.commands.setContent(JSON.parse(newContent));
+      editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
+      setTimeout(() => { contentLoadingRef.current = false; }, 300);
+    };
 
     const t = setTimeout(apply, 80);
     return () => clearTimeout(t);
   }, [noteId, notes]);
+
+ 
+
+ 
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;

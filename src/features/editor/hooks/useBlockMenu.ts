@@ -189,26 +189,36 @@ const MENU_ITEMS: MenuItem[] = [
       <path d="M2 6.5h9M7.5 3L11 6.5 7.5 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`,
     action: (editor, nodePos) => {
-      const { state } = editor.view;
-      const node = state.doc.nodeAt(nodePos);
-      if (!node) return;
+    const { state } = editor.view;
+    const node = state.doc.nodeAt(nodePos);
+    if (!node) return;
+
+    if (node.type.name === "subPage") {
       window.dispatchEvent(
-        new CustomEvent("idemora:move-block", {
-          detail: {
-            nodePos,
-            nodeSize: node.nodeSize,
-            nodeJson: node.toJSON(),
-            deleteFromSource: () => {
-              const { state: s } = editor.view;
-              const n = s.doc.nodeAt(nodePos);
-              if (!n) return;
-              editor.view.dispatch(s.tr.delete(nodePos, nodePos + n.nodeSize));
-            },
-          },
+        new CustomEvent("idemora:move-subpage", {
+          detail: { noteId: node.attrs.noteId as string | null },
         })
       );
-    },
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("idemora:move-block", {
+        detail: {
+          nodePos,
+          nodeSize: node.nodeSize,
+          nodeJson: node.toJSON(),
+          deleteFromSource: () => {
+            const { state: s } = editor.view;
+            const n = s.doc.nodeAt(nodePos);
+            if (!n) return;
+            editor.view.dispatch(s.tr.delete(nodePos, nodePos + n.nodeSize));
+          },
+        },
+      })
+    );
   },
+},
   {
     label: "Comment",
     icon: `<svg width="13" height="13" viewBox="0 0 13 13" fill="none">

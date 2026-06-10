@@ -5,6 +5,7 @@ import { createNote as dbCreateNote } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
+import { MoveNoteModal } from "@/features/ui/components/MoveNoteModal";
 
 // Shape of what we read from editor.storage["subPage"]
 interface SubPageStorage {
@@ -39,6 +40,9 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   const [confirmOpen,       setConfirmOpen]       = useState(false);
   const pendingDeleteRef = useRef<(() => void) | null>(null);
 
+  // ── Move modal state ──────────────────────────────────────────────────────
+  const [moveOpen, setMoveOpen] = useState(false);
+
   const notes          = useNoteStore((s) => s.notes);
   const setActive      = useNoteStore((s) => s.setActiveNote);
   const trashNote      = useNoteStore((s) => s.deleteNote);
@@ -61,8 +65,6 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     if (!el) return;
     setTimeout(() => { el.focus(); el.select(); }, 30);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  
 
   // ── Listen for block menu delete requests targeting this node ─────────────
   // useBlockMenu fires "idemora:request-delete-subpage" with { noteId, deleteNode }.
@@ -88,6 +90,17 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
 
     window.addEventListener("idemora:request-delete-subpage", handleDeleteRequest);
     return () => window.removeEventListener("idemora:request-delete-subpage", handleDeleteRequest);
+  }, [noteId]);
+
+  // ── Listen for move requests targeting this node ──────────────────────────
+  useEffect(() => {
+    function handleMoveRequest(e: Event) {
+      const { noteId: targetId } = (e as CustomEvent<{ noteId: string | null }>).detail;
+      if (targetId !== noteId) return;
+      setMoveOpen(true);
+    }
+    window.addEventListener("idemora:move-subpage", handleMoveRequest);
+    return () => window.removeEventListener("idemora:move-subpage", handleMoveRequest);
   }, [noteId]);
 
   // ── Confirm dialog handlers ───────────────────────────────────────────────
@@ -241,6 +254,15 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
       />
+
+      {/* Move modal — allows moving this subpage to a different parent */}
+      {noteId && (
+        <MoveNoteModal
+          open={moveOpen}
+          noteId={noteId}
+          onClose={() => setMoveOpen(false)}
+        />
+      )}
     </NodeViewWrapper>
   );
 }

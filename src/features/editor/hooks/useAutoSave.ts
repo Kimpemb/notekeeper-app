@@ -30,19 +30,7 @@ import { useAIStore } from "@/features/ai/store/useAIStore";
 
 const HARD_CAP_MS = 30_000;
 
-// ── Helper: strip subPage and pdfLink blocks from content JSON ──────────────
-function stripSubPageBlocks(contentJson: string): string {
-  try {
-    const doc = JSON.parse(contentJson) as { type: string; content: unknown[] };
-    const filtered = doc.content.filter((node) => {
-      const n = node as { type: string };
-      return n.type !== "subPage" && n.type !== "pdfLink";
-    });
-    return JSON.stringify({ ...doc, content: filtered });
-  } catch {
-    return contentJson;
-  }
-}
+
 
 interface UseAutoSaveOptions {
   editor:          Editor | null;
@@ -111,32 +99,29 @@ export function useAutoSave({
 
   // ── save ──────────────────────────────────────────────────────────────────
 
-  const save = useCallback(() => {
-    if (!editor || !noteId || !isDirty.current) return;
-    if (!isActiveTabRef.current) return;
-    if (suppressSave?.current) return;
-    if (contentLoading?.current) return;
-    if (!dbSettledRef.current) return;
-
-    clearTimers();
-    isDirty.current = false;
-    setSaveStatus("saving");
-
-    const content   = stripSubPageBlocks(JSON.stringify(editor.getJSON()));
-    const plaintext = editor.getText();
-
-    onSaveComplete?.(content, noteId);
-      updateNote(noteId, { content, plaintext }, true).then(() => {
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2_000);
-      runEmbeddingPipeline(noteId, content);
-      runScheduledBackupIfDue();
-    }).catch((err) => {
-      console.error("[AutoSave] failed:", err);
-      setSaveStatus("error");
-    });
-  }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runScheduledBackupIfDue, suppressSave, contentLoading]);
-  
+const save = useCallback(() => {
+  if (!editor || !noteId || !isDirty.current) return;
+  if (!isActiveTabRef.current) return;
+  if (suppressSave?.current) return;
+  if (contentLoading?.current) return;
+  if (!dbSettledRef.current) return;
+  clearTimers();
+  isDirty.current = false;
+  setSaveStatus("saving");
+  const content = JSON.stringify(editor.getJSON());
+  if (content === '{"type":"doc","content":[]}') return;
+  const plaintext = editor.getText();
+  onSaveComplete?.(content, noteId);
+  updateNote(noteId, { content, plaintext }, true).then(() => {
+    setSaveStatus("saved");
+    setTimeout(() => setSaveStatus("idle"), 2_000);
+    runEmbeddingPipeline(noteId, content);
+    runScheduledBackupIfDue();
+  }).catch((err) => {
+    console.error("[AutoSave] failed:", err);
+    setSaveStatus("error");
+  });
+}, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runScheduledBackupIfDue, suppressSave, contentLoading]);
 
 // ── scheduleSave ──────────────────────────────────────────────────────────
 
@@ -212,7 +197,7 @@ export function useAutoSave({
       if (isDirty.current && editor && noteId && !editor.isDestroyed) {
         if (suppressSave?.current) return;
         if (contentLoading?.current) return;
-        const content = stripSubPageBlocks(JSON.stringify(editor.getJSON()));
+        const content = JSON.stringify(editor.getJSON());
         // Never flush empty stub
         if (content === '{"type":"doc","content":[]}') return;
         const plaintext = editor.getText();
