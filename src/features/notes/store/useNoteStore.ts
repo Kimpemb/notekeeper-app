@@ -94,7 +94,7 @@ interface NoteStore {
   createCanvasNote: (name?: string) => Promise<Note>;
   updateCanvasState: (id: string, canvasState: string) => Promise<void>;
   
-  updateNote: (id: string, input: UpdateNoteInput) => Promise<void>;
+  updateNote: (id: string, input: UpdateNoteInput, silent?: boolean) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   restoreNote: (id: string) => Promise<void>;
   permanentlyDeleteNote: (id: string) => Promise<void>;
@@ -350,14 +350,16 @@ updateCanvasStateInMemory: (id, canvasState) => {
   }));
 },
 
-  updateNote: async (id, input) => {
-    await dbUpdateNote(id, input);
+updateNote: async (id, input, silent = false) => {
+  if (!silent) {
     set((state) => ({
       notes: state.notes.map((n) =>
         n.id === id ? { ...n, ...input, updated_at: Date.now() } : n
       ),
     }));
-  },
+  }
+  await dbUpdateNote(id, input);
+},
 
   reorderNote: async (draggedId, targetId, section) => {
     const { notes, pinnedIds } = get();
@@ -434,14 +436,82 @@ updateCanvasStateInMemory: (id, canvasState) => {
     set({ trashedNotes: [] });
   },
 
-  moveNote: async (id, newParentId) => {
-    await dbMoveNote(id, newParentId);
-    set((state) => ({
-      notes: state.notes.map((n) =>
-        n.id === id ? { ...n, parent_id: newParentId } : n
-      ),
-    }));
-  },
+moveNote: async (id, newParentId) => {
+  const oldParentId = get().notes.find((n) => n.id === id)?.parent_id ?? null;
+  await dbMoveNote(id, newParentId);
+  set((state) => ({
+    notes: state.notes.map((n) =>
+      n.id === id ? { ...n, parent_id: newParentId } : n
+    ),
+  }));
+
+  // Persist subpage block changes to affected parents in the DB directly,
+  // so the block is present even if the parent editor isn't currently open.
+  const { getNoteContent, updateNote: dbUpdate } = await import("@/features/notes/db/queries");
+  const movedNote = get().notes.find((n) => n.id === id);
+
+  // Add block to destination parent
+  if (newParentId) {
+    const { content: destContent } = await getNoteContent(newParentId);
+    if (destContent) {
+      try {
+        const doc = JSON.parse(destContent) as { type: string; content: unknown[] };
+        const already = (doc.content ?? []).some((node) => {
+          const n = node as { type: string; attrs?: { noteId?: string } };
+          return (n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId === id;
+        });
+        if (!already) {
+          const newBlock = movedNote?.source_type === "pdf"
+            ? { type: "pdfLink", attrs: { noteId: id, title: movedNote.title } }
+            : { type: "subPage", attrs: { noteId: id, title: movedNote?.title ?? "Untitled", mode: "display" } };
+          const last = doc.content[doc.content.length - 1] as { type: string; content?: unknown[] } | undefined;
+          const lastIsEmptyPara = last?.type === "paragraph" && (!last.content || last.content.length === 0);
+          if (lastIsEmptyPara) {
+            doc.content.splice(doc.content.length - 1, 0, newBlock);
+          } else {
+            doc.content.push(newBlock);
+          }
+          const newContent = JSON.stringify(doc);
+          await dbUpdate(newParentId, { content: newContent });
+          set((state) => ({
+            notes: state.notes.map((n) =>
+              n.id === newParentId ? { ...n, content: newContent, updated_at: Date.now() } : n
+            ),
+          }));
+        }
+      } catch { /* malformed content — skip */ }
+    }
+  }
+
+  // Remove block from source parent
+  if (oldParentId) {
+    const { content: srcContent } = await getNoteContent(oldParentId);
+    if (srcContent) {
+      try {
+        const doc = JSON.parse(srcContent) as { type: string; content: unknown[] };
+        const filtered = doc.content.filter((node) => {
+          const n = node as { type: string; attrs?: { noteId?: string } };
+          return !((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId === id);
+        });
+        if (filtered.length !== doc.content.length) {
+          const newContent = JSON.stringify({ ...doc, content: filtered });
+          await dbUpdate(oldParentId, { content: newContent });
+          set((state) => ({
+            notes: state.notes.map((n) =>
+              n.id === oldParentId ? { ...n, content: newContent, updated_at: Date.now() } : n
+            ),
+          }));
+        }
+      } catch { /* malformed content — skip */ }
+    }
+  }
+
+  window.dispatchEvent(
+    new CustomEvent("idemora:note-moved", {
+      detail: { noteId: id, oldParentId, newParentId },
+    })
+  );
+},
 
   refreshNote: async (id) => {
     const updated = await getNoteById(id);

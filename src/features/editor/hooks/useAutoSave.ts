@@ -24,13 +24,25 @@ import { Editor } from "@tiptap/react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
-import type { UpdateNoteInput } from "@/features/notes/db/queries";
 import { syncNoteBlocks } from "@/features/notes/db/queries";
 import { nudgeIndexer } from "@/features/ai/lib/indexer";
 import { useAIStore } from "@/features/ai/store/useAIStore";
 
-
 const HARD_CAP_MS = 30_000;
+
+// ── Helper: strip subPage and pdfLink blocks from content JSON ──────────────
+function stripSubPageBlocks(contentJson: string): string {
+  try {
+    const doc = JSON.parse(contentJson) as { type: string; content: unknown[] };
+    const filtered = doc.content.filter((node) => {
+      const n = node as { type: string };
+      return n.type !== "subPage" && n.type !== "pdfLink";
+    });
+    return JSON.stringify({ ...doc, content: filtered });
+  } catch {
+    return contentJson;
+  }
+}
 
 interface UseAutoSaveOptions {
   editor:          Editor | null;
@@ -49,7 +61,7 @@ export function useAutoSave({
   suppressSave,
   contentLoading,
 }: UseAutoSaveOptions): void {
-const updateNote    = useNoteStore((s) => s.updateNote);
+  const updateNote    = useNoteStore((s) => s.updateNote);
   const setSaveStatus = useUIStore((s) => s.setSaveStatus);
   const autosaveDelay = useAppSettings((s) => s.settings.autosaveDelay);
   const dbSettled     = useNoteStore((s) => s.dbSettled);
@@ -99,7 +111,7 @@ const updateNote    = useNoteStore((s) => s.updateNote);
 
   // ── save ──────────────────────────────────────────────────────────────────
 
-const save = useCallback(async () => {
+  const save = useCallback(() => {
     if (!editor || !noteId || !isDirty.current) return;
     if (!isActiveTabRef.current) return;
     if (suppressSave?.current) return;
@@ -110,26 +122,23 @@ const save = useCallback(async () => {
     isDirty.current = false;
     setSaveStatus("saving");
 
-    try {
-      const content   = JSON.stringify(editor.getJSON());
-      const plaintext = editor.getText();
-      const update: UpdateNoteInput = { content, plaintext };
+    const content   = stripSubPageBlocks(JSON.stringify(editor.getJSON()));
+    const plaintext = editor.getText();
 
-      onSaveComplete?.(content, noteId);
-await updateNote(noteId, update);
-setSaveStatus("saved");
+    onSaveComplete?.(content, noteId);
+      updateNote(noteId, { content, plaintext }, true).then(() => {
+      setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
-
       runEmbeddingPipeline(noteId, content);
       runScheduledBackupIfDue();
-
-    } catch (err) {
+    }).catch((err) => {
       console.error("[AutoSave] failed:", err);
       setSaveStatus("error");
-    }
+    });
   }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runScheduledBackupIfDue, suppressSave, contentLoading]);
+  
 
-  // ── scheduleSave ──────────────────────────────────────────────────────────
+// ── scheduleSave ──────────────────────────────────────────────────────────
 
   const scheduleSave = useCallback(() => {
     if (contentLoading?.current) return;
@@ -176,20 +185,20 @@ setSaveStatus("saved");
   useEffect(() => {
     if (!editor) return;
 
-   const handler = ({ transaction }: { transaction: any }) => {
-  if (!transaction.docChanged) return;
-  if (transaction.getMeta("preventAutoSave")) return;
-const metaKeys = Object.keys(transaction.meta ?? {});
-if (metaKeys.length === 1 && metaKeys[0] === "preventUpdate") return;
-   
-  if (contentLoading?.current) {
-    setTimeout(() => {
-      if (!contentLoading?.current) scheduleSave();
-    }, 50);
-    return;
-  }
-  scheduleSave();
-};
+    const handler = ({ transaction }: { transaction: any }) => {
+      if (!transaction.docChanged) return;
+      if (transaction.getMeta("preventAutoSave")) return;
+      const metaKeys = Object.keys(transaction.meta ?? {});
+      if (metaKeys.length === 1 && metaKeys[0] === "preventUpdate") return;
+
+      if (contentLoading?.current) {
+        setTimeout(() => {
+          if (!contentLoading?.current) scheduleSave();
+        }, 50);
+        return;
+      }
+      scheduleSave();
+    };
 
     editor.on("transaction", handler);
     return () => { editor.off("transaction", handler); };
@@ -203,11 +212,11 @@ if (metaKeys.length === 1 && metaKeys[0] === "preventUpdate") return;
       if (isDirty.current && editor && noteId && !editor.isDestroyed) {
         if (suppressSave?.current) return;
         if (contentLoading?.current) return;
-        const content = JSON.stringify(editor.getJSON());
+        const content = stripSubPageBlocks(JSON.stringify(editor.getJSON()));
         // Never flush empty stub
         if (content === '{"type":"doc","content":[]}') return;
         const plaintext = editor.getText();
-        updateNote(noteId, { content, plaintext }).catch(console.error);
+        updateNote(noteId, { content, plaintext }, true).catch(console.error)  // in unmount flush
         runScheduledBackupIfDue();
       }
     };
