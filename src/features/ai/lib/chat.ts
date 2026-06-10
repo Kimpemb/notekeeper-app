@@ -104,11 +104,7 @@
   const MEDIUM_CONFIDENCE_THRESHOLD = 0.08
 
 
-  const PERSONAL_SIGNAL_PATTERNS = /\b(my|i|i'm|i've|i have|i wrote|i said|i asked|i want|we|our|this note|the note)\b/i
-
-  function hasPersonalSignals(query: string): boolean {
-    return PERSONAL_SIGNAL_PATTERNS.test(query)
-  }
+  // hasPersonalSignals removed — isPersonal now comes from detectIntent (intentDetection.ts)
   // ─── Query mode budget allocator ──────────────────────────────────────────────
 
   interface ContextBudget {
@@ -431,7 +427,7 @@
     /^(?:tell\s+me\s+about|what(?:'s|\s+is)\s+in)\s+(.+?)[\?\.]*$/i,
   ]
 
-  const DEIXIS_PATTERNS = /\b(this note|the current note|this page|my current note|summarize this|summarise this|what is this|what's this|what is this about|what's this about|what does this|explain this|what did i write|key points from this|main ideas here|tldr|tl;dr)\b/i
+  // DEIXIS_PATTERNS removed — isDeixis now comes from detectIntent (intentDetection.ts)
 
   interface TitleMatch {
     noteId:    string
@@ -622,16 +618,16 @@
 
   // ─── deriveWebNudge helper ───────────────────────────────────────────────
 
-  function deriveWebNudge(
-    pipeline: PipelineResult,
+function deriveWebNudge(
+    pipeline:    PipelineResult,
     answerText?: string,
-    query?: string,
+    isPersonal?: boolean,
   ): "limited" | "zero" | undefined {
-    const intent = query ? detectIntent(query).intent : pipeline.detectedIntent
+    const intent = pipeline.detectedIntent
 
     // Exploration and non-personal lookups don't benefit from web search
     if (intent === "exploration") return undefined
-    if (intent === "lookup" && query && !hasPersonalSignals(query)) return undefined
+    if (intent === "lookup" && !isPersonal) return undefined
     if (pipeline.inventoryMode)   return undefined
     if (pipeline.isTitleDirected) return undefined
 
@@ -724,7 +720,7 @@
     console.log('[pipeline] scopeNoteIds:', scopeNoteIds || 'none')
     console.log('[pipeline] overrideNoteIds:', overrideNoteIds || 'none')
 
-    const { intent, scope, cleanQuery } = detectIntent(query)
+    const { intent, scope, cleanQuery, isDeixis } = await detectIntent(query)
     const t0 = performance.now()
     console.log('[pipeline] Intent detection:', { intent, scope, cleanQuery })
 
@@ -771,7 +767,7 @@
       }
     }
 
-    const isDeicticQuery = DEIXIS_PATTERNS.test(query)
+    const isDeicticQuery = isDeixis
 
     // PATCH: Deixis path moved here — "summarize this note", "what's in the current note" etc.
     // Injects full note plaintext directly, mirrors isEnumerativeScoped pattern.
@@ -1009,6 +1005,8 @@
     return finalResult
   }
 
+
+  
   // ─── Prompt builder ───────────────────────────────────────────────────────────
 
   function buildPrompt(
@@ -1122,7 +1120,7 @@
         tier1Results:        tier1Cards,
         excludedNoteNotices: pipeline.excludedNoteNotices,
         titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-        webNudge:            deriveWebNudge(pipeline),
+        webNudge:            deriveWebNudge(pipeline, undefined, false),
       }
     }
 
@@ -1131,7 +1129,7 @@
     streaming.onStatus?.("Searching your notes…")
 
     // Detect intent for budget allocation
-    const { intent } = detectIntent(query)
+    const { intent, isPersonal } = await detectIntent(query)
     const budget     = allocateBudget(intent)
 
     const [historyBlock, pipeline] = await Promise.all([
@@ -1245,16 +1243,57 @@
       }
     }
 
+
+
     // Gate vault injection — only inject when retrieval was meaningful
-    const injectVault = (webResults && webResults.length > 0)
-      ? pipeline.chunkCount > 0 && pipeline.confidence !== "low"
-      : true  // always inject on non-web path
+const injectVault = (webResults && webResults.length > 0)
+  ? pipeline.chunkCount > 0 && pipeline.confidence !== "low"
+  : pipeline.chunkCount > 0 && pipeline.confidence !== "low"
+
+// Low confidence + no personal signals — skip vault, answer from general knowledge
+if (!injectVault && !pipeline.inventoryMode && (!webResults || webResults.length === 0) && !isPersonal) {
+  console.log('[streamChat] low confidence + no personal signals — routing to general knowledge')
+  streaming.onStatus?.("Nothing in your notes about this — answering from general knowledge…")
+
+  const generalKnowledgePrompt = `You are a knowledgeable assistant. Answer the following question from your general knowledge. Do not mention notes, vaults, or any note-taking system.
+
+[QUESTION]
+${query}
+
+Answer:`
+
+  const messages: ProviderMessage[] = [{ role: "user", content: generalKnowledgePrompt }]
+
+  try {
+    const result = await callPrimary(messages)
+    assembled    = result.text
+    streaming.onChunk(assembled)
+    await appendAIHistory(noteId, "user",      query)
+    await appendAIHistory(noteId, "assistant", assembled)
+    streaming.onDone?.()
+  } catch (err: unknown) {
+    streaming.onError?.(err as AICallError)
+  }
+
+  return {
+    sourceTitles:        [],
+    sourceNoteIds:       [],
+    usedEmbeddings:      false,
+    confidence:          "low",
+    relatedNotes:        [],
+    excludedNoteNotices: pipeline.excludedNoteNotices,
+    titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+    webNudge:            deriveWebNudge(pipeline, undefined, isPersonal),
+  }
+}
+
+// Short-circuit — no chunks and no web results
 
     // Short-circuit — no chunks and no web results
     // If query has no personal signals, answer from general knowledge instead of
     // returning a vault-miss message (fixes Jay-Z / tree traversal / Ghana cases).
     if (pipeline.chunkCount === 0 && !pipeline.inventoryMode && (!webResults || webResults.length === 0)) {
-      if (!hasPersonalSignals(query)) {
+      if (!isPersonal) {
         console.log('[streamChat] chunkCount=0, no personal signals — routing to general knowledge')
         // Fall through to model call with a general knowledge instruction injected
         const generalKnowledgePrompt = `You are a knowledgeable assistant. Answer the following question from your general knowledge. Do not mention notes, vaults, or any note-taking system.
@@ -1283,12 +1322,12 @@
           relatedNotes:        [],
           excludedNoteNotices: pipeline.excludedNoteNotices,
           titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-          webNudge:            deriveWebNudge(pipeline),
+          webNudge:            deriveWebNudge(pipeline, undefined, isPersonal),
         }
       }
 
       // Has personal signals — vault miss is meaningful, report it
-      console.log('[streamChat] chunkCount=0 with personal signals — short-circuiting')
+      console.log('[streamChat] chunkCount=0 with isPersonal — short-circuiting')
       assembled = "I couldn't find anything relevant in your notes for that."
       streaming.onChunk(assembled)
       streaming.onDone?.()
@@ -1300,7 +1339,7 @@
         relatedNotes:        [],
         excludedNoteNotices: pipeline.excludedNoteNotices,
         titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-        webNudge:            deriveWebNudge(pipeline, assembled),
+        webNudge:            deriveWebNudge(pipeline, assembled, isPersonal),
       }
     }
 
@@ -1360,7 +1399,7 @@
       relatedNotes,
       excludedNoteNotices: pipeline.excludedNoteNotices,
       titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-      webNudge:            deriveWebNudge(pipeline, assembled),
+      webNudge:            deriveWebNudge(pipeline, assembled, isPersonal),
       webGrounded:         webResults && webResults.length > 0 ? true : undefined,
     }
   }

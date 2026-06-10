@@ -325,21 +325,23 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const { settings }        = useAppSettings()
   const autoSearch          = settings.web_search_auto_search === 1
 
-  useEffect(() => {
-    if (!autoSearch || !appWebSearch) return
+useEffect(() => {
+  if (!autoSearch || !appWebSearch) return
 
-    const lastMsg = messages[messages.length - 1]
-    if (!lastMsg || lastMsg.role !== "assistant") return
-    const meta = metaMap.get(lastMsg.id)
-    if (!meta || !meta.webNudge) return
-    if (dismissedNudges.has(lastMsg.id)) return
-    if (webResultsMap.has(lastMsg.id)) return
+  const lastMsg = messages[messages.length - 1]
+  if (!lastMsg || lastMsg.role !== "assistant") return
+  const meta = metaMap.get(lastMsg.id)
+  if (!meta || !meta.webNudge) return
+  if (dismissedNudges.has(lastMsg.id)) return
+  if (webResultsMap.has(lastMsg.id)) return
 
-    const prevMsg = messages[messages.length - 2]
-    const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
-    if (!userQuery) return
+  const prevMsg = messages[messages.length - 2]
+  const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
+  if (!userQuery) return
 
-    const { intent } = detectIntent(userQuery)
+  // Run async logic in a nested async IIFE — useEffect callbacks can't be async directly
+  void (async () => {
+    const { intent } = await detectIntent(userQuery)
     if (intent === "edit" || intent === "inventory" || intent === "exploration") return
     const words = userQuery.trim().split(/\s+/)
     const QUESTION_WORDS = /\b(what|who|how|why|when|where|does|is|can|which)\b/i
@@ -352,8 +354,9 @@ export function ChatPanel({ noteId, paneId }: Props) {
       setSuppressedNudges((prev) => new Set(prev).add(lastMsg.id))
       handleWebSearch(userQuery, results)
     }).catch(console.error)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, metaMap, autoSearch, dismissedNudges, webResultsMap])
+  })()
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [messages, metaMap, autoSearch, dismissedNudges, webResultsMap])
 
   useEffect(() => {
     console.log('[ragScope sync] ragScope changed to:', ragScope)

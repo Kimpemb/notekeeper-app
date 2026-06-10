@@ -1,27 +1,16 @@
 // src/features/ai/lib/search/intentDetection.ts
 //
 // RAG v3 — Query intent classifier and scoped search parser.
-//
-// Six intent types:
-//   inventory   — "what notes do you have", "what do you know about"
-//   lookup      — "what is", "how does", "define", "explain" (default)
-//   exploration — "what have I written about", "summarise my thoughts"
-//   scoped      — "in my [tag] notes", "from last week", "in [note title]"
-//   edit        — "change the table to 3pm", "update that list"
-//   hybrid      — "based on my notes, rewrite the schedule"
-//
-// Scoped queries are parsed for:
-//   - source_type filter  ("in my vault entries", "notes only")
-//   - date range filter   ("last week", "this month", "last 30 days")
-//   - tag filter          ("in my #work notes", "tagged productivity")
-//   - note title filter   ("in the RAG postmortem note")
-//   - folder filter       ("in my Work folder")
+// Intent detection is now AI-first via promptProcessing, with a regex
+// fallback when the processing slot is exhausted.
+
+import { promptProcessing, ProcessingExhaustedError } from "@/features/ai/lib/client"
 
 export type QueryIntent = "inventory" | "lookup" | "exploration" | "scoped" | "edit" | "hybrid"
 export type SourceTypeFilter = "note" | "vault_entry" | null
 
 export interface DateRangeFilter {
-  after: number   // Unix ms — block_updated_at must be >= this
+  after: number
 }
 
 export interface ScopeFilter {
@@ -36,10 +25,12 @@ export interface ScopeFilter {
 export interface DetectedIntent {
   intent:      QueryIntent
   scope:       ScopeFilter
-  cleanQuery:  string   // query with scope phrases stripped for cleaner expansion
+  cleanQuery:  string
+  isDeixis:    boolean
+  isPersonal:  boolean
 }
 
-// ─── Intent pattern maps ──────────────────────────────────────────────────────
+// ─── Fallback regex (processing slot exhausted) ───────────────────────────────
 
 const INVENTORY_PATTERNS = [
   /what notes (do you have|can you access|exist)/i,
@@ -67,34 +58,25 @@ const EXPLORATION_PATTERNS = [
   /what (folders|sections|categories) (should|would)/i,
 ]
 
-// ─── Edit intent patterns ─────────────────────────────────────────────────────
-//
-// Narrow to structural/artifact-referencing patterns only.
-// Must reference something visible in conversation — "the table", "that list", "this".
-// Avoids catching conceptual imperatives like "change how Python handles memory".
-
 const EDIT_PATTERNS = [
-  /change\s+.+\s+to\s+.+/i,
-  /update\s+(the|that|this)\s+\w+/i,
-  /remove\s+(the|that|this)\s+\w+/i,
-  /rewrite\s+(the|that|this)\s+\w+/i,
-  /rename\s+.+\s+to\s+.+/i,
-  /replace\s+.+\s+with\s+.+/i,
-  /use\s+.+\s+instead/i,
-  /\bis\s+(actually|now|in)\s+\w+/i,       // "X is actually Y", "X is now Y", "X is in C15"
+  /^change\s+(the|that|this)\s+/i,
+  /^update\s+(the|that|this)\s+\w+/i,
+  /^remove\s+(the|that|this)\s+\w+/i,
+  /^delete\s+(the|that|this)\s+\w+/i,
+  /^rewrite\s+(the|that|this)\s+\w+/i,
+  /^rename\s+\S+\s+to\s+\S+/i,
+  /^replace\s+(the|that|this)\s+.+?\s+with\s+/i,
+  /^move\s+(the|that|this)\s+\w+/i,
+  /^add\s+(the|that|this)\s+\w+/i,
+  /^set\s+(the|that|this)\s+\w+\s+to\s+/i,
+  /^swap\s+(the|that|this)\s+/i,
+  /\b(the|that|this)\s+\w+\s+should\s+be\s+\w+/i,
+  /\b(the|that|this)\s+\w+\s+is\s+(actually|now)\s+/i,
   /\bwas\s+supposed\s+to\s+be\b/i,
-  /\bshould\s+be\s+\w+/i,
-  /\badd\s+(the|that|this|a)\s+\w+/i,
-  /\bmove\s+(the|that|this)\s+\w+/i,
+  /^use\s+.+?\s+instead\s+of\s+/i,
 ]
 
-// Artifact reference signals — edit only fires when one of these is also present,
-// OR when the query is under 12 words (short corrections are almost always edits)
-const ARTIFACT_REFS = /\b(the table|that table|the list|that list|the timetable|the schedule|that row|this row|the row|that entry|the entry|the last|that last|the previous|it|that)\b/i
-
-// ─── Hybrid intent patterns ───────────────────────────────────────────────────
-//
-// References both vault content and conversation context.
+const ARTIFACT_REFS = /\b(the table|that table|the list|that list|the schedule|the timetable|that schedule|the row|that row|this row|the entry|that entry|the cell|that cell|the column|that column|the value|that value|the number|that number|the date|that date|the time|that time|the item|that item|the line|that line|the last (row|entry|item|value|line))\b/i
 
 const HYBRID_PATTERNS = [
   /based on (my notes|what you found|the results)/i,
@@ -103,23 +85,10 @@ const HYBRID_PATTERNS = [
   /taking (my notes|that) into account/i,
 ]
 
-// ─── Scope pattern maps ───────────────────────────────────────────────────────
+const DEIXIS_PATTERNS = /\b(this note|the current note|this page|my current note|summarize this|summarise this|what is this|what's this|what is this about|what's this about|what does this|explain this|key points from this|main ideas here|tldr|tl;dr)\b/i
 
-// Source type
-const VAULT_ENTRY_PATTERNS = [
-  /in (my )?vault entries/i,
-  /from (my )?vault/i,
-  /vault entry/i,
-  /vault only/i,
-]
+const PERSONAL_PATTERNS = /\b(my|i|i'm|i've|i have|i wrote|i said|i asked|i want|we|our)\b/i
 
-const NOTE_ONLY_PATTERNS = [
-  /in (my )?notes only/i,
-  /notes only/i,
-  /from (my )?notes/i,
-]
-
-// Date ranges
 const DATE_PATTERNS: Array<{ pattern: RegExp; daysBack: number }> = [
   { pattern: /this week|last 7 days/i,    daysBack: 7   },
   { pattern: /last week/i,                daysBack: 14  },
@@ -132,19 +101,9 @@ const DATE_PATTERNS: Array<{ pattern: RegExp; daysBack: number }> = [
   { pattern: /recent(ly)?/i,              daysBack: 30  },
 ]
 
-// Tag: "in my #work notes", "tagged work", "with tag productivity"
-const TAG_PATTERN = /(?:in my #(\w[\w-]*) notes?|tagged? (\w[\w-]*)|with tag (\w[\w-]*))/i
-
-// Note title: "in the [title] note", "in [title]"
+const TAG_PATTERN        = /(?:in my #(\w[\w-]*) notes?|tagged? (\w[\w-]*)|with tag (\w[\w-]*))/i
 const NOTE_TITLE_PATTERN = /in (?:the )?["']?([^"']+?)["']? note/i
-
-// Folder: "in my [folder] folder", "in [folder]"
-const FOLDER_PATTERN = /in (?:my )?([^,]+?) folder/i
-
-// ─── Scope stripper ───────────────────────────────────────────────────────────
-//
-// Removes scope phrases from the query so the cleaned version is used for
-// embedding and expansion without the noise of "in my vault entries last week".
+const FOLDER_PATTERN     = /in (?:my )?([^,]+?) folder/i
 
 const SCOPE_STRIP_PATTERNS = [
   /in (my )?(vault entries?|notes? only|vault only|notes? only)/gi,
@@ -165,100 +124,112 @@ function stripScopePhrases(query: string): string {
   return cleaned.replace(/\s+/g, " ").trim()
 }
 
-// ─── Main detector ────────────────────────────────────────────────────────────
-
-export function detectIntent(query: string): DetectedIntent {
+export function detectIntentFallback(query: string): DetectedIntent {
   const q = query.trim()
 
-  // ── Check inventory first — highest priority ──────────────────────────────
   if (INVENTORY_PATTERNS.some((p) => p.test(q))) {
-    return {
-      intent:     "inventory",
-      scope:      {},
-      cleanQuery: q,
-    }
+    return { intent: "inventory", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: true }
   }
 
-  // ── Check hybrid first — references both vault and conversation ───────────
   if (HYBRID_PATTERNS.some((p) => p.test(q))) {
-    return {
-      intent:     "hybrid",
-      scope:      {},
-      cleanQuery: q,
-    }
+    return { intent: "hybrid", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: true }
   }
 
-  // ── Check edit intent — instruction against in-context content ────────────
-  const isEditPattern   = EDIT_PATTERNS.some((p) => p.test(q))
-  const hasArtifactRef  = ARTIFACT_REFS.test(q)
-  const isShortQuery    = q.trim().split(/\s+/).length <= 12
-
-  if (isEditPattern && (hasArtifactRef || isShortQuery)) {
-    return {
-      intent:     "edit",
-      scope:      {},
-      cleanQuery: q,
-    }
+  const isEditPattern  = EDIT_PATTERNS.some((p) => p.test(q))
+  const hasArtifactRef = ARTIFACT_REFS.test(q)
+  if (isEditPattern && hasArtifactRef) {
+    return { intent: "edit", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: false }
   }
 
-  // ── Parse scope regardless of intent ─────────────────────────────────────
   const scope: ScopeFilter = {}
   let hasScopeSignal = false
 
-  // Source type
-  if (VAULT_ENTRY_PATTERNS.some((p) => p.test(q))) {
-    scope.sourceType = "vault_entry"
-    hasScopeSignal   = true
-  } else if (NOTE_ONLY_PATTERNS.some((p) => p.test(q))) {
-    scope.sourceType = "note"
-    hasScopeSignal   = true
+  if (/in (my )?(vault entries?|vault only)/i.test(q)) {
+    scope.sourceType = "vault_entry"; hasScopeSignal = true
+  } else if (/in (my )?notes? only|notes? only/i.test(q)) {
+    scope.sourceType = "note"; hasScopeSignal = true
   }
 
-  // Date range — use the most specific match (shortest daysBack wins on tie)
   for (const { pattern, daysBack } of DATE_PATTERNS) {
     if (pattern.test(q)) {
-      const after = Date.now() - daysBack * 24 * 60 * 60 * 1000
-      if (!scope.dateRange || daysBack < (Date.now() - scope.dateRange.after) / (24 * 60 * 60 * 1000)) {
-        scope.dateRange  = { after }
-        hasScopeSignal   = true
-      }
+      scope.dateRange = { after: Date.now() - daysBack * 24 * 60 * 60 * 1000 }
+      hasScopeSignal  = true
       break
     }
   }
 
-  // Tag
   const tagMatch = TAG_PATTERN.exec(q)
-  if (tagMatch) {
-    scope.tag      = (tagMatch[1] ?? tagMatch[2] ?? tagMatch[3]).toLowerCase()
-    hasScopeSignal = true
-  }
+  if (tagMatch) { scope.tag = (tagMatch[1] ?? tagMatch[2] ?? tagMatch[3]).toLowerCase(); hasScopeSignal = true }
 
-  // Note title
   const noteTitleMatch = NOTE_TITLE_PATTERN.exec(q)
-  if (noteTitleMatch) {
-    scope.noteTitle = noteTitleMatch[1].trim()
-    hasScopeSignal  = true
-  }
+  if (noteTitleMatch) { scope.noteTitle = noteTitleMatch[1].trim(); hasScopeSignal = true }
 
-  // Folder
   const folderMatch = FOLDER_PATTERN.exec(q)
-  if (folderMatch && !noteTitleMatch) {
-    scope.folder   = folderMatch[1].trim()
-    hasScopeSignal = true
+  if (folderMatch && !noteTitleMatch) { scope.folder = folderMatch[1].trim(); hasScopeSignal = true }
+
+  const cleanQuery  = stripScopePhrases(q) || q
+  const isDeixis    = DEIXIS_PATTERNS.test(q)
+  const isPersonal  = PERSONAL_PATTERNS.test(q)
+
+  if (hasScopeSignal) return { intent: "scoped",      scope, cleanQuery, isDeixis, isPersonal }
+  if (EXPLORATION_PATTERNS.some((p) => p.test(q))) return { intent: "exploration", scope: {}, cleanQuery: q, isDeixis, isPersonal }
+  return { intent: "lookup", scope: {}, cleanQuery, isDeixis, isPersonal }
+}
+
+// ─── AI-first intent detection ────────────────────────────────────────────────
+
+const INTENT_PROMPT = (query: string) => `You are an intent classifier for a personal notes assistant. Classify the user query below.
+
+Return ONLY a valid JSON object — no markdown, no explanation, no backticks.
+
+Fields:
+- intent: one of "inventory" | "lookup" | "exploration" | "scoped" | "edit" | "hybrid"
+- isDeixis: true if the query refers to the currently open note ("this note", "summarize this", "what's on this page", "explain this") — false otherwise
+- isPersonal: true if the query is about the user's own content ("what did I write", "my notes on X", "do I have anything about") — false for general knowledge questions
+- cleanQuery: the query with any scope phrases (date ranges, folder names, tag filters) stripped out
+- scope: object with optional fields: sourceType ("note"|"vault_entry"), dateRange ({after: unixMs}), tag (string), noteTitle (string), folder (string)
+
+Intent definitions:
+- inventory: asking what notes exist ("what notes do you have", "how many notes", "what's in my vault")
+- exploration: asking about the user's own writing patterns across notes ("what have I written about X", "summarise my thoughts on Y")
+- scoped: query explicitly scoped to a date range, tag, folder, or note title
+- edit: instruction to modify something visible in the conversation ("change the table to 3pm", "update that row")
+- hybrid: references both vault content and wants transformation ("based on my notes, rewrite the schedule")
+- lookup: everything else — default
+
+Important:
+- "what did I write about X" is exploration + isPersonal:true, NOT isDeixis
+- "summarize this note" or "what's in the current note" is isDeixis:true
+- "how does climate change work" is lookup + isPersonal:false
+- "what do I have on vitobu" is exploration + isPersonal:true
+
+Query: ${JSON.stringify(query)}
+
+JSON:`
+
+export async function detectIntent(query: string): Promise<DetectedIntent> {
+  try {
+    const raw  = await promptProcessing(INTENT_PROMPT(query))
+    const clean = raw.replace(/```json|```/g, "").trim()
+    const parsed = JSON.parse(clean)
+
+    // Validate shape — fall back if malformed
+    const validIntents = ["inventory", "lookup", "exploration", "scoped", "edit", "hybrid"]
+    if (!validIntents.includes(parsed.intent)) throw new Error("invalid intent")
+
+    return {
+      intent:     parsed.intent     as QueryIntent,
+      isDeixis:   Boolean(parsed.isDeixis),
+      isPersonal: Boolean(parsed.isPersonal),
+      cleanQuery: typeof parsed.cleanQuery === "string" ? parsed.cleanQuery : query,
+      scope:      parsed.scope && typeof parsed.scope === "object" ? parsed.scope : {},
+    }
+  } catch (err) {
+    if (err instanceof ProcessingExhaustedError) {
+      console.info("[intentDetection] processing exhausted — using fallback")
+    } else {
+      console.warn("[intentDetection] AI classification failed — using fallback:", err)
+    }
+    return detectIntentFallback(query)
   }
-
-  const cleanQuery = stripScopePhrases(q) || q
-
-  // ── Scoped intent — scope phrases detected ────────────────────────────────
-  if (hasScopeSignal) {
-    return { intent: "scoped", scope, cleanQuery }
-  }
-
-  // ── Exploration ───────────────────────────────────────────────────────────
-  if (EXPLORATION_PATTERNS.some((p) => p.test(q))) {
-    return { intent: "exploration", scope: {}, cleanQuery: q }
-  }
-
-  // ── Default: lookup ───────────────────────────────────────────────────────
-  return { intent: "lookup", scope: {}, cleanQuery: q }
 }
