@@ -405,15 +405,26 @@ useEffect(() => {
 
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!streamingId) return
+    const el = scrollContainerRef.current
+    if (!el) return
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distFromBottom < 100) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }
+  }, [messages, streamingId]);
 
   useEffect(() => {
     if (!streamingId) return
-    const t = setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-    }, 80)
-    return () => clearTimeout(t)
+    const el = scrollContainerRef.current
+    if (!el) return
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distFromBottom < 100) {
+      const t = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+      }, 80)
+      return () => clearTimeout(t)
+    }
   }, [streamingId]);
 
   useEffect(() => {
@@ -720,25 +731,29 @@ useEffect(() => {
     setLoading(false)
   }
 
-const handleRetry = useCallback(async () => {
+const handleRetry = useCallback(async (userMessageId?: string, userMessageContent?: string) => {
   // Cancel any pending auto-retry countdown
   if (retryTimerRef.current) {
     clearInterval(retryTimerRef.current)
     retryTimerRef.current = null
   }
 
-const currentMessages = useChatSessionStore.getState().getSessionByNoteId(noteId).messages
-const lastUser = [...currentMessages].reverse().find((m) => m.role === "user")
-if (!lastUser) return
+  const currentMessages = useChatSessionStore.getState().getSessionByNoteId(noteId).messages
 
-const lastUserIndex = currentMessages.findIndex((m) => m.id === lastUser.id)
+  // If a specific message was passed (retry from a user bubble), use it.
+  // Otherwise fall back to the last user message (error card retry).
+  const targetUser = userMessageId
+    ? currentMessages.find((m) => m.id === userMessageId)
+    : [...currentMessages].reverse().find((m) => m.role === "user")
+  if (!targetUser) return
 
-// Only reuse an assistant message if it sits after the last user message
-// — prevents overwriting a previous exchange's response when error removed the placeholder
-const lastAssistant = currentMessages
-  .slice(lastUserIndex + 1)
-  .find((m) => m.role === "assistant") ?? null
-  
+  const targetContent = userMessageContent ?? targetUser.content
+
+  // Find the assistant message that directly follows THIS user message
+  const targetUserIndex = currentMessages.findIndex((m) => m.id === targetUser.id)
+  const nextMsg = currentMessages[targetUserIndex + 1]
+  const directAssistant = nextMsg?.role === "assistant" ? nextMsg : null
+
   // DON'T clear error here — keep error card visible until first real token arrives
   // setCallError(null)
   // setErrorAfterMessageId(null)
@@ -747,18 +762,35 @@ const lastAssistant = currentMessages
 
   let targetAssistantId: string
 
-  if (lastAssistant) {
-    targetAssistantId = lastAssistant.id
-    setStreamingId(lastAssistant.id)
-    setMessageContent(noteId, lastAssistant.id, "")
+  if (directAssistant) {
+    // Reuse existing assistant message directly below the user message
+    targetAssistantId = directAssistant.id
+    setStreamingId(directAssistant.id)
+    // CRITICAL FIX: Clear the content directly in the store, not via setMessageContent which might batch
+    useChatSessionStore.setState((s) => {
+      const sess = s.sessions[noteId]
+      if (!sess) return s
+      const msgs = sess.messages.map(m => 
+        m.id === directAssistant.id ? { ...m, content: "" } : m
+      )
+      return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: msgs } } }
+    })
   } else {
     // No assistant message exists (was removed on error) — create a fresh one
     targetAssistantId = crypto.randomUUID()
     const newAssistantMsg: ChatMessage = {
       id: targetAssistantId, role: "assistant", content: "", createdAt: Date.now(),
     }
-    addMessage(noteId, newAssistantMsg)
-    await saveSession(noteId)          // ensure message is in store before streaming begins
+    
+    // Insert directly after the target user message, not at the end
+    useChatSessionStore.setState((s) => {
+      const sess = s.sessions[noteId]
+      if (!sess) return s
+      const msgs = [...sess.messages]
+      msgs.splice(targetUserIndex + 1, 0, newAssistantMsg)
+      return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: msgs } } }
+    })
+    await saveSession(noteId)
     setStreamingId(targetAssistantId)
   }
 
@@ -766,62 +798,79 @@ const lastAssistant = currentMessages
 
   try {
     const meta = await streamChatWithNotes(
-      lastUser.content,
+      targetContent,
       notes,
       noteId,
       currentNote,
       scopeNoteIds,
       {
         onChunk: (token) => {
+          console.log('[retry:onChunk] token received:', token.slice(0, 20))
           // Clear error on first real token — assistant bubble is now growing below error card
           setCallError(null)
           setErrorAfterMessageId(null)
           
-          const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
-          const existing = current.messages.find((m) => m.id === targetAssistantId)
-          setMessageContent(noteId, targetAssistantId, (existing?.content ?? "") + token)
+          // CRITICAL FIX: Use functional update to append content
+          useChatSessionStore.setState((s) => {
+            const sess = s.sessions[noteId]
+            if (!sess) return s
+            const msgs = sess.messages.map(m => 
+              m.id === targetAssistantId ? { ...m, content: m.content + token } : m
+            )
+            return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: msgs } } }
+          })
           setStreamStatus(null)
         },
-        onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+        onDone: () => { 
+          console.log('[retry:onDone]')
+          setStreamStatus(null)
+          setStreamingId(null)
+          setLoading(false)
+          saveSession(noteId)
+        },
         onError: (err) => {
-          setStreamStatus(null); setStreamingId(null); setLoading(false)
+          console.log('[retry:onError]', err)
+          setStreamStatus(null)
+          setStreamingId(null)
+          setLoading(false)
           setCallError(err)
-          setErrorAfterMessageId(lastUser.id)
+          setErrorAfterMessageId(targetUser.id)
         },
         onStatus: (msg) => setStreamStatus(msg),
       },
       undefined,
       undefined,
       undefined,
-      useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
+      currentMessages.slice(0, targetUserIndex),
     )
 
     const pm: PersistedMeta = {
-      messageId:      targetAssistantId,
-      confidence:     meta.confidence,
-      citations:      meta.sourceTitles.map((title, i) => ({
-        noteId:       meta.sourceNoteIds[i],
+      messageId: targetAssistantId,
+      confidence: meta.confidence,
+      citations: meta.sourceTitles.map((title, i) => ({
+        noteId: meta.sourceNoteIds[i],
         title,
         isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
       })),
-      usedWeb:        meta.webNudge !== undefined,
+      usedWeb: meta.webNudge !== undefined,
       usedEmbeddings: meta.usedEmbeddings,
     }
     setPersistedMeta(noteId, targetAssistantId, pm)
     await saveSession(noteId)
 
     setRuntimeMetaMap((prev) => new Map(prev).set(targetAssistantId, {
-      sourceTitles:        meta.sourceTitles,
-      sourceNoteIds:       meta.sourceNoteIds,
-      relatedNotes:        meta.relatedNotes,
-      tier1Results:        meta.tier1Results,
+      sourceTitles: meta.sourceTitles,
+      sourceNoteIds: meta.sourceNoteIds,
+      relatedNotes: meta.relatedNotes,
+      tier1Results: meta.tier1Results,
       excludedNoteNotices: meta.excludedNoteNotices,
       titleMatchedNoteIds: meta.titleMatchedNoteIds,
-      webNudge:            meta.webNudge,
+      webNudge: meta.webNudge,
     }))
-  } catch { /* handled by onError */ }
+  } catch { 
+    /* handled by onError */ 
+  }
 }, [notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession, addMessage])
-
 function handleOpenNote(id: string) {
     if (paneId === 2) openTabInPane2(id);
     else openTab(id);
@@ -846,28 +895,28 @@ function handleOpenNote(id: string) {
     const scopeNoteIds = await resolveScopeNoteIds(allInclusions);
 
     try {
-      const meta = await streamChatWithNotes(
-        lastUserMsg.content,
-        notes,
-        noteId,
-        currentNote,
-        scopeNoteIds,
-        {
-          onChunk: (token) => {
-            const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
-            const existing = current.messages.find(m => m.id === assistantId)
-            setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
-            setStreamStatus(null)
-          },
-          onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
-          onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
-          onStatus: (msg) => setStreamStatus(msg),
+const meta = await streamChatWithNotes(
+      lastUserMsg.content,
+      notes,
+      noteId,
+      currentNote,
+      scopeNoteIds,
+      {
+        onChunk: (token) => {
+          const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+          const existing = current.messages.find(m => m.id === assistantId)
+          setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+          setStreamStatus(null)
         },
-        allInclusions,
-        undefined,
-        undefined,
-        messages.slice(0, -1),
-      )
+        onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+        onError: (err) => { setStreamStatus(null); setStreamingId(null); setLoading(false); setCallError(err) },
+        onStatus: (msg) => setStreamStatus(msg),
+      },
+      allInclusions,
+      undefined,
+      undefined,
+      messages.slice(0, -1),
+    )
       const pm: PersistedMeta = {
         messageId:      assistantId,
         confidence:     meta.confidence,
@@ -1033,7 +1082,7 @@ function handleOpenNote(id: string) {
                     }}
                     onEdit={msg.role === "user" ? (content) => setInput(content) : undefined}
                     // Pass retry to user bubbles so the icon shows on hover
-                    onRetry={msg.role === "user" ? handleRetry : undefined}
+onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefined}
                   />
 
                   {/* ── Inline error card — shown directly after the offending user message ── */}
