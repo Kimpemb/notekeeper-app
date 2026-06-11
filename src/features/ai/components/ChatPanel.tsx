@@ -370,12 +370,14 @@ useEffect(() => {
     return subscribeToIndexerStatus((status) => setIndexingPaused(status.paused));
   }, []);
 
-  useEffect(() => {
-    return onRecovery(() => {
-      setAllExhausted(false);
-      addToast("Provider recovered — ready to chat", true);
-    });
-  }, [addToast]);
+useEffect(() => {
+  return onRecovery(() => {
+    setAllExhausted(false);
+    setCallError(null);                 
+    setErrorAfterMessageId(null);       
+    addToast("Connection restored — ready to chat", true);
+  });
+}, [addToast]);
 
   const primaryRotation = useAIStore((s) => s.primaryRotation);
   useEffect(() => {
@@ -718,97 +720,109 @@ useEffect(() => {
     setLoading(false)
   }
 
-  const handleRetry = useCallback(async () => {
-    // Cancel any pending auto-retry countdown
-    if (retryTimerRef.current) {
-      clearInterval(retryTimerRef.current)
-      retryTimerRef.current = null
+const handleRetry = useCallback(async () => {
+  // Cancel any pending auto-retry countdown
+  if (retryTimerRef.current) {
+    clearInterval(retryTimerRef.current)
+    retryTimerRef.current = null
+  }
+
+const currentMessages = useChatSessionStore.getState().getSessionByNoteId(noteId).messages
+const lastUser = [...currentMessages].reverse().find((m) => m.role === "user")
+if (!lastUser) return
+
+const lastUserIndex = currentMessages.findIndex((m) => m.id === lastUser.id)
+
+// Only reuse an assistant message if it sits after the last user message
+// — prevents overwriting a previous exchange's response when error removed the placeholder
+const lastAssistant = currentMessages
+  .slice(lastUserIndex + 1)
+  .find((m) => m.role === "assistant") ?? null
+  
+  // DON'T clear error here — keep error card visible until first real token arrives
+  // setCallError(null)
+  // setErrorAfterMessageId(null)
+  
+  setLoading(true)
+
+  let targetAssistantId: string
+
+  if (lastAssistant) {
+    targetAssistantId = lastAssistant.id
+    setStreamingId(lastAssistant.id)
+    setMessageContent(noteId, lastAssistant.id, "")
+  } else {
+    // No assistant message exists (was removed on error) — create a fresh one
+    targetAssistantId = crypto.randomUUID()
+    const newAssistantMsg: ChatMessage = {
+      id: targetAssistantId, role: "assistant", content: "", createdAt: Date.now(),
     }
+    addMessage(noteId, newAssistantMsg)
+    await saveSession(noteId)          // ensure message is in store before streaming begins
+    setStreamingId(targetAssistantId)
+  }
 
-  const currentMessages = useChatSessionStore.getState().getSessionByNoteId(noteId).messages
-  const lastUser = [...currentMessages].reverse().find((m) => m.role === "user")
-  if (!lastUser) return
+  const scopeNoteIds = await resolveScopeNoteIds()
 
-  // Find or create assistant message to stream into — read from live store not stale closure
-  const lastAssistant = [...currentMessages].reverse().find((m) => m.role === "assistant")
-
-    setCallError(null)
-    setErrorAfterMessageId(null)
-    setLoading(true)
-
-    let targetAssistantId: string
-
-    if (lastAssistant) {
-      targetAssistantId = lastAssistant.id
-      setStreamingId(lastAssistant.id)
-      setMessageContent(noteId, lastAssistant.id, "")
-    } else {
-      // No assistant message exists (was removed on error) — create a fresh one
-      targetAssistantId = crypto.randomUUID()
-      const newAssistantMsg: ChatMessage = {
-        id: targetAssistantId, role: "assistant", content: "", createdAt: Date.now(),
-      }
-      addMessage(noteId, newAssistantMsg)
-      setStreamingId(targetAssistantId)
-    }
-
-    const scopeNoteIds = await resolveScopeNoteIds()
-
-    try {
-      const meta = await streamChatWithNotes(
-        lastUser.content,
-        notes,
-        noteId,
-        currentNote,
-        scopeNoteIds,
-        {
-          onChunk: (token) => {
-            const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
-            const existing = current.messages.find((m) => m.id === targetAssistantId)
-            setMessageContent(noteId, targetAssistantId, (existing?.content ?? "") + token)
-            setStreamStatus(null)
-          },
-          onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
-          onError: (err) => {
-            setStreamStatus(null); setStreamingId(null); setLoading(false)
-            setCallError(err)
-            setErrorAfterMessageId(lastUser.id)
-          },
-          onStatus: (msg) => setStreamStatus(msg),
+  try {
+    const meta = await streamChatWithNotes(
+      lastUser.content,
+      notes,
+      noteId,
+      currentNote,
+      scopeNoteIds,
+      {
+        onChunk: (token) => {
+          // Clear error on first real token — assistant bubble is now growing below error card
+          setCallError(null)
+          setErrorAfterMessageId(null)
+          
+          const current  = useChatSessionStore.getState().getSessionByNoteId(noteId)
+          const existing = current.messages.find((m) => m.id === targetAssistantId)
+          setMessageContent(noteId, targetAssistantId, (existing?.content ?? "") + token)
+          setStreamStatus(null)
         },
-        undefined,
-        undefined,
-        undefined,
-        useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
-      )
+        onDone:  () => { setStreamStatus(null); setStreamingId(null); setLoading(false) },
+        onError: (err) => {
+          setStreamStatus(null); setStreamingId(null); setLoading(false)
+          setCallError(err)
+          setErrorAfterMessageId(lastUser.id)
+        },
+        onStatus: (msg) => setStreamStatus(msg),
+      },
+      undefined,
+      undefined,
+      undefined,
+      useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
+    )
 
-      const pm: PersistedMeta = {
-        messageId:      targetAssistantId,
-        confidence:     meta.confidence,
-        citations:      meta.sourceTitles.map((title, i) => ({
-          noteId:       meta.sourceNoteIds[i],
-          title,
-          isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
-        })),
-        usedWeb:        meta.webNudge !== undefined,
-        usedEmbeddings: meta.usedEmbeddings,
-      }
-      setPersistedMeta(noteId, targetAssistantId, pm)
-      await saveSession(noteId)
+    const pm: PersistedMeta = {
+      messageId:      targetAssistantId,
+      confidence:     meta.confidence,
+      citations:      meta.sourceTitles.map((title, i) => ({
+        noteId:       meta.sourceNoteIds[i],
+        title,
+        isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+      })),
+      usedWeb:        meta.webNudge !== undefined,
+      usedEmbeddings: meta.usedEmbeddings,
+    }
+    setPersistedMeta(noteId, targetAssistantId, pm)
+    await saveSession(noteId)
 
-      setRuntimeMetaMap((prev) => new Map(prev).set(targetAssistantId, {
-        sourceTitles:        meta.sourceTitles,
-        sourceNoteIds:       meta.sourceNoteIds,
-        relatedNotes:        meta.relatedNotes,
-        tier1Results:        meta.tier1Results,
-        excludedNoteNotices: meta.excludedNoteNotices,
-        titleMatchedNoteIds: meta.titleMatchedNoteIds,
-        webNudge:            meta.webNudge,
-      }))
-    } catch { /* handled by onError */ }
-  }, [notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession, addMessage])
+    setRuntimeMetaMap((prev) => new Map(prev).set(targetAssistantId, {
+      sourceTitles:        meta.sourceTitles,
+      sourceNoteIds:       meta.sourceNoteIds,
+      relatedNotes:        meta.relatedNotes,
+      tier1Results:        meta.tier1Results,
+      excludedNoteNotices: meta.excludedNoteNotices,
+      titleMatchedNoteIds: meta.titleMatchedNoteIds,
+      webNudge:            meta.webNudge,
+    }))
+  } catch { /* handled by onError */ }
+}, [notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession, addMessage])
 
-  function handleOpenNote(id: string) {
+function handleOpenNote(id: string) {
     if (paneId === 2) openTabInPane2(id);
     else openTab(id);
   }
