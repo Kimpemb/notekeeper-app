@@ -1482,8 +1482,13 @@ Answer:`
 
     streaming.onStatus?.("Generating answer…")
 
+    const stallTimer = setTimeout(() => {
+      streaming.onStatus?.("Taking longer than usual — check your connection…")
+    }, 8_000)
+
     try {
       const result = await callPrimary(messages)
+      clearTimeout(stallTimer)
       assembled    = result.text
 
       streaming.onChunk(assembled)
@@ -1503,6 +1508,7 @@ Answer:`
 
       streaming.onDone?.()
     } catch (err: unknown) {
+      clearTimeout(stallTimer)
       streaming.onError?.(err as AICallError)
     }
 

@@ -225,7 +225,7 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [streamStatus, setStreamStatus] = useState<string | null>(null)
   const [indexingPaused, setIndexingPaused] = useState(false);
   const [allExhausted, setAllExhausted]     = useState(false);
-  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  // retryCountdown removed — auto-retry replaced with manual retry button
   // Track which user message triggered the current error (for inline error placement)
   const [errorAfterMessageId, setErrorAfterMessageId] = useState<string | null>(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -400,32 +400,7 @@ useEffect(() => {
   // ── Network error: auto-retry with countdown, but also allow immediate retry ──
   const retryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    if (callError?.code !== "NETWORK_ERROR") return;
-    let remaining = 5;
-    setRetryCountdown(remaining);
 
-    retryTimerRef.current = setInterval(() => {
-      remaining -= 1;
-      if (remaining <= 0) {
-        clearInterval(retryTimerRef.current!)
-        retryTimerRef.current = null
-        setRetryCountdown(null);
-        handleRetry();
-      } else {
-        setRetryCountdown(remaining);
-      }
-    }, 1000);
-
-    return () => {
-      if (retryTimerRef.current) {
-        clearInterval(retryTimerRef.current)
-        retryTimerRef.current = null
-      }
-      setRetryCountdown(null);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callError]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -749,13 +724,13 @@ useEffect(() => {
       clearInterval(retryTimerRef.current)
       retryTimerRef.current = null
     }
-    setRetryCountdown(null)
 
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
-    if (!lastUser) return
+  const currentMessages = useChatSessionStore.getState().getSessionByNoteId(noteId).messages
+  const lastUser = [...currentMessages].reverse().find((m) => m.role === "user")
+  if (!lastUser) return
 
-    // Find or create assistant message to stream into
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+  // Find or create assistant message to stream into — read from live store not stale closure
+  const lastAssistant = [...currentMessages].reverse().find((m) => m.role === "assistant")
 
     setCallError(null)
     setErrorAfterMessageId(null)
@@ -831,7 +806,7 @@ useEffect(() => {
         webNudge:            meta.webNudge,
       }))
     } catch { /* handled by onError */ }
-  }, [messages, notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession, addMessage])
+  }, [notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession, addMessage])
 
   function handleOpenNote(id: string) {
     if (paneId === 2) openTabInPane2(id);
@@ -1050,20 +1025,10 @@ useEffect(() => {
                   {/* ── Inline error card — shown directly after the offending user message ── */}
                   {hasInlineError && (
                     <div className="mx-3 mt-1 mb-1">
-                      <ErrorCard
+                                           <ErrorCard
                         error={callError!}
-                        onDismiss={() => { setCallError(null); setErrorAfterMessageId(null); setRetryCountdown(null); }}
+                        onDismiss={() => { setCallError(null); setErrorAfterMessageId(null) }}
                         onRetry={handleRetry}
-                        onCancelRetry={() => {
-                          if (retryTimerRef.current) {
-                            clearInterval(retryTimerRef.current)
-                            retryTimerRef.current = null
-                          }
-                          setRetryCountdown(null);
-                          setCallError(null);
-                          setErrorAfterMessageId(null);
-                        }}
-                        retryCountdown={retryCountdown}
                       />
                     </div>
                   )}

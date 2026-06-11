@@ -289,6 +289,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const REQUEST_TIMEOUT_MS = 30_000
+
+function withTimeout<T>(promise: Promise<T>, provider: string, model: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(
+        new AICallError("NETWORK_ERROR", provider, model,
+          `Request to ${provider} timed out. Check your connection.`)
+      ), REQUEST_TIMEOUT_MS)
+    ),
+  ])
+}
+
 // ─── Error normalisation ──────────────────────────────────────────────────────
 
 function normaliseError(err: unknown, provider: string, model: string): AICallError {
@@ -575,6 +589,11 @@ async function dispatchChat(
 ): Promise<ProviderChatResult> {
   let { provider, model, apiKey, keyId } = resolveSlot(slot);
 
+  if (!navigator.onLine) {
+    throw new AICallError("NETWORK_ERROR", provider, model,
+      "No internet connection. Check your network and try again.")
+  }
+
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     const t0 = Date.now();
 
@@ -591,7 +610,11 @@ async function dispatchChat(
     }
 
     try {
-      const result = await callProviderChat(provider, apiKey, model, messages, system);
+      const result = await withTimeout(
+        callProviderChat(provider, apiKey, model, messages, system),
+        provider,
+        model,
+      );
 
       logCallOk({
         slot:         logSlot,
