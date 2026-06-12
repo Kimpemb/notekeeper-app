@@ -679,13 +679,15 @@ function deriveWebNudge(
     query:        string,
     historyBlock: string,
     _sessionMessages?: ChatMessage[],
+    noteContent?: string,
   ): string {
     return `You are helping the user edit or update content from the conversation.
   ${historyBlock}
+  ${noteContent ? `[CURRENT NOTE — FULL CONTENT]\nThe following is the complete, full content of the currently open note. When asked to rewrite the entire note, use this as your source and return it in full with the requested changes applied.\n${noteContent}\n` : ""}
   [QUESTION]
   ${query}
 
-  Answer:`
+  Answer directly in plain markdown. Do not wrap your response in a code block or add any preamble.`
   }
 
   // ─── Main pipeline ────────────────────────────────────────────────────────────
@@ -1129,16 +1131,15 @@ function deriveWebNudge(
     streaming.onStatus?.("Searching your notes…")
 
     // Detect intent for budget allocation
-    const { intent, isPersonal, isFollowUp } = await detectIntent(query)
-    const budget     = allocateBudget(intent)
-
-// after
+    const { intent: earlyIntent, isPersonal, isFollowUp, isDeixis } = await detectIntent(query)
+    const budget     = allocateBudget(earlyIntent)
     const [historyBlock, pipeline] = await Promise.all([
       buildHistoryBlock(noteId, budget.historyChars, sessionMessages),
       prebuiltPipeline
         ? Promise.resolve(prebuiltPipeline)
         : runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds, streaming.onStatus),
     ])
+    const intent = pipeline.detectedIntent
 
     // If sessionMessages were passed but historyBlock came back empty,
     // build it directly from sessionMessages without the DB round-trip.
@@ -1214,8 +1215,18 @@ if (scopedButEmpty && !pipeline.inventoryMode && (!webResults || webResults.leng
       console.log('[streamChat:edit] effectiveHistoryBlock length:', effectiveHistoryBlock.length)
       console.log('[streamChat:edit] sessionMessages count:', sessionMessages?.length ?? 0)
       
-      // Build prompt for edit (no vault content)
-      const editPrompt = buildEditPrompt(query, historyBlock, sessionMessages)
+// Build prompt for edit — inject note content when query refers to current note
+      let editNoteContent: string | undefined
+if (currentNote && (isDeixis || effectiveHistoryBlock.length === 0)) {
+        const db = await getDb()
+        const rows = await db.select<{ plaintext: string | null }[]>(
+          `SELECT plaintext FROM notes WHERE id = $1 AND deleted_at IS NULL`,
+          [currentNote.id]
+        )
+        editNoteContent = rows[0]?.plaintext?.slice(0, 32_000) ?? undefined
+      }
+      console.log('[edit] isDeixis:', isDeixis, 'editNoteContent length:', editNoteContent?.length ?? 0)
+      const editPrompt = buildEditPrompt(query, historyBlock, sessionMessages, editNoteContent)
       const messages: ProviderMessage[] = [{ role: "user", content: editPrompt }]
       
       streaming.onStatus?.("Applying changes…")
