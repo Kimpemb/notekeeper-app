@@ -1436,7 +1436,7 @@ function MessageBubble({
     [&_blockquote]:rounded-r-md [&_blockquote]:pr-3
     [&_hr]:border-none [&_hr]:border-t [&_hr]:border-idemora-border/40 [&_hr]:my-3
     [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
-    [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:my-2
+    [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:my-2 break-words overflow-x-hidden
     [&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_table]:border [&_table]:border-idemora-border/60
     [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-semibold [&_th]:text-idemora-text-normal [&_th]:bg-idemora-bg-secondary [&_th]:border [&_th]:border-idemora-border/60
     [&_td]:px-3 [&_td]:py-2 [&_td]:text-idemora-text-muted [&_td]:border [&_td]:border-idemora-border/60">
@@ -1528,7 +1528,7 @@ const renderedContent = useMemo(() => {
     return (
       <div className="px-4 py-1.5 flex justify-end">
         <div className="flex flex-col items-end gap-0.5 max-w-[85%]">
-          <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed">
+          <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed break-all">
             {message.content}
           </div>
           <div className={`flex items-center gap-0.5 transition-opacity duration-150 ${
@@ -1588,8 +1588,8 @@ const renderedContent = useMemo(() => {
 
   // ── Assistant bubble ───────────────────────────────────────────────────────
   return (
-    <div className="px-4 py-1.5">
-      <div className="space-y-1">
+    <div className="px-4 py-1.5 overflow-x-hidden">
+      <div className="space-y-1 min-w-0">
 
         {/* Typing indicator — only shown when streaming and no content yet */}
         {isStreaming && message.content === "" && (
