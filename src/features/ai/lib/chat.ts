@@ -1165,7 +1165,7 @@ function deriveWebNudge(
     const isScopedSearch = scopeNoteIds && scopeNoteIds.length > 0
     const scopedButEmpty = isScopedSearch && pipeline.chunkCount === 0
 
-    if (scopedButEmpty && !pipeline.inventoryMode && (!webResults || webResults.length === 0)) {
+if (scopedButEmpty && !pipeline.inventoryMode && (!webResults || webResults.length === 0) && intent !== "edit") {
       console.log('[streamChat] scoped search returned 0 chunks — routing to history/general knowledge')
 
       const generalPrompt = `You are a helpful assistant engaged in an ongoing conversation.
@@ -1209,6 +1209,10 @@ function deriveWebNudge(
     // Special handling for edit intent — use history directly, no vault injection
     if (intent === "edit") {
       console.log('[streamChat] EDIT INTENT — using conversation history only')
+      console.log('[streamChat:edit] historyBlock length:', historyBlock.length)
+      console.log('[streamChat:edit] historyBlock preview:', historyBlock.slice(0, 300))
+      console.log('[streamChat:edit] effectiveHistoryBlock length:', effectiveHistoryBlock.length)
+      console.log('[streamChat:edit] sessionMessages count:', sessionMessages?.length ?? 0)
       
       // Build prompt for edit (no vault content)
       const editPrompt = buildEditPrompt(query, historyBlock, sessionMessages)

@@ -621,6 +621,11 @@ useEffect(() => {
     try {
       const scopeNoteIds = await resolveScopeNoteIds();
 
+      console.log('[handleSend] sessionMessages being passed:', 
+        useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2).length,
+        'paneNoteId:', paneNoteId,
+        'noteId:', noteId
+      )
       const meta = await streamChatWithNotes(
         q,
         notes,
