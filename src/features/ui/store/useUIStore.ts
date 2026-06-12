@@ -21,8 +21,6 @@ export interface Tab {
   noteId: string | null;
 }
 
-
-
 export interface GraphViewState {
   zoomX: number;
   zoomY: number;
@@ -199,6 +197,11 @@ interface UIStore {
   graphViewState: GraphViewState;
   saveGraphViewState: (state: Partial<GraphViewState>) => void;
   resetGraphViewState: () => void;
+
+  // ─── Calendar ─────────────────────────────────────────────────────────────
+  calendarOpen: boolean;
+  openCalendar: () => void;
+  closeCalendar: () => void;
 
   // ─── Template picker ──────────────────────────────────────────────────────
   templatePickerOpen: boolean;
@@ -503,7 +506,15 @@ export const useUIStore = create<UIStore>((set, get) => {
     clearGraphFocusNoteId: () => set({ graphFocusNoteId: null }),
     graphViewState: { ...DEFAULT_GRAPH_STATE },
     saveGraphViewState: (state) => set((s) => ({ graphViewState: { ...s.graphViewState, ...state } })),
-    resetGraphViewState: () => set({ graphViewState: { ...DEFAULT_GRAPH_STATE } }),
+    resetGraphViewState: () => set({ graphViewState: {...DEFAULT_GRAPH_STATE } }),
+
+    // ─── Calendar ─────────────────────────────────────────────────────────────
+    calendarOpen: false,
+    openCalendar: () => {
+      set({ calendarOpen: true });
+      window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
+    },
+    closeCalendar: () => set({ calendarOpen: false }),
 
     // ─── Template picker ──────────────────────────────────────────────────────
     templatePickerOpen: false,

@@ -17,7 +17,7 @@ import { SplitDivider } from "@/features/ui/components/SplitDivider";
 import { TipsPanel } from "@/features/ui/components/TipsPanel";
 import { FileTreePanel } from "@/features/notes/components/FileTree/FileTreePanel";
 import { GraphView, type GraphViewHandle } from "@/features/graph/GraphView";
-import { exportNotesToFile } from "@/lib/tauri/fs";
+import { CalendarView, type CalendarViewHandle } from "@/features/calendar/components/CalendarView"; 
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
 import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
@@ -134,9 +134,11 @@ export default function App() {
   const closeOutline        = useUIStore((s) => s.closeOutline);
   const templatePickerOpen  = useUIStore((s) => s.templatePickerOpen);
   const closeTemplatePicker = useUIStore((s) => s.closeTemplatePicker);
-  const graphOpen           = useUIStore((s) => s.graphOpen);
-  const openGraph           = useUIStore((s) => s.openGraph);
-  const graphFocusNoteId    = useUIStore((s) => s.graphFocusNoteId);
+const graphOpen           = useUIStore((s) => s.graphOpen);
+const openGraph           = useUIStore((s) => s.openGraph);
+const graphFocusNoteId    = useUIStore((s) => s.graphFocusNoteId);
+const calendarOpen        = useUIStore((s) => s.calendarOpen);
+const openCalendar        = useUIStore((s) => s.openCalendar);
   const activePaneId        = useUIStore((s) => s.activePaneId);
   const tabs                = useUIStore((s) => s.tabs);
   const activeTabId         = useUIStore((s) => s.activeTabId);
@@ -178,6 +180,7 @@ const pane2TagsOpen = useUIStore((s) => s.pane2TagsOpen);
 
   // Refs
   const graphViewRef     = useRef<GraphViewHandle>(null);
+const calendarViewRef  = useRef<CalendarViewHandle>(null);
   const slideTimeout     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openInNewTabRef  = useRef(false);
   const newNoteParentRef = useRef<string | null>(null);
@@ -431,12 +434,16 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") { e.preventDefault(); use
       loadNotes().then(() => { useUIStore.getState().setRefreshStatus("reloaded"); });
     }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
-      e.preventDefault();
-      if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
-    }
+  e.preventDefault();
+  if (graphOpen) { graphViewRef.current?.animatedClose(); } else { openGraph(); }
+}
+if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
+  e.preventDefault();
+  if (calendarOpen) { calendarViewRef.current?.animatedClose(); } else { openCalendar(); }
+}
     if (ctrl && e.key === ",") { e.preventDefault(); openSettings(); }
   }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, openBacklinks, closeBacklinks, openOutline, closeOutline,
-    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, activePaneId, loadNotes, backlinkActive, outlineActive, setRightPanelOpen, reopenClosedTab]);
+    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, calendarOpen, openCalendar, activePaneId, loadNotes, backlinkActive, outlineActive, setRightPanelOpen, reopenClosedTab]);
     
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -814,7 +821,8 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") { e.preventDefault(); use
         onCancel={() => { openInNewTabRef.current = false; newNoteParentRef.current = null; closeTemplatePicker(); }}
       />
 
-      {graphOpen && <GraphView ref={graphViewRef} initialFocusNoteId={graphFocusNoteId} />}
+      {graphOpen    && <GraphView    ref={graphViewRef}    initialFocusNoteId={graphFocusNoteId} />}
+{calendarOpen && <CalendarView ref={calendarViewRef} />}
 
       {exporting && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-muted shadow-lg animate-pulse">

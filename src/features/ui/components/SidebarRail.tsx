@@ -2,6 +2,7 @@
 import { useCallback } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useCalendarStore } from "@/features/calendar/store/useCalendarStore";
 
 function RailButton({
   label,
@@ -9,12 +10,14 @@ function RailButton({
   accent,
   onClick,
   children,
+  badge,
 }: {
   label: string;
   active?: boolean;
   accent?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  badge?: number;
 }) {
   return (
     <button
@@ -34,6 +37,9 @@ function RailButton({
         <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-full bg-blue-500" />
       )}
       {children}
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-yellow-500" />
+      )}
     </button>
   );
 }
@@ -45,6 +51,10 @@ export function SidebarRail() {
   const openGraph             = useUIStore((s) => s.openGraph);
   const closeGraph            = useUIStore((s) => s.closeGraph);
   const createOrOpenDailyNote = useNoteStore((s) => s.createOrOpenDailyNote);
+  const calendarOpen          = useUIStore((s) => s.calendarOpen);
+  const openCalendar          = useUIStore((s) => s.openCalendar);
+  const closeCalendar         = useUIStore((s) => s.closeCalendar);
+  const yellowCount           = useCalendarStore((s) => s.yellowCount);
 
   const createNewCanvas = useCallback(async () => {
     const note = await useNoteStore.getState().createCanvasNote("Untitled");
@@ -61,6 +71,22 @@ export function SidebarRail() {
           <circle cx="5" cy="18" r="2"/>
           <circle cx="19" cy="18" r="2"/>
           <path d="M12 12L5 6M12 12l7-6M12 12l-7 6M12 12l7 6"/>
+        </svg>
+      </RailButton>
+
+      {/* Calendar */}
+      <RailButton
+        label="Calendar"
+        active={calendarOpen}
+        accent
+        badge={yellowCount}
+        onClick={() => calendarOpen ? closeCalendar() : openCalendar()}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
         </svg>
       </RailButton>
 
