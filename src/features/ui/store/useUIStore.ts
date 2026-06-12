@@ -52,6 +52,7 @@ interface SessionPersist {
   splitDirection: SplitDirection;
   chatOpen1: boolean;
   chatOpen2: boolean;
+  calendarOpen: boolean;
 }
 
 function saveSession(state: UIStore) {
@@ -64,6 +65,7 @@ function saveSession(state: UIStore) {
     splitDirection: state.splitDirection,
     chatOpen1: state.chatOpen1,
     chatOpen2: state.chatOpen2,
+    calendarOpen: state.calendarOpen,
   };
   setSetting(SESSION_KEY, JSON.stringify(persist)).catch(console.error);
 }
@@ -356,6 +358,7 @@ export const useUIStore = create<UIStore>((set, get) => {
         splitDirection: session.splitDirection ?? "horizontal",
         chatOpen1: session.chatOpen1 ?? false,
         chatOpen2: session.chatOpen2 ?? false,
+        calendarOpen: session.calendarOpen ?? false,
       });
     }
   } catch { /**/ }
@@ -509,12 +512,16 @@ export const useUIStore = create<UIStore>((set, get) => {
     resetGraphViewState: () => set({ graphViewState: {...DEFAULT_GRAPH_STATE } }),
 
     // ─── Calendar ─────────────────────────────────────────────────────────────
-    calendarOpen: false,
-    openCalendar: () => {
-      set({ calendarOpen: true });
-      window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
-    },
-    closeCalendar: () => set({ calendarOpen: false }),
+calendarOpen: false,
+openCalendar: () => {
+  set({ calendarOpen: true });
+  window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
+  setTimeout(() => saveSession(get()), 0);
+},
+closeCalendar: () => {
+  set({ calendarOpen: false });
+  setTimeout(() => saveSession(get()), 0);
+},
 
     // ─── Template picker ──────────────────────────────────────────────────────
     templatePickerOpen: false,
