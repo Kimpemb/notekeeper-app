@@ -296,19 +296,12 @@ export const ALL_MIGRATIONS: string[] = [
   // ── Phase 3 — RAG Exclusion & Breadcrumbs (M10) ──────────────────────────
 
   // M10a — rag_excluded flag on notes
-  // Notes with rag_excluded = 1 are skipped during embedding and excluded
-  // from FTS/vector retrieval. Their titles remain discoverable via
-  // note_title_chunks.
   `ALTER TABLE notes ADD COLUMN rag_excluded INTEGER NOT NULL DEFAULT 0`,
 
   // M10b — breadcrumb on note_title_chunks
-  // Full hierarchical path of the note (e.g. "Project / Docs / Spec").
-  // Computed at index time and stored alongside the title.
   `ALTER TABLE note_title_chunks ADD COLUMN breadcrumb TEXT`,
 
   // M10c — breadcrumb on embeddings
-  // Same path, stored per-embedding so the model receives provenance
-  // context alongside every retrieved chunk.
   `ALTER TABLE embeddings ADD COLUMN breadcrumb TEXT`,
 
   // ── Chat Sessions (persistent chat history per note) ─────────────────────
@@ -324,12 +317,110 @@ export const ALL_MIGRATIONS: string[] = [
     updated_at         INTEGER  NOT NULL
   )`,
 
-// ── File Import (feature/file-import) ────────────────────────────────────
-
+  // ── File Import (feature/file-import) ────────────────────────────────────
   `ALTER TABLE notes ADD COLUMN source_type TEXT NOT NULL DEFAULT 'note'`,
 
   `ALTER TABLE notes ADD COLUMN source_file TEXT`,
 
   `ALTER TABLE notes ADD COLUMN source_meta TEXT`,
+
+  // ── Calendar + Goals + Score (feature/calendar-goals-score) ──────────────
+
+  `CREATE TABLE IF NOT EXISTS calendar_events (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    title           TEXT    NOT NULL,
+    date            TEXT    NOT NULL,
+    time            TEXT,
+    duration_mins   INTEGER,
+    category        TEXT    NOT NULL DEFAULT 'personal',
+    source_id       TEXT,
+    source_type     TEXT,
+    colour_state    TEXT    NOT NULL DEFAULT 'blue',
+    recurrence      TEXT,
+    recurrence_end  TEXT,
+    notes           TEXT,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_calendar_events_date
+    ON calendar_events(date)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_calendar_events_source
+    ON calendar_events(source_id, source_type)`,
+
+  `CREATE TABLE IF NOT EXISTS calendar_event_occurrences (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    event_id        TEXT    NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+    occurrence_date TEXT    NOT NULL,
+    colour_state    TEXT    NOT NULL DEFAULT 'blue',
+    overridden      INTEGER NOT NULL DEFAULT 0
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_occurrences_event_date
+    ON calendar_event_occurrences(event_id, occurrence_date)`,
+
+  `CREATE TABLE IF NOT EXISTS goals (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    title           TEXT    NOT NULL,
+    description     TEXT,
+    start_date      TEXT    NOT NULL,
+    target_date     TEXT    NOT NULL,
+    colour_state    TEXT    NOT NULL DEFAULT 'blue',
+    progress        INTEGER NOT NULL DEFAULT 0,
+    category        TEXT,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS goal_milestones (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    goal_id         TEXT    NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    title           TEXT    NOT NULL,
+    date            TEXT    NOT NULL,
+    colour_state    TEXT    NOT NULL DEFAULT 'blue',
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_milestones_goal
+    ON goal_milestones(goal_id)`,
+
+  `CREATE TABLE IF NOT EXISTS goal_links (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    goal_id         TEXT    NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    source_id       TEXT    NOT NULL,
+    source_type     TEXT    NOT NULL,
+    weight          INTEGER NOT NULL DEFAULT 100,
+    created_at      INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_goal_links_goal
+    ON goal_links(goal_id)`,
+
+  `CREATE TABLE IF NOT EXISTS daily_scores (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    date            TEXT    NOT NULL UNIQUE,
+    completed       INTEGER NOT NULL DEFAULT 0,
+    total           INTEGER NOT NULL DEFAULT 0,
+    streak_day      INTEGER NOT NULL DEFAULT 0,
+    created_at      INTEGER NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS score_event_log (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    score_date      TEXT    NOT NULL,
+    event_id        TEXT    NOT NULL,
+    event_title     TEXT    NOT NULL,
+    category        TEXT    NOT NULL,
+    colour_state    TEXT    NOT NULL DEFAULT 'blue',
+    locked          INTEGER NOT NULL DEFAULT 0
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_score_event_log_date
+    ON score_event_log(score_date)`,
+
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_score_event_log_event_date
+    ON score_event_log(event_id, score_date)`,
 
 ];
