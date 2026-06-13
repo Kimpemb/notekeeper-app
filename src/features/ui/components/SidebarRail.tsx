@@ -55,6 +55,8 @@ export function SidebarRail() {
   const openCalendar          = useUIStore((s) => s.openCalendar);
   const closeCalendar         = useUIStore((s) => s.closeCalendar);
   const yellowCount           = useCalendarStore((s) => s.yellowCount);
+const goalsOpen             = useUIStore((s) => s.activeSidebarPanel === "goals");
+const toggleSidebarPanel    = useUIStore((s) => s.toggleSidebarPanel);
 
   const createNewCanvas = useCallback(async () => {
     const note = await useNoteStore.getState().createCanvasNote("Untitled");
@@ -87,6 +89,20 @@ export function SidebarRail() {
           <line x1="8" y1="2" x2="8" y2="6"/>
           <line x1="16" y1="2" x2="16" y2="6"/>
           <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+      </RailButton>
+
+      {/* Goals */}
+      <RailButton
+        label="Goals"
+        active={goalsOpen}
+        accent
+        onClick={() => toggleSidebarPanel("goals")}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="6"/>
+          <circle cx="12" cy="12" r="2"/>
         </svg>
       </RailButton>
 

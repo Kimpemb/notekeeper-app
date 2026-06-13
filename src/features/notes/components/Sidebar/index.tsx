@@ -7,6 +7,7 @@ import { SearchPanel } from "./SearchPanel";
 import { TrashPanel } from "./TrashPanel";
 import { BookmarksPanel } from "./BookmarksPanel";
 import { EnvPanel } from "./EnvPanel";
+import { GoalsPanel } from "@/features/goals/components/GoalsPanel";
 
 
 
@@ -60,7 +61,7 @@ export function Sidebar() {
         className="relative flex flex-col h-full overflow-hidden bg-idemora-bg-secondary border-r border-idemora-border transition-[width] duration-150 ease-in-out shrink-0"
       >
         {/* Panel content — all always mounted, only active one is visible */}
-        {(["notes", "search", "trash", "bookmarks", "env"] as const).map((panel) => (
+        {(["notes", "search", "trash", "bookmarks", "env", "goals"] as const).map((panel) => (
           <div
             key={panel}
             style={{
@@ -76,7 +77,8 @@ export function Sidebar() {
             {panel === "search"    && <SearchPanel />}
             {panel === "trash"     && <TrashPanel />}
             {panel === "bookmarks" && <BookmarksPanel />}
-            {panel === "env" && <EnvPanel />}
+            {panel === "env"   && <EnvPanel />}
+            {panel === "goals" && <GoalsPanel />}
           </div>
         ))}
       </div>

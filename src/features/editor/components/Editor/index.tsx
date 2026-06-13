@@ -295,6 +295,12 @@ const initialContent = (() => {
     doc = { type: "doc", content: [] };
   }
 
+  // Guard against malformed/legacy content where `content` is missing
+  // or not an array (e.g. `{"type":"doc"}` with no content key)
+  if (!Array.isArray(doc.content)) {
+    doc.content = [];
+  }
+
   const children = notes
     .filter((n) => n.parent_id === noteId && !n.deleted_at)
     .sort((a, b) => a.sort_order - b.sort_order);
