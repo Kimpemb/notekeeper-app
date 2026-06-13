@@ -2,6 +2,9 @@
 
 import { useCalendarStore } from "@/features/calendar/store/useCalendarStore";
 
+const AGENDA_WINDOW_DAYS = 7;
+const AGENDA_MAX_BACK_DAYS = 30; // how far back you can navigate in agenda
+
 function addDays(isoDate: string, days: number): string {
   const d = new Date(isoDate + "T00:00:00");
   d.setDate(d.getDate() + days);
@@ -18,10 +21,27 @@ export function useCalendar() {
   const setActiveView   = useCalendarStore((s) => s.setActiveView);
   const setSelectedDate = useCalendarStore((s) => s.setSelectedDate);
 
+  // The end date of the current agenda window
+  function agendaEndDate(): string {
+    return addDays(selectedDate, AGENDA_WINDOW_DAYS);
+  }
+
+  // Earliest allowed startDate when navigating back in agenda
+  function agendaMinDate(): string {
+    return addDays(todayISO(), -AGENDA_MAX_BACK_DAYS);
+  }
+
   function goToPreviousPeriod() {
     const d = new Date(selectedDate + "T00:00:00");
 
-    if (activeView === "day" || activeView === "agenda") {
+    if (activeView === "agenda") {
+      const candidate = addDays(selectedDate, -AGENDA_WINDOW_DAYS);
+      // Clamp: don't go further back than 30 days ago
+      setSelectedDate(candidate < agendaMinDate() ? agendaMinDate() : candidate);
+      return;
+    }
+
+    if (activeView === "day") {
       setSelectedDate(addDays(selectedDate, -1));
       return;
     }
@@ -41,7 +61,12 @@ export function useCalendar() {
   function goToNextPeriod() {
     const d = new Date(selectedDate + "T00:00:00");
 
-    if (activeView === "day" || activeView === "agenda") {
+    if (activeView === "agenda") {
+      setSelectedDate(addDays(selectedDate, AGENDA_WINDOW_DAYS));
+      return;
+    }
+
+    if (activeView === "day") {
       setSelectedDate(addDays(selectedDate, 1));
       return;
     }
@@ -65,14 +90,18 @@ export function useCalendar() {
   function formatPeriodLabel(): string {
     const d = new Date(selectedDate + "T00:00:00");
 
+    if (activeView === "agenda") {
+      // Show the window range: "13 Jun – 20 Jun 2026"
+      const end = new Date(agendaEndDate() + "T00:00:00");
+      const startLabel = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+      const endLabel   = end.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+      return `${startLabel} – ${endLabel}`;
+    }
+
     if (activeView === "day") {
       return d.toLocaleDateString("en-GB", {
         weekday: "long", day: "numeric", month: "long", year: "numeric",
       });
-    }
-
-    if (activeView === "agenda") {
-      return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
     }
 
     if (activeView === "week") {
@@ -102,5 +131,6 @@ export function useCalendar() {
     goToNextPeriod,
     goToToday,
     formatPeriodLabel,
+    agendaEndDate, // exported so useCalendarEvents can read the window end
   };
 }

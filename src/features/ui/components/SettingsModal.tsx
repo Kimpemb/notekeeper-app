@@ -61,6 +61,9 @@ export interface AppSettings {
   web_search_provider:     string   // "tinyfish" | "serper" | "tavily" | "brave"
   web_search_api_key:      string
   web_search_auto_search:  number   // 0 = ask, 1 = auto-search
+
+  // Deadline resurface bar — notification vigor
+  deadlineBarVigor: "off" | "minimal" | "normal" | "vigilant";
 }
 
 
@@ -83,6 +86,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   web_search_provider:     "tinyfish",
   web_search_api_key:      "",
   web_search_auto_search:  0,
+
+  deadlineBarVigor: "normal",
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -1004,6 +1009,23 @@ export function SettingsModal() {
                     options={[
                       { value: "editor", label: "Single pane" },
                       { value: "split",  label: "Split pane"  },
+                    ]}
+                  />
+                </Row>
+
+                <SectionTitle>Notifications</SectionTitle>
+                <Row
+                  label="Deadline reminders"
+                  description="How often the upcoming-deadlines bar checks in on app startup"
+                >
+                  <Select
+                    value={settings.deadlineBarVigor}
+                    onChange={(v) => updateSetting("deadlineBarVigor", v)}
+                    options={[
+                      { value: "off",      label: "Off"      },
+                      { value: "minimal",  label: "Minimal"  },
+                      { value: "normal",   label: "Normal"   },
+                      { value: "vigilant", label: "Vigilant" },
                     ]}
                   />
                 </Row>

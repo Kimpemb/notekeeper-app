@@ -9,12 +9,28 @@ import {
   getAgendaEvents,
   getEventsForDateRange,
   getYellowEventCount,
+  getTodayBlueCount,
   type CalendarEvent,
   type CalendarEventInput,
   type ColourState,
   type LayerKey,
 } from "@/features/calendar/db/calendarQueries";
 import { useCalendarStore } from "@/features/calendar/store/useCalendarStore";
+import { useScoreStore } from "@/features/score/store/useScoreStore";
+import { getLocalDateISO } from "@/features/score/lib/scoreComputer";
+import { updateScoreEventColourState } from "@/features/score/db/scoreQueries";
+
+const AGENDA_WINDOW_DAYS = 7;
+
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(isoDate + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+function todayISO(): string {
+  return new Date().toISOString().split("T")[0];
+}
 
 export function useCalendarEvents() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -24,18 +40,20 @@ export function useCalendarEvents() {
   const selectedDate    = useCalendarStore((s) => s.selectedDate);
   const layerVisibility = useCalendarStore((s) => s.layerVisibility);
   const setYellowCount  = useCalendarStore((s) => s.setYellowCount);
+  const setTodayBlueCount = useCalendarStore((s) => s.setTodayBlueCount);
 
-  // Derive active layers from visibility map
   const activeLayers = (Object.entries(layerVisibility) as [LayerKey, boolean][])
     .filter(([, visible]) => visible)
     .map(([layer]) => layer);
 
-  // Derive date range for the current view
   function getDateRange(): { startDate: string; endDate: string } {
     const d = new Date(selectedDate + "T00:00:00");
 
     if (activeView === "agenda") {
-      return { startDate: selectedDate, endDate: "9999-12-31" };
+      return {
+        startDate: selectedDate,
+        endDate:   addDays(selectedDate, AGENDA_WINDOW_DAYS),
+      };
     }
 
     if (activeView === "day") {
@@ -43,7 +61,7 @@ export function useCalendarEvents() {
     }
 
     if (activeView === "week") {
-      const day = d.getDay(); // 0=Sun
+      const day = d.getDay();
       const monday = new Date(d);
       monday.setDate(d.getDate() - ((day + 6) % 7));
       const sunday = new Date(monday);
@@ -63,33 +81,59 @@ export function useCalendarEvents() {
       };
     }
 
-    return { startDate: selectedDate, endDate: "9999-12-31" };
+    return { startDate: selectedDate, endDate: addDays(selectedDate, AGENDA_WINDOW_DAYS) };
   }
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
     try {
       let loaded: CalendarEvent[];
+      const today = todayISO();
 
       if (activeView === "agenda") {
-        loaded = await getAgendaEvents({
-          startDate: selectedDate,
-          layers:    activeLayers,
-        });
+        const { startDate, endDate } = getDateRange();
+        const isPastWindow = endDate <= today;
+
+        if (isPastWindow) {
+          // Past window: show ALL events including green (completed history visible)
+          loaded = await getEventsForDateRange({
+            startDate,
+            endDate,
+            layers: activeLayers,
+          });
+        } else {
+          // Present/future window: getAgendaEvents excludes green globally.
+          // We then merge green events back for the entire window — not just
+          // today — so proactively-completed future events remain visible on
+          // their scheduled date (dimmed, strikethrough, sunk to group bottom).
+          const [nonGreen, windowGreen] = await Promise.all([
+            getAgendaEvents({ startDate, endDate, layers: activeLayers }),
+            getEventsForDateRange({
+              startDate,
+              endDate,
+              layers: activeLayers,
+            }).then((evts) => evts.filter((e) => e.colour_state === "green")),
+          ]);
+
+          // Merge, dedup by id
+          const seen = new Set(nonGreen.map((e) => e.id));
+          loaded = [
+            ...nonGreen,
+            ...windowGreen.filter((e) => !seen.has(e.id)),
+          ];
+        }
       } else {
         const { startDate, endDate } = getDateRange();
-        loaded = await getEventsForDateRange({
-          startDate,
-          endDate,
-          layers: activeLayers,
-        });
+        loaded = await getEventsForDateRange({ startDate, endDate, layers: activeLayers });
       }
 
       setEvents(loaded);
 
-      // Update yellow badge count
       const count = await getYellowEventCount();
       setYellowCount(count);
+
+      const blueCount = await getTodayBlueCount();
+      setTodayBlueCount(blueCount);
     } catch (err) {
       console.error("[useCalendarEvents] load failed:", err);
     } finally {
@@ -107,6 +151,20 @@ export function useCalendarEvents() {
     async (input: CalendarEventInput): Promise<string> => {
       const id = await createEvent(input);
       await loadEvents();
+
+      if (input.date === getLocalDateISO()) {
+        const { todayEvents, setTodayEvents } = useScoreStore.getState();
+        setTodayEvents([
+          ...todayEvents,
+          {
+            id,
+            title:       input.title,
+            category:    input.category ?? "personal",
+            colourState: input.colour_state ?? "blue",
+          },
+        ]);
+      }
+
       return id;
     },
     [loadEvents]
@@ -124,6 +182,11 @@ export function useCalendarEvents() {
     async (id: string): Promise<void> => {
       await deleteEvent(id);
       await loadEvents();
+
+      const { todayEvents, setTodayEvents } = useScoreStore.getState();
+      if (todayEvents.some((e) => e.id === id)) {
+        setTodayEvents(todayEvents.filter((e) => e.id !== id));
+      }
     },
     [loadEvents]
   );
@@ -132,7 +195,11 @@ export function useCalendarEvents() {
     async (id: string, state: ColourState): Promise<void> => {
       await updateColourState(id, state);
       await loadEvents();
-      // TODO Phase 4: useScoreStore.getState().updateEventState(id, state)
+
+      useScoreStore.getState().updateEventState(id, state);
+
+      const today = getLocalDateISO();
+      await updateScoreEventColourState(id, today, state);
     },
     [loadEvents]
   );
@@ -140,10 +207,10 @@ export function useCalendarEvents() {
   return {
     events,
     loading,
-    reload:           loadEvents,
-    createEvent:      handleCreateEvent,
-    updateEvent:      handleUpdateEvent,
-    deleteEvent:      handleDeleteEvent,
+    reload:            loadEvents,
+    createEvent:       handleCreateEvent,
+    updateEvent:       handleUpdateEvent,
+    deleteEvent:       handleDeleteEvent,
     updateColourState: handleUpdateColourState,
   };
 }

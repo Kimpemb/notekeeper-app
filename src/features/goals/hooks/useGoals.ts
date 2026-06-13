@@ -13,7 +13,6 @@ import {
   getGoalCategories,
   updateGoalColourState,
   updateGoalProgress,
-  type Goal,
   type GoalInput,
   type GoalMilestone,
   type MilestoneInput,

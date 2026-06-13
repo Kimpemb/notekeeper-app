@@ -21,6 +21,7 @@ import { CalendarView, type CalendarViewHandle } from "@/features/calendar/compo
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
 import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
+import { DeadlineResurfaceBar } from "@/features/ui/components/DeadlineResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Template } from "@/lib/templates";
 import "@/styles/main.css";
@@ -42,6 +43,17 @@ import { MoveBlockModal } from "@/features/ui/components/MoveBlockModal";
 // PATCH: 1. Add import near the top with other modal imports
 import { AISetupModal } from "@/features/ai/components/AISetupModal";
 import { setDev429Simulation } from "@/features/ai/lib/client"
+import { applyMidnightTransitions } from "@/features/calendar/lib/colourState";
+import { useScoreStore } from "@/features/score/store/useScoreStore";
+import {
+  snapshotTodayEvents,
+  backfillPastEvents,
+  ensureYesterdayLocked,
+  lockDayAndWriteScore,
+  getMillisecondsUntilMidnight,
+  getPreviousDay,
+  getLocalDateISO,
+} from "@/features/score/lib/scoreComputer";
 
 
 document.addEventListener("keydown", (e) => {
@@ -230,10 +242,21 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       ]);
     })
     .then(() => { if (!cancelled) return loadNotes(); })
-    .then(() => {
+    .then(async () => {
       if (cancelled) return;
       setNotesLoaded(true);
       setTimeout(() => { if (!cancelled) setDbSettled(); }, 6000);
+
+      // ── Calendar / Score startup sequence (Phase 4) ──────────────────────
+      // Order matters: midnight transitions must apply before backfill/snapshot
+      // read colour_state, and backfill must run before snapshot so today's
+      // events aren't double-counted as "past".
+      await applyMidnightTransitions();
+      await backfillPastEvents();
+      await ensureYesterdayLocked();
+      const todayEvents = await snapshotTodayEvents();
+      if (!cancelled) useScoreStore.getState().setTodayEvents(todayEvents);
+
       return runScheduledBackupIfDue();
     })
     .catch((err) => { if (!cancelled) setDbError(String(err)); });
@@ -290,7 +313,7 @@ useEffect(() => {
 
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
 
-  useEffect(() => {
+useEffect(() => {
     if (!dbReady) return;
     async function checkForUpdates() {
       try {
@@ -303,6 +326,37 @@ useEffect(() => {
     checkForUpdates();
   }, [dbReady]);
 
+  // ── Midnight lock scheduler (Phase 4) ──────────────────────────────────────
+  //
+  // This timer is the "happy path" — if the device sleeps overnight, this
+  // won't fire on schedule. ensureYesterdayLocked() in the startup sequence
+  // above is the real safety net for that case.
+  useEffect(() => {
+    if (!dbReady) return;
+
+    let dailyInterval: ReturnType<typeof setInterval> | null = null;
+
+    function runLockAndResnapshot() {
+      const dayToLock = getPreviousDay(getLocalDateISO());
+      lockDayAndWriteScore(dayToLock)
+        .then(() => snapshotTodayEvents())
+        .then((events) => useScoreStore.getState().setTodayEvents(events))
+        .catch(console.error);
+    }
+
+    const midnightTimeout = setTimeout(() => {
+      runLockAndResnapshot();
+      dailyInterval = setInterval(runLockAndResnapshot, 24 * 60 * 60 * 1000);
+    }, getMillisecondsUntilMidnight());
+
+    return () => {
+      clearTimeout(midnightTimeout);
+      if (dailyInterval) clearInterval(dailyInterval);
+    };
+  }, [dbReady]);
+
+
+  
 
   useEffect(() => {
     function handle() {
@@ -312,6 +366,16 @@ useEffect(() => {
     }
     window.addEventListener("idemora:new-note-new-tab", handle);
     return () => window.removeEventListener("idemora:new-note-new-tab", handle);
+  }, []);
+
+  useEffect(() => {
+    function handle() {
+      if (!useUIStore.getState().calendarOpen) {
+        useUIStore.getState().openCalendar();
+      }
+    }
+    window.addEventListener("idemora:open-calendar", handle);
+    return () => window.removeEventListener("idemora:open-calendar", handle);
   }, []);
 
   useEffect(() => {
@@ -796,6 +860,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
 
         <TipsPanel />
         <ResurfaceBar />
+        <DeadlineResurfaceBar />
 
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />

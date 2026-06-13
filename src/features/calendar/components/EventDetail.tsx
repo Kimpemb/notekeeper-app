@@ -20,22 +20,25 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 interface Props {
   event: CalendarEvent;
-  onEdit:   (event: CalendarEvent) => void;
-  onDelete: (id: string) => Promise<void>;
+  onEdit:    (event: CalendarEvent) => void;
+  onDelete:  (id: string) => Promise<void>;
   onResolve?: (id: string, state: ColourState) => Promise<void>;
-  onClose: () => void;
+  onClose:   () => void;
 }
 
 export function EventDetail({ event, onEdit, onDelete, onResolve, onClose }: Props) {
-  const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting,       setDeleting]       = useState(false);
+  const [confirmDelete,  setConfirmDelete]  = useState(false);
+  const [resolving,      setResolving]      = useState<ColourState | null>(null);
 
-  const state = STATE_LABELS[event.colour_state];
-  const isReadOnly = event.source_type === "cde"; // Phase 3: CDE events are read-only
+  const state     = STATE_LABELS[event.colour_state];
+  const isReadOnly = event.source_type === "cde";
 
   function formatDate(isoDate: string): string {
     const d = new Date(isoDate + "T00:00:00");
-    return d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    return d.toLocaleDateString("en-GB", {
+      weekday: "long", day: "numeric", month: "long", year: "numeric",
+    });
   }
 
   function formatTime(time: string | null, duration: number | null): string {
@@ -43,9 +46,21 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onClose }: Pro
     if (!duration) return time;
     const [h, m] = time.split(":").map(Number);
     const endMins = h * 60 + m + duration;
-    const endH = Math.floor(endMins / 60) % 24;
-    const endM = endMins % 60;
+    const endH    = Math.floor(endMins / 60) % 24;
+    const endM    = endMins % 60;
     return `${time} – ${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+  }
+
+  async function handleResolve(newState: ColourState) {
+    if (!onResolve) return;
+    setResolving(newState);
+    try {
+      await onResolve(event.id, newState);
+      // onResolve in CalendarPanel calls setSelectedEvent(null) — panel closes automatically
+    } catch (err) {
+      console.error("[EventDetail] resolve failed:", err);
+      setResolving(null);
+    }
   }
 
   async function handleDelete() {
@@ -60,6 +75,20 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onClose }: Pro
     }
   }
 
+  // ── Resolve button logic ───────────────────────────────────────────────────
+  //
+  // blue  (scheduled, not yet acted on) → show "Mark completed" only
+  //       This is the proactive path: user finishes early, marks it done now.
+  //       Event stays in agenda today (dimmed/strikethrough) and is gone tomorrow.
+  //
+  // yellow (unresolved, past due)       → show "Done ✓" and "Missed ✗"
+  //       These are retrospective: the day has passed, user is resolving the backlog.
+  //
+  // green / red                         → already resolved, no buttons shown
+  //
+  const showCompleteButton = event.colour_state === "blue"   && onResolve;
+  const showDoneMissed     = event.colour_state === "yellow" && onResolve;
+
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40" onClick={onClose} />
@@ -70,7 +99,10 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onClose }: Pro
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${state.className}`}>
             {state.label}
           </span>
-          <button onClick={onClose} className="text-idemora-text-muted hover:text-idemora-text-normal transition-colors">
+          <button
+            onClick={onClose}
+            className="text-idemora-text-muted hover:text-idemora-text-normal transition-colors"
+          >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12"/>
             </svg>
@@ -116,31 +148,59 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onClose }: Pro
             </div>
           )}
 
-          {/* Yellow resolution — Phase 11 will move this to YellowQueue too */}
-          {event.colour_state === "yellow" && onResolve && (
-            <div className="flex gap-2">
+          {/* ── Proactive: "Mark completed" for active/scheduled events ── */}
+          {showCompleteButton && (
+            <div className="flex flex-col gap-1.5">
               <button
-                onClick={() => onResolve(event.id, "green")}
-                className="flex-1 px-3 py-2 rounded-lg text-sm font-medium
-                           bg-green-600/20 hover:bg-green-600/30 text-green-400 transition-colors"
+                onClick={() => handleResolve("green")}
+                disabled={resolving !== null}
+                className="w-full px-3 py-2 rounded-lg text-sm font-medium
+                           bg-green-600/20 hover:bg-green-600/30 text-green-400
+                           transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                Done ✓
+                {resolving === "green" ? (
+                  "Marking…"
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M20 6L9 17l-5-5"/>
+                    </svg>
+                    Mark completed
+                  </>
+                )}
               </button>
-              <button
-                onClick={() => onResolve(event.id, "red")}
-                className="flex-1 px-3 py-2 rounded-lg text-sm font-medium
-                           bg-red-600/20 hover:bg-red-600/30 text-red-400 transition-colors"
-              >
-                Missed ✗
-              </button>
+              <p className="text-xs text-idemora-text-muted text-center opacity-60">
+                Stays visible today, gone tomorrow
+              </p>
             </div>
           )}
 
-          {/* TODO Phase 3: CDE read-only mode — add "Go to project" link */}
-          {/* TODO Phase 11: Goal context link */}
+          {/* ── Retrospective: Done / Missed for unresolved past events ── */}
+          {showDoneMissed && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleResolve("green")}
+                disabled={resolving !== null}
+                className="flex-1 px-3 py-2 rounded-lg text-sm font-medium
+                           bg-green-600/20 hover:bg-green-600/30 text-green-400
+                           transition-colors disabled:opacity-50"
+              >
+                {resolving === "green" ? "Saving…" : "Done ✓"}
+              </button>
+              <button
+                onClick={() => handleResolve("red")}
+                disabled={resolving !== null}
+                className="flex-1 px-3 py-2 rounded-lg text-sm font-medium
+                           bg-red-600/20 hover:bg-red-600/30 text-red-400
+                           transition-colors disabled:opacity-50"
+              >
+                {resolving === "red" ? "Saving…" : "Missed ✗"}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Footer — actions */}
+        {/* Footer — edit / delete */}
         {!isReadOnly && (
           <div className="px-4 py-3 border-t border-idemora-border flex gap-2">
             {confirmDelete ? (

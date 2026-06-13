@@ -1,8 +1,16 @@
 // src/features/ui/components/SidebarRail.tsx
+
 import { useCallback } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useCalendarStore } from "@/features/calendar/store/useCalendarStore";
+
+// Badge colour priority:
+//   red    — any yellow events (unresolved past obligations, needs verdict)
+//   amber  — any blue events due today (on track but not done yet)
+//   green  — no yellow, no blue today (everything done or nothing due)
+//   none   — no events in either count
+type BadgeColour = "red" | "amber" | "green" | null;
 
 function RailButton({
   label,
@@ -10,15 +18,21 @@ function RailButton({
   accent,
   onClick,
   children,
-  badge,
+  badgeColour,
 }: {
   label: string;
   active?: boolean;
   accent?: boolean;
   onClick: () => void;
   children: React.ReactNode;
-  badge?: number;
+  badgeColour?: BadgeColour;
 }) {
+  const dotClass: Record<NonNullable<BadgeColour>, string> = {
+    red:   "bg-red-500",
+    amber: "bg-amber-400",
+    green: "bg-green-500",
+  };
+
   return (
     <button
       onClick={onClick}
@@ -36,10 +50,10 @@ function RailButton({
       {active && (
         <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-full bg-blue-500" />
       )}
-      {children}
-      {badge !== undefined && badge > 0 && (
-        <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-yellow-500" />
+      {badgeColour && (
+        <span className={`absolute top-0.5 right-0.5 w-2 h-2 rounded-full ${dotClass[badgeColour]}`} />
       )}
+      {children}
     </button>
   );
 }
@@ -55,8 +69,18 @@ export function SidebarRail() {
   const openCalendar          = useUIStore((s) => s.openCalendar);
   const closeCalendar         = useUIStore((s) => s.closeCalendar);
   const yellowCount           = useCalendarStore((s) => s.yellowCount);
-const goalsOpen             = useUIStore((s) => s.activeSidebarPanel === "goals");
-const toggleSidebarPanel    = useUIStore((s) => s.toggleSidebarPanel);
+  const todayBlueCount        = useCalendarStore((s) => s.todayBlueCount);
+  const goalsOpen             = useUIStore((s) => s.activeSidebarPanel === "goals");
+  const toggleSidebarPanel    = useUIStore((s) => s.toggleSidebarPanel);
+
+  // Derive the most dire badge colour
+  const calendarBadge: BadgeColour =
+    yellowCount > 0      ? "red"   :
+    todayBlueCount > 0   ? "amber" :
+    null;
+  // Note: green dot (all done) intentionally omitted for now —
+  // it would require knowing total events in window, not just blue/yellow counts.
+  // Add in a future pass if desired.
 
   const createNewCanvas = useCallback(async () => {
     const note = await useNoteStore.getState().createCanvasNote("Untitled");
@@ -76,12 +100,12 @@ const toggleSidebarPanel    = useUIStore((s) => s.toggleSidebarPanel);
         </svg>
       </RailButton>
 
-      {/* Calendar */}
+      {/* Calendar — badge reflects most dire state */}
       <RailButton
         label="Calendar"
         active={calendarOpen}
         accent
-        badge={yellowCount}
+        badgeColour={calendarBadge}
         onClick={() => calendarOpen ? closeCalendar() : openCalendar()}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

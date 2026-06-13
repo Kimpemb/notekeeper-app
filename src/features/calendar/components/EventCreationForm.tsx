@@ -35,7 +35,7 @@ export function EventCreationForm({ initialDate, initialTime, event, onSubmit, o
         date,
         time:          time || null,
         duration_mins: duration ? parseInt(duration, 10) : null,
-        category:      "personal",
+        category:      event?.category ?? "personal",
         notes:         notes.trim() || null,
         colour_state:  event?.colour_state ?? "blue",
       });

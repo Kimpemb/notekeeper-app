@@ -160,15 +160,15 @@ export async function getEventBySource(
 
 export async function getAgendaEvents(params: {
   startDate: string;
-  layers: LayerKey[];
-  limit?: number;
+  endDate:   string;   // ← NEW: was previously hardcoded to "9999-12-31" by callers
+  layers:    LayerKey[];
+  limit?:    number;
 }): Promise<CalendarEvent[]> {
   const db = await getDb();
-  const { startDate, layers, limit = 200 } = params;
-
+  const { startDate, endDate, layers, limit = 200 } = params;
+ 
   if (layers.length === 0) return [];
-
-  // Map LayerKey → CategoryKey for the DB query
+ 
   const categoryMap: Record<LayerKey, CategoryKey> = {
     personal: "personal",
     notes:    "note",
@@ -176,19 +176,19 @@ export async function getAgendaEvents(params: {
     goals:    "goal",
     cde:      "cde",
   };
-  const categories = layers.map((l) => categoryMap[l]);
-  const placeholders = categories.map((_, i) => `$${i + 3}`).join(", ");
-
+  const categories    = layers.map((l) => categoryMap[l]);
+  const placeholders  = categories.map((_, i) => `$${i + 4}`).join(", ");
+  // Note: placeholder index starts at $4 now (startDate=$1, endDate=$2, "green"=$3)
+ 
   return db.select<CalendarEvent[]>(
     `SELECT * FROM calendar_events
      WHERE date >= $1
-       AND colour_state != $2
+       AND date <= $2
+       AND colour_state != $3
        AND category IN (${placeholders})
      ORDER BY date ASC, time ASC NULLS LAST
      LIMIT ${limit}`,
-    [startDate, "green", ...categories]
-    // Note: green events are excluded from the default agenda (completed)
-    // Yellow events float to top in Phase 11 via YellowQueue component
+    [startDate, endDate, "green", ...categories]
   );
 }
 
@@ -232,6 +232,45 @@ export async function getYellowEventCount(): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ count: number }[]>(
     `SELECT COUNT(*) as count FROM calendar_events WHERE colour_state = 'yellow'`
+  );
+  return rows[0]?.count ?? 0;
+}
+
+// ─── Window score query (for Day/Week/Month toggle — Phase 12) ───────────────
+
+export async function getWindowScore(params: {
+  startDate: string; // ISO: 2026-06-13
+  endDate:   string; // ISO: 2026-06-19
+}): Promise<{ completed: number; total: number }> {
+  const db = await getDb();
+  const { startDate, endDate } = params;
+
+  const rows = await db.select<{ completed: number; total: number }[]>(
+    `SELECT
+       COUNT(*) as total,
+       SUM(CASE WHEN colour_state = 'green' THEN 1 ELSE 0 END) as completed
+     FROM calendar_events
+     WHERE date >= $1
+       AND date <= $2
+       AND colour_state != 'red'`,
+    [startDate, endDate]
+  );
+
+  return {
+    completed: rows[0]?.completed ?? 0,
+    total:     rows[0]?.total     ?? 0,
+  };
+}
+
+// ─── Today blue count (for sidebar badge — Phase 12) ─────────────────────────
+
+export async function getTodayBlueCount(): Promise<number> {
+  const db = await getDb();
+  const today = new Date().toISOString().split("T")[0];
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(*) as count FROM calendar_events
+     WHERE colour_state = 'blue' AND date = $1`,
+    [today]
   );
   return rows[0]?.count ?? 0;
 }

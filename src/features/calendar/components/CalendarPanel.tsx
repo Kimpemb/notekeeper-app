@@ -7,6 +7,7 @@ import { LayerFilterBar } from "@/features/calendar/components/LayerFilterBar";
 import { AgendaView } from "@/features/calendar/components/AgendaView";
 import { EventCreationForm } from "@/features/calendar/components/EventCreationForm";
 import { EventDetail } from "@/features/calendar/components/EventDetail";
+import { DailyScoreWidget } from "@/features/score/components/DailyScoreWidget";
 import type { CalendarEvent, CalendarEventInput, ColourState } from "@/features/calendar/db/calendarQueries";
 import type { CalendarView } from "@/features/calendar/store/useCalendarStore";
 
@@ -133,6 +134,9 @@ export function CalendarPanel() {
         <span className="text-sm text-idemora-text-normal font-medium flex-1 truncate">
           {formatPeriodLabel()}
         </span>
+
+        {/* Daily score — renders only when total > 0, lives here contextually */}
+        <DailyScoreWidget />
 
         {/* New event button */}
         <button
