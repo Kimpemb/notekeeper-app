@@ -20,6 +20,7 @@ import { GraphView, type GraphViewHandle } from "@/features/graph/GraphView";
 import { CalendarView, type CalendarViewHandle } from "@/features/calendar/components/CalendarView"; 
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
+import { exportNotesToFile } from "@/lib/tauri/fs";
 import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
 import { DeadlineResurfaceBar } from "@/features/ui/components/DeadlineResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
