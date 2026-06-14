@@ -128,7 +128,8 @@ function NoteIndicator({
         if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onOpenNote(linkedNoteId); }
       }}
       className="inline-flex items-center gap-1 text-xs text-idemora-text-muted
-                 hover:text-idemora-text-normal transition-colors cursor-pointer group/note"
+                 hover:text-idemora-text-normal hover:bg-white/5 transition-colors cursor-pointer
+                 rounded px-1 -mx-1 py-0.5 group/note"
       title={title}
     >
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none"

@@ -3,6 +3,9 @@ import { useCalendar } from "@/features/calendar/hooks/useCalendar";
 import { useCalendarEvents } from "@/features/calendar/hooks/useCalendarEvents";
 import { LayerFilterBar } from "@/features/calendar/components/LayerFilterBar";
 import { AgendaView } from "@/features/calendar/components/AgendaView";
+import { MonthView } from "./MonthView";
+import { WeekView } from "./WeekView";
+import { DayView } from "./DayView";
 import { EventCreationForm } from "@/features/calendar/components/EventCreationForm";
 import { EventDetail } from "@/features/calendar/components/EventDetail";
 import { DailyScoreWidget } from "@/features/score/components/DailyScoreWidget";
@@ -16,12 +19,6 @@ import {
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { CalendarView } from "@/features/calendar/store/useCalendarStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
-
-
-// Phase 5 placeholders — imported when built
-// import { MonthView } from "./MonthView";
-// import { WeekView }  from "./WeekView";
-// import { DayView }   from "./DayView";
 
 const VIEW_LABELS: { key: CalendarView; label: string }[] = [
   { key: "month",  label: "Month" },
@@ -39,6 +36,7 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
     activeView,
     selectedDate,
     setActiveView,
+    setSelectedDate,
     goToPreviousPeriod,
     goToNextPeriod,
     goToToday,
@@ -58,6 +56,8 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
   const [editingEvent,   setEditingEvent]   = useState<CalendarEvent | null>(null);
   const [selectedEvent,  setSelectedEvent]  = useState<CalendarEvent | null>(null);
   const [groups,         setGroups]         = useState<EventGroup[]>([]);
+  const [slotDate,       setSlotDate]       = useState<string | null>(null);
+  const [slotTime,       setSlotTime]       = useState<string | null>(null);
 
   useEffect(() => {
     listEventGroups().then(setGroups).catch(console.error);
@@ -92,6 +92,12 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
   function handleEditFromDetail(event: CalendarEvent) {
     setSelectedEvent(null);
     setEditingEvent(event);
+  }
+
+  function handleSlotClick(isoDate: string, time: string) {
+    setSlotDate(isoDate);
+    setSlotTime(time);
+    setShowCreateForm(true);
   }
 
   async function handleDelete(id: string) {
@@ -201,30 +207,41 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
         />
       )}
 
-      {/* Phase 5 placeholders */}
       {activeView === "month" && (
-        <div className="flex-1 flex items-center justify-center text-idemora-text-muted text-sm">
-          Month view — coming in Phase 5
-        </div>
+        <MonthView
+          selectedDate={selectedDate}
+          events={events}
+          onEventClick={setSelectedEvent}
+          onDayClick={(isoDate) => { setSelectedDate(isoDate); setActiveView("day"); }}
+        />
       )}
+
       {activeView === "week" && (
-        <div className="flex-1 flex items-center justify-center text-idemora-text-muted text-sm">
-          Week view — coming in Phase 5
-        </div>
+        <WeekView
+          selectedDate={selectedDate}
+          events={events}
+          onEventClick={setSelectedEvent}
+          onSlotClick={handleSlotClick}
+        />
       )}
+
       {activeView === "day" && (
-        <div className="flex-1 flex items-center justify-center text-idemora-text-muted text-sm">
-          Day view — coming in Phase 5
-        </div>
+        <DayView
+          selectedDate={selectedDate}
+          events={events}
+          onEventClick={setSelectedEvent}
+          onSlotClick={handleSlotClick}
+        />
       )}
 
       {/* ── Modals ── */}
 
       {showCreateForm && (
         <EventCreationForm
-          initialDate={selectedDate}
+          initialDate={slotDate ?? selectedDate}
+          initialTime={slotTime ?? undefined}
           onSubmit={handleSubmitCreate}
-          onClose={() => setShowCreateForm(false)}
+          onClose={() => { setShowCreateForm(false); setSlotDate(null); setSlotTime(null); }}
         />
       )}
 
