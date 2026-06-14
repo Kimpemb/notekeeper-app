@@ -33,6 +33,7 @@ export function GoalsPanel() {
     createMilestone,
     updateMilestone,
     deleteMilestone,
+    updateProgress,
     setSelectedGoalId,
     setActiveCategoryFilter,
   } = useGoals();
@@ -43,25 +44,24 @@ export function GoalsPanel() {
   const [collapsed,       setCollapsed]       = useState<Set<GoalStatusFilter>>(new Set());
 
   // Load all goals and categories on mount
-// REPLACE with:
-useEffect(() => {
-  loadGoals(null);
-  loadCategories();
-}, []);
+  useEffect(() => {
+    loadGoals(null);
+    loadCategories();
+  }, []);
 
-// Load milestones when selectedGoalId is set — covers both normal card
-// clicks and external navigation (e.g. from calendar banner click)
-useEffect(() => {
-  if (selectedGoalId) loadMilestones(selectedGoalId);
-}, [selectedGoalId, loadMilestones]);
+  // Load milestones when selectedGoalId is set — covers both normal card
+  // clicks and external navigation (e.g. from calendar banner click)
+  useEffect(() => {
+    if (selectedGoalId) loadMilestones(selectedGoalId);
+  }, [selectedGoalId, loadMilestones]);
 
-// If goals weren't loaded yet when selectedGoalId was set externally,
-// re-trigger milestone load once goals arrive
-useEffect(() => {
-  if (selectedGoalId && goals.length > 0) {
-    loadMilestones(selectedGoalId);
-  }
-}, [goals.length, selectedGoalId, loadMilestones]);
+  // If goals weren't loaded yet when selectedGoalId was set externally,
+  // re-trigger milestone load once goals arrive
+  useEffect(() => {
+    if (selectedGoalId && goals.length > 0) {
+      loadMilestones(selectedGoalId);
+    }
+  }, [goals.length, selectedGoalId, loadMilestones]);
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
 
@@ -93,25 +93,25 @@ useEffect(() => {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-async function handleSubmitCreate(
-     input: GoalInput,
-     milestoneInputs: Omit<MilestoneInput, "goal_id">[]
-   ) {
-     await createGoal(input, milestoneInputs);
-     loadCategories();
-     setShowCreateForm(false);
-   }
+  async function handleSubmitCreate(
+    input: GoalInput,
+    milestoneInputs: Omit<MilestoneInput, "goal_id">[]
+  ) {
+    await createGoal(input, milestoneInputs);
+    loadCategories();
+    setShowCreateForm(false);
+  }
 
-   async function handleSubmitEdit(
-     input: GoalInput,
-     _milestoneInputs: Omit<MilestoneInput, "goal_id">[]
-   ) {
-     if (!editingGoal) return;
-     await updateGoal(editingGoal.id, input);
-     loadCategories();
-     setEditingGoal(null);
-     if (selectedGoalId === editingGoal.id) loadMilestones(editingGoal.id);
-   }
+  async function handleSubmitEdit(
+    input: GoalInput,
+    _milestoneInputs: Omit<MilestoneInput, "goal_id">[]
+  ) {
+    if (!editingGoal) return;
+    await updateGoal(editingGoal.id, input);
+    loadCategories();
+    setEditingGoal(null);
+    if (selectedGoalId === editingGoal.id) loadMilestones(editingGoal.id);
+  }
 
   async function handleDelete(id: string) {
     await deleteGoal(id);
@@ -283,6 +283,7 @@ async function handleSubmitCreate(
           onAddMilestone={createMilestone}
           onUpdateMilestone={updateMilestone}
           onDeleteMilestone={deleteMilestone}
+          onUpdateProgress={updateProgress}
         />
       )}
 

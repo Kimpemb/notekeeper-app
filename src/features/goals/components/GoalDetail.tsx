@@ -5,14 +5,15 @@ import type { Goal, GoalMilestone, MilestoneInput } from "@/features/goals/db/go
 import { MilestoneList } from "./MilestoneList";
 
 interface GoalDetailProps {
-  goal:        Goal;
-  milestones:  GoalMilestone[];
-  onEdit:      (goal: Goal) => void;
-  onDelete:    (id: string) => void;
-  onClose:     () => void;
+  goal:              Goal;
+  milestones:        GoalMilestone[];
+  onEdit:            (goal: Goal) => void;
+  onDelete:          (id: string) => void;
+  onClose:           () => void;
   onAddMilestone:    (input: MilestoneInput) => Promise<string | void>;
   onUpdateMilestone: (id: string, goalId: string, updates: Partial<Omit<MilestoneInput, "goal_id">>) => Promise<void>;
   onDeleteMilestone: (id: string, goalId: string) => Promise<void>;
+  onUpdateProgress:  (id: string, progress: number) => Promise<void>;
 }
 
 const STATE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
@@ -60,6 +61,7 @@ export function GoalDetail({
   onAddMilestone,
   onUpdateMilestone,
   onDeleteMilestone,
+  onUpdateProgress,
 }: GoalDetailProps) {
   const badge     = STATE_BADGE[goal.colour_state] ?? STATE_BADGE.blue;
   const elapsed   = timelinePercent(goal.start_date, goal.target_date);
@@ -156,26 +158,29 @@ export function GoalDetail({
             </p>
           )}
 
-          {/* Progress bar */}
-          <div className="space-y-1.5">
+          {/* Progress bar — manual slider */}
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-idemora-text-muted">Progress</span>
               <span className="text-xs font-medium text-idemora-text-normal tabular-nums">
                 {goal.progress}%
               </span>
             </div>
-            <div className="h-2 rounded-full bg-idemora-bg-secondary overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  goal.colour_state === "green"  ? "bg-green-500"  :
-                  goal.colour_state === "red"    ? "bg-red-500"    :
-                  goal.colour_state === "yellow" ? "bg-yellow-500" :
-                  "bg-blue-500"
-                }`}
-                style={{ width: `${goal.progress}%` }}
-              />
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={goal.progress}
+              onChange={(e) => onUpdateProgress(goal.id, parseInt(e.target.value, 10))}
+              className="w-full h-1.5 rounded-full appearance-none cursor-pointer
+                         accent-blue-500 bg-idemora-bg-secondary"
+            />
+            <div className="flex justify-between">
+              <span className="text-xs text-idemora-text-faint">0%</span>
+              <span className="text-xs text-idemora-text-faint">100%</span>
             </div>
-            {/* TODO Phase 9: replace static bar with ProgressBar component (auto vs manual) */}
+            {/* TODO Phase 9 full: replace with ProgressBar component (auto vs manual evidence) */}
           </div>
 
           {/* Timeline */}
