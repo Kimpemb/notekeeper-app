@@ -6,6 +6,8 @@ import {
 } from "@/features/score/db/scoreQueries";
 import type { ScoreEvent } from "@/features/score/store/useScoreStore";
 import type { CalendarEvent } from "@/features/calendar/db/calendarQueries";
+import { computeAndStoreStreak } from "./streakComputer";
+import { useScoreStore } from "@/features/score/store/useScoreStore";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -113,7 +115,7 @@ export async function backfillPastEvents(): Promise<void> {
 // ─── Midnight lock ─────────────────────────────────────────────────────────────
 //
 // Locks score_event_log rows for `date` and writes the daily_scores summary row.
-// streak_day = 0 in Phase 4 — real streak computation arrives in Phase 10.
+// Computes and stores streak after locking the day.
 //
 // Called:
 //   - at the scheduled midnight timer (App.tsx)
@@ -140,12 +142,17 @@ export async function lockDayAndWriteScore(date: string): Promise<void> {
   const total     = rows[0]?.total ?? 0;
   const completed = rows[0]?.completed ?? 0;
 
+  // Compute streak after locking this day
+  const streak = await computeAndStoreStreak();
+
   await writeDailyScore({
     date,
     completed,
     total,
-    streak_day: 0, // Phase 10 will compute and update this
+    streak_day: streak,
   });
+
+  useScoreStore.getState().setStreak(streak);
 }
 
 // ─── Startup helper: was yesterday locked? ─────────────────────────────────────
@@ -174,4 +181,14 @@ export async function ensureYesterdayLocked(): Promise<void> {
   if ((hasEvents[0]?.count ?? 0) === 0) return;
 
   await lockDayAndWriteScore(yesterday);
+}
+
+// ─── Startup streak refresh ───────────────────────────────────────────────────
+//
+// Called once at startup so the streak widget shows the correct value
+// immediately without waiting for the next midnight lock.
+
+export async function refreshStreak(): Promise<void> {
+  const streak = await computeAndStoreStreak();
+  useScoreStore.getState().setStreak(streak);
 }

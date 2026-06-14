@@ -54,6 +54,7 @@ import {
   getMillisecondsUntilMidnight,
   getPreviousDay,
   getLocalDateISO,
+  refreshStreak,
 } from "@/features/score/lib/scoreComputer";
 import { getAllMilestones } from "@/features/goals/db/goalQueries";
 import { syncMilestonesToCalendar } from "@/features/calendar/lib/layerSync";
@@ -259,6 +260,9 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       await ensureYesterdayLocked();
       const todayEvents = await snapshotTodayEvents();
       if (!cancelled) useScoreStore.getState().setTodayEvents(todayEvents);
+
+      // Compute streak from historical daily_scores
+      await refreshStreak();
 
       // ── Milestone sync (one-time at startup) ────────────────────────────
       getAllMilestones()
