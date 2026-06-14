@@ -35,6 +35,7 @@ interface Props {
   onEventClick: (event: CalendarEvent) => void;
   onOpenNote:   (noteId: string) => void;
   onGoalClick:  (goalId: string) => void;
+  onResolve:    (id: string, state: ColourState) => Promise<void>;
 }
 
 function formatDate(isoDate: string): string {
@@ -155,7 +156,7 @@ function NoteIndicator({
 
 // ── AgendaView ────────────────────────────────────────────────────────────────
 
-export function AgendaView({ events, groups, banners, loading, onEventClick, onOpenNote, onGoalClick }: Props) {
+export function AgendaView({ events, groups, banners, loading, onEventClick, onOpenNote, onGoalClick, onResolve }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   function toggleGroup(groupId: string) {
@@ -201,8 +202,6 @@ export function AgendaView({ events, groups, banners, loading, onEventClick, onO
     ]);
   }
 
-  const yellowCount = events.filter((e) => e.colour_state === "yellow").length;
-
   if (ungroupedByDate.size === 0 && groupBuckets.size === 0 && banners.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-2 text-idemora-text-muted">
@@ -221,14 +220,86 @@ export function AgendaView({ events, groups, banners, loading, onEventClick, onO
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {/* Yellow queue notice */}
-      {yellowCount > 0 && (
-        <div className="px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/20">
-          <p className="text-xs text-yellow-400 font-medium">
-            {yellowCount} event{yellowCount !== 1 ? "s" : ""} need{yellowCount === 1 ? "s" : ""} your attention
-          </p>
-        </div>
-      )}
+      {/* ── Yellow Queue ── */}
+      {(() => {
+        const yellowEvents = events.filter((e) => e.colour_state === "yellow");
+        if (yellowEvents.length === 0) return null;
+
+        return (
+          <div className="border-b border-yellow-500/20 bg-yellow-500/5">
+            {/* Queue header */}
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-yellow-500/15">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" strokeWidth="2"
+                   className="text-yellow-400 shrink-0">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span className="text-xs font-semibold text-yellow-400">
+                {yellowEvents.length} event{yellowEvents.length !== 1 ? "s" : ""} need{yellowEvents.length === 1 ? "s" : ""} your attention
+              </span>
+            </div>
+
+            {/* Queue rows */}
+            {yellowEvents.map((event) => (
+              <div
+                key={event.id}
+                className="flex items-center gap-3 px-4 py-2.5 border-b border-yellow-500/10
+                           hover:bg-yellow-500/5 transition-colors"
+              >
+                {/* Event info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-idemora-text-normal truncate">{event.title}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs text-idemora-text-muted">{formatDate(event.date)}</span>
+                    {event.time && (
+                      <>
+                        <span className="text-xs text-idemora-text-muted opacity-50">·</span>
+                        <span className="text-xs text-idemora-text-muted">{formatTime(event.time)}</span>
+                      </>
+                    )}
+                    <span className="text-xs text-idemora-text-muted opacity-50">·</span>
+                    <span className="text-xs text-idemora-text-muted">
+                      {CATEGORY_LABELS[event.category] ?? event.category}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Resolve buttons */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => onResolve(event.id, "green")}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium
+                               bg-green-500/10 text-green-400 hover:bg-green-500/20
+                               border border-green-500/20 transition-colors"
+                    title="Mark as done"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" strokeWidth="2.5">
+                      <path d="M20 6L9 17l-5-5"/>
+                    </svg>
+                    Done
+                  </button>
+                  <button
+                    onClick={() => onResolve(event.id, "red")}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium
+                               bg-red-500/10 text-red-400 hover:bg-red-500/20
+                               border border-red-500/20 transition-colors"
+                    title="Mark as missed"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" strokeWidth="2.5">
+                      <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                    Missed
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* ── Goal banners ── */}
       {banners.length > 0 && (

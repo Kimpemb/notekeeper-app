@@ -141,9 +141,21 @@ export function useCalendarEvents() {
     }
   }, [activeView, selectedDate, JSON.stringify(activeLayers)]);
 
+  // Initial load
   useEffect(() => {
     loadEvents();
   }, [loadEvents]);
+
+  // Reload once after app startup transitions have had time to apply.
+  // applyMidnightTransitions runs async in App.tsx — this catches any
+  // yellow transitions that completed after our initial load.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadEvents();
+    }, 1500);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // runs once on mount only
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 

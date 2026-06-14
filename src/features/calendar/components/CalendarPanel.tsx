@@ -256,6 +256,7 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
           onEventClick={setSelectedEvent}
           onOpenNote={handleOpenNote}
           onGoalClick={handleGoalClick}
+          onResolve={handleResolve}
         />
       )}
 

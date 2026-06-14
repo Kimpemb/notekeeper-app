@@ -12,36 +12,66 @@ function getLocalDateISO(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// ─── Midnight transitions ──────────────────────────────────────────────────────
-//
-// Called once at app startup from App.tsx — NOT on panel mount.
-// Yellow state must apply even if the user never opens the calendar.
-// Phase 2: handles personal + note events only.
-// Phase 11: extended to task, goal milestones, and goals table.
-
 export async function applyMidnightTransitions(): Promise<void> {
   const db    = await getDb();
   const today = getLocalDateISO();
+  const ts    = Date.now();
 
-  // Personal and note-sourced events: blue → yellow
-  const result = await db.execute(
+  // 1. Personal + note events: blue → yellow
+  const r1 = await db.execute(
     `UPDATE calendar_events
      SET colour_state = 'yellow', updated_at = $1
      WHERE colour_state = 'blue'
        AND date < $2
        AND (source_type IS NULL OR source_type IN ('note', 'personal'))`,
-    [Date.now(), today]
+    [ts, today]
   );
 
-  if (result.rowsAffected > 0) {
-    console.log(`[colourState] ${result.rowsAffected} events transitioned blue → yellow`);
+  // 2. Task events: blue → yellow
+  const r2 = await db.execute(
+    `UPDATE calendar_events
+     SET colour_state = 'yellow', updated_at = $1
+     WHERE colour_state = 'blue'
+       AND date < $2
+       AND source_type = 'task'`,
+    [ts, today]
+  );
+
+  // 3. Goal milestone calendar events: blue → yellow
+  //    Also update goal_milestones table to keep them in sync
+  const overdueMilestoneEvents = await db.select<{ id: string; source_id: string }[]>(
+    `SELECT id, source_id FROM calendar_events
+     WHERE colour_state = 'blue'
+       AND date < $1
+       AND source_type = 'goal'`,
+    [today]
+  );
+
+  for (const row of overdueMilestoneEvents) {
+    await db.execute(
+      `UPDATE calendar_events SET colour_state = 'yellow', updated_at = $1 WHERE id = $2`,
+      [ts, row.id]
+    );
+    await db.execute(
+      `UPDATE goal_milestones SET colour_state = 'yellow', updated_at = $1 WHERE id = $2`,
+      [ts, row.source_id]
+    );
   }
 
-  // TODO Phase 11: task events blue → yellow
-  // TODO Phase 11: goal milestones blue → yellow (update both calendar_events and goal_milestones)
-  // TODO Phase 11: goals table blue → yellow (target_date < today AND progress < 100)
-}
+  // 4. Goals: blue → yellow (target_date passed, progress < 100)
+  const r4 = await db.execute(
+    `UPDATE goals
+     SET colour_state = 'yellow', updated_at = $1
+     WHERE colour_state = 'blue'
+       AND target_date < $2
+       AND progress < 100`,
+    [ts, today]
+  );
 
-// ─── CDE-specific transitions (Phase 3) ──────────────────────────────────────
-// TODO Phase 3: voting deadline red on no-vote detection
-// TODO Phase 3: submission deadline red on missed export
+  const total = (r1.rowsAffected ?? 0) + (r2.rowsAffected ?? 0) +
+                overdueMilestoneEvents.length + (r4.rowsAffected ?? 0);
+
+  if (total > 0) {
+    console.log(`[colourState] ${total} items transitioned blue → yellow`);
+  }
+}
