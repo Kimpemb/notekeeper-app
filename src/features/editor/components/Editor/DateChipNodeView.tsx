@@ -4,6 +4,7 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useCalendarStore } from "@/features/calendar/store/useCalendarStore";
+import { formatTimeForChip } from "@/features/calendar/lib/dateParser";
 
 export function DateChipNodeView({ node }: NodeViewProps) {
   const { displayDate, isoDate } = node.attrs as {
@@ -29,7 +30,13 @@ export function DateChipNodeView({ node }: NodeViewProps) {
                    bg-blue-500/10 border border-blue-500/25 text-blue-300
                    text-xs font-medium cursor-pointer select-none
                    hover:bg-blue-500/20 hover:border-blue-500/40 transition-colors"
-        title={`Open ${displayDate} in calendar`}
+        title={`Open ${displayDate}
+        {time && (
+          <>
+            <span className="opacity-40 mx-0.5">·</span>
+            {formatTimeForChip(time, durationMins)}
+          </>
+        )} in calendar`}
       >
         {/* Calendar icon */}
         <svg

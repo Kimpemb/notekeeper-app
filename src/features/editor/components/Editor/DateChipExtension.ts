@@ -3,7 +3,10 @@
 import { Node, Extension, mergeAttributes } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { parseNaturalDate, formatDateForChip, dateToISO } from "@/features/calendar/lib/dateParser";
+import {
+  parseNaturalDate, formatDateForChip, dateToISO,
+  extractTime, extractTimeRange, computeDurationMins, formatTimeForChip,
+} from "@/features/calendar/lib/dateParser";
 import { createEvent, deleteEvent } from "@/features/calendar/db/calendarQueries";
 import { DateChipNodeView } from "./DateChipNodeView";
 
@@ -38,7 +41,7 @@ export const DateChipExtension = Node.create<DateChipOptions>({
   inline: true,
   atom: true,   // not editable inline — delete and retype to change, matching NoteLink
 
-addOptions() {
+  addOptions() {
     return {
       noteId: null as string | null,
       getTitle: (() => "Untitled") as () => string,
@@ -50,6 +53,8 @@ addOptions() {
       isoDate:         { default: null },
       displayDate:     { default: "" },
       calendarEventId: { default: null },
+      time:            { default: null },
+      durationMins:    { default: null },
     };
   },
 
@@ -63,6 +68,8 @@ addOptions() {
             isoDate:         el.getAttribute("data-iso-date") ?? null,
             displayDate:     el.getAttribute("data-display-date") ?? el.textContent ?? "",
             calendarEventId: el.getAttribute("data-calendar-event-id") ?? null,
+            time:            el.getAttribute("data-time") ?? null,
+            durationMins:    el.getAttribute("data-duration-mins") ? parseInt(el.getAttribute("data-duration-mins")!) : null,
           };
         },
       },
@@ -77,6 +84,8 @@ addOptions() {
         "data-iso-date":           HTMLAttributes.isoDate,
         "data-display-date":       HTMLAttributes.displayDate,
         "data-calendar-event-id":  HTMLAttributes.calendarEventId,
+        "data-time":               HTMLAttributes.time,
+        "data-duration-mins":      HTMLAttributes.durationMins,
       }),
       0,
     ];
@@ -93,7 +102,7 @@ addOptions() {
         ({ commands }) =>
           commands.insertContent({
             type: this.name,
-            attrs: { isoDate, displayDate, calendarEventId: null },
+            attrs: { isoDate, displayDate, calendarEventId: null, time: null, durationMins: null },
           }),
     };
   },
@@ -135,15 +144,19 @@ addOptions() {
             const rawInput = textBefore.slice(atIdx + 1); // text after @
             if (!rawInput.trim()) return false;
 
-            // Don't fire if there's already a space inside the candidate
-            // (means the user continued typing past a failed parse)
-            // Exception: chrono phrases with spaces like "next friday" are fine —
-            // we only block if the FIRST word after @ produced nothing.
-            const parsed = parseNaturalDate(rawInput);
+            // Strip trailing end-time range before passing to chrono
+            const { cleanInput, startTimeStr, endTimeStr } = extractTimeRange(rawInput);
+
+            const parsed = parseNaturalDate(cleanInput);
             if (!parsed) return false;
 
             const isoDate     = dateToISO(parsed);
             const displayDate = formatDateForChip(parsed);
+            // Prefer manually extracted start time over chrono's (handles no-space format)
+            const time        = startTimeStr ?? extractTime(parsed);
+            const durationMins = (time && endTimeStr)
+              ? computeDurationMins(time, endTimeStr)
+              : null;
 
             const deleteFrom = Math.max(0, from - textBefore.length + atIdx);
             const deleteTo   = from;
@@ -157,7 +170,9 @@ addOptions() {
                   state.schema.nodes.dateChip.create({
                     isoDate,
                     displayDate,
-                    calendarEventId: null, // filled in async below
+                    calendarEventId: null,
+                    time,
+                    durationMins,
                   })
                 )
             );
@@ -165,13 +180,15 @@ addOptions() {
             // Async: create the calendar event and patch the node's attr
             const noteId = extensionThis.options.noteId;
             const noteTitle = extensionThis.options.getTitle();
-            console.log("[DateChip] noteId:", noteId, "noteTitle:", noteTitle);
             createEvent({
-              title:       noteTitle,
-              date:        isoDate,
-              category:    "note",
-              source_id:   noteId,
-              source_type: "note",
+              title:          noteTitle,
+              date:           isoDate,
+              time:           time ?? null,
+              duration_mins:  durationMins ?? null,
+              category:       "note",
+              source_id:      noteId,
+              source_type:    "note",
+              linked_note_id: noteId,
             }).then((eventId) => {
               // Find the chip node we just inserted and update its calendarEventId attr
               const currentState = view.state;
