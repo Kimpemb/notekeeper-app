@@ -1,5 +1,3 @@
-// src/features/calendar/components/CalendarPanel.tsx
-
 import { useState, useEffect } from "react";
 import { useCalendar } from "@/features/calendar/hooks/useCalendar";
 import { useCalendarEvents } from "@/features/calendar/hooks/useCalendarEvents";
@@ -32,7 +30,11 @@ const VIEW_LABELS: { key: CalendarView; label: string }[] = [
   { key: "agenda", label: "Agenda" },
 ];
 
-export function CalendarPanel() {
+interface CalendarPanelProps {
+  onInnerModalChange?: (open: boolean) => void;
+}
+
+export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
   const {
     activeView,
     selectedDate,
@@ -60,6 +62,13 @@ export function CalendarPanel() {
   useEffect(() => {
     listEventGroups().then(setGroups).catch(console.error);
   }, []);
+
+  // Whenever selectedEvent, creationFormOpen, or notePickerOpen changes,
+  // report whether any inner layer is open:
+  useEffect(() => {
+    const anyOpen = !!selectedEvent || showCreateForm || !!editingEvent;
+    onInnerModalChange?.(anyOpen);
+  }, [selectedEvent, showCreateForm, editingEvent, onInnerModalChange]);
 
   // TODO: replace selectNote with your actual note navigation function once confirmed
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
@@ -188,6 +197,7 @@ export function CalendarPanel() {
           groups={groups}
           loading={loading}
           onEventClick={setSelectedEvent}
+          onOpenNote={handleOpenNote}
         />
       )}
 

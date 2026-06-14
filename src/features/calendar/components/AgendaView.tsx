@@ -1,6 +1,6 @@
 // src/features/calendar/components/AgendaView.tsx
 
-import { useState, useCallback } from "react";
+import { useState, useMemo } from "react";
 import type { CalendarEvent, ColourState, EventGroup } from "@/features/calendar/db/calendarQueries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
@@ -24,16 +24,15 @@ interface Props {
   groups:       EventGroup[];
   loading:      boolean;
   onEventClick: (event: CalendarEvent) => void;
+  onOpenNote:   (noteId: string) => void;
 }
 
 function formatDate(isoDate: string): string {
   const d        = new Date(isoDate + "T00:00:00");
   const today    = new Date().toISOString().split("T")[0];
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-
   if (isoDate === today)    return "Today";
   if (isoDate === tomorrow) return "Tomorrow";
-
   return d.toLocaleDateString("en-GB", {
     weekday: "short", day: "numeric", month: "short", year: "numeric",
   });
@@ -47,7 +46,6 @@ export function daysUntil(isoDate: string): number {
 
 function UrgencyBadge({ isoDate, hasUnresolved }: { isoDate: string; hasUnresolved: boolean }) {
   const diff = daysUntil(isoDate);
-
   if (diff < 0) {
     if (!hasUnresolved) return null;
     return (
@@ -72,21 +70,82 @@ function formatTime(time: string | null): string {
   return time;
 }
 
-// Stable selector — defined outside the component so the reference never changes
-const selectDeletedNoteIds = (s: ReturnType<typeof useNoteStore.getState>) =>
-  s.notes
-    .filter((n) => n.deleted_at != null)
-    .map((n) => n.id)
-    .join(",");
+// ── Stable primitive selectors — module level, no object returns ──────────────
 
-export function AgendaView({ events, groups, loading, onEventClick }: Props) {
+const makeNoteTitleSelector = (id: string | null) =>
+  (s: ReturnType<typeof useNoteStore.getState>): string | null => {
+    if (!id) return null;
+    const note = s.notes.find((n) => n.id === id) ?? s.trashedNotes.find((n) => n.id === id);
+    return note?.title ?? null;
+  };
+
+const makeNoteDeletedSelector = (id: string | null) =>
+  (s: ReturnType<typeof useNoteStore.getState>): boolean => {
+    if (!id) return false;
+    const note = s.notes.find((n) => n.id === id) ?? s.trashedNotes.find((n) => n.id === id);
+    return note != null && note.deleted_at != null;
+  };
+
+// ── NoteIndicator — module level so React sees a stable component type ────────
+
+function NoteIndicator({
+  linkedNoteId,
+  onOpenNote,
+}: {
+  linkedNoteId: string | null;
+  onOpenNote:   (noteId: string) => void;
+}) {
+  const titleSelector   = useMemo(() => makeNoteTitleSelector(linkedNoteId),   [linkedNoteId]);
+  const deletedSelector = useMemo(() => makeNoteDeletedSelector(linkedNoteId), [linkedNoteId]);
+  const title   = useNoteStore(titleSelector);
+  const deleted = useNoteStore(deletedSelector);
+
+  if (!linkedNoteId) return null;
+  if (title === null) return null; // not in notes or trashedNotes — permanently deleted
+
+  const MAX = 24;
+  const displayTitle = title.length > MAX ? title.slice(0, MAX) + "…" : title;
+
+  if (deleted) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-idemora-text-muted/50 line-through">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" strokeWidth="2" className="shrink-0">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+        </svg>
+        {displayTitle}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={(e) => { e.stopPropagation(); onOpenNote(linkedNoteId); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onOpenNote(linkedNoteId); }
+      }}
+      className="inline-flex items-center gap-1 text-xs text-idemora-text-muted
+                 hover:text-idemora-text-normal transition-colors cursor-pointer group/note"
+      title={title}
+    >
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" strokeWidth="2" className="shrink-0">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+      </svg>
+      <span>{displayTitle}</span>
+      <span className="opacity-0 group-hover/note:opacity-100 transition-opacity">→</span>
+    </span>
+  );
+}
+
+// ── AgendaView ────────────────────────────────────────────────────────────────
+
+export function AgendaView({ events, groups, loading, onEventClick, onOpenNote }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-
-  // Use a string-join selector to get a stable primitive, then derive the Set locally.
-  // This avoids the "getSnapshot should be cached" infinite loop that occurs when
-  // returning a new Set() reference from a Zustand selector on every render.
-  const deletedIdsStr  = useNoteStore(selectDeletedNoteIds);
-  const deletedNoteIds = new Set(deletedIdsStr ? deletedIdsStr.split(",") : []);
 
   function toggleGroup(groupId: string) {
     setCollapsedGroups((prev) => {
@@ -106,8 +165,6 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
     );
   }
 
-  // ── Split into grouped and ungrouped ─────────────────────────────────────
-
   const groupedEvents   = events.filter((e) => e.group_id);
   const ungroupedEvents = events.filter((e) => !e.group_id);
 
@@ -116,7 +173,6 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
     const bucket = groupBuckets.get(event.group_id!) ?? [];
     groupBuckets.set(event.group_id!, [...bucket, event]);
   }
-
   for (const [gid, gevents] of groupBuckets) {
     groupBuckets.set(gid, [...gevents].sort((a, b) => a.date.localeCompare(b.date)));
   }
@@ -126,7 +182,6 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
     const existing = ungroupedByDate.get(event.date) ?? [];
     ungroupedByDate.set(event.date, [...existing, event]);
   }
-
   for (const [date, dayEvents] of ungroupedByDate) {
     ungroupedByDate.set(date, [
       ...dayEvents.filter((e) => e.colour_state === "yellow"),
@@ -153,20 +208,6 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
     );
   }
 
-  // ── Reusable note indicator ───────────────────────────────────────────────
-
-  function NoteIndicator({ linkedNoteId }: { linkedNoteId: string | null }) {
-    if (!linkedNoteId) return null;
-    const isDeleted = deletedNoteIds.has(linkedNoteId);
-    return (
-      <span className={`text-xs opacity-70 ${
-        isDeleted ? "text-red-400 line-through" : "text-blue-400"
-      }`}>
-        · note{isDeleted ? " (deleted)" : ""}
-      </span>
-    );
-  }
-
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Yellow queue notice */}
@@ -178,7 +219,7 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
         </div>
       )}
 
-      {/* ── Grouped sections ──────────────────────────────────────────────── */}
+      {/* ── Grouped sections ── */}
       {[...groupBuckets.entries()].map(([groupId, gevents]) => {
         const groupName   = groupMap.get(groupId) ?? "Group";
         const completed   = gevents.filter((e) => e.colour_state === "green").length;
@@ -189,7 +230,6 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
 
         return (
           <div key={groupId} className="border-b border-idemora-border/50">
-            {/* Group header */}
             <button
               onClick={() => toggleGroup(groupId)}
               className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-idemora-bg-secondary
@@ -203,17 +243,14 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
               >
                 <path d="M6 9l6 6 6-6"/>
               </svg>
-
               <span className="flex-1 text-xs font-semibold text-idemora-text-normal uppercase tracking-wide">
                 {groupName}
               </span>
-
               {nextDue && !allDone && (
                 <span className="text-xs text-amber-400 font-medium">
                   {formatDate(nextDue.date)}
                 </span>
               )}
-
               {allDone ? (
                 <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" title="All done" />
               ) : (
@@ -223,7 +260,6 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
               )}
             </button>
 
-            {/* Group events */}
             {!isCollapsed && gevents.map((event) => {
               const isCompleted = event.colour_state === "green";
               return (
@@ -253,7 +289,7 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
                       <span className="text-xs text-idemora-text-muted">{formatDate(event.date)}</span>
                       <span className="text-xs text-idemora-text-muted opacity-50">·</span>
                       <span className="text-xs text-idemora-text-muted">{formatTime(event.time)}</span>
-                      <NoteIndicator linkedNoteId={event.linked_note_id} />
+                      <NoteIndicator linkedNoteId={event.linked_note_id} onOpenNote={onOpenNote} />
                     </div>
                   </div>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -269,7 +305,7 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
         );
       })}
 
-      {/* ── Ungrouped events ──────────────────────────────────────────────── */}
+      {/* ── Ungrouped events ── */}
       {[...ungroupedByDate.entries()].map(([date, dayEvents]) => (
         <div key={date}>
           <div className="px-4 py-2 sticky top-0 bg-idemora-bg-primary border-b border-idemora-border
@@ -314,7 +350,7 @@ export function AgendaView({ events, groups, loading, onEventClick }: Props) {
                     <span className="text-xs text-idemora-text-muted">
                       {CATEGORY_LABELS[event.category] ?? event.category}
                     </span>
-                    <NoteIndicator linkedNoteId={event.linked_note_id} />
+                    <NoteIndicator linkedNoteId={event.linked_note_id} onOpenNote={onOpenNote} />
                   </div>
                 </div>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none"

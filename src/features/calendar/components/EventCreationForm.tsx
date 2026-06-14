@@ -95,6 +95,17 @@ export function EventCreationForm({ initialDate, initialTime, event, onSubmit, o
     }
   }
 
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
   return (
     <>
       {/* Note picker modal — rendered outside the slide-in so z-index is clean */}

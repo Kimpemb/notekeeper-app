@@ -40,7 +40,7 @@ async fn save_image(
     std::fs::create_dir_all(&images_dir).map_err(|e| e.to_string())?;
     let dest = images_dir.join(&file_name);
     std::fs::write(&dest, data).map_err(|e| e.to_string())?;
-    Ok(dest.to_string_lossy().to_string())
+    Ok(dest.to_string_lossy().to_string().replace('\\', "/"))
 }
 
 #[tauri::command]
@@ -54,7 +54,7 @@ async fn save_attachment(
     std::fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
     let dest = attachments_dir.join(&file_name);
     std::fs::write(&dest, data).map_err(|e| e.to_string())?;
-    Ok(dest.to_string_lossy().to_string())
+    Ok(dest.to_string_lossy().to_string().replace('\\', "/"))
 }
 
 #[tauri::command]

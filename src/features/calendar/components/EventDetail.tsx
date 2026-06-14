@@ -1,6 +1,6 @@
 // src/features/calendar/components/EventDetail.tsx
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { CalendarEvent, ColourState } from "@/features/calendar/db/calendarQueries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
@@ -33,6 +33,17 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onOpenNote, on
   const [confirmDelete,  setConfirmDelete]  = useState(false);
   const [resolving,      setResolving]      = useState<ColourState | null>(null);
 
+
+    useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  
   const linkedNote = useNoteStore((s) => {
     if (!event.linked_note_id) return null;
     return (
@@ -44,7 +55,7 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onOpenNote, on
     const linkedNoteDeleted =
     (linkedNote != null && linkedNote.deleted_at != null) ||
     (event.linked_note_id != null && linkedNote === null);
-    
+
   const state     = STATE_LABELS[event.colour_state];
   const isReadOnly = event.source_type === "cde";
 
