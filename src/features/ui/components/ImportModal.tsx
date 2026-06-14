@@ -10,6 +10,7 @@ import { importPDF } from "@/features/importer/lib/importPDF";
 import { importDocx } from "@/features/importer/lib/importDocx";
 import { importPptx } from "@/features/importer/lib/importPptx";
 import { userFriendlyMessage } from "@/features/importer/lib/importErrors";
+import { NotePickerModal } from "@/features/ui/components/NotePickerModal";
 
 type Strategy = "skip" | "overwrite" | "copy";
 type Stage = "idle" | "preview" | "importing" | "done" | "error";
@@ -167,12 +168,18 @@ export function ImportModal() {
   
   const [scannedPdfNoteId, setScannedPdfNoteId] = useState<string | null>(null)
 
+  const [parentId,         setParentId]         = useState<string | null>(null);
+  const [parentNote,       setParentNote]        = useState<Note | null>(null);
+  const [showLocPicker,    setShowLocPicker]     = useState(false);
+
   useEffect(() => {
     if (importOpen) {
       setStage("idle"); setStrategy("skip"); setPreview(null);
       setRawJson(""); setImported(0); setError("");
       setScannedPdfNoteId(null);
       setDuplicatePromise(null);
+      setParentId(null);
+      setParentNote(null);
     }
   }, [importOpen]);
 
@@ -221,7 +228,7 @@ export function ImportModal() {
           plaintext: bodyLines.trim(),
           tags,
           frontmatter,
-          parent_id: null,
+          parent_id: parentId,
           sync_id: crypto.randomUUID(),
           created_at: Date.now(),
           updated_at: Date.now(),
@@ -258,6 +265,19 @@ export function ImportModal() {
           ...n,
           rag_excluded: (n as any).rag_excluded ?? 0,
         }));
+        
+        // Re-root top-level notes to the chosen location.
+        // Notes whose parent_id points to another note in the batch keep
+        // their relative structure — only true roots get re-parented.
+        if (parentId) {
+          const batchIds = new Set(notes.map((n) => n.id));
+          notes = notes.map((n) => ({
+            ...n,
+            parent_id: (!n.parent_id || !batchIds.has(n.parent_id))
+              ? parentId
+              : n.parent_id,
+          }));
+        }
       }
 
       const existingIds = new Set(useNoteStore.getState().notes.map((n) => n.id));
@@ -269,7 +289,7 @@ export function ImportModal() {
       setError(err instanceof Error ? err.message : "Invalid file.");
       setStage("error");
     }
-  }, []);
+  }, [parentId]);
 
   async function handlePickFile() {
     try {
@@ -282,7 +302,7 @@ export function ImportModal() {
   async function handleImportPDF() {
     setStage("importing")
     try {
-      const noteId = await importPDF(makeDuplicateHandler())
+      const noteId = await importPDF(makeDuplicateHandler(), parentId)
       if (!noteId) {
         setStage("idle")  // user cancelled duplicate dialog
         return
@@ -307,7 +327,7 @@ export function ImportModal() {
   async function handleImportDocx() {
     setStage("importing")
     try {
-      const noteId = await importDocx(makeDuplicateHandler())
+      const noteId = await importDocx(makeDuplicateHandler(), parentId)
       if (!noteId) {
         setStage("idle")  // user cancelled duplicate dialog
         return
@@ -325,7 +345,7 @@ export function ImportModal() {
   async function handleImportPptx() {
     setStage("importing")
     try {
-      const noteId = await importPptx(makeDuplicateHandler())
+      const noteId = await importPptx(makeDuplicateHandler(), parentId)
       if (!noteId) {
         setStage("idle")  // user cancelled duplicate dialog
         return
@@ -440,6 +460,50 @@ export function ImportModal() {
                   </svg>
                   Import PowerPoint
                 </button>
+              </div>
+
+              {/* ── Location picker ── */}
+              <div className="w-full border-t border-idemora-border pt-3 mt-1 flex flex-col gap-2">
+                <p className="text-xs text-idemora-text-muted text-center">Import location</p>
+                {parentNote ? (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border
+                                  border-idemora-border bg-idemora-bg-secondary">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                         className="shrink-0 text-idemora-text-muted">
+                      <rect x="1.5" y="1" width="9" height="10" rx="1"
+                            stroke="currentColor" strokeWidth="1.1"/>
+                      <path d="M3.5 4h5M3.5 6.5h3" stroke="currentColor"
+                            strokeWidth="1" strokeLinecap="round"/>
+                    </svg>
+                    <span className="flex-1 text-sm text-idemora-text-normal truncate">
+                      {parentNote.title}
+                    </span>
+                    <button
+                      onClick={() => { setParentId(null); setParentNote(null); }}
+                      className="text-idemora-text-muted hover:text-idemora-text-normal
+                                 transition-colors text-xs shrink-0"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowLocPicker(true)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed
+                               border-idemora-border text-sm text-idemora-text-muted
+                               hover:border-blue-500/50 hover:text-idemora-text-normal
+                               transition-colors text-left w-full"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 12 12" fill="none"
+                         className="shrink-0">
+                      <rect x="1.5" y="1" width="9" height="10" rx="1"
+                            stroke="currentColor" strokeWidth="1.1"/>
+                      <path d="M3.5 4h5M3.5 6.5h3" stroke="currentColor"
+                            strokeWidth="1" strokeLinecap="round"/>
+                    </svg>
+                    Root level (tap to change)
+                  </button>
+                )}
               </div>
 
               <p className="text-xs text-idemora-text-muted text-center mt-1">
@@ -596,6 +660,20 @@ export function ImportModal() {
               </button>
             </div>
           </div>
+        )}
+
+        {/* Location picker modal */}
+        {showLocPicker && (
+          <NotePickerModal
+            locationOnly
+            locationOnlyPlaceholder="Search for a parent note…"
+            onSelect={(note) => {
+              setParentId(note.id);
+              setParentNote(note);
+              setShowLocPicker(false);
+            }}
+            onClose={() => setShowLocPicker(false)}
+          />
         )}
       </div>
     </div>

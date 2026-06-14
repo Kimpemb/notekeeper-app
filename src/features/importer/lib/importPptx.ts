@@ -21,7 +21,8 @@ async function checkDuplicate(originalName: string): Promise<string | null> {
 }
 
 export async function importPptx(
-  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">
+  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
+  parentId?: string | null
 ): Promise<string | null> {
   const srcPath = await pickPptxFile()
   if (!srcPath) return null
@@ -81,6 +82,7 @@ export async function importPptx(
     source_type: "pptx",
     source_file: originalName,
     source_meta: JSON.stringify(meta),
+    parent_id: parentId ?? null,
   })
 
   return note.id

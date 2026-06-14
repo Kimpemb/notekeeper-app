@@ -28,7 +28,8 @@ async function checkDuplicate(originalName: string): Promise<string | null> {
 }
 
 export async function importPDF(
-  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">
+  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
+  parentId?: string | null
 ): Promise<string | null> {
   const srcPath = await pickPdfFile()
   if (!srcPath) return null
@@ -121,6 +122,7 @@ export async function importPDF(
     source_type: "pdf",
     source_file: destFileName,
     source_meta: JSON.stringify(meta),
+    parent_id: parentId ?? null,
   })
 
   // 7. RAG extraction — non-blocking
