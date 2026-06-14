@@ -116,7 +116,7 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
   return (
     <div className="flex flex-col h-full bg-idemora-bg-primary overflow-hidden">
       {/* ── Top bar ── */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-idemora-border shrink-0">
+      <div className="flex items-center gap-2 pl-4 pr-20 py-2 border-b border-idemora-border shrink-0">
         {/* View switcher */}
         <div className="flex items-center rounded-lg border border-idemora-border overflow-hidden">
           {VIEW_LABELS.map(({ key, label }) => (
