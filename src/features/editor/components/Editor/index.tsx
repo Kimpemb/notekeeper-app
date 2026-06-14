@@ -40,6 +40,7 @@ import { BlockRefSuggest } from "./BlockRefSuggest";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
 import { Breadcrumb } from "./Breadcrumb";
 import { enqueueNoteForIndexing } from "@/features/ai/lib/indexer"
+import { DateChipExtension, DateChipDeletionWatcher } from "./DateChipExtension";
 
 
 import {
@@ -357,7 +358,11 @@ const initialContent = (() => {
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
       OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, PDFLinkNode, BlockIdExtension, BlockRefNode, DataviewNode,
-      NoteLink.configure({ onNavigate: setActiveNote }),
+      NoteLink.configure({ onNavigate: setActiveNote }), DateChipExtension.configure({
+  noteId,
+  getTitle: () => useNoteStore.getState().notes.find((n) => n.id === noteId)?.title ?? "Untitled",
+}),
+      DateChipDeletionWatcher,
       MarkdownPasteExtension,
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({ name: "findReplacePlugin",     addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),

@@ -43,7 +43,7 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onOpenNote, on
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
-  
+
   const linkedNote = useNoteStore((s) => {
     if (!event.linked_note_id) return null;
     return (
@@ -52,9 +52,23 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onOpenNote, on
       null
     );
   });
-    const linkedNoteDeleted =
+  const linkedNoteDeleted =
     (linkedNote != null && linkedNote.deleted_at != null) ||
     (event.linked_note_id != null && linkedNote === null);
+
+  // Source note — for events created from @date chips (source_type === "note")
+  const sourceNote = useNoteStore((s) => {
+    if (event.source_type !== "note" || !event.source_id) return null;
+    return (
+      s.notes.find((n) => n.id === event.source_id) ??
+      s.trashedNotes.find((n) => n.id === event.source_id) ??
+      null
+    );
+  });
+  const sourceNoteDeleted =
+    event.source_type === "note" &&
+    event.source_id != null &&
+    (sourceNote === null || sourceNote.deleted_at != null);
 
   const state     = STATE_LABELS[event.colour_state];
   const isReadOnly = event.source_type === "cde";
@@ -199,6 +213,34 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onOpenNote, on
                     className="text-blue-400 hover:text-blue-300 transition-colors hover:underline"
                   >
                     Open note →
+                  </button>
+                )}
+              </div>
+            )}
+
+            {event.source_type === "note" && event.source_id && onOpenNote && (
+              <div className="flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <path d="M7 8h10M7 12h7"/>
+                </svg>
+                {sourceNoteDeleted ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-sm text-idemora-text-muted line-through">
+                      {sourceNote?.title ?? "Deleted note"}
+                    </span>
+                    <span className="text-xs text-red-400/70 bg-red-500/10 px-1.5 py-0.5
+                                     rounded font-medium">
+                      Deleted
+                    </span>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => onOpenNote(event.source_id!)}
+                    className="text-idemora-text-muted hover:text-idemora-text-normal transition-colors hover:underline text-sm flex items-center gap-1"
+                  >
+                    {sourceNote?.title ?? "Open note"}
+                    <span className="opacity-50">→</span>
                   </button>
                 )}
               </div>

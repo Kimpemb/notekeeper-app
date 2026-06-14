@@ -663,6 +663,13 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<vo
 
     // Recompute descendants — their paths include this note's title
     await recomputeBreadcrumbsForSubtree(id);
+
+    // Sync title to any calendar events sourced from this note (@date chips)
+    await db.execute(
+      `UPDATE calendar_events SET title = $1, updated_at = $2
+       WHERE source_id = $3 AND source_type = 'note'`,
+      [input.title, now(), id]
+    );
   }
 }
 

@@ -33,6 +33,7 @@
     "@tiptap/react": "^3.20.1",
     "@tiptap/starter-kit": "^3.20.1",
     "better-sqlite3": "^12.9.0",
+    "chrono-node": "^2.9.1",
     "cmdk": "^1.1.1",
     "d3": "^7.9.0",
     "drizzle-orm": "^0.45.1",
