@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import type { CalendarEvent, ColourState } from "@/features/calendar/db/calendarQueries";
+import type { GoalBanner } from "@/features/calendar/lib/calendarMerge";
 
 const STATE_BG: Record<ColourState, string> = {
   blue:   "bg-blue-500/20 border-blue-500/60 text-blue-200",
@@ -18,8 +19,10 @@ const DAY_TOTAL_PX = HOUR_HEIGHT_PX * 24;
 interface Props {
   selectedDate:  string; // ISO — any date in the target week
   events:        CalendarEvent[];
+  banners:       GoalBanner[];
   onEventClick:  (event: CalendarEvent) => void;
   onSlotClick:   (isoDate: string, time: string) => void;
+  onGoalClick:   (goalId: string) => void;
 }
 
 function getMondayOfWeek(isoDate: string): string {
@@ -54,7 +57,7 @@ function formatHour(h: number): string {
 
 const WEEKDAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function WeekView({ selectedDate, events, onEventClick, onSlotClick }: Props) {
+export function WeekView({ selectedDate, events, banners, onEventClick, onSlotClick, onGoalClick }: Props) {
   const today  = new Date().toISOString().split("T")[0];
   const monday = getMondayOfWeek(selectedDate);
   const days   = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
@@ -119,14 +122,17 @@ export function WeekView({ selectedDate, events, onEventClick, onSlotClick }: Pr
         })}
       </div>
 
-      {/* All-day strip */}
-      {allDayEvents.length > 0 && (
+      {/* All-day strip + goal banners */}
+      {(allDayEvents.length > 0 || banners.length > 0) && (
         <div className="flex shrink-0 border-b border-idemora-border">
           <div className="w-14 shrink-0 flex items-center justify-end pr-2">
             <span className="text-xs text-idemora-text-muted">All day</span>
           </div>
           {days.map((isoDate) => {
             const dayAllDay = allDayByDate.get(isoDate) ?? [];
+            const activeBanners = banners.filter(
+              (b) => b.startDate <= isoDate && b.targetDate >= isoDate
+            );
             return (
               <div
                 key={isoDate}
@@ -142,6 +148,22 @@ export function WeekView({ selectedDate, events, onEventClick, onSlotClick }: Pr
                     ].join(" ")}
                   >
                     {event.title}
+                  </button>
+                ))}
+                {activeBanners.map((b) => (
+                  <button
+                    key={b.goalId}
+                    onClick={() => onGoalClick(b.goalId)}
+                    className={[
+                      "w-full text-left text-xs px-1.5 py-0.5 rounded truncate border-l-2",
+                      b.colourState === "green"  ? "bg-green-500/10 border-green-500 text-green-300"  :
+                      b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500 text-yellow-300" :
+                      b.colourState === "red"    ? "bg-red-500/10 border-red-500 text-red-300"    :
+                      "bg-blue-500/10 border-blue-500 text-blue-300",
+                    ].join(" ")}
+                    title={b.title}
+                  >
+                    ◎ {b.title}
                   </button>
                 ))}
               </div>

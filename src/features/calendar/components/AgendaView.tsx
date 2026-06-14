@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import type { CalendarEvent, ColourState, EventGroup } from "@/features/calendar/db/calendarQueries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import type { GoalBanner } from "@/features/calendar/lib/calendarMerge";
 
 const STATE_DOT: Record<ColourState, string> = {
   blue:   "bg-blue-500",
@@ -19,12 +20,21 @@ const CATEGORY_LABELS: Record<string, string> = {
   cde:      "CDE",
 };
 
+const BANNER_BG: Record<string, string> = {
+  blue:   "bg-blue-500/10 border-blue-500/30 text-blue-300",
+  green:  "bg-green-500/10 border-green-500/30 text-green-300",
+  yellow: "bg-yellow-500/10 border-yellow-500/30 text-yellow-300",
+  red:    "bg-red-500/10 border-red-500/30 text-red-300",
+};
+
 interface Props {
   events:       CalendarEvent[];
   groups:       EventGroup[];
+  banners:      GoalBanner[];
   loading:      boolean;
   onEventClick: (event: CalendarEvent) => void;
   onOpenNote:   (noteId: string) => void;
+  onGoalClick:  (goalId: string) => void;
 }
 
 function formatDate(isoDate: string): string {
@@ -145,7 +155,7 @@ function NoteIndicator({
 
 // ── AgendaView ────────────────────────────────────────────────────────────────
 
-export function AgendaView({ events, groups, loading, onEventClick, onOpenNote }: Props) {
+export function AgendaView({ events, groups, banners, loading, onEventClick, onOpenNote, onGoalClick }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   function toggleGroup(groupId: string) {
@@ -193,7 +203,7 @@ export function AgendaView({ events, groups, loading, onEventClick, onOpenNote }
 
   const yellowCount = events.filter((e) => e.colour_state === "yellow").length;
 
-  if (ungroupedByDate.size === 0 && groupBuckets.size === 0) {
+  if (ungroupedByDate.size === 0 && groupBuckets.size === 0 && banners.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-2 text-idemora-text-muted">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
@@ -217,6 +227,75 @@ export function AgendaView({ events, groups, loading, onEventClick, onOpenNote }
           <p className="text-xs text-yellow-400 font-medium">
             {yellowCount} event{yellowCount !== 1 ? "s" : ""} need{yellowCount === 1 ? "s" : ""} your attention
           </p>
+        </div>
+      )}
+
+      {/* ── Goal banners ── */}
+      {banners.length > 0 && (
+        <div className="border-b border-idemora-border/50">
+          <div className="px-4 py-1.5 bg-idemora-bg-secondary/50">
+            <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wide">
+              Active Goals
+            </span>
+          </div>
+          {banners.map((banner) => (
+            <button
+              key={banner.goalId}
+              onClick={() => onGoalClick(banner.goalId)}
+              className={[
+                "w-full flex items-center gap-3 px-4 py-2.5 border-t border-idemora-border/30",
+                "hover:bg-idemora-bg-secondary transition-colors text-left group",
+              ].join(" ")}
+            >
+              {/* Goal icon */}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" strokeWidth="2"
+                   className={`shrink-0 ${
+                     banner.colourState === "green"  ? "text-green-400"  :
+                     banner.colourState === "yellow" ? "text-yellow-400" :
+                     banner.colourState === "red"    ? "text-red-400"    :
+                     "text-blue-400"
+                   }`}>
+                <circle cx="12" cy="12" r="10"/>
+                <circle cx="12" cy="12" r="6"/>
+                <circle cx="12" cy="12" r="2"/>
+              </svg>
+
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-idemora-text-normal truncate">{banner.title}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-idemora-text-muted">
+                    {formatDate(banner.startDate)} → {formatDate(banner.targetDate)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Progress */}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="w-16 h-1.5 rounded-full bg-idemora-bg-secondary overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${
+                      banner.colourState === "green"  ? "bg-green-500"  :
+                      banner.colourState === "yellow" ? "bg-yellow-500" :
+                      banner.colourState === "red"    ? "bg-red-500"    :
+                      "bg-blue-500"
+                    }`}
+                    style={{ width: `${banner.progress}%` }}
+                  />
+                </div>
+                <span className="text-xs text-idemora-text-muted tabular-nums w-7 text-right">
+                  {banner.progress}%
+                </span>
+              </div>
+
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" strokeWidth="1.5"
+                   className="text-idemora-text-muted opacity-0 group-hover:opacity-100
+                              transition-opacity shrink-0">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+            </button>
+          ))}
         </div>
       )}
 

@@ -55,6 +55,8 @@ import {
   getPreviousDay,
   getLocalDateISO,
 } from "@/features/score/lib/scoreComputer";
+import { getAllMilestones } from "@/features/goals/db/goalQueries";
+import { syncMilestonesToCalendar } from "@/features/calendar/lib/layerSync";
 
 
 document.addEventListener("keydown", (e) => {
@@ -257,6 +259,11 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       await ensureYesterdayLocked();
       const todayEvents = await snapshotTodayEvents();
       if (!cancelled) useScoreStore.getState().setTodayEvents(todayEvents);
+
+      // ── Milestone sync (one-time at startup) ────────────────────────────
+      getAllMilestones()
+        .then(syncMilestonesToCalendar)
+        .catch(console.error);
 
       return runScheduledBackupIfDue();
     })

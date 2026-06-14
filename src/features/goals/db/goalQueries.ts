@@ -347,3 +347,12 @@ export async function removeGoalLink(id: string): Promise<void> {
   const db = await getDb();
   await db.execute(`DELETE FROM goal_links WHERE id = $1`, [id]);
 }
+
+// ─── Bulk milestone fetch (for layerSync on startup) ──────────────────────────
+
+export async function getAllMilestones(): Promise<GoalMilestone[]> {
+  const db = await getDb();
+  return db.select<GoalMilestone[]>(
+    `SELECT * FROM goal_milestones ORDER BY date ASC`
+  );
+}

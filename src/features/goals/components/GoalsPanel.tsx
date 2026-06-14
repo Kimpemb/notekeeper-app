@@ -43,15 +43,25 @@ export function GoalsPanel() {
   const [collapsed,       setCollapsed]       = useState<Set<GoalStatusFilter>>(new Set());
 
   // Load all goals and categories on mount
-  useEffect(() => {
-    loadGoals(null);
-    loadCategories();
-  }, []);
+// REPLACE with:
+useEffect(() => {
+  loadGoals(null);
+  loadCategories();
+}, []);
 
-  // Load milestones when a goal is selected
-  useEffect(() => {
-    if (selectedGoalId) loadMilestones(selectedGoalId);
-  }, [selectedGoalId]);
+// Load milestones when selectedGoalId is set — covers both normal card
+// clicks and external navigation (e.g. from calendar banner click)
+useEffect(() => {
+  if (selectedGoalId) loadMilestones(selectedGoalId);
+}, [selectedGoalId, loadMilestones]);
+
+// If goals weren't loaded yet when selectedGoalId was set externally,
+// re-trigger milestone load once goals arrive
+useEffect(() => {
+  if (selectedGoalId && goals.length > 0) {
+    loadMilestones(selectedGoalId);
+  }
+}, [goals.length, selectedGoalId, loadMilestones]);
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
 

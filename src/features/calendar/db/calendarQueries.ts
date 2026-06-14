@@ -314,3 +314,13 @@ export async function deleteEventGroup(id: string): Promise<void> {
   // calendar_events.group_id SET NULL via ON DELETE SET NULL
   await db.execute(`DELETE FROM event_groups WHERE id = $1`, [id]);
 }
+
+export async function getEventsBySourceType(
+  sourceType: string
+): Promise<CalendarEvent[]> {
+  const db = await getDb();
+  return db.select<CalendarEvent[]>(
+    `SELECT * FROM calendar_events WHERE source_type = $1`,
+    [sourceType]
+  );
+}

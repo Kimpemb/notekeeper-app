@@ -6,7 +6,7 @@ import type { GoalMilestone, MilestoneInput } from "@/features/goals/db/goalQuer
 interface MilestoneListProps {
   goalId:     string;
   milestones: GoalMilestone[];
-  onAdd:      (input: MilestoneInput) => Promise<void>;
+  onAdd:      (input: MilestoneInput) => Promise<string | void>;
   onUpdate:   (id: string, goalId: string, updates: Partial<Omit<MilestoneInput, "goal_id">>) => Promise<void>;
   onDelete:   (id: string, goalId: string) => Promise<void>;
 }

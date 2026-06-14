@@ -1,6 +1,7 @@
 // src/features/calendar/components/MonthView.tsx
 
 import type { CalendarEvent, ColourState } from "@/features/calendar/db/calendarQueries";
+import type { GoalBanner } from "@/features/calendar/lib/calendarMerge";
 
 const STATE_BG: Record<ColourState, string> = {
   blue:   "bg-blue-500/80",
@@ -19,8 +20,10 @@ const STATE_DOT: Record<ColourState, string> = {
 interface Props {
   selectedDate:  string;
   events:        CalendarEvent[];
+  banners:       GoalBanner[];
   onEventClick:  (event: CalendarEvent) => void;
   onDayClick:    (isoDate: string) => void; // navigates to DayView
+  onGoalClick:   (goalId: string) => void;
 }
 
 function addDays(isoDate: string, days: number): string {
@@ -47,7 +50,7 @@ function buildMonthGrid(selectedDate: string): string[] {
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MAX_PILLS = 3;
 
-export function MonthView({ selectedDate, events, onEventClick, onDayClick }: Props) {
+export function MonthView({ selectedDate, events, banners, onEventClick, onDayClick, onGoalClick }: Props) {
   const today         = new Date().toISOString().split("T")[0];
   const currentMonth  = selectedDate.slice(0, 7); // "2026-06"
   const cells         = buildMonthGrid(selectedDate);
@@ -82,6 +85,9 @@ export function MonthView({ selectedDate, events, onEventClick, onDayClick }: Pr
           const visible       = dayEvents.slice(0, MAX_PILLS);
           const overflow      = dayEvents.length - MAX_PILLS;
           const dayNum        = parseInt(isoDate.split("-")[2], 10);
+          const activeBanners = banners.filter(
+            (b) => b.startDate <= isoDate && b.targetDate >= isoDate
+          );
 
           return (
             <div
@@ -134,6 +140,29 @@ export function MonthView({ selectedDate, events, onEventClick, onDayClick }: Pr
                   </span>
                 )}
               </div>
+
+              {/* Goal banner dots — goals active on this day */}
+              {activeBanners.length > 0 && (
+                <div className="flex flex-wrap gap-0.5 mt-0.5">
+                  {activeBanners.map((b) => (
+                    <button
+                      key={b.goalId}
+                      onClick={(e) => { e.stopPropagation(); onGoalClick(b.goalId); }}
+                      title={b.title}
+                      className={[
+                        "text-left text-xs px-1 py-0.5 rounded truncate w-full",
+                        "border-l-2 transition-opacity hover:opacity-80",
+                        b.colourState === "green"  ? "bg-green-500/10 border-green-500 text-green-300"  :
+                        b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500 text-yellow-300" :
+                        b.colourState === "red"    ? "bg-red-500/10 border-red-500 text-red-300"    :
+                        "bg-blue-500/10 border-blue-500 text-blue-300",
+                      ].join(" ")}
+                    >
+                      ◎ {b.title}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

@@ -19,6 +19,11 @@ import {
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { CalendarView } from "@/features/calendar/store/useCalendarStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { useGoals } from "@/features/goals/hooks/useGoals";
+import { useGoalStore } from "@/features/goals/store/useGoalStore";
+import { getBannersForDateRange, type GoalBanner } from "@/features/calendar/lib/calendarMerge";
+import { useCalendarStore } from "@/features/calendar/store/useCalendarStore";
+
 
 const VIEW_LABELS: { key: CalendarView; label: string }[] = [
   { key: "month",  label: "Month" },
@@ -52,12 +57,20 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
     updateColourState,
   } = useCalendarEvents();
 
+  const { goals, loadGoals } = useGoals();
+  const layerVisibility = useCalendarStore((s) => s.layerVisibility);
+
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingEvent,   setEditingEvent]   = useState<CalendarEvent | null>(null);
   const [selectedEvent,  setSelectedEvent]  = useState<CalendarEvent | null>(null);
   const [groups,         setGroups]         = useState<EventGroup[]>([]);
   const [slotDate,       setSlotDate]       = useState<string | null>(null);
   const [slotTime,       setSlotTime]       = useState<string | null>(null);
+
+  // Load goals on mount
+  useEffect(() => {
+    loadGoals();
+  }, [loadGoals]);
 
   useEffect(() => {
     listEventGroups().then(setGroups).catch(console.error);
@@ -116,6 +129,43 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
     useUIStore.getState().closeCalendar();
     setSelectedEvent(null);
   }
+
+  function handleGoalClick(goalId: string) {
+    useGoalStore.getState().setSelectedGoalId(goalId);
+    useUIStore.getState().closeCalendar();
+    useUIStore.getState().setActiveSidebarPanel("goals");
+  }
+
+  // Derive start/end dates for the current view window (for banner filtering)
+  function getViewDateRange(): { startDate: string; endDate: string } {
+    const d = new Date(selectedDate + "T00:00:00");
+    if (activeView === "day" || activeView === "agenda") {
+      return { startDate: selectedDate, endDate: selectedDate };
+    }
+    if (activeView === "week") {
+      const day = d.getDay();
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - ((day + 6) % 7));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      return {
+        startDate: monday.toISOString().split("T")[0],
+        endDate:   sunday.toISOString().split("T")[0],
+      };
+    }
+    // month
+    const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
+    const lastDay  = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    return {
+      startDate: firstDay.toISOString().split("T")[0],
+      endDate:   lastDay.toISOString().split("T")[0],
+    };
+  }
+
+  const { startDate: viewStart, endDate: viewEnd } = getViewDateRange();
+  const banners: GoalBanner[] = layerVisibility.goals
+    ? getBannersForDateRange(goals, viewStart, viewEnd)
+    : [];
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -201,9 +251,11 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
         <AgendaView
           events={events}
           groups={groups}
+          banners={banners}
           loading={loading}
           onEventClick={setSelectedEvent}
           onOpenNote={handleOpenNote}
+          onGoalClick={handleGoalClick}
         />
       )}
 
@@ -211,8 +263,10 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
         <MonthView
           selectedDate={selectedDate}
           events={events}
+          banners={banners}
           onEventClick={setSelectedEvent}
           onDayClick={(isoDate) => { setSelectedDate(isoDate); setActiveView("day"); }}
+          onGoalClick={handleGoalClick}
         />
       )}
 
@@ -220,8 +274,10 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
         <WeekView
           selectedDate={selectedDate}
           events={events}
+          banners={banners}
           onEventClick={setSelectedEvent}
           onSlotClick={handleSlotClick}
+          onGoalClick={handleGoalClick}
         />
       )}
 
@@ -229,8 +285,10 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
         <DayView
           selectedDate={selectedDate}
           events={events}
+          banners={banners}
           onEventClick={setSelectedEvent}
           onSlotClick={handleSlotClick}
+          onGoalClick={handleGoalClick}
         />
       )}
 

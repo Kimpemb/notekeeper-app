@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import type { CalendarEvent, ColourState } from "@/features/calendar/db/calendarQueries";
+import type { GoalBanner } from "@/features/calendar/lib/calendarMerge";
 
 const STATE_BG: Record<ColourState, string> = {
   blue:   "bg-blue-500/20 border-blue-500/60 text-blue-100",
@@ -25,8 +26,10 @@ const DAY_TOTAL_PX  = HOUR_HEIGHT_PX * 24;
 interface Props {
   selectedDate:  string;
   events:        CalendarEvent[];
+  banners:       GoalBanner[];
   onEventClick:  (event: CalendarEvent) => void;
   onSlotClick:   (isoDate: string, time: string) => void;
+  onGoalClick:   (goalId: string) => void;
 }
 
 function timeToMinutes(time: string): number {
@@ -52,11 +55,14 @@ function formatDuration(mins: number): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
-export function DayView({ selectedDate, events, onEventClick, onSlotClick }: Props) {
+export function DayView({ selectedDate, events, banners, onEventClick, onSlotClick, onGoalClick }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const allDayEvents = events.filter((e) => !e.time);
   const timedEvents  = events.filter((e) => !!e.time);
+  const activeBanners = banners.filter(
+    (b) => b.startDate <= selectedDate && b.targetDate >= selectedDate
+  );
 
   function handleGridClick(e: React.MouseEvent<HTMLDivElement>) {
     const rect    = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
@@ -70,10 +76,31 @@ export function DayView({ selectedDate, events, onEventClick, onSlotClick }: Pro
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* All-day strip */}
-      {allDayEvents.length > 0 && (
+      {/* All-day strip + active goal banners */}
+      {(allDayEvents.length > 0 || activeBanners.length > 0) && (
         <div className="shrink-0 border-b border-idemora-border px-4 py-2 flex flex-col gap-1">
-          <span className="text-xs text-idemora-text-muted mb-0.5">All day</span>
+          {activeBanners.map((b) => (
+            <button
+              key={b.goalId}
+              onClick={() => onGoalClick(b.goalId)}
+              className={[
+                "w-full text-left text-xs px-2 py-1.5 rounded border-l-2 flex items-center gap-2",
+                b.colourState === "green"  ? "bg-green-500/10 border-green-500 text-green-300"  :
+                b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500 text-yellow-300" :
+                b.colourState === "red"    ? "bg-red-500/10 border-red-500 text-red-300"    :
+                "bg-blue-500/10 border-blue-500 text-blue-300",
+              ].join(" ")}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" strokeWidth="2" className="shrink-0">
+                <circle cx="12" cy="12" r="10"/>
+                <circle cx="12" cy="12" r="6"/>
+                <circle cx="12" cy="12" r="2"/>
+              </svg>
+              <span className="font-medium truncate">{b.title}</span>
+              <span className="ml-auto text-xs opacity-60 tabular-nums shrink-0">{b.progress}%</span>
+            </button>
+          ))}
           {allDayEvents.map((event) => (
             <button
               key={event.id}

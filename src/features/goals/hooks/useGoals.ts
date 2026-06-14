@@ -20,6 +20,9 @@ import {
   type GoalColourState,
 } from "@/features/goals/db/goalQueries";
 import { useGoalStore } from "@/features/goals/store/useGoalStore";
+import { syncMilestonesToCalendar } from "@/features/calendar/lib/layerSync";
+import { getAllMilestones } from "@/features/goals/db/goalQueries";
+
 
 export function useGoals() {
   const [milestones, setMilestones]   = useState<GoalMilestone[]>([]);
@@ -116,21 +119,26 @@ export function useGoals() {
 
   // ── Milestone mutations ───────────────────────────────────────────────────
 
-  const handleCreateMilestone = useCallback(async (
+const handleCreateMilestone = useCallback(async (
     input: MilestoneInput
   ): Promise<string> => {
     const id = await createMilestone(input);
     await loadMilestones(input.goal_id);
+    // Sync all milestones to calendar
+    const all = await getAllMilestones();
+    syncMilestonesToCalendar(all).catch(console.error);
     return id;
   }, [loadMilestones]);
 
   const handleUpdateMilestone = useCallback(async (
     id: string,
     goalId: string,
-    updates: Partial<Omit<MilestoneInput, "goal_id">>
+    updates: Partial<Omit<MilestoneInput, "goal_id">> & { colour_state?: GoalColourState }
   ): Promise<void> => {
     await updateMilestone(id, updates);
     await loadMilestones(goalId);
+    const all = await getAllMilestones();
+    syncMilestonesToCalendar(all).catch(console.error);
   }, [loadMilestones]);
 
   const handleDeleteMilestone = useCallback(async (
@@ -139,6 +147,8 @@ export function useGoals() {
   ): Promise<void> => {
     await deleteMilestone(id);
     await loadMilestones(goalId);
+    const all = await getAllMilestones();
+    syncMilestonesToCalendar(all).catch(console.error);
   }, [loadMilestones]);
 
   // ── Filter helpers ────────────────────────────────────────────────────────
