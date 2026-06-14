@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CalendarEvent, ColourState } from "@/features/calendar/db/calendarQueries";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 const STATE_LABELS: Record<ColourState, { label: string; className: string }> = {
   blue:   { label: "Scheduled",  className: "bg-blue-500/15 text-blue-400" },
@@ -20,17 +21,30 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 interface Props {
   event: CalendarEvent;
-  onEdit:    (event: CalendarEvent) => void;
-  onDelete:  (id: string) => Promise<void>;
-  onResolve?: (id: string, state: ColourState) => Promise<void>;
-  onClose:   () => void;
+  onEdit:      (event: CalendarEvent) => void;
+  onDelete:    (id: string) => Promise<void>;
+  onResolve?:  (id: string, state: ColourState) => Promise<void>;
+  onOpenNote?: (noteId: string) => void;
+  onClose:     () => void;
 }
 
-export function EventDetail({ event, onEdit, onDelete, onResolve, onClose }: Props) {
+export function EventDetail({ event, onEdit, onDelete, onResolve, onOpenNote, onClose }: Props) {
   const [deleting,       setDeleting]       = useState(false);
   const [confirmDelete,  setConfirmDelete]  = useState(false);
   const [resolving,      setResolving]      = useState<ColourState | null>(null);
 
+  const linkedNote = useNoteStore((s) => {
+    if (!event.linked_note_id) return null;
+    return (
+      s.notes.find((n) => n.id === event.linked_note_id) ??
+      s.trashedNotes.find((n) => n.id === event.linked_note_id) ??
+      null
+    );
+  });
+    const linkedNoteDeleted =
+    (linkedNote != null && linkedNote.deleted_at != null) ||
+    (event.linked_note_id != null && linkedNote === null);
+    
   const state     = STATE_LABELS[event.colour_state];
   const isReadOnly = event.source_type === "cde";
 
@@ -140,6 +154,44 @@ export function EventDetail({ event, onEdit, onDelete, onResolve, onClose }: Pro
               </svg>
               <span>{CATEGORY_LABELS[event.category] ?? event.category}</span>
             </div>
+
+            {event.group_id && (
+              <div className="flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M3 7h18M3 12h18M3 17h12"/>
+                </svg>
+                {/* Group name resolved by CalendarPanel — passed as event.group_name if joined,
+                    otherwise fall back to group_id. Joining is done in useCalendarEvents. */}
+                <span>{(event as any).group_name ?? "Grouped"}</span>
+              </div>
+            )}
+
+            {event.linked_note_id && onOpenNote && (
+              <div className="flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <path d="M7 8h10M7 12h7"/>
+                </svg>
+                {linkedNoteDeleted ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-sm text-idemora-text-muted line-through">
+                      {linkedNote?.title ?? "Deleted note"}
+                    </span>
+                    <span className="text-xs text-red-400/70 bg-red-500/10 px-1.5 py-0.5
+                                     rounded font-medium">
+                      Deleted
+                    </span>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => onOpenNote(event.linked_note_id!)}
+                    className="text-blue-400 hover:text-blue-300 transition-colors hover:underline"
+                  >
+                    Open note →
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {event.notes && (

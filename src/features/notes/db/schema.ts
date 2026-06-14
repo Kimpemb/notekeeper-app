@@ -423,4 +423,20 @@ export const ALL_MIGRATIONS: string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_score_event_log_event_date
     ON score_event_log(event_id, score_date)`,
 
+  // ─── Event Groups ──────────────────────────────────────────────────────────
+
+  `CREATE TABLE IF NOT EXISTS event_groups (
+    id         TEXT    NOT NULL PRIMARY KEY,
+    name       TEXT    NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_event_groups_name
+    ON event_groups(name)`,
+
+  // ─── Add columns to calendar_events ────────────────────────────────────────
+
+  `ALTER TABLE calendar_events ADD COLUMN group_id TEXT REFERENCES event_groups(id) ON DELETE SET NULL`,
+
+  `ALTER TABLE calendar_events ADD COLUMN linked_note_id TEXT`,
 ];

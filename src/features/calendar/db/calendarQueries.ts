@@ -21,22 +21,26 @@ export interface CalendarEvent {
   recurrence:    string | null;  // JSON
   recurrence_end: string | null;
   notes:         string | null;
+  group_id:      string | null;
+  linked_note_id: string | null;
   created_at:    number;
   updated_at:    number;
 }
 
 export interface CalendarEventInput {
-  title:         string;
-  date:          string;
-  time?:         string | null;
+  title:          string;
+  date:           string;
+  time?:          string | null;
   duration_mins?: number | null;
-  category?:     CategoryKey;
-  source_id?:    string | null;
-  source_type?:  string | null;
-  colour_state?: ColourState;
-  recurrence?:   string | null;
+  category?:      CategoryKey;
+  source_id?:     string | null;
+  source_type?:   string | null;
+  colour_state?:  ColourState;
+  recurrence?:    string | null;
   recurrence_end?: string | null;
-  notes?:        string | null;
+  notes?:         string | null;
+  group_id?:      string | null;
+  linked_note_id?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -59,8 +63,9 @@ export async function createEvent(input: CalendarEventInput): Promise<string> {
   await db.execute(
     `INSERT INTO calendar_events
        (id, title, date, time, duration_mins, category, source_id, source_type,
-        colour_state, recurrence, recurrence_end, notes, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        colour_state, recurrence, recurrence_end, notes, group_id, linked_note_id,
+        created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
     [
       id,
       input.title,
@@ -74,6 +79,8 @@ export async function createEvent(input: CalendarEventInput): Promise<string> {
       input.recurrence ?? null,
       input.recurrence_end ?? null,
       input.notes ?? null,
+      input.group_id ?? null,
+      input.linked_note_id ?? null,
       ts,
       ts,
     ]
@@ -111,6 +118,8 @@ export async function updateEvent(
   if (updates.recurrence !== undefined)    { fields.push(`recurrence = $${idx++}`);     values.push(updates.recurrence); }
   if (updates.recurrence_end !== undefined){ fields.push(`recurrence_end = $${idx++}`); values.push(updates.recurrence_end); }
   if (updates.notes !== undefined)         { fields.push(`notes = $${idx++}`);          values.push(updates.notes); }
+  if (updates.group_id !== undefined)      { fields.push(`group_id = $${idx++}`);       values.push(updates.group_id); }
+  if (updates.linked_note_id !== undefined){ fields.push(`linked_note_id = $${idx++}`); values.push(updates.linked_note_id); }
 
   if (fields.length === 0) return;
 
@@ -273,4 +282,35 @@ export async function getTodayBlueCount(): Promise<number> {
     [today]
   );
   return rows[0]?.count ?? 0;
+}
+
+// ─── Event Groups ─────────────────────────────────────────────────────────────
+
+export interface EventGroup {
+  id:         string;
+  name:       string;
+  created_at: number;
+}
+
+export async function listEventGroups(): Promise<EventGroup[]> {
+  const db = await getDb();
+  return db.select<EventGroup[]>(
+    `SELECT * FROM event_groups ORDER BY name ASC`
+  );
+}
+
+export async function createEventGroup(name: string): Promise<string> {
+  const db = await getDb();
+  const id = uuid();
+  await db.execute(
+    `INSERT INTO event_groups (id, name, created_at) VALUES ($1, $2, $3)`,
+    [id, name.trim(), now()]
+  );
+  return id;
+}
+
+export async function deleteEventGroup(id: string): Promise<void> {
+  const db = await getDb();
+  // calendar_events.group_id SET NULL via ON DELETE SET NULL
+  await db.execute(`DELETE FROM event_groups WHERE id = $1`, [id]);
 }

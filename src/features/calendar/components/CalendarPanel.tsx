@@ -1,6 +1,6 @@
 // src/features/calendar/components/CalendarPanel.tsx
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useCalendar } from "@/features/calendar/hooks/useCalendar";
 import { useCalendarEvents } from "@/features/calendar/hooks/useCalendarEvents";
 import { LayerFilterBar } from "@/features/calendar/components/LayerFilterBar";
@@ -8,8 +8,17 @@ import { AgendaView } from "@/features/calendar/components/AgendaView";
 import { EventCreationForm } from "@/features/calendar/components/EventCreationForm";
 import { EventDetail } from "@/features/calendar/components/EventDetail";
 import { DailyScoreWidget } from "@/features/score/components/DailyScoreWidget";
-import type { CalendarEvent, CalendarEventInput, ColourState } from "@/features/calendar/db/calendarQueries";
+import {
+  listEventGroups,
+  type EventGroup,
+  type CalendarEvent,
+  type CalendarEventInput,
+  type ColourState,
+} from "@/features/calendar/db/calendarQueries";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { CalendarView } from "@/features/calendar/store/useCalendarStore";
+import { useUIStore } from "@/features/ui/store/useUIStore";
+
 
 // Phase 5 placeholders — imported when built
 // import { MonthView } from "./MonthView";
@@ -43,14 +52,24 @@ export function CalendarPanel() {
     updateColourState,
   } = useCalendarEvents();
 
-  const [showCreateForm, setShowCreateForm]  = useState(false);
-  const [editingEvent,   setEditingEvent]    = useState<CalendarEvent | null>(null);
-  const [selectedEvent,  setSelectedEvent]   = useState<CalendarEvent | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingEvent,   setEditingEvent]   = useState<CalendarEvent | null>(null);
+  const [selectedEvent,  setSelectedEvent]  = useState<CalendarEvent | null>(null);
+  const [groups,         setGroups]         = useState<EventGroup[]>([]);
 
-  // ── Create / Edit ────────────────────────────────────────────────────────
+  useEffect(() => {
+    listEventGroups().then(setGroups).catch(console.error);
+  }, []);
+
+  // TODO: replace selectNote with your actual note navigation function once confirmed
+  const setActiveNote = useNoteStore((s) => s.setActiveNote);
+
+  // ── Create / Edit ──────────────────────────────────────────────────────────
 
   async function handleSubmitCreate(input: CalendarEventInput) {
     await createEvent(input);
+    // Refresh groups in case a new one was created inside the form
+    listEventGroups().then(setGroups).catch(console.error);
   }
 
   async function handleSubmitEdit(input: CalendarEventInput) {
@@ -58,6 +77,7 @@ export function CalendarPanel() {
     await updateEvent(editingEvent.id, input);
     setEditingEvent(null);
     setSelectedEvent(null);
+    listEventGroups().then(setGroups).catch(console.error);
   }
 
   function handleEditFromDetail(event: CalendarEvent) {
@@ -75,7 +95,14 @@ export function CalendarPanel() {
     setSelectedEvent(null);
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  function handleOpenNote(noteId: string) {
+    useUIStore.getState().replaceTab(noteId);
+    setActiveNote(noteId, true);
+    useUIStore.getState().closeCalendar();
+    setSelectedEvent(null);
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full bg-idemora-bg-primary overflow-hidden">
@@ -158,6 +185,7 @@ export function CalendarPanel() {
       {activeView === "agenda" && (
         <AgendaView
           events={events}
+          groups={groups}
           loading={loading}
           onEventClick={setSelectedEvent}
         />
@@ -204,6 +232,7 @@ export function CalendarPanel() {
           onEdit={handleEditFromDetail}
           onDelete={handleDelete}
           onResolve={handleResolve}
+          onOpenNote={handleOpenNote}
           onClose={() => setSelectedEvent(null)}
         />
       )}
