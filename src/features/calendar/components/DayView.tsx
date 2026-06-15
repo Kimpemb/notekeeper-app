@@ -5,10 +5,10 @@ import type { CalendarEvent, ColourState } from "@/features/calendar/db/calendar
 import type { GoalBanner } from "@/features/calendar/lib/calendarMerge";
 
 const STATE_BG: Record<ColourState, string> = {
-  blue:   "bg-blue-500/20 border-blue-500/60 text-blue-100",
-  green:  "bg-green-500/20 border-green-500/60 text-green-100",
-  yellow: "bg-yellow-500/20 border-yellow-500/60 text-yellow-100",
-  red:    "bg-red-500/20 border-red-500/60 text-red-100",
+  blue:   "bg-blue-500/20 border-blue-500/60 text-idemora-text-normal",
+  green:  "bg-green-500/20 border-green-500/60 text-idemora-text-normal",
+  yellow: "bg-yellow-500/20 border-yellow-500/60 text-idemora-text-normal",
+  red:    "bg-red-500/20 border-red-500/60 text-idemora-text-normal",
 };
 
 const STATE_DOT: Record<ColourState, string> = {
@@ -85,10 +85,11 @@ export function DayView({ selectedDate, events, banners, onEventClick, onSlotCli
               onClick={() => onGoalClick(b.goalId)}
               className={[
                 "w-full text-left text-xs px-2 py-1.5 rounded border-l-2 flex items-center gap-2",
-                b.colourState === "green"  ? "bg-green-500/10 border-green-500 text-green-300"  :
-                b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500 text-yellow-300" :
-                b.colourState === "red"    ? "bg-red-500/10 border-red-500 text-red-300"    :
-                "bg-blue-500/10 border-blue-500 text-blue-300",
+                b.colourState === "green"  ? "bg-green-500/10 border-green-500"  :
+                b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500" :
+                b.colourState === "red"    ? "bg-red-500/10 border-red-500"    :
+                "bg-blue-500/10 border-blue-500",
+                "text-idemora-text-normal",
               ].join(" ")}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none"

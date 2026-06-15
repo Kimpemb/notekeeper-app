@@ -152,10 +152,11 @@ export function MonthView({ selectedDate, events, banners, onEventClick, onDayCl
                       className={[
                         "text-left text-xs px-1 py-0.5 rounded truncate w-full",
                         "border-l-2 transition-opacity hover:opacity-80",
-                        b.colourState === "green"  ? "bg-green-500/10 border-green-500 text-green-300"  :
-                        b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500 text-yellow-300" :
-                        b.colourState === "red"    ? "bg-red-500/10 border-red-500 text-red-300"    :
-                        "bg-blue-500/10 border-blue-500 text-blue-300",
+                        b.colourState === "green"  ? "bg-green-500/10 border-green-500"  :
+                        b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500" :
+                        b.colourState === "red"    ? "bg-red-500/10 border-red-500"    :
+                        "bg-blue-500/10 border-blue-500",
+                        "text-idemora-text-normal",
                       ].join(" ")}
                     >
                       ◎ {b.title}

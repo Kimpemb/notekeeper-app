@@ -5,10 +5,10 @@ import type { CalendarEvent, ColourState } from "@/features/calendar/db/calendar
 import type { GoalBanner } from "@/features/calendar/lib/calendarMerge";
 
 const STATE_BG: Record<ColourState, string> = {
-  blue:   "bg-blue-500/20 border-blue-500/60 text-blue-200",
-  green:  "bg-green-500/20 border-green-500/60 text-green-200",
-  yellow: "bg-yellow-500/20 border-yellow-500/60 text-yellow-200",
-  red:    "bg-red-500/20 border-red-500/60 text-red-200",
+  blue:   "bg-blue-500/20 border-blue-500/60 text-idemora-text-normal",
+  green:  "bg-green-500/20 border-green-500/60 text-idemora-text-normal",
+  yellow: "bg-yellow-500/20 border-yellow-500/60 text-idemora-text-normal",
+  red:    "bg-red-500/20 border-red-500/60 text-idemora-text-normal",
 };
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i); // 0..23
@@ -156,10 +156,11 @@ export function WeekView({ selectedDate, events, banners, onEventClick, onSlotCl
                     onClick={() => onGoalClick(b.goalId)}
                     className={[
                       "w-full text-left text-xs px-1.5 py-0.5 rounded truncate border-l-2",
-                      b.colourState === "green"  ? "bg-green-500/10 border-green-500 text-green-300"  :
-                      b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500 text-yellow-300" :
-                      b.colourState === "red"    ? "bg-red-500/10 border-red-500 text-red-300"    :
-                      "bg-blue-500/10 border-blue-500 text-blue-300",
+                      b.colourState === "green"  ? "bg-green-500/10 border-green-500"  :
+                      b.colourState === "yellow" ? "bg-yellow-500/10 border-yellow-500" :
+                      b.colourState === "red"    ? "bg-red-500/10 border-red-500"    :
+                      "bg-blue-500/10 border-blue-500",
+                      "text-idemora-text-normal",
                     ].join(" ")}
                     title={b.title}
                   >
