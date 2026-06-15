@@ -22,7 +22,7 @@ import {
 import { useGoalStore } from "@/features/goals/store/useGoalStore";
 import { syncMilestonesToCalendar } from "@/features/calendar/lib/layerSync";
 import { getAllMilestones } from "@/features/goals/db/goalQueries";
-
+import { computeProgressFromMilestones } from "@/features/goals/lib/progressComputer";
 
 export function useGoals() {
   const [milestones, setMilestones]   = useState<GoalMilestone[]>([]);
@@ -119,16 +119,22 @@ export function useGoals() {
 
   // ── Milestone mutations ───────────────────────────────────────────────────
 
-const handleCreateMilestone = useCallback(async (
+  const handleCreateMilestone = useCallback(async (
     input: MilestoneInput
   ): Promise<string> => {
     const id = await createMilestone(input);
     await loadMilestones(input.goal_id);
-    // Sync all milestones to calendar
     const all = await getAllMilestones();
     syncMilestonesToCalendar(all).catch(console.error);
+
+    // Recompute progress from updated milestone list
+    const updated = await getMilestonesForGoal(input.goal_id);
+    const progress = computeProgressFromMilestones(updated);
+    await updateGoalProgress(input.goal_id, progress);
+    await loadGoals();
+
     return id;
-  }, [loadMilestones]);
+  }, [loadMilestones, loadGoals]);
 
   const handleUpdateMilestone = useCallback(async (
     id: string,
@@ -139,7 +145,20 @@ const handleCreateMilestone = useCallback(async (
     await loadMilestones(goalId);
     const all = await getAllMilestones();
     syncMilestonesToCalendar(all).catch(console.error);
-  }, [loadMilestones]);
+
+    // Recompute progress — colour_state change is the key trigger
+    const updated = await getMilestonesForGoal(goalId);
+    const progress = computeProgressFromMilestones(updated);
+    await updateGoalProgress(goalId, progress);
+
+    // Auto-transition to green if fully complete and not past target
+    const goal = goals.find((g) => g.id === goalId);
+    if (progress === 100 && goal && goal.colour_state === "blue") {
+      await updateGoalColourState(goalId, "green");
+    }
+
+    await loadGoals();
+  }, [loadMilestones, loadGoals, goals]);
 
   const handleDeleteMilestone = useCallback(async (
     id: string,
@@ -149,7 +168,13 @@ const handleCreateMilestone = useCallback(async (
     await loadMilestones(goalId);
     const all = await getAllMilestones();
     syncMilestonesToCalendar(all).catch(console.error);
-  }, [loadMilestones]);
+
+    // Recompute after deletion — total denominator changed
+    const updated = await getMilestonesForGoal(goalId);
+    const progress = computeProgressFromMilestones(updated);
+    await updateGoalProgress(goalId, progress);
+    await loadGoals();
+  }, [loadMilestones, loadGoals]);
 
   // ── Filter helpers ────────────────────────────────────────────────────────
 

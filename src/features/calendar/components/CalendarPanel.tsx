@@ -23,6 +23,7 @@ import { useGoals } from "@/features/goals/hooks/useGoals";
 import { useGoalStore } from "@/features/goals/store/useGoalStore";
 import { getBannersForDateRange, type GoalBanner } from "@/features/calendar/lib/calendarMerge";
 import { useCalendarStore } from "@/features/calendar/store/useCalendarStore";
+import { getMilestoneById } from "@/features/goals/db/goalQueries";
 
 
 const VIEW_LABELS: { key: CalendarView; label: string }[] = [
@@ -59,7 +60,7 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
     deleteOccurrence,
   } = useCalendarEvents();
 
-  const { goals, loadGoals } = useGoals();
+  const { goals, loadGoals, updateMilestone } = useGoals();
   const layerVisibility = useCalendarStore((s) => s.layerVisibility);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -110,6 +111,22 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
 
   async function handleResolve(id: string, state: ColourState) {
     await updateColourState(id, state);
+
+    // If this is a goal milestone, sync colour_state to goal_milestones
+    // so progress recomputes correctly
+    const event = events.find((e) => e.id === id);
+    if (event?.source_type === "goal" && event?.source_id) {
+      const milestone = await getMilestoneById(event.source_id);
+      if (milestone) {
+        await updateMilestone(
+          event.source_id,
+          milestone.goal_id,
+          { colour_state: state }
+        );
+        // updateMilestone in useGoals already calls loadGoals + recomputes progress
+      }
+    }
+
     setSelectedEvent(null);
   }
 

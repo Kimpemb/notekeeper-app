@@ -272,6 +272,17 @@ export async function getMilestonesForGoal(
   );
 }
 
+export async function getMilestoneById(
+  id: string
+): Promise<GoalMilestone | null> {
+  const db = await getDb();
+  const rows = await db.select<GoalMilestone[]>(
+    `SELECT * FROM goal_milestones WHERE id = $1`,
+    [id]
+  );
+  return rows[0] ?? null;
+}
+
 export async function updateMilestone(
   id: string,
   updates: Partial<Omit<MilestoneInput, "goal_id">> & { colour_state?: GoalColourState }

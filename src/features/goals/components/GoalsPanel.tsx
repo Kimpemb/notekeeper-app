@@ -33,7 +33,6 @@ export function GoalsPanel() {
     createMilestone,
     updateMilestone,
     deleteMilestone,
-    updateProgress,
     setSelectedGoalId,
     setActiveCategoryFilter,
   } = useGoals();
@@ -283,7 +282,6 @@ export function GoalsPanel() {
           onAddMilestone={createMilestone}
           onUpdateMilestone={updateMilestone}
           onDeleteMilestone={deleteMilestone}
-          onUpdateProgress={updateProgress}
         />
       )}
 

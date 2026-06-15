@@ -170,6 +170,26 @@ export function MilestoneList({
               </span>
               {/* Actions — visible on hover */}
               <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                {/* Mark done — only for non-terminal states */}
+                {(m.colour_state === "blue" || m.colour_state === "yellow") && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdate(m.id, goalId, { colour_state: "green" });
+                    }}
+                    className="w-6 h-6 flex items-center justify-center rounded
+                               text-idemora-text-muted hover:text-green-400
+                               hover:bg-idemora-bg-secondary transition-colors"
+                    title="Mark done"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" strokeWidth="2.5">
+                      <path d="M20 6L9 17l-5-5"/>
+                    </svg>
+                  </button>
+                )}
+
+                {/* Existing edit button */}
                 <button
                   onClick={() => startEdit(m)}
                   className="w-6 h-6 flex items-center justify-center rounded
@@ -182,6 +202,8 @@ export function MilestoneList({
                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                   </svg>
                 </button>
+
+                {/* Existing delete button */}
                 <button
                   onClick={() => setConfirmingId(m.id)}
                   className="w-6 h-6 flex items-center justify-center rounded
