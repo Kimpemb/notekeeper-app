@@ -68,7 +68,7 @@ function UrgencyBadge({ isoDate, hasUnresolved }: { isoDate: string; hasUnresolv
   if (diff === 0 || diff === 1) return null;
   if (diff <= 7) {
     return (
-      <span className="text-xs font-medium text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
+      <span className="text-xs font-medium text-blue-500 hover:text-blue-600 transition-colors">
         in {diff} days
       </span>
     );
@@ -158,6 +158,8 @@ function NoteIndicator({
 
 export function AgendaView({ events, groups, banners, loading, onEventClick, onOpenNote, onGoalClick, onResolve }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [goalsCollapsed, setGoalsCollapsed] = useState(false);
+  const [goalsExpanded, setGoalsExpanded] = useState(false);
 
   function toggleGroup(groupId: string) {
     setCollapsedGroups((prev) => {
@@ -301,72 +303,99 @@ export function AgendaView({ events, groups, banners, loading, onEventClick, onO
         );
       })()}
 
-      {/* ── Goal banners ── */}
+            {/* ── Goal banners ── */}
       {banners.length > 0 && (
         <div className="border-b border-idemora-border/50">
-          <div className="px-4 py-1.5 bg-idemora-bg-secondary/50">
-            <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wide">
-              Active Goals
-            </span>
-          </div>
-          {banners.map((banner) => (
-            <button
-              key={banner.goalId}
-              onClick={() => onGoalClick(banner.goalId)}
-              className={[
-                "w-full flex items-center gap-3 px-4 py-2.5 border-t border-idemora-border/30",
-                "hover:bg-idemora-bg-secondary transition-colors text-left group",
-              ].join(" ")}
-            >
-              {/* Goal icon */}
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                   stroke="currentColor" strokeWidth="2"
-                   className={`shrink-0 ${
-                     banner.colourState === "green"  ? "text-green-400"  :
-                     banner.colourState === "yellow" ? "text-yellow-400" :
-                     banner.colourState === "red"    ? "text-red-400"    :
-                     "text-blue-400"
-                   }`}>
-                <circle cx="12" cy="12" r="10"/>
-                <circle cx="12" cy="12" r="6"/>
-                <circle cx="12" cy="12" r="2"/>
+          <button
+            onClick={() => setGoalsCollapsed((v) => !v)}
+            className="w-full px-4 py-1.5 bg-idemora-bg-secondary/50 flex items-center justify-between hover:bg-idemora-bg-secondary transition-colors"
+          >
+            <div className="flex items-center gap-1.5">
+              <svg
+                width="10" height="10" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2"
+                className={`text-idemora-text-muted transition-transform duration-150 ${goalsCollapsed ? "-rotate-90" : ""}`}
+              >
+                <path d="M6 9l6 6 6-6"/>
               </svg>
+              <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wide">
+                Active Goals
+              </span>
+            </div>
+          </button>
+          
+          {!goalsCollapsed && (
+            <>
+              {(goalsExpanded ? banners : banners.slice(0, 4)).map((banner) => (
+                <button
+                  key={banner.goalId}
+                  onClick={() => onGoalClick(banner.goalId)}
+                  className={[
+                    "w-full flex items-center gap-3 px-4 py-2.5 border-t border-idemora-border/30",
+                    "hover:bg-idemora-bg-secondary transition-colors text-left group",
+                  ].join(" ")}
+                >
+                  {/* Goal icon */}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth="2"
+                       className={`shrink-0 ${
+                         banner.colourState === "green"  ? "text-green-400"  :
+                         banner.colourState === "yellow" ? "text-yellow-400" :
+                         banner.colourState === "red"    ? "text-red-400"    :
+                         "text-blue-400"
+                       }`}>
+                    <circle cx="12" cy="12" r="10"/>
+                    <circle cx="12" cy="12" r="6"/>
+                    <circle cx="12" cy="12" r="2"/>
+                  </svg>
 
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-idemora-text-normal truncate">{banner.title}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-xs text-idemora-text-muted">
-                    {formatDate(banner.startDate)} → {formatDate(banner.targetDate)}
-                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-idemora-text-normal truncate">{banner.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-idemora-text-muted">
+                        {formatDate(banner.startDate)} → {formatDate(banner.targetDate)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Progress */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="w-16 h-1.5 rounded-full bg-idemora-bg-secondary overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          banner.colourState === "green"  ? "bg-green-500"  :
+                          banner.colourState === "yellow" ? "bg-yellow-500" :
+                          banner.colourState === "red"    ? "bg-red-500"    :
+                          "bg-blue-500"
+                        }`}
+                        style={{ width: `${banner.progress}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-idemora-text-muted tabular-nums w-7 text-right">
+                      {banner.progress}%
+                    </span>
+                  </div>
+
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth="1.5"
+                       className="text-idemora-text-muted opacity-0 group-hover:opacity-100
+                                  transition-opacity shrink-0">
+                    <path d="M9 18l6-6-6-6"/>
+                  </svg>
+                </button>
+              ))}
+              {banners.length > 4 && (
+                <div className="px-4 py-2 text-right border-t border-idemora-border/30">
+                  <button
+                    onClick={() => setGoalsExpanded((v) => !v)}
+                    className="text-xs font-medium text-blue-500 hover:text-blue-600 transition-colors"
+                  >
+                    {goalsExpanded ? "Show less" : `+${banners.length - 4} more`}
+                  </button>
                 </div>
-              </div>
-
-              {/* Progress */}
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="w-16 h-1.5 rounded-full bg-idemora-bg-secondary overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${
-                      banner.colourState === "green"  ? "bg-green-500"  :
-                      banner.colourState === "yellow" ? "bg-yellow-500" :
-                      banner.colourState === "red"    ? "bg-red-500"    :
-                      "bg-blue-500"
-                    }`}
-                    style={{ width: `${banner.progress}%` }}
-                  />
-                </div>
-                <span className="text-xs text-idemora-text-muted tabular-nums w-7 text-right">
-                  {banner.progress}%
-                </span>
-              </div>
-
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                   stroke="currentColor" strokeWidth="1.5"
-                   className="text-idemora-text-muted opacity-0 group-hover:opacity-100
-                              transition-opacity shrink-0">
-                <path d="M9 18l6-6-6-6"/>
-              </svg>
-            </button>
-          ))}
+              )}
+            </>
+          )}
         </div>
       )}
 
