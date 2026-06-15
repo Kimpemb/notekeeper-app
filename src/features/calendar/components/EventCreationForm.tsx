@@ -1,8 +1,13 @@
 // src/features/calendar/components/EventCreationForm.tsx
+//
+// Phase 12 additions:
+//   - RecurrenceSelector embedded below the Duration field
+//   - recurrence and recurrence_end state wired through to CalendarEventInput
 
 import { useState, useEffect } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { NotePickerModal, getBreadcrumb } from "@/features/ui/components/NotePickerModal";
+import { RecurrenceSelector } from "@/features/calendar/components/RecurrenceSelector";
 import type {
   CalendarEvent,
   CalendarEventInput,
@@ -15,23 +20,25 @@ interface Props {
   initialTime?: string;
   event?: CalendarEvent | null;
   onSubmit: (input: CalendarEventInput) => Promise<void>;
-  onClose: () => void;
+  onClose:  () => void;
 }
-
-// ─── Main form ────────────────────────────────────────────────────────────────
 
 export function EventCreationForm({ initialDate, initialTime, event, onSubmit, onClose }: Props) {
   const allNotes = useNoteStore((s) => s.notes);
 
-  const [title,       setTitle]       = useState(event?.title ?? "");
-  const [date,        setDate]        = useState(
+  const [title,      setTitle]      = useState(event?.title ?? "");
+  const [date,       setDate]       = useState(
     event?.date ?? initialDate ?? new Date().toISOString().split("T")[0]
   );
-  const [time,        setTime]        = useState(event?.time ?? initialTime ?? "");
-  const [duration,    setDuration]    = useState(String(event?.duration_mins ?? ""));
-  const [notes,       setNotes]       = useState(event?.notes ?? "");
-  const [saving,      setSaving]      = useState(false);
-  const [error,       setError]       = useState("");
+  const [time,       setTime]       = useState(event?.time ?? initialTime ?? "");
+  const [duration,   setDuration]   = useState(String(event?.duration_mins ?? ""));
+  const [notes,      setNotes]      = useState(event?.notes ?? "");
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState("");
+
+  // ── Recurrence (Phase 12) ──────────────────────────────────────────────────
+  const [recurrence,    setRecurrence]    = useState<string | null>(event?.recurrence     ?? null);
+  const [recurrenceEnd, setRecurrenceEnd] = useState<string | null>(event?.recurrence_end ?? null);
 
   // ── Groups ─────────────────────────────────────────────────────────────────
   const [groups,       setGroups]      = useState<EventGroup[]>([]);
@@ -40,12 +47,12 @@ export function EventCreationForm({ initialDate, initialTime, event, onSubmit, o
   const [showNewGroup, setShowNewGroup] = useState(false);
 
   // ── Note linking ───────────────────────────────────────────────────────────
-  const [linkedNoteId,    setLinkedNoteId]    = useState<string | null>(event?.linked_note_id ?? null);
-  const [showNotePicker,  setShowNotePicker]  = useState(false);
+  const [linkedNoteId,   setLinkedNoteId]   = useState<string | null>(event?.linked_note_id ?? null);
+  const [showNotePicker, setShowNotePicker] = useState(false);
 
   const isEditing  = !!event;
-  const linkedNote     = allNotes.find((n) => n.id === linkedNoteId) ?? null;
-  const linkedDeleted  = linkedNote?.deleted_at != null;
+  const linkedNote    = allNotes.find((n) => n.id === linkedNoteId) ?? null;
+  const linkedDeleted = linkedNote?.deleted_at != null;
 
   useEffect(() => {
     listEventGroups().then(setGroups).catch(console.error);
@@ -76,15 +83,17 @@ export function EventCreationForm({ initialDate, initialTime, event, onSubmit, o
 
     try {
       await onSubmit({
-        title:          title.trim(),
+        title:           title.trim(),
         date,
-        time:           time || null,
-        duration_mins:  duration ? parseInt(duration, 10) : null,
-        category:       event?.category ?? "personal",
-        notes:          notes.trim() || null,
-        colour_state:   event?.colour_state ?? "blue",
-        group_id:       groupId,
-        linked_note_id: linkedNoteId,
+        time:            time || null,
+        duration_mins:   duration ? parseInt(duration, 10) : null,
+        category:        event?.category ?? "personal",
+        notes:           notes.trim() || null,
+        colour_state:    event?.colour_state ?? "blue",
+        group_id:        groupId,
+        linked_note_id:  linkedNoteId,
+        recurrence:      recurrence,
+        recurrence_end:  recurrenceEnd,
       });
       onClose();
     } catch (err) {
@@ -94,7 +103,6 @@ export function EventCreationForm({ initialDate, initialTime, event, onSubmit, o
       setSaving(false);
     }
   }
-
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -108,7 +116,6 @@ export function EventCreationForm({ initialDate, initialTime, event, onSubmit, o
 
   return (
     <>
-      {/* Note picker modal — rendered outside the slide-in so z-index is clean */}
       {showNotePicker && (
         <NotePickerModal
           onSelect={(note) => {
@@ -206,8 +213,21 @@ export function EventCreationForm({ initialDate, initialTime, event, onSubmit, o
               </div>
             )}
 
+            {/* ── Recurrence (Phase 12) ──────────────────────────────────── */}
+            <div className="border-t border-idemora-border/50 pt-3">
+              <RecurrenceSelector
+                eventDate={date || new Date().toISOString().split("T")[0]}
+                value={recurrence}
+                endDate={recurrenceEnd}
+                onChange={(r, e) => {
+                  setRecurrence(r);
+                  setRecurrenceEnd(e);
+                }}
+              />
+            </div>
+
             {/* Group */}
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5 border-t border-idemora-border/50 pt-3">
               <label className="text-xs font-medium text-idemora-text-muted">Group (optional)</label>
               <select
                 value={groupId ?? ""}
@@ -314,7 +334,6 @@ export function EventCreationForm({ initialDate, initialTime, event, onSubmit, o
                   </button>
                 </div>
               ) : (
-                /* Trigger button */
                 <button
                   onClick={() => setShowNotePicker(true)}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed

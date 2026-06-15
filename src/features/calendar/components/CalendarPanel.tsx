@@ -55,13 +55,14 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
     updateEvent,
     deleteEvent,
     updateColourState,
+    editOccurrence,
+    deleteOccurrence,
   } = useCalendarEvents();
 
   const { goals, loadGoals } = useGoals();
   const layerVisibility = useCalendarStore((s) => s.layerVisibility);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [editingEvent,   setEditingEvent]   = useState<CalendarEvent | null>(null);
   const [selectedEvent,  setSelectedEvent]  = useState<CalendarEvent | null>(null);
   const [groups,         setGroups]         = useState<EventGroup[]>([]);
   const [slotDate,       setSlotDate]       = useState<string | null>(null);
@@ -79,9 +80,9 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
   // Whenever selectedEvent, creationFormOpen, or notePickerOpen changes,
   // report whether any inner layer is open:
   useEffect(() => {
-    const anyOpen = !!selectedEvent || showCreateForm || !!editingEvent;
+    const anyOpen = !!selectedEvent || showCreateForm;
     onInnerModalChange?.(anyOpen);
-  }, [selectedEvent, showCreateForm, editingEvent, onInnerModalChange]);
+  }, [selectedEvent, showCreateForm, onInnerModalChange]);
 
   // TODO: replace selectNote with your actual note navigation function once confirmed
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
@@ -94,18 +95,7 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
     listEventGroups().then(setGroups).catch(console.error);
   }
 
-  async function handleSubmitEdit(input: CalendarEventInput) {
-    if (!editingEvent) return;
-    await updateEvent(editingEvent.id, input);
-    setEditingEvent(null);
-    setSelectedEvent(null);
-    listEventGroups().then(setGroups).catch(console.error);
-  }
 
-  function handleEditFromDetail(event: CalendarEvent) {
-    setSelectedEvent(null);
-    setEditingEvent(event);
-  }
 
   function handleSlotClick(isoDate: string, time: string) {
     setSlotDate(isoDate);
@@ -304,22 +294,16 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
         />
       )}
 
-      {editingEvent && (
-        <EventCreationForm
-          event={editingEvent}
-          onSubmit={handleSubmitEdit}
-          onClose={() => setEditingEvent(null)}
-        />
-      )}
-
-      {selectedEvent && !editingEvent && (
+      {selectedEvent && (
         <EventDetail
           event={selectedEvent}
-          onEdit={handleEditFromDetail}
+          onClose={() => setSelectedEvent(null)}
           onDelete={handleDelete}
           onResolve={handleResolve}
           onOpenNote={handleOpenNote}
-          onClose={() => setSelectedEvent(null)}
+          updateEvent={updateEvent}
+          editOccurrence={editOccurrence}
+          deleteOccurrence={deleteOccurrence}
         />
       )}
     </div>
