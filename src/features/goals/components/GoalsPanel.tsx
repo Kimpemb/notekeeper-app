@@ -7,6 +7,7 @@ import { GoalCard } from "./GoalCard";
 import { GoalDetail } from "./GoalDetail";
 import { GoalCreationForm } from "./GoalCreationForm";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
+import { GoalBootstrap } from "./GoalBootstrap";
 
 const SECTIONS: { filter: GoalStatusFilter; label: string }[] = [
   { filter: "active",     label: "Active"      },
@@ -41,6 +42,7 @@ export function GoalsPanel() {
   const [editingGoal,     setEditingGoal]     = useState<Goal | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [collapsed,       setCollapsed]       = useState<Set<GoalStatusFilter>>(new Set());
+  const [showBootstrap,   setShowBootstrap]   = useState(false);
 
   // Load all goals and categories on mount
   useEffect(() => {
@@ -61,6 +63,16 @@ export function GoalsPanel() {
       loadMilestones(selectedGoalId);
     }
   }, [goals.length, selectedGoalId, loadMilestones]);
+
+  // Reload when frontmatter parser creates/updates a goal in the background
+  useEffect(() => {
+    function handleGoalsUpdated() {
+      console.log("[GoalsPanel] received idemora:goals-updated");
+      loadGoals(null);
+    }
+    window.addEventListener("idemora:goals-updated", handleGoalsUpdated);
+    return () => window.removeEventListener("idemora:goals-updated", handleGoalsUpdated);
+  }, [loadGoals]);
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
 
@@ -239,16 +251,19 @@ export function GoalsPanel() {
           );
         })}
 
-        {/* Bootstrap from notes — stub for Phase 13 */}
+        {/* Bootstrap from notes */}
         {!loading && (
           <div className="pt-4 border-t border-idemora-border">
-            <button
-              disabled
-              className="text-xs text-idemora-text-faint cursor-not-allowed"
-              title="Available in Phase 13"
-            >
-              Bootstrap goals from notes — coming in Phase 13
-            </button>
+            {showBootstrap ? (
+              <GoalBootstrap onDone={() => { setShowBootstrap(false); loadGoals(null); }} />
+            ) : (
+              <button
+                onClick={() => setShowBootstrap(true)}
+                className="text-xs text-idemora-text-muted hover:text-idemora-text-normal transition-colors"
+              >
+                Bootstrap goals from notes
+              </button>
+            )}
           </div>
         )}
       </div>

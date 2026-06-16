@@ -191,11 +191,21 @@ export function AgendaView({ events, groups, banners, loading, onEventClick, onO
     groupBuckets.set(gid, [...gevents].sort((a, b) => a.date.localeCompare(b.date)));
   }
 
-  const ungroupedByDate = new Map<string, CalendarEvent[]>();
-  for (const event of ungroupedEvents) {
-    const existing = ungroupedByDate.get(event.date) ?? [];
-    ungroupedByDate.set(event.date, [...existing, event]);
-  }
+// Deduplicate by occurrence_id ?? id before bucketing — guards against
+// the 1500ms deferred reload causing a brief double-render
+const seenKeys = new Set<string>();
+const dedupedUngrouped = ungroupedEvents.filter((e) => {
+  const key = e.occurrence_id ?? e.id;
+  if (seenKeys.has(key)) return false;
+  seenKeys.add(key);
+  return true;
+});
+
+const ungroupedByDate = new Map<string, CalendarEvent[]>();
+for (const event of dedupedUngrouped) {
+  const existing = ungroupedByDate.get(event.date) ?? [];
+  ungroupedByDate.set(event.date, [...existing, event]);
+}
   for (const [date, dayEvents] of ungroupedByDate) {
     ungroupedByDate.set(date, [
       ...dayEvents.filter((e) => e.colour_state === "yellow"),

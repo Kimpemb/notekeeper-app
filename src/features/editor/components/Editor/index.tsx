@@ -1170,7 +1170,13 @@ if (!contentReady) return null;
           <div ref={editorTextColumnRef} className="w-full mx-auto pl-16 pr-8 py-6 min-h-full max-w-4xl xl:max-w-240 2xl:max-w-5xl cursor-text" onClick={handleEditorAreaClick}>
             <FrontmatterEditor
               frontmatter={note.frontmatter ?? null}
-              onChange={(frontmatter) => updateNote(note.id, { frontmatter })}
+              onChange={(frontmatter) => {
+  updateNote(note.id, { frontmatter });
+  // Phase 13: sync frontmatter to goals — fire and forget
+  import("@/features/goals/lib/frontmatterGoalParser").then(({ parseAndSyncFrontmatter }) => {
+    parseAndSyncFrontmatter(note.id, note.title, frontmatter).catch(console.error);
+  });
+}}
             />
             <h1
               ref={titleRef}

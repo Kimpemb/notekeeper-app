@@ -121,11 +121,12 @@ export function useCalendarEvents() {
             getEventsForDateRange({ startDate, endDate, layers: activeLayers })
               .then((evts) => evts.filter((e) => e.colour_state === "green")),
           ]);
-          const seen = new Set(nonGreen.map((e) => e.occurrence_id ?? e.id));
-          loaded = [
-            ...nonGreen,
-            ...windowGreen.filter((e) => !seen.has(e.occurrence_id ?? e.id)),
-          ];
+          // Deduplicate by id+date — uniquely identifies both standalone and recurring occurrences
+            const seen = new Set(nonGreen.map((e) => `${e.id}::${e.date}`));
+            loaded = [
+              ...nonGreen,
+              ...windowGreen.filter((e) => !seen.has(`${e.id}::${e.date}`)),
+            ];
         }
       } else {
         const { startDate, endDate } = getDateRange();
