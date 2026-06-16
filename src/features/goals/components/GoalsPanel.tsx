@@ -3,19 +3,28 @@
 import { useEffect, useState } from "react";
 import type { Goal, GoalInput, GoalStatusFilter, MilestoneInput } from "@/features/goals/db/goalQueries";
 import { useGoals } from "@/features/goals/hooks/useGoals";
+import { useGoalStore } from "@/features/goals/store/useGoalStore";
 import { GoalCard } from "./GoalCard";
 import { GoalDetail } from "./GoalDetail";
 import { GoalCreationForm } from "./GoalCreationForm";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
 import { GoalBootstrap } from "./GoalBootstrap";
 
-const SECTIONS: { filter: GoalStatusFilter; label: string }[] = [
-  { filter: "active",     label: "Active"      },
-  { filter: "upcoming",   label: "Upcoming"    },
-  { filter: "unresolved", label: "Unresolved"  },
-  { filter: "completed",  label: "Completed"   },
-  { filter: "missed",     label: "Missed"      },
+const STATUS_TABS: { filter: GoalStatusFilter; label: string }[] = [
+  { filter: "active",     label: "Active"     },
+  { filter: "unresolved", label: "Unresolved" },
+  { filter: "upcoming",   label: "Upcoming"   },
+  { filter: "completed",  label: "Completed"  },
+  { filter: "missed",     label: "Missed"     },
 ];
+
+const TAB_BADGE_STYLES: Record<GoalStatusFilter, string> = {
+  active:     "bg-blue-500/10 text-blue-400",
+  unresolved: "bg-yellow-500/10 text-yellow-400",
+  upcoming:   "bg-idemora-bg-secondary text-idemora-text-muted",
+  completed:  "bg-green-500/10 text-green-400",
+  missed:     "bg-red-500/10 text-red-400",
+};
 
 export function GoalsPanel() {
   const {
@@ -38,10 +47,14 @@ export function GoalsPanel() {
     setActiveCategoryFilter,
   } = useGoals();
 
+  // Tab selection lives in useGoalStore — already had this field, just unused until now
+  const activeFilter    = useGoalStore((s) => s.activeFilter);
+  const setActiveFilter = useGoalStore((s) => s.setActiveFilter);
+  const selectedTab: GoalStatusFilter = activeFilter ?? "active";
+
   const [showCreateForm,  setShowCreateForm]  = useState(false);
   const [editingGoal,     setEditingGoal]     = useState<Goal | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [collapsed,       setCollapsed]       = useState<Set<GoalStatusFilter>>(new Set());
   const [showBootstrap,   setShowBootstrap]   = useState(false);
 
   // Load all goals and categories on mount
@@ -76,31 +89,46 @@ export function GoalsPanel() {
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
 
-  // ── Section helpers ───────────────────────────────────────────────────────
+  // ── Status filter helper ──────────────────────────────────────────────────
+  // Same mapping as before, just queried per-tab instead of per-section
 
-  function toggleSection(filter: GoalStatusFilter) {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.has(filter) ? next.delete(filter) : next.add(filter);
-      return next;
-    });
+function goalsForFilter(filter: GoalStatusFilter): Goal[] {
+  const today = new Date().toISOString().split("T")[0];
+
+  let results: Goal[];
+  switch (filter) {
+    case "active":
+      results = goals.filter((g) => g.colour_state === "blue" && g.target_date >= today);
+      break;
+    case "upcoming":
+      results = goals.filter((g) => g.start_date > today);
+      break;
+    case "unresolved":
+      results = goals.filter((g) => g.colour_state === "yellow");
+      break;
+    case "completed":
+      results = goals.filter((g) => g.colour_state === "green");
+      break;
+    case "missed":
+      results = goals.filter((g) => g.colour_state === "red");
+      break;
+    default:
+      results = [];
   }
 
-  function goalsForSection(filter: GoalStatusFilter): Goal[] {
-    const today = new Date().toISOString().split("T")[0];
-    switch (filter) {
-      case "active":
-        return goals.filter((g) => g.colour_state === "blue" && g.target_date >= today);
-      case "upcoming":
-        return goals.filter((g) => g.start_date > today);
-      case "unresolved":
-        return goals.filter((g) => g.colour_state === "yellow");
-      case "completed":
-        return goals.filter((g) => g.colour_state === "green");
-      case "missed":
-        return goals.filter((g) => g.colour_state === "red");
-    }
+  if (activeCategoryFilter) {
+    results = results.filter((g) => g.category === activeCategoryFilter);
   }
+
+  return results;
+}
+
+  const tabCounts = STATUS_TABS.reduce((acc, { filter }) => {
+    acc[filter] = goalsForFilter(filter).length;
+    return acc;
+  }, {} as Record<GoalStatusFilter, number>);
+
+  const currentGoals = goalsForFilter(selectedTab);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -179,8 +207,8 @@ export function GoalsPanel() {
         </button>
       </div>
 
-      {/* ── Sections ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+      {/* ── Tabs + list ── */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
 
         {loading && (
           <p className="text-xs text-idemora-text-faint text-center py-8">
@@ -207,53 +235,56 @@ export function GoalsPanel() {
           </div>
         )}
 
-        {!loading && SECTIONS.map(({ filter, label }) => {
-          const sectionGoals = goalsForSection(filter);
-          if (sectionGoals.length === 0) return null;
-
-          const isCollapsed = collapsed.has(filter);
-
-          return (
-            <div key={filter}>
-              {/* Section header */}
-              <button
-                onClick={() => toggleSection(filter)}
-                className="flex items-center gap-2 w-full mb-2 group"
-              >
-                <svg
-                  width="12" height="12" viewBox="0 0 12 12" fill="none"
-                  className={`text-idemora-text-faint transition-transform duration-150
-                             ${isCollapsed ? "-rotate-90" : ""}`}
-                >
-                  <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wide">
-                  {label}
-                </span>
-                <span className="text-xs text-idemora-text-faint">
-                  {sectionGoals.length}
-                </span>
-              </button>
-
-              {/* Goal cards */}
-              {!isCollapsed && (
-                <div className="space-y-1.5">
-                  {sectionGoals.map((goal) => (
-                    <GoalCard
-                      key={goal.id}
-                      goal={goal}
-                      onClick={(g) => setSelectedGoalId(g.id)}
-                    />
-                  ))}
-                </div>
-              )}
+        {!loading && goals.length > 0 && (
+          <>
+            {/* Status tabs */}
+            <div className="flex items-center gap-1 mb-3 border-b border-idemora-border overflow-x-auto">
+              {STATUS_TABS.map(({ filter, label }) => {
+                const count    = tabCounts[filter];
+                const isActive = selectedTab === filter;
+                return (
+                  <button
+                    key={filter}
+                    onClick={() => setActiveFilter(filter)}
+                    className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium
+                               border-b-2 whitespace-nowrap transition-colors
+                               ${isActive
+                                 ? "border-blue-500 text-idemora-text-normal"
+                                 : "border-transparent text-idemora-text-muted hover:text-idemora-text-normal"}`}
+                  >
+                    {label}
+                    {count > 0 && (
+                      <span className={`text-[11px] leading-none px-1.5 py-0.5 rounded-full font-medium ${TAB_BADGE_STYLES[filter]}`}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
-          );
-        })}
+
+            {/* Goal list for the selected tab */}
+            {currentGoals.length === 0 ? (
+              <p className="text-xs text-idemora-text-faint text-center py-8">
+                No {STATUS_TABS.find((t) => t.filter === selectedTab)?.label.toLowerCase()} goals
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {currentGoals.map((goal) => (
+                  <GoalCard
+                    key={goal.id}
+                    goal={goal}
+                    onClick={(g) => setSelectedGoalId(g.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         {/* Bootstrap from notes */}
         {!loading && (
-          <div className="pt-4 border-t border-idemora-border">
+          <div className="mt-4 pt-4 border-t border-idemora-border">
             {showBootstrap ? (
               <GoalBootstrap onDone={() => { setShowBootstrap(false); loadGoals(null); }} />
             ) : (
