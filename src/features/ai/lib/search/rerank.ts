@@ -61,12 +61,12 @@ const RECENCY_30D = 30 * 24 * 60 * 60 * 1000
 // high:   any rank-0 single match or better
 // medium: rank ~5 single or weak dual
 // low:    near-zero signal
-const CONF_HIGH_TOP    = 0.014   // ~rank 1 single-match
+const CONF_HIGH_TOP    = 0.05    // strong dual-match signal
 const CONF_HIGH_UNIQUE = 2       // at least 2 notes above threshold for high
-const CONF_HIGH_SOLO   = 0.014   // single note still gets high if above this
-const CONF_MEDIUM_TOP  = 0.010   // ~rank 5+ single-match
+const CONF_HIGH_SOLO   = 0.08    // single note high only if very strong
+const CONF_MEDIUM_TOP  = 0.025   // weak dual or strong single
 const CONF_MEDIUM_MIN  = 3       // OR 3+ results above medium floor
-const CONF_MEDIUM_FLOOR = 0.008
+const CONF_MEDIUM_FLOOR = 0.015
 
 const PROJECT_TERMS = [
   "project", "task", "milestone", "deadline", "sprint", "roadmap",

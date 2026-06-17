@@ -664,9 +664,25 @@ function deriveWebNudge(
     return undefined
   }
 
-  // ─── Web results builder ──────────────────────────────────────────────────────
+// ─── Auto web fallback ────────────────────────────────────────────────────────
 
-  function buildWebResultsBlock(webResults: WebSearchResult[]): string {
+async function autoWebFallback(
+  query:    string,
+  streaming: StreamingChatOptions,
+): Promise<{ webResults: WebSearchResult[]; fired: boolean }> {
+  try {
+    streaming.onStatus?.("Nothing in your notes — searching the web…")
+    const provider = getWebSearchProvider()
+    const webResults = await provider.search(query).catch(() => [] as WebSearchResult[])
+    return { webResults, fired: webResults.length > 0 }
+  } catch {
+    return { webResults: [], fired: false }
+  }
+}
+
+// ─── Web results builder ──────────────────────────────────────────────────────
+
+function buildWebResultsBlock(webResults: WebSearchResult[]): string {
     const lines = webResults.map((r, i) =>
       `[web:${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`
     )
@@ -1046,9 +1062,15 @@ function deriveWebNudge(
   When vault excerpts and web results cover the same topic, compare them explicitly.
   If they contradict each other, flag the discrepancy — do not silently favour one source.
   Prefer vault content for personal context and decisions; prefer web content for current facts and external information.\n`
-      : hasWeb
-        ? `You have access to live web search results. Cite them as [web:N].\n`
-        : ""
+      : hasWeb && !hasVault
+        ? `Nothing relevant was found in the user's personal notes for this query.
+  Answer using the web search results below.
+  Open with one sentence noting the answer comes from web search rather than their notes.
+  If anything in the web results connects to topics from the conversation history, note that connection briefly at the end — only if genuinely relevant, otherwise do not mention the conversation history at all.
+  Cite web results as [web:N].\n`
+        : hasWeb
+          ? `You have access to live web search results. Cite them as [web:N].\n`
+          : ""
 
     return `You are an assistant with access to the user's personal notes vault.
   ${titleDirectedInstruction}${combinedSourceInstruction}You will be given numbered excerpts [1], [2], [3]... from different notes.
@@ -1395,15 +1417,46 @@ Answer:`
     }
 
     // Gate vault injection — only inject when retrieval was meaningful
-const injectVault = (webResults && webResults.length > 0)
-  ? pipeline.chunkCount > 0 && pipeline.confidence !== "low"
-  : pipeline.chunkCount > 0 && pipeline.confidence !== "low"
+const MEANINGFUL_SCORE_THRESHOLD = 0.05
+const injectVault = pipeline.chunkCount > 0
+  && pipeline.confidence !== "low"
+  && pipeline.topScore >= MEANINGFUL_SCORE_THRESHOLD
 
-// Low confidence + no personal signals — skip vault, answer from general knowledge
+
+// Low confidence + no personal signals — try web first, fall back to general knowledge
 if (!injectVault && !pipeline.inventoryMode && (!webResults || webResults.length === 0) && !isPersonal) {
-  console.log('[streamChat] low confidence + no personal signals — routing to general knowledge')
-  streaming.onStatus?.("Nothing in your notes about this — answering from general knowledge…")
+  console.log('[streamChat] low confidence + no personal signals — trying web fallback first')
 
+  const { webResults: autoResults, fired } = await autoWebFallback(query, streaming)
+
+  if (fired) {
+    const webPrompt  = buildPrompt(query, pipeline, historyBlock, currentNote, autoResults, false)
+    const messages: ProviderMessage[] = [{ role: "user", content: webPrompt }]
+    streaming.onStatus?.("Generating answer…")
+    try {
+      const result = await callPrimary(messages)
+      assembled    = result.text
+      streaming.onChunk(assembled)
+      await appendAIHistory(noteId, "user",      query)
+      await appendAIHistory(noteId, "assistant", assembled)
+      streaming.onDone?.()
+    } catch (err: unknown) {
+      streaming.onError?.(err as AICallError)
+    }
+    return {
+      sourceTitles:        [],
+      sourceNoteIds:       [],
+      usedEmbeddings:      false,
+      confidence:          "low",
+      relatedNotes:        [],
+      excludedNoteNotices: pipeline.excludedNoteNotices,
+      titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+      webNudge:            undefined,
+      webGrounded:         true,
+    }
+  }
+
+  streaming.onStatus?.("Nothing in your notes — answering from general knowledge…")
   const generalKnowledgePrompt = `You are a knowledgeable assistant. Answer the following question from your general knowledge. Do not mention notes, vaults, or any note-taking system.
 
 [QUESTION]
@@ -1443,8 +1496,38 @@ Answer:`
     // returning a vault-miss message (fixes Jay-Z / tree traversal / Ghana cases).
     if (pipeline.chunkCount === 0 && !pipeline.inventoryMode && (!webResults || webResults.length === 0)) {
       if (!isPersonal) {
-        console.log('[streamChat] chunkCount=0, no personal signals — routing to general knowledge')
-        // Fall through to model call with a general knowledge instruction injected
+        console.log('[streamChat] chunkCount=0, no personal signals — trying web fallback first')
+
+        const { webResults: autoResults, fired } = await autoWebFallback(query, streaming)
+
+        if (fired) {
+          const webPrompt  = buildPrompt(query, pipeline, historyBlock, currentNote, autoResults, false)
+          const messages: ProviderMessage[] = [{ role: "user", content: webPrompt }]
+          streaming.onStatus?.("Generating answer…")
+          try {
+            const result = await callPrimary(messages)
+            assembled    = result.text
+            streaming.onChunk(assembled)
+            await appendAIHistory(noteId, "user",      query)
+            await appendAIHistory(noteId, "assistant", assembled)
+            streaming.onDone?.()
+          } catch (err: unknown) {
+            streaming.onError?.(err as AICallError)
+          }
+          return {
+            sourceTitles:        [],
+            sourceNoteIds:       [],
+            usedEmbeddings:      false,
+            confidence:          "low",
+            relatedNotes:        [],
+            excludedNoteNotices: pipeline.excludedNoteNotices,
+            titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+            webNudge:            undefined,
+            webGrounded:         true,
+          }
+        }
+
+        streaming.onStatus?.("Nothing in your notes — answering from general knowledge…")
         const generalKnowledgePrompt = `You are a knowledgeable assistant. Answer the following question from your general knowledge. Do not mention notes, vaults, or any note-taking system.
 
   [QUESTION]
@@ -1475,8 +1558,37 @@ Answer:`
         }
       }
 
-      // Has personal signals — vault miss is meaningful, report it
-      console.log('[streamChat] chunkCount=0 with isPersonal — short-circuiting')
+      // Has personal signals but vault is empty — try web for supporting context
+      console.log('[streamChat] chunkCount=0 with isPersonal — trying web for supporting context')
+      const { webResults: personalAutoResults, fired: personalFired } = await autoWebFallback(query, streaming)
+
+      if (personalFired) {
+        const webPrompt  = buildPrompt(query, pipeline, historyBlock, currentNote, personalAutoResults, false)
+        const messages: ProviderMessage[] = [{ role: "user", content: webPrompt }]
+        streaming.onStatus?.("Generating answer…")
+        try {
+          const result = await callPrimary(messages)
+          assembled    = result.text
+          streaming.onChunk(assembled)
+          await appendAIHistory(noteId, "user",      query)
+          await appendAIHistory(noteId, "assistant", assembled)
+          streaming.onDone?.()
+        } catch (err: unknown) {
+          streaming.onError?.(err as AICallError)
+        }
+        return {
+          sourceTitles:        [],
+          sourceNoteIds:       [],
+          usedEmbeddings:      false,
+          confidence:          "low",
+          relatedNotes:        [],
+          excludedNoteNotices: pipeline.excludedNoteNotices,
+          titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
+          webNudge:            undefined,
+          webGrounded:         true,
+        }
+      }
+
       assembled = "I couldn't find anything relevant in your notes for that."
       streaming.onChunk(assembled)
       streaming.onDone?.()
