@@ -16,6 +16,8 @@ import { Color }     from "@tiptap/extension-color";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Highlight     from "@tiptap/extension-highlight";
 import { markdownToDoc, looksLikeMarkdown } from "@/features/ai/lib/save/parseMarkdown"
+import { Mathematics } from "@tiptap/extension-mathematics"
+import "katex/dist/katex.min.css"
 
 import {
   ToggleNodeView,
@@ -849,6 +851,8 @@ export { BlockIdExtension } from "./BlockIdExtension";
 export { BlockRefNode }     from "./BlockRefNode";
 export { DataviewNode }     from "./DataviewNode";
 export { PDFLinkNode }      from "./PDFLinkNode";
+export { Mathematics }
+
 
 // ── Markdown paste handler ────────────────────────────────────────────────────
 const URL_REGEX = /^https?:\/\/[^\s]+$/

@@ -55,6 +55,7 @@ import {
   BlockRefNode,
   DataviewNode, Color, TextStyle, MultiHighlight,
   MarkdownPasteExtension,
+  Mathematics,
 } from "./extensions";
 
 import {
@@ -363,6 +364,7 @@ const initialContent = (() => {
   getTitle: () => useNoteStore.getState().notes.find((n) => n.id === noteId)?.title ?? "Untitled",
 }),
       DateChipDeletionWatcher,
+      Mathematics.configure({ katexOptions: { throwOnError: false } }),
       MarkdownPasteExtension,
       createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
       Extension.create({ name: "findReplacePlugin",     addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),

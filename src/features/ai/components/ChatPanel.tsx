@@ -25,9 +25,7 @@ import { useChatSessionStore, emptySession } from "@/features/ai/store/useChatSe
 import type { PersistedMeta } from "@/features/ai/store/useChatSessionStore"
 import type { ExcludedTitleMatch } from "@/features/ai/lib/search/hybrid"
 import { useAppSettings } from "@/features/ui/store/useAppSettings"
-import { marked } from "marked"
-import hljs from "highlight.js"
-import "highlight.js/styles/github-dark-dimmed.css"
+import { MessageRenderer } from "@/features/ai/components/MessageRenderer"
 import {
   WEB_SEARCH_PROVIDERS,
   getWebSearchProvider,
@@ -1081,7 +1079,14 @@ const meta = await streamChatWithNotes(
                     isLatest={isLatest}
                     streamStatus={isStreaming ? streamStatus : null}
                     onCopy={(content) => {
-                      const plain = content.replace(/\[web:[^\]]+\]/g, "").replace(/\[\d+\]/g, "").trim()
+                      const plain = content
+                        .replace(/\[web:[^\]]+\]/g, "")
+                        .replace(/\[\d+\]/g, "")
+                        // Convert \[...\] block math → unwrapped LaTeX (readable when pasted)
+                        .replace(/\\\[([^]*?)\\\]/g, (_: string, m: string) => m.trim())
+                        // Convert \(...\) inline math → unwrapped LaTeX
+                        .replace(/\\\(([^]*?)\\\)/g, (_: string, m: string) => m.trim())
+                        .trim()
                       navigator.clipboard.writeText(plain).catch(console.error)
                       addToast("Copied")
                     }}
@@ -1320,59 +1325,7 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
 
 
 
-function CodeBlock({ code, language }: { code: string; language?: string }) {
-  const [copied, setCopied] = useState(false)
 
-  const highlighted = useMemo(() => {
-    if (language && hljs.getLanguage(language)) {
-      return hljs.highlight(code, { language }).value
-    }
-    return hljs.highlightAuto(code).value
-  }, [code, language])
-
-  function handleCopy() {
-    navigator.clipboard.writeText(code).catch(console.error)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <div className="my-1.5 rounded-lg overflow-hidden border border-idemora-border/60">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-idemora-bg-secondary border-b border-idemora-border/40 sticky top-0 z-10">
-        <span className="text-[10px] font-medium text-idemora-text-muted uppercase tracking-wider">
-          {language ?? "code"}
-        </span>
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1 text-[10px] text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
-        >
-          {copied ? (
-            <>
-              <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
-                <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              Copied
-            </>
-          ) : (
-            <>
-              <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
-                <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-                <path d="M2 7H1.5A.5.5 0 011 6.5v-5A.5.5 0 011.5 1h5a.5.5 0 01.5.5V2" stroke="currentColor" strokeWidth="1.1"/>
-              </svg>
-              Copy
-            </>
-          )}
-        </button>
-      </div>
-      <pre className="overflow-x-auto p-3 text-xs leading-relaxed bg-[#22272e] dark:bg-[#22272e] bg-[#f6f8fa] dark:text-white m-0">
-        <code
-          dangerouslySetInnerHTML={{ __html: highlighted }}
-          className="font-mono"
-        />
-      </pre>
-    </div>
-  )
-}
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
@@ -1389,132 +1342,9 @@ function MessageBubble({
 }) {
   const isUser = message.role === "user"
 
-  function renderWithCitations(text: string) {
-    const cleaned = text
-      .replace(/\[web:[^\]]+\]/g, "")
-      .replace(/ \./g, ".")
 
-    const renderer = new marked.Renderer()
-
-    const codeBlocks: Array<{ id: string; code: string; language?: string }> = []
-    renderer.code = ({ text: code, lang }) => {
-      const id = `cb-${crypto.randomUUID()}`
-      codeBlocks.push({ id, code, language: lang || undefined })
-      return `<code-block id="${id}"></code-block>`
-    }
-
-    renderer.table = ({ header, rows }) => {
-      const headerHtml = `<thead><tr>${header.map(h =>
-        `<th>${marked.parseInline(h.text, { async: false }) as string}</th>`
-      ).join("")}</tr></thead>`
-      const bodyHtml = `<tbody>${rows.map(row =>
-        `<tr>${row.map(cell =>
-          `<td>${marked.parseInline(cell.text, { async: false }) as string}</td>`
-        ).join("")}</tr>`
-      ).join("")}</tbody>`
-      return `<div class="table-wrap"><table>${headerHtml}${bodyHtml}</table></div>`
-    }
-
-    const html = marked.parse(cleaned, { async: false, renderer }) as string
-
-    const stripped = html.replace(/\[\d+(?:,\s*\d+)*\]/g, "")
-    const parts = stripped.split(/(<code-block id="[^"]+"><\/code-block>)/g)
-
-    return (
-      <div className="text-sm text-idemora-text-normal
-    [&_strong]:font-semibold [&_strong]:text-idemora-text-normal
-    [&_em]:italic
-    [&_p]:my-2 [&_p]:leading-relaxed [&_p]:first:mt-0 [&_p]:last:mb-0
-    [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:ml-4 [&_ul]:mt-1.5 [&_ul]:mb-1.5
-    [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:ml-4 [&_ol]:mt-1.5 [&_ol]:mb-1.5
-    [&_li]:my-1 [&_li]:leading-relaxed
-    [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-1 [&_h1]:text-idemora-text-normal [&_h1]:leading-snug
-    [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-0.5 [&_h2]:text-idemora-text-normal [&_h2]:border-b [&_h2]:border-idemora-border/40 [&_h2]:pb-0.5
-    [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-0.5 [&_h3]:text-idemora-text-normal
-    [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 
-    [&_blockquote]:border-violet-400/50 [&_blockquote]:pl-3 [&_blockquote]:py-1.5 [&_blockquote]:my-2 [&_blockquote]:bg-idemora-bg-secondary 
-    [&_blockquote]:rounded-r-md [&_blockquote]:pr-3
-    [&_hr]:border-none [&_hr]:border-t [&_hr]:border-idemora-border/40 [&_hr]:my-3
-    [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
-    [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:my-2 break-words overflow-x-hidden
-    [&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_table]:border [&_table]:border-idemora-border/60
-    [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-semibold [&_th]:text-idemora-text-normal [&_th]:bg-idemora-bg-secondary [&_th]:border [&_th]:border-idemora-border/60
-    [&_td]:px-3 [&_td]:py-2 [&_td]:text-idemora-text-muted [&_td]:border [&_td]:border-idemora-border/60">
-        {parts.map((part, i) => {
-          const cbMatch = part.match(/^<code-block id="([^"]+)"><\/code-block>$/)
-          if (cbMatch) {
-            const block = codeBlocks.find((b) => b.id === cbMatch[1])
-            if (block) return <CodeBlock key={i} code={block.code} language={block.language} />
-          }
-          return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />
-        })}
-      </div>
-    )
-  }
-// Inside MessageBubble component, before the render section:
-
-const renderedContent = useMemo(() => {
-  const cleaned = message.content
-    .replace(/\[web:[^\]]+\]/g, "")
-    .replace(/ \./g, ".")
-
-  const renderer = new marked.Renderer()
-
-  const codeBlocks: Array<{ id: string; code: string; language?: string }> = []
-  renderer.code = ({ text: code, lang }) => {
-    const id = `cb-${crypto.randomUUID()}`
-    codeBlocks.push({ id, code, language: lang || undefined })
-    return `<code-block id="${id}"></code-block>`
-  }
-
-  renderer.table = ({ header, rows }) => {
-    const headerHtml = `<thead></tr>${header.map(h =>
-      `<th>${marked.parseInline(h.text, { async: false }) as string}</th>`
-    ).join("")}</thead>`
-    const bodyHtml = `<tbody>${rows.map(row =>
-      `<tr>${row.map(cell =>
-        `<td>${marked.parseInline(cell.text, { async: false }) as string}</td>`
-      ).join("")}</tr>`
-    ).join("")}</tbody>`
-    return `<div class="table-wrap"><table>${headerHtml}${bodyHtml}</table></div>`
-  }
-
-  const html = marked.parse(cleaned, { async: false, renderer }) as string
-
-  const stripped = html.replace(/\[\d+(?:,\s*\d+)*\]/g, "")
-  const parts = stripped.split(/(<code-block id="[^"]+"><\/code-block>)/g)
-
-  return (
-    <div className="text-sm text-idemora-text-normal
-      [&_strong]:font-semibold [&_strong]:text-idemora-text-normal
-      [&_em]:italic
-      [&_p]:my-2 [&_p]:leading-relaxed [&_p]:first:mt-0 [&_p]:last:mb-0
-      [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:ml-4 [&_ul]:mt-1.5 [&_ul]:mb-1.5
-      [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:ml-4 [&_ol]:mt-1.5 [&_ol]:mb-1.5
-      [&_li]:my-1 [&_li]:leading-relaxed
-      [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-4 [&_h1]:mb-1 [&_h1]:text-idemora-text-normal [&_h1]:leading-snug
-      [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-0.5 [&_h2]:text-idemora-text-normal [&_h2]:border-b [&_h2]:border-idemora-border/40 [&_h2]:pb-0.5
-      [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-0.5 [&_h3]:text-idemora-text-normal
-      [&_blockquote]:text-idemora-text-muted [&_blockquote]:border-l-2 
-      [&_blockquote]:border-violet-400/50 [&_blockquote]:pl-3 [&_blockquote]:py-1.5 [&_blockquote]:my-2 [&_blockquote]:bg-idemora-bg-secondary 
-      [&_blockquote]:rounded-r-md [&_blockquote]:pr-3
-      [&_hr]:border-none [&_hr]:border-t [&_hr]:border-idemora-border/40 [&_hr]:my-3
-      [&_code]:text-violet-400 [&_code]:bg-idemora-bg-secondary [&_code]:rounded [&_code]:px-1 [&_code]:text-xs
-      [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:my-2
-      [&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_table]:border [&_table]:border-idemora-border/60
-      [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-semibold [&_th]:text-idemora-text-normal [&_th]:bg-idemora-bg-secondary [&_th]:border [&_th]:border-idemora-border/60
-      [&_td]:px-3 [&_td]:py-2 [&_td]:text-idemora-text-muted [&_td]:border [&_td]:border-idemora-border/60">
-      {parts.map((part, i) => {
-        const cbMatch = part.match(/^<code-block id="([^"]+)"><\/code-block>$/)
-        if (cbMatch) {
-          const block = codeBlocks.find((b) => b.id === cbMatch[1])
-          if (block) return <CodeBlock key={i} code={block.code} language={block.language} />
-        }
-        return <span key={i} dangerouslySetInnerHTML={{ __html: part }} />
-      })}
-    </div>
-  )
-}, [message.content])
+// Rendered by MessageRenderer — handles markdown, math, code, tables
+// Math rendering is deferred while streaming to avoid per-token KaTeX cost
 
 // Then in the render section, replace the call site.
 // Instead of:
@@ -1607,8 +1437,8 @@ const renderedContent = useMemo(() => {
 
         {/* Content */}
         {message.content !== "" && (
-  <div className="text-sm text-idemora-text-normal leading-relaxed">
-    {renderedContent}
+  <div className="leading-relaxed">
+    <MessageRenderer content={message.content} isStreaming={isStreaming} />
     {isStreaming && (
       <span className="inline-block w-0.5 h-3.5 bg-violet-400 ml-0.5 align-middle animate-pulse" />
     )}
