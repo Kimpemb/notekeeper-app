@@ -214,6 +214,8 @@ Important:
 - "what do I have on vitobu" is exploration + isPersonal:true
 - "are you sure those figures are correct" or "cross check what you just said" is hybrid + isPersonal:false + isFollowUp:true
 - "cross check if what I have in my notes are factually sound" mid-conversation about a specific topic is hybrid + isFollowUp:true
+- "from page 88, now solve them" mid-conversation referencing a previous response is hybrid + isFollowUp:false + isPersonal:false — "from page X" is a conversational reference, not a vault scope filter; cleanQuery should preserve the full intent
+- "now solve them", "do the same for b", "solve the first one" with no vault context are edit/hybrid — resolve from conversation history, do not search vault
 - "how many people did king leopold kill" is lookup + isPersonal:false — historical public figures are never personal
 - "heard jamie foxx almost died, what happened" is lookup + isPersonal:false — celebrity news is never personal
 - "how does climate change work" is lookup + isPersonal:false — no first-person pronoun means not personal

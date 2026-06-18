@@ -682,6 +682,7 @@ useEffect(() => {
       setPersistedMeta(noteId, assistantId, pm)
       await saveSession(noteId)
 
+// AFTER:
       setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
         sourceTitles:        meta.sourceTitles,
         sourceNoteIds:       meta.sourceNoteIds,
@@ -691,6 +692,10 @@ useEffect(() => {
         titleMatchedNoteIds: meta.titleMatchedNoteIds,
         webNudge:            meta.webNudge,
       }))
+
+      if (meta.webGrounded) {
+        setSuppressedNudges((prev) => new Set(prev).add(assistantId))
+      }
     } catch (rawErr) {
       if (!errorHandled) {
         useChatSessionStore.setState((s) => {

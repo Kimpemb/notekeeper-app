@@ -1044,13 +1044,12 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
     const hasVault = injectVault && pipeline.excerptBlock && pipeline.chunkCount > 0
     const hasWeb   = webResults && webResults.length > 0
 
+// AFTER:
     const excerptSection = pipeline.inventoryMode
       ? pipeline.excerptBlock
       : hasVault
         ? `[NOTE AND VAULT EXCERPTS]\n${pipeline.excerptBlock}`
-        : hasWeb
-            ? "(No matching content found in your notes — answering from web search only.)"
-            : ""
+        : ""
 
     const titleDirectedInstruction = pipeline.isTitleDirected
       ? `The user is asking about a specific note by title. Prioritise excerpts from the directly matched note(s) and answer from their content. Do not speculate beyond what those excerpts contain.\n`
@@ -1073,17 +1072,21 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
           : ""
 
     return `You are an assistant with access to the user's personal notes vault.
-  ${titleDirectedInstruction}${combinedSourceInstruction}You will be given numbered excerpts [1], [2], [3]... from different notes.
+  ${titleDirectedInstruction}${combinedSourceInstruction}${hasVault ? `You will be given numbered excerpts [1], [2], [3]... from different notes.
   Read ALL excerpts carefully before forming your answer — the relevant information may appear in any excerpt, not just the first ones.
   Cite every note excerpt you draw from using its number: [1], [2] etc.
-  When using web search results, cite them as [web:1], [web:2] etc.
+  Only use [N] citation markers for excerpts that appear numbered in the context below — never invent citations for content not explicitly provided.
+  When using web search results, cite them as [web:N].` : `Do not use [N] citation markers — no note excerpts are provided for this query.`}
   Excerpts include a location path (e.g. "Projects / Vitobu / Day 1") — use this to give context about where information lives when it adds clarity.
   Synthesise across excerpts when the answer is spread across multiple notes.
   When multiple retrieved notes point to the same underlying theme or project, synthesise across them rather than listing them separately.
   When the current question connects to topics already in the conversation history, draw that connection explicitly.
   You may make inferences well-supported by the retrieved content — state them explicitly as inferences using language like "this suggests" or "taken together, these notes indicate". Never cite a source for an inference not directly stated in that source.
   If after reading ALL excerpts the information is genuinely absent, say so in one sentence. Do not say information is unavailable if it appears anywhere in the excerpts, even partially.
+  When a specific exercise, problem, or item is not found in the excerpts, do not substitute similar examples or adjacent content as a workaround — state clearly what was not found, then offer to answer from general knowledge if relevant. Never present invented examples as if they were the requested content.
   When the question appears to be a follow-up, clarification, or reference to something already discussed (e.g. "are you sure", "cross check that", "verify those figures", "was that correct"), resolve it primarily from the conversation history above before searching the vault. Do not treat it as a new independent query.
+  When asked to cross-check, verify, or correct a previous answer, do not just describe what is wrong — produce the complete corrected answer in full. Never stop at identifying the error; always deliver the fixed version.
+  Never hedge with phrases like "for the most authoritative answer, consult X" when you have sufficient information to answer confidently. Only flag uncertainty when genuinely uncertain.
   Never mention the vault or note system unless the user's question is specifically about their notes.
   Format your response using markdown:
   - Use **bold** for key terms and important concepts
@@ -1188,7 +1191,7 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
     const isScopedSearch = scopeNoteIds && scopeNoteIds.length > 0
     const scopedButEmpty = isScopedSearch && pipeline.chunkCount === 0
 
-if (scopedButEmpty && !pipeline.inventoryMode && (!webResults || webResults.length === 0) && intent !== "edit") {
+if (scopedButEmpty && !pipeline.inventoryMode && (!webResults || webResults.length === 0) && intent !== "edit" && !isFollowUp) {
       console.log('[streamChat] scoped search returned 0 chunks — routing to history/general knowledge')
 
       const generalPrompt = `You are a helpful assistant engaged in an ongoing conversation.
@@ -1309,6 +1312,7 @@ if (currentNote && (isDeixis || effectiveHistoryBlock.length === 0)) {
         streaming.onStatus?.("Identifying claims to verify…")
 
         const claimExtractionPrompt = `You are a research assistant. Given the conversation below, extract up to 3 specific, verifiable factual claims that could be checked against current real-world data (e.g. pricing, specs, limits, costs).
+If the conversation is about mathematics, formal proofs, algorithms, or academic theory (automata, logic, CS theory), return an empty array [] — these cannot be verified via web search and should be resolved from first principles.
 
 Return ONLY a valid JSON array of short search query strings — no markdown, no explanation, no backticks.
 Each query should be specific and searchable (e.g. "Railway starter plan pricing 2026", "Supabase Pro plan cost 2026").
@@ -1417,10 +1421,8 @@ Answer:`
     }
 
     // Gate vault injection — only inject when retrieval was meaningful
-const MEANINGFUL_SCORE_THRESHOLD = 0.05
 const injectVault = pipeline.chunkCount > 0
   && pipeline.confidence !== "low"
-  && pipeline.topScore >= MEANINGFUL_SCORE_THRESHOLD
 
 
 // Low confidence + no personal signals — try web first, fall back to general knowledge
