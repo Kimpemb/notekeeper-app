@@ -51,6 +51,8 @@
   import type { Note } from "@/types"
 import { WEB_SEARCH_SCORE_THRESHOLD, WEB_SEARCH_MIN_CHUNKS, getWebSearchProvider } from "@/features/ai/lib/search/webSearchProvider"
 import type { WebSearchResult } from "@/features/ai/lib/search/webSearchProvider"
+import { trackMessage }                                    from "@/features/ai/lib/memory/episodeManager"
+import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/lib/memory/memoryRetrieval"
 
   // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1027,12 +1029,13 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
   // ─── Prompt builder ───────────────────────────────────────────────────────────
 
   function buildPrompt(
-    query:        string,
-    pipeline:     PipelineResult,
-    historyBlock: string,
-    currentNote?: Note,
-    webResults?:  WebSearchResult[],
-    injectVault?: boolean,
+    query:          string,
+    pipeline:       PipelineResult,
+    historyBlock:   string,
+    currentNote?:   Note,
+    webResults?:    WebSearchResult[],
+    injectVault?:   boolean,
+    relevantMemory?: import("@/features/ai/lib/memory/memoryRetrieval").MemorySearchResult[],
   ): string {
     const intent = pipeline.detectedIntent
     const historyBeforeQuestion = intent === "edit" || intent === "hybrid"
@@ -1071,6 +1074,10 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
           ? `You have access to live web search results. Cite them as [web:N].\n`
           : ""
 
+const memoryBlock = relevantMemory && relevantMemory.length > 0
+  ? `[RELEVANT PAST SESSIONS]\nThe following are summaries of relevant past conversations. Weave this context into your answer naturally — do not open with "based on the past session summary" or narrate the sources. Just answer.\n${formatMemoryResults(relevantMemory)}\n`
+  : ""
+
     return `You are an assistant with access to the user's personal notes vault.
   ${titleDirectedInstruction}${combinedSourceInstruction}${hasVault ? `You will be given numbered excerpts [1], [2], [3]... from different notes.
   Read ALL excerpts carefully before forming your answer — the relevant information may appear in any excerpt, not just the first ones.
@@ -1097,10 +1104,12 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
   - Place citations inline immediately after the claim they support
   - Never restate the question, summarise what you just said, or add filler closing sentences
   ${!historyBeforeQuestion && historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
+  ${memoryBlock}
   ${hasVault ? `[EXCERPTS FROM YOUR NOTES]\n${excerptSection}\n` : excerptSection ? `${excerptSection}\n` : ""}
   ${currentNoteBlock ? `[CURRENTLY OPEN NOTE]\nUse this as additional context. Do not cite it with a number — refer to it as "current note" if relevant.\n${currentNoteBlock}\n` : ""}
   ${hasWeb ? buildWebResultsBlock(webResults!) : ""}
   ${historyBeforeQuestion && historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
+  ${memoryBlock}
   [QUESTION]
   ${query}
 
@@ -1158,11 +1167,12 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
     // Detect intent for budget allocation
     const { intent: earlyIntent, isPersonal, isFollowUp, isDeixis } = await detectIntent(query)
     const budget     = allocateBudget(earlyIntent)
-    const [historyBlock, pipeline] = await Promise.all([
+    const [historyBlock, pipeline, relevantMemory] = await Promise.all([
       buildHistoryBlock(noteId, budget.historyChars, sessionMessages),
       prebuiltPipeline
         ? Promise.resolve(prebuiltPipeline)
         : runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds, streaming.onStatus),
+      searchMemoryBlocks(query, currentNote?.id, 3).catch(() => []),
     ])
     const intent = pipeline.detectedIntent
 
@@ -1441,6 +1451,9 @@ if (!injectVault && !pipeline.inventoryMode && (!webResults || webResults.length
       streaming.onChunk(assembled)
       await appendAIHistory(noteId, "user",      query)
       await appendAIHistory(noteId, "assistant", assembled)
+      // Memory blocks — track episode messages (non-blocking)
+      trackMessage(noteId, "user",      query).catch(console.warn)
+      trackMessage(noteId, "assistant", assembled).catch(console.warn)
       streaming.onDone?.()
     } catch (err: unknown) {
       streaming.onError?.(err as AICallError)
@@ -1606,7 +1619,7 @@ Answer:`
       }
     }
 
-    const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote, webResults, injectVault)
+    const prompt   = buildPrompt(query, pipeline, historyBlock, currentNote, webResults, injectVault, relevantMemory)
     const messages: ProviderMessage[] = [{ role: "user", content: prompt }]
 
     streaming.onStatus?.("Generating answer…")
@@ -1624,6 +1637,9 @@ Answer:`
 
       await appendAIHistory(noteId, "user",      query)
       await appendAIHistory(noteId, "assistant", assembled)
+      // Memory blocks — track episode messages (non-blocking)
+      trackMessage(noteId, "user",      query).catch(console.warn)
+      trackMessage(noteId, "assistant", assembled).catch(console.warn)
 
       const history = await getAIHistory(noteId)
       if (history.length >= 6) {

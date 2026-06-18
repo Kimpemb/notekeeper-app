@@ -439,4 +439,45 @@ export const ALL_MIGRATIONS: string[] = [
   `ALTER TABLE calendar_events ADD COLUMN group_id TEXT REFERENCES event_groups(id) ON DELETE SET NULL`,
 
   `ALTER TABLE calendar_events ADD COLUMN linked_note_id TEXT`,
+
+  // ── Memory Blocks Architecture ────────────────────────────────────────────
+
+  `CREATE TABLE IF NOT EXISTS episodes (
+    id               TEXT    NOT NULL PRIMARY KEY,
+    note_id          TEXT,
+    opened_at        INTEGER NOT NULL,
+    closed_at        INTEGER,
+    message_count    INTEGER NOT NULL DEFAULT 0,
+    topic_summary    TEXT,
+    intent_tags      TEXT,
+    boundary_score   REAL    NOT NULL DEFAULT 0,
+    episode_embedding BLOB,
+    created_at       INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_episodes_note_id
+    ON episodes(note_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_episodes_opened_at
+    ON episodes(opened_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS episode_messages (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    episode_id      TEXT    NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+    role            TEXT    NOT NULL CHECK(role IN ('user', 'assistant')),
+    content         TEXT    NOT NULL,
+    created_at      INTEGER NOT NULL,
+    query_embedding BLOB
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_episode_messages_episode_id
+    ON episode_messages(episode_id, created_at ASC)`,
+
+  `ALTER TABLE note_blocks ADD COLUMN episode_id TEXT`,
+
+  `ALTER TABLE note_blocks ADD COLUMN memory_metadata TEXT`,
+
+  `ALTER TABLE note_blocks ADD COLUMN query_embedding BLOB`,
+
+  `ALTER TABLE note_blocks ADD COLUMN episode_embedding BLOB`,
 ];

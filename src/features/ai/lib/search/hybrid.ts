@@ -266,6 +266,7 @@ LEFT JOIN embeddings e          ON e.block_id  = sub.block_id
 LEFT JOIN note_title_chunks ntc ON ntc.note_id = sub.note_id
 WHERE n.deleted_at IS NULL
   AND (n.id = $${innerParamIdx} OR n.title NOT LIKE 'Untitled%')
+  AND nb.source_type NOT IN ('memory_warm', 'memory_cold')
   ${outerScopeClause.sql}
   LIMIT ${topK}`,
   [...innerParams, currentNoteId ?? "", ...outerScopeClause.params]
@@ -435,6 +436,7 @@ async function vectorPass(
         if (scope.noteIds && scope.noteIds.length > 0 && !scope.noteIds.includes(meta.note_id)) return false
         if (isUntitledNote(meta.title) && meta.note_id !== currentNoteId) return false
         if (meta.rag_excluded === 1 && !_overrideSet.has(meta.note_id)) return false
+        if (meta.source_type === 'memory_warm' || meta.source_type === 'memory_cold') return false
         return true
       })
     } else {
@@ -445,13 +447,15 @@ async function vectorPass(
       if (blockIds.length > 0) {
         const phs      = blockIds.map((_, i) => `$${i + 1}`).join(", ")
         const titleRows = await db.select<{
-          block_id: string
-          title:    string
-          note_id:  string
+          block_id:    string
+          title:       string
+          note_id:     string
           rag_excluded: number
+          source_type: string
         }[]>(
-          `SELECT nb.block_id, n.title, n.id AS note_id
-          , COALESCE(n.rag_excluded, 0) AS rag_excluded
+          `SELECT nb.block_id, n.title, n.id AS note_id,
+                  COALESCE(n.rag_excluded, 0) AS rag_excluded,
+                  nb.source_type
            FROM note_blocks nb
            JOIN notes n ON n.id = nb.note_id
            WHERE nb.block_id IN (${phs})`,
@@ -465,6 +469,7 @@ async function vectorPass(
           if (!t) return true
           if (isUntitledNote(t.title) && t.note_id !== currentNoteId) return false
           if (t.rag_excluded === 1 && !_overrideSet.has(t.note_id)) return false
+          if (t.source_type === 'memory_warm' || t.source_type === 'memory_cold') return false
           return true
         })
       }

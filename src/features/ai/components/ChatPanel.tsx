@@ -32,6 +32,7 @@ import {
   type WebSearchResult,
 } from "@/features/ai/lib/search/webSearchProvider"
 import { detectIntent } from "@/features/ai/lib/search/intentDetection"
+import { onExplicitClear } from "@/features/ai/lib/memory/episodeManager"
 
 interface Props {
   noteId: string;
@@ -729,7 +730,11 @@ useEffect(() => {
     setSuppressedNudges(new Set())
     setRuntimeMetaMap(new Map())
     await clearSession(noteId)
-    await Promise.all([clearAIHistory(noteId), clearConversationSummary(noteId)])
+    await Promise.all([
+      clearAIHistory(noteId),
+      clearConversationSummary(noteId),
+      onExplicitClear(noteId),
+    ])
   }
 
   function handleStop() {

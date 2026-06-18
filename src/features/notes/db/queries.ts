@@ -469,6 +469,9 @@ export async function initDb(): Promise<void> {
     await resetFailedEmbeddingJobs();
     await rebuildFtsIndexIfNeeded();
     await archiveOldExhaustionLogs();
+    await addMemoryBlockColumns();
+    const { ageWarmToCold } = await import('@/features/ai/lib/memory/blockFormation')
+    await ageWarmToCold()
     console.log("[initDb] Background maintenance complete");
     _dbReadyResolve?.();
   }, 5000);
@@ -2474,6 +2477,19 @@ export async function clearConversationSummary(noteId: string): Promise<void> {
   )
 }
 
+async function addMemoryBlockColumns(): Promise<void> {
+  const db = await getDb()
+  const cols = [
+    `ALTER TABLE note_blocks ADD COLUMN episode_id TEXT`,
+    `ALTER TABLE note_blocks ADD COLUMN memory_metadata TEXT`,
+    `ALTER TABLE note_blocks ADD COLUMN query_embedding BLOB`,
+    `ALTER TABLE note_blocks ADD COLUMN episode_embedding BLOB`,
+  ]
+  for (const sql of cols) {
+    try { await db.execute(sql) } catch { /* already exists — safe to ignore */ }
+  }
+}
+
 // ─── Canvas migration ─────────────────────────────────────────────────────────
 
 export async function migrateCanvasesToNotes(): Promise<void> {
@@ -2799,4 +2815,138 @@ export async function saveChatSession(
 export async function deleteChatSession(noteId: string): Promise<void> {
   const db = await getDb()
   await db.execute(`DELETE FROM chat_sessions WHERE note_id = $1`, [noteId])
+}
+
+// ─── Episodes ─────────────────────────────────────────────────────────────────
+
+export interface EpisodeRow {
+  id:                string
+  note_id:           string | null
+  opened_at:         number
+  closed_at:         number | null
+  message_count:     number
+  topic_summary:     string | null
+  intent_tags:       string | null
+  boundary_score:    number
+  created_at:        number
+}
+
+export interface EpisodeMessageRow {
+  id:              string
+  episode_id:      string
+  role:            'user' | 'assistant'
+  content:         string
+  created_at:      number
+}
+
+export async function createEpisode(noteId: string | null): Promise<EpisodeRow> {
+  const db  = await getDb()
+  const now = Date.now()
+  const id  = crypto.randomUUID()
+  await db.execute(
+    `INSERT INTO episodes (id, note_id, opened_at, message_count, boundary_score, created_at)
+     VALUES ($1, $2, $3, 0, 0, $4)`,
+    [id, noteId, now, now]
+  )
+  return {
+    id, note_id: noteId, opened_at: now, closed_at: null,
+    message_count: 0, topic_summary: null, intent_tags: null,
+    boundary_score: 0, created_at: now,
+  }
+}
+
+export async function getOpenEpisode(noteId: string): Promise<EpisodeRow | null> {
+  const db   = await getDb()
+  const rows = await db.select<EpisodeRow[]>(
+    `SELECT * FROM episodes
+     WHERE note_id = $1 AND closed_at IS NULL
+     ORDER BY opened_at DESC LIMIT 1`,
+    [noteId]
+  )
+  return rows[0] ?? null
+}
+
+export async function closeEpisode(
+  episodeId:    string,
+  topicSummary: string,
+  intentTags:   string[],
+  embedding?:   Float32Array,
+): Promise<void> {
+  const db  = await getDb()
+  const now = Date.now()
+  await db.execute(
+    `UPDATE episodes
+     SET closed_at        = $1,
+         topic_summary    = $2,
+         intent_tags      = $3,
+         episode_embedding = $4
+     WHERE id = $5`,
+    [
+      now,
+      topicSummary,
+      JSON.stringify(intentTags),
+      embedding ? vectorToBlob(embedding) : null,
+      episodeId,
+    ]
+  )
+}
+
+export async function incrementEpisodeMessageCount(episodeId: string): Promise<void> {
+  const db = await getDb()
+  await db.execute(
+    `UPDATE episodes SET message_count = message_count + 1 WHERE id = $1`,
+    [episodeId]
+  )
+}
+
+export async function appendEpisodeMessage(
+  episodeId:      string,
+  role:           'user' | 'assistant',
+  content:        string,
+  queryEmbedding?: Float32Array,
+): Promise<void> {
+  const db  = await getDb()
+  const now = Date.now()
+  await db.execute(
+    `INSERT INTO episode_messages (id, episode_id, role, content, created_at, query_embedding)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      crypto.randomUUID(),
+      episodeId,
+      role,
+      content,
+      now,
+      queryEmbedding ? vectorToBlob(queryEmbedding) : null,
+    ]
+  )
+  await incrementEpisodeMessageCount(episodeId)
+}
+
+export async function getEpisodeMessages(episodeId: string): Promise<EpisodeMessageRow[]> {
+  const db = await getDb()
+  return db.select<EpisodeMessageRow[]>(
+    `SELECT id, episode_id, role, content, created_at
+     FROM episode_messages
+     WHERE episode_id = $1
+     ORDER BY created_at ASC`,
+    [episodeId]
+  )
+}
+
+export async function getRecentClosedEpisodes(
+  limit: number = 10
+): Promise<EpisodeRow[]> {
+  const db = await getDb()
+  return db.select<EpisodeRow[]>(
+    `SELECT * FROM episodes
+     WHERE closed_at IS NOT NULL
+     ORDER BY closed_at DESC
+     LIMIT $1`,
+    [limit]
+  )
+}
+
+export async function deleteEpisode(episodeId: string): Promise<void> {
+  const db = await getDb()
+  await db.execute(`DELETE FROM episodes WHERE id = $1`, [episodeId])
 }

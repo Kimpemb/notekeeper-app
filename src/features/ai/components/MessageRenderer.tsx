@@ -248,6 +248,8 @@ export function MessageRenderer({ content, isStreaming = false }: Props) {
     return content
       .replace(/\[web:[^\]]+\]/g, "")
       .replace(/ \./g, ".")
+      // Escape currency $ signs (digit or range immediately after $) before math parsing
+      .replace(/\$(?=[\d])/g, "\\$")
       // Block math first (must come before inline to avoid partial matches)
       .replace(/\\\[([\s\S]*?)\\\]/g, (_: string, m: string) => `$$${m}$$`)
       // Inline math
