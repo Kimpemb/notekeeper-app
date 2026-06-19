@@ -116,14 +116,23 @@ export function useCalendarEvents() {
             layers: activeLayers,
           });
         } else {
-          const [nonGreen, windowGreen] = await Promise.all([
+          // Pull all-time unresolved (yellow) events separately — these must
+          // surface regardless of how far in the past they are, since the
+          // forward-looking agenda window only starts at `startDate`.
+          const [nonGreen, windowGreen, staleYellow] = await Promise.all([
             getAgendaEvents({ startDate, endDate, layers: activeLayers }),
             getEventsForDateRange({ startDate, endDate, layers: activeLayers })
               .then((evts) => evts.filter((e) => e.colour_state === "green")),
+            getEventsForDateRange({
+              startDate: "1970-01-01",
+              endDate:   addDays(startDate, -1),   // strictly before the window
+              layers:    activeLayers,
+            }).then((evts) => evts.filter((e) => e.colour_state === "yellow")),
           ]);
           // Deduplicate by id+date — uniquely identifies both standalone and recurring occurrences
             const seen = new Set(nonGreen.map((e) => `${e.id}::${e.date}`));
             loaded = [
+              ...staleYellow,
               ...nonGreen,
               ...windowGreen.filter((e) => !seen.has(`${e.id}::${e.date}`)),
             ];

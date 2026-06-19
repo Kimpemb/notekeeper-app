@@ -35,7 +35,7 @@ interface Props {
   onEventClick: (event: CalendarEvent) => void;
   onOpenNote:   (noteId: string) => void;
   onGoalClick:  (goalId: string) => void;
-  onResolve:    (id: string, state: ColourState) => Promise<void>;
+  onResolve:    (id: string, state: ColourState, occurrenceId?: string | null) => Promise<void>;
 }
 
 function formatDate(isoDate: string): string {
@@ -160,6 +160,8 @@ export function AgendaView({ events, groups, banners, loading, onEventClick, onO
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [goalsCollapsed, setGoalsCollapsed] = useState(false);
   const [goalsExpanded, setGoalsExpanded] = useState(false);
+  const [yellowCollapsed, setYellowCollapsed] = useState(false);
+
 
   function toggleGroup(groupId: string) {
     setCollapsedGroups((prev) => {
@@ -237,10 +239,21 @@ for (const event of dedupedUngrouped) {
         const yellowEvents = events.filter((e) => e.colour_state === "yellow");
         if (yellowEvents.length === 0) return null;
 
-        return (
+         return (
           <div className="border-b border-yellow-500/20 bg-yellow-500/5">
             {/* Queue header */}
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-yellow-500/15">
+            <button
+              onClick={() => setYellowCollapsed((v) => !v)}
+              className="w-full flex items-center gap-2 px-4 py-2 border-b border-yellow-500/15
+                         hover:bg-yellow-500/10 transition-colors text-left"
+            >
+              <svg
+                width="10" height="10" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2"
+                className={`text-yellow-400 shrink-0 transition-transform duration-150 ${yellowCollapsed ? "-rotate-90" : ""}`}
+              >
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" strokeWidth="2"
                    className="text-yellow-400 shrink-0">
@@ -251,10 +264,10 @@ for (const event of dedupedUngrouped) {
               <span className="text-xs font-semibold text-yellow-400">
                 {yellowEvents.length} event{yellowEvents.length !== 1 ? "s" : ""} need{yellowEvents.length === 1 ? "s" : ""} your attention
               </span>
-            </div>
+            </button>
 
             {/* Queue rows */}
-            {yellowEvents.map((event) => (
+            {!yellowCollapsed && yellowEvents.map((event) => (
               <div
                 key={event.id}
                 className="flex items-center gap-3 px-4 py-2.5 border-b border-yellow-500/10
@@ -281,7 +294,7 @@ for (const event of dedupedUngrouped) {
                 {/* Resolve buttons */}
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
-                    onClick={() => onResolve(event.id, "green")}
+                    onClick={() => onResolve(event.id, "green", event.occurrence_id)}
                     className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium
                                bg-green-500/10 text-green-400 hover:bg-green-500/20
                                border border-green-500/20 transition-colors"
@@ -294,7 +307,7 @@ for (const event of dedupedUngrouped) {
                     Done
                   </button>
                   <button
-                    onClick={() => onResolve(event.id, "red")}
+                    onClick={() => onResolve(event.id, "red", event.occurrence_id)}
                     className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium
                                bg-red-500/10 text-red-400 hover:bg-red-500/20
                                border border-red-500/20 transition-colors"

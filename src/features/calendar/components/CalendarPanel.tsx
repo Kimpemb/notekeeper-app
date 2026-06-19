@@ -109,8 +109,8 @@ export function CalendarPanel({ onInnerModalChange }: CalendarPanelProps) {
     setSelectedEvent(null);
   }
 
-  async function handleResolve(id: string, state: ColourState) {
-    await updateColourState(id, state);
+  async function handleResolve(id: string, state: ColourState, occurrenceId?: string | null) {
+    await updateColourState(id, state, occurrenceId);
 
     // If this is a goal milestone, sync colour_state to goal_milestones
     // so progress recomputes correctly
