@@ -20,13 +20,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   cde:      "CDE",
 };
 
-const BANNER_BG: Record<string, string> = {
-  blue:   "bg-blue-500/10 border-blue-500/30 text-blue-300",
-  green:  "bg-green-500/10 border-green-500/30 text-green-300",
-  yellow: "bg-yellow-500/10 border-yellow-500/30 text-yellow-300",
-  red:    "bg-red-500/10 border-red-500/30 text-red-300",
-};
-
 interface Props {
   events:       CalendarEvent[];
   groups:       EventGroup[];
@@ -234,7 +227,7 @@ for (const event of dedupedUngrouped) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {/* ── Yellow Queue ── */}
+      {/* ── 1. Yellow Queue ── */}
       {(() => {
         const yellowEvents = events.filter((e) => e.colour_state === "yellow");
         if (yellowEvents.length === 0) return null;
@@ -326,7 +319,7 @@ for (const event of dedupedUngrouped) {
         );
       })()}
 
-            {/* ── Goal banners ── */}
+      {/* ── 2. Active Goals — muted green accent, collapsed by default ── */}
       {banners.length > 0 && (
         <div className="border-b border-idemora-border/50">
           <button
@@ -408,21 +401,91 @@ for (const event of dedupedUngrouped) {
                 </button>
               ))}
               {banners.length > 4 && (
-                <div className="px-4 py-2 text-right border-t border-idemora-border/30">
-                  <button
-                    onClick={() => setGoalsExpanded((v) => !v)}
-                    className="text-xs font-medium text-blue-500 hover:text-blue-600 transition-colors"
+                <button
+                  onClick={() => setGoalsExpanded((v) => !v)}
+                  className="w-full px-4 py-2 border-t border-idemora-border/30 
+                             hover:bg-idemora-bg-secondary transition-colors
+                             flex items-center justify-center gap-2 text-center"
+                >
+                  <svg
+                    width="10" height="10" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2"
+                    className={`text-idemora-text-muted transition-transform duration-150 
+                                ${goalsExpanded ? "rotate-180" : ""}`}
                   >
+                    <path d="M6 9l6 6 6-6"/>
+                  </svg>
+                  <span className="text-xs font-medium text-blue-500">
                     {goalsExpanded ? "Show less" : `+${banners.length - 4} more`}
-                  </button>
-                </div>
+                  </span>
+                </button>
               )}
             </>
           )}
         </div>
       )}
 
-      {/* ── Grouped sections ── */}
+      {/* ── 3. TODAY — blue accent, elevated tint ── */}
+      {[...ungroupedByDate.entries()].map(([date, dayEvents]) => (
+        <div key={date}>
+          <div className="px-4 py-2 sticky top-0 bg-idemora-bg-primary border-b border-idemora-border
+                          z-10 flex items-center gap-2">
+            <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wide">
+              {formatDate(date)}
+            </span>
+            <UrgencyBadge
+              isoDate={date}
+              hasUnresolved={dayEvents.some((e) => e.colour_state !== "green")}
+            />
+          </div>
+
+          {dayEvents.map((event) => {
+            const isCompleted = event.colour_state === "green";
+            return (
+              <button
+                key={event.id}
+                onClick={() => onEventClick(event)}
+                className={`w-full flex items-center gap-3 px-4 py-3 border-b border-idemora-border/50
+                             hover:bg-idemora-bg-secondary transition-colors text-left group
+                             ${isCompleted ? "opacity-45" : ""}`}
+              >
+                {isCompleted ? (
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth="3"
+                       className="text-green-500 shrink-0">
+                    <path d="M20 6L9 17l-5-5"/>
+                  </svg>
+                ) : (
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${STATE_DOT[event.colour_state]}`} />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm truncate ${
+                    isCompleted ? "text-idemora-text-muted line-through" : "text-idemora-text-normal"
+                  }`}>
+                    {event.title}
+                  </p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs text-idemora-text-muted">{formatTime(event.time)}</span>
+                    <span className="text-xs text-idemora-text-muted opacity-50">·</span>
+                    <span className="text-xs text-idemora-text-muted">
+                      {CATEGORY_LABELS[event.category] ?? event.category}
+                    </span>
+                    <NoteIndicator linkedNoteId={event.linked_note_id} onOpenNote={onOpenNote} />
+                  </div>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" strokeWidth="1.5"
+                     className="text-idemora-text-muted opacity-0 group-hover:opacity-100
+                                transition-opacity shrink-0">
+                  <path d="M9 18l6-6-6-6"/>
+                </svg>
+              </button>
+            );
+          })}
+        </div>
+      ))}
+
+      {/* ── 4. Named groups ── */}
       {[...groupBuckets.entries()].map(([groupId, gevents]) => {
         const groupName   = groupMap.get(groupId) ?? "Group";
         const completed   = gevents.filter((e) => e.colour_state === "green").length;
@@ -508,65 +571,8 @@ for (const event of dedupedUngrouped) {
         );
       })}
 
-      {/* ── Ungrouped events ── */}
-      {[...ungroupedByDate.entries()].map(([date, dayEvents]) => (
-        <div key={date}>
-          <div className="px-4 py-2 sticky top-0 bg-idemora-bg-primary border-b border-idemora-border
-                          z-10 flex items-center gap-2">
-            <span className="text-xs font-semibold text-idemora-text-muted uppercase tracking-wide">
-              {formatDate(date)}
-            </span>
-            <UrgencyBadge
-              isoDate={date}
-              hasUnresolved={dayEvents.some((e) => e.colour_state !== "green")}
-            />
-          </div>
-
-          {dayEvents.map((event) => {
-            const isCompleted = event.colour_state === "green";
-            return (
-              <button
-                key={event.id}
-                onClick={() => onEventClick(event)}
-                className={`w-full flex items-center gap-3 px-4 py-3 border-b border-idemora-border/50
-                             hover:bg-idemora-bg-secondary transition-colors text-left group
-                             ${isCompleted ? "opacity-45" : ""}`}
-              >
-                {isCompleted ? (
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
-                       stroke="currentColor" strokeWidth="3"
-                       className="text-green-500 shrink-0">
-                    <path d="M20 6L9 17l-5-5"/>
-                  </svg>
-                ) : (
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${STATE_DOT[event.colour_state]}`} />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm truncate ${
-                    isCompleted ? "text-idemora-text-muted line-through" : "text-idemora-text-normal"
-                  }`}>
-                    {event.title}
-                  </p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-idemora-text-muted">{formatTime(event.time)}</span>
-                    <span className="text-xs text-idemora-text-muted opacity-50">·</span>
-                    <span className="text-xs text-idemora-text-muted">
-                      {CATEGORY_LABELS[event.category] ?? event.category}
-                    </span>
-                    <NoteIndicator linkedNoteId={event.linked_note_id} onOpenNote={onOpenNote} />
-                  </div>
-                </div>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" strokeWidth="1.5"
-                     className="text-idemora-text-muted opacity-0 group-hover:opacity-100
-                                transition-opacity shrink-0">
-                  <path d="M9 18l6-6-6-6"/>
-                </svg>
-              </button>
-            );
-          })}
-        </div>
-      ))}
+      {/* ── 5. Future ungrouped (named groups already shown above) ── */}
+      {/* This section is intentionally empty as ungrouped events are now in section 3 */}
     </div>
   );
 }
