@@ -12,6 +12,8 @@
 //   before DeepSeek embeddings are set active.
 
 import type { ProviderName } from "@/features/ai/store/useAIStore";
+import type { ToolDefinition } from "@/features/ai/lib/tools/definitions";
+import type { ContentBlock } from "@/features/ai/lib/client";
 
 // ─── Model catalogue ──────────────────────────────────────────────────────────
 
@@ -101,9 +103,60 @@ export interface DeepSeekEmbedResponse {
   };
 }
 
+// ─── Tool-use types (OpenAI-compatible function calling) ─────────────────────
+
+interface DeepSeekTool {
+  type:     "function";
+  function: {
+    name:        string;
+    description: string;
+    parameters:  {
+      type:       "object";
+      properties: Record<string, { type: string; description: string; enum?: string[] }>;
+      required?:  string[];
+    };
+  };
+}
+
+interface DeepSeekToolCallResponse {
+  choices: Array<{
+    message: {
+      role:       string;
+      content:    string | null;
+      tool_calls?: Array<{
+        id:       string;
+        type:     "function";
+        function: { name: string; arguments: string };
+      }>;
+    };
+    finish_reason: string;
+  }>;
+  usage?: {
+    prompt_tokens:     number;
+    completion_tokens: number;
+  };
+}
+
 // ─── Endpoints ────────────────────────────────────────────────────────────────
 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function toDeepSeekTools(tools: ToolDefinition[]): DeepSeekTool[] {
+  return tools.map((t) => ({
+    type: "function" as const,
+    function: {
+      name:        t.name,
+      description: t.description,
+      parameters:  {
+        type:       "object" as const,
+        properties: t.input_schema.properties,
+        required:   t.input_schema.required,
+      },
+    },
+  }));
+}
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
@@ -151,6 +204,72 @@ export async function deepseekChat(
   const outputTokens = data.usage?.completion_tokens ?? 0;
 
   return { text, inputTokens, outputTokens };
+}
+
+// ─── Chat with tools ──────────────────────────────────────────────────────────
+
+/**
+ * Send a chat message to DeepSeek with tool/function calling support.
+ *
+ * @param apiKey   The raw API key string
+ * @param model    Exact model string e.g. "deepseek-chat"
+ * @param messages Conversation history in OpenAI-compatible format
+ * @param tools    Tool definitions to make available to the model
+ * @param system   Optional system message (prepended automatically)
+ * @returns        Content blocks (text and/or tool_use)
+ */
+export async function deepseekChatWithTools(
+  apiKey:   string,
+  model:    string,
+  messages: DeepSeekMessage[],
+  tools:    ToolDefinition[],
+  system?:  string,
+): Promise<{ content: ContentBlock[] }> {
+  const allMessages: DeepSeekMessage[] = system
+    ? [{ role: "system", content: system }, ...messages]
+    : messages;
+
+  const body = {
+    model,
+    messages:    allMessages,
+    tools:       toDeepSeekTools(tools),
+    tool_choice: "auto",
+  };
+
+  const res = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+    method:  "POST",
+    headers: {
+      "Content-Type":  "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new DeepSeekError(res.status, err?.error?.message ?? res.statusText, model);
+  }
+
+  const data: DeepSeekToolCallResponse = await res.json();
+  const message = data.choices?.[0]?.message;
+  const content: ContentBlock[] = [];
+
+  if (message?.content) {
+    content.push({ type: "text", text: message.content });
+  }
+
+  for (const tc of message?.tool_calls ?? []) {
+    let input: Record<string, unknown> = {};
+    try { input = JSON.parse(tc.function.arguments); } catch { /* malformed args */ }
+    content.push({
+      type:  "tool_use",
+      id:    tc.id,
+      name:  tc.function.name,
+      input,
+    });
+  }
+
+  return { content };
 }
 
 // ─── Embedding ────────────────────────────────────────────────────────────────

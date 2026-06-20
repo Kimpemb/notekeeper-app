@@ -1,0 +1,306 @@
+// src/features/ai/lib/tools/readTools.ts
+//
+// Read tool executors — called immediately when the model requests a read tool.
+// Each function takes raw tool input and returns a ReadToolResult.
+// All functions fail gracefully: { success: false, error } — never throw.
+//
+// Also exports classifyActionIntent, which routes messages to the tool loop
+// vs the existing RAG pipeline.
+
+import { getNoteById, searchNotes }             from "@/features/notes/db/queries";
+import { getEventsForDateRange }                from "@/features/calendar/db/calendarQueries";
+import { listGoals }                            from "@/features/goals/db/goalQueries";
+import { hybridSearch }                         from "@/features/ai/lib/search/hybrid";
+import { promptProcessing }                     from "@/features/ai/lib/client";
+import { ProcessingExhaustedError }             from "@/features/ai/lib/client";
+import type { Note }                            from "@/types";
+import type { GoalStatusFilter }                from "@/features/goals/db/goalQueries";
+import type { LayerKey }                        from "@/features/calendar/db/calendarQueries";
+import { prosemirrorBodyToMarkdown }            from "@/lib/exporters/markdown";
+
+// ─── Result type ──────────────────────────────────────────────────────────────
+
+export interface ReadToolResult {
+  success: boolean;
+  data?:   unknown;
+  error?:  string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function noteToReadShape(note: Note) {
+  return {
+    id:          note.id,
+    title:       note.title,
+    // Markdown, not plaintext — this is the same representation write tools
+    // (appendToNote/insertInNote/replaceInNote) round-trip through, so
+    // replaceInNote's old_content argument can exact-match what the model
+    // was shown by getNote/getCurrentNote.
+    content:     prosemirrorBodyToMarkdown(note.content ?? ""),
+    frontmatter: note.frontmatter ?? null,
+    updated_at:  note.updated_at,
+  };
+}
+
+// ─── getNote ──────────────────────────────────────────────────────────────────
+
+export async function executeGetNote(input: {
+  title?: string;
+  id?:    string;
+}): Promise<ReadToolResult> {
+  try {
+    // ID takes precedence
+    if (input.id) {
+      const note = await getNoteById(input.id);
+      if (!note || note.deleted_at !== null) {
+        return { success: false, error: `Note with id "${input.id}" not found.` };
+      }
+      return { success: true, data: noteToReadShape(note) };
+    }
+
+    if (input.title) {
+      // searchNotes ranks by title match — take the first result
+      const results = await searchNotes(input.title, 5);
+      if (results.length === 0) {
+        return { success: false, error: `No note found matching title "${input.title}".` };
+      }
+      // Fetch full note for the top result
+      const note = await getNoteById(results[0].id);
+      if (!note || note.deleted_at !== null) {
+        return { success: false, error: `Note "${input.title}" found in search but could not be retrieved.` };
+      }
+      return { success: true, data: noteToReadShape(note) };
+    }
+
+    return { success: false, error: "Provide either a note title or id." };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ─── searchNotes ──────────────────────────────────────────────────────────────
+
+export async function executeSearchNotes(input: {
+  query: string;
+  limit?: number;
+}): Promise<ReadToolResult> {
+  try {
+    if (!input.query?.trim()) {
+      return { success: false, error: "Search query must not be empty." };
+    }
+
+    // Try hybrid search first (semantic + keyword), fall back to keyword-only
+    let results: { id: string; title: string; excerpt: string; updated_at: number }[] = [];
+
+    try {
+      const { results: hybridResults } = await hybridSearch(
+        input.query,
+        input.limit ?? 5,
+      );
+
+      // HybridResult carries no timestamp — look up real updated_at per unique
+      // note_id (deduped, since multiple block hits can belong to the same note).
+      // A single failed lookup must not sink the whole search.
+      const uniqueNoteIds = [...new Set(hybridResults.map((r) => r.note_id))];
+      const noteRows = await Promise.all(
+        uniqueNoteIds.map((id) => getNoteById(id).catch(() => null)),
+      );
+      const updatedAtByNoteId = new Map<string, number>();
+      noteRows.forEach((note, i) => {
+        if (note) updatedAtByNoteId.set(uniqueNoteIds[i], note.updated_at);
+      });
+
+      results = hybridResults.map((r) => ({
+        id:         r.note_id,
+        title:      r.note_title,
+        excerpt:    r.plaintext?.slice(0, 200) ?? "",
+        updated_at: updatedAtByNoteId.get(r.note_id) ?? 0,
+      }));
+    } catch {
+      // hybridSearch may fail if embeddings aren't ready — fall back to keyword
+      const keyword = await searchNotes(input.query, input.limit ?? 5);
+      results = keyword.map((r) => ({
+        id:         r.id,
+        title:      r.title,
+        excerpt:    r.snippet ?? "",
+        updated_at: r.updated_at,
+      }));
+    }
+
+    return { success: true, data: results };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ─── getCalendarEvents ────────────────────────────────────────────────────────
+
+const ALL_LAYERS: LayerKey[] = ["personal", "notes", "tasks", "goals", "cde"];
+
+export async function executeGetCalendarEvents(input: {
+  start_date: string;
+  end_date:   string;
+  layers?:    string;           // comma-separated from tool input
+}): Promise<ReadToolResult> {
+  try {
+    if (!input.start_date || !input.end_date) {
+      return { success: false, error: "start_date and end_date are required (YYYY-MM-DD)." };
+    }
+
+    let layers: LayerKey[] = ALL_LAYERS;
+    if (input.layers) {
+      const parsed = input.layers
+        .split(",")
+        .map((l) => l.trim())
+        .filter((l): l is LayerKey =>
+          ["personal", "notes", "tasks", "goals", "cde"].includes(l)
+        );
+      if (parsed.length > 0) layers = parsed;
+    }
+
+    const events = await getEventsForDateRange({
+      startDate: input.start_date,
+      endDate:   input.end_date,
+      layers,
+    });
+
+    const data = events.map((e) => ({
+      id:            e.id,
+      title:         e.title,
+      date:          e.date,
+      time:          e.time,
+      duration_mins: e.duration_mins,
+      colour_state:  e.colour_state,
+      category:      e.category,
+      occurrence_id: e.occurrence_id,
+    }));
+
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ─── getGoals ─────────────────────────────────────────────────────────────────
+
+const VALID_FILTERS = new Set<GoalStatusFilter>([
+  "active", "upcoming", "completed", "missed", "unresolved",
+]);
+
+export async function executeGetGoals(input: {
+  filter?: string;
+}): Promise<ReadToolResult> {
+  try {
+    const filter =
+      input.filter && VALID_FILTERS.has(input.filter as GoalStatusFilter)
+        ? (input.filter as GoalStatusFilter)
+        : null;
+
+    const goals = await listGoals(filter);
+
+    const data = goals.map((g) => ({
+      id:           g.id,
+      title:        g.title,
+      target_date:  g.target_date,
+      progress:     g.progress,
+      colour_state: g.colour_state,
+      category:     g.category,
+    }));
+
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ─── getCurrentNote ───────────────────────────────────────────────────────────
+
+export async function executeGetCurrentNote(
+  currentNote: Note | null | undefined,
+): Promise<ReadToolResult> {
+  if (!currentNote || currentNote.deleted_at !== null) {
+    return { success: false, error: "no_note_open" };
+  }
+  return { success: true, data: noteToReadShape(currentNote) };
+}
+
+// ─── Read tool dispatcher ─────────────────────────────────────────────────────
+
+export async function executeReadTool(
+  toolName:    string,
+  toolInput:   Record<string, unknown>,
+  currentNote: Note | null | undefined,
+): Promise<ReadToolResult> {
+  switch (toolName) {
+    case "getNote":
+      return executeGetNote(toolInput as { title?: string; id?: string });
+
+    case "searchNotes":
+      return executeSearchNotes(toolInput as { query: string; limit?: number });
+
+    case "getCalendarEvents":
+      return executeGetCalendarEvents(
+        toolInput as { start_date: string; end_date: string; layers?: string }
+      );
+
+    case "getGoals":
+      return executeGetGoals(toolInput as { filter?: string });
+
+    case "getCurrentNote":
+      return executeGetCurrentNote(currentNote);
+
+    default:
+      return { success: false, error: `Unknown read tool: ${toolName}` };
+  }
+}
+
+// ─── Action intent classifier ─────────────────────────────────────────────────
+//
+// Routes messages to the tool loop (action mode) vs the existing RAG pipeline.
+// Returns "chat" on any failure — never blocks the user-facing response.
+// Threshold: confidence >= 0.85 required to route as "action".
+
+const INTENT_SYSTEM = `You classify user messages as either "action" or "chat".
+
+"action" = the user wants the AI to read or modify their notes, calendar, or goals.
+Examples: "write the solution beneath question 2", "create a study plan note",
+"add 3 study blocks next week", "summarise this note and append it",
+"look at my automata assignment and solve question 1",
+"delete Tuesday's study block", "mark my physics goal as complete".
+
+"chat" = everything else: questions, explanations, analysis, summarisation
+without writing, general conversation.
+
+Respond ONLY with a JSON object: { "intent": "action" | "chat", "confidence": 0.0–1.0 }
+No other text. No markdown.`;
+
+export async function classifyActionIntent(
+  query: string,
+): Promise<{ intent: "action" | "chat"; confidence: number }> {
+  const fallback = { intent: "chat" as const, confidence: 1.0 };
+
+  try {
+    const raw = await promptProcessing(
+      `Classify this message: "${query.slice(0, 500)}"`,
+      INTENT_SYSTEM,
+    );
+
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const parsed  = JSON.parse(cleaned) as { intent: string; confidence: number };
+
+    if (
+      (parsed.intent === "action" || parsed.intent === "chat") &&
+      typeof parsed.confidence === "number"
+    ) {
+      return { intent: parsed.intent, confidence: parsed.confidence };
+    }
+
+    return fallback;
+  } catch (err) {
+    if (err instanceof ProcessingExhaustedError) {
+      // Processing slot exhausted — safe fallback to chat
+      return fallback;
+    }
+    return fallback;
+  }
+}

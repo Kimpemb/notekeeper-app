@@ -7,6 +7,8 @@
 // Uses Anthropic's native Messages API — not OpenAI-compatible.
 
 import type { ProviderName } from "@/features/ai/store/useAIStore";
+import type { ToolDefinition } from "@/features/ai/lib/tools/definitions";
+import type { ContentBlock } from "@/features/ai/lib/client";
 
 // ─── Model catalogue ──────────────────────────────────────────────────────────
 
@@ -49,6 +51,29 @@ export interface ClaudeChatResponse {
     type: string;
     text: string;
   }>;
+  usage?: {
+    input_tokens:  number;
+    output_tokens: number;
+  };
+}
+
+// ─── Tool-use types (Anthropic's native format) ──────────────────────────────
+
+interface ClaudeTool {
+  name:         string;
+  description:  string;
+  input_schema: {
+    type:       "object";
+    properties: Record<string, { type: string; description: string; enum?: string[] }>;
+    required?:  string[];
+  };
+}
+
+interface ClaudeToolCallResponse {
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  >;
   usage?: {
     input_tokens:  number;
     output_tokens: number;
@@ -111,6 +136,72 @@ export async function claudeChat(
   const outputTokens = data.usage?.output_tokens ?? 0;
 
   return { text, inputTokens, outputTokens };
+}
+
+// ─── Chat with tools ──────────────────────────────────────────────────────────
+
+/**
+ * Send a chat message to Claude with tool/function calling support.
+ *
+ * @param apiKey   The raw API key string
+ * @param model    Exact model string e.g. "claude-sonnet-4-6"
+ * @param messages Conversation history in Claude format
+ * @param tools    Tool definitions to make available to the model
+ * @param system   Optional system prompt (sent as top-level field)
+ * @returns        Content blocks (text and/or tool_use)
+ */
+export async function claudeChatWithTools(
+  apiKey:   string,
+  model:    string,
+  messages: ClaudeMessage[],
+  tools:    ToolDefinition[],
+  system?:  string,
+): Promise<{ content: ContentBlock[] }> {
+  const body = {
+    model,
+    max_tokens: DEFAULT_MAX_TOKENS,
+    messages,
+    tools: tools.map((t): ClaudeTool => ({
+      name:         t.name,
+      description:  t.description,
+      input_schema: {
+        type:       "object",
+        properties: t.input_schema.properties,
+        required:   t.input_schema.required,
+      },
+    })),
+    ...(system ? { system } : {}),
+  };
+
+  const res = await fetch(`${CLAUDE_BASE_URL}/messages`, {
+    method:  "POST",
+    headers: {
+      "Content-Type":      "application/json",
+      "x-api-key":         apiKey,
+      "anthropic-version": ANTHROPIC_VERSION,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ClaudeError(
+      res.status,
+      err?.error?.message ?? res.statusText,
+      model,
+      err?.error?.type ?? "unknown",
+    );
+  }
+
+  const data: ClaudeToolCallResponse = await res.json();
+
+  return {
+    content: data.content.map((b) =>
+      b.type === "tool_use"
+        ? { type: "tool_use" as const, id: b.id, name: b.name, input: b.input }
+        : { type: "text" as const, text: b.text }
+    ),
+  };
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────

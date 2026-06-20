@@ -6,6 +6,8 @@
 // Embedding model:  gemini-embedding-001  (replacement for deprecated text-embedding-004)
 
 import type { ProviderName } from "@/features/ai/store/useAIStore";
+import type { ToolDefinition } from "@/features/ai/lib/tools/definitions";
+import type { ContentBlock } from "@/features/ai/lib/client";
 
 // ─── Model catalogue ──────────────────────────────────────────────────────────
 
@@ -82,6 +84,39 @@ export interface GeminiEmbedResponse {
   embedding: { values: number[] };
 }
 
+// ─── Tool-use types (Gemini function calling) ─────────────────────────────────
+
+interface GeminiFunctionDeclaration {
+  name:        string;
+  description: string;
+  parameters:  {
+    type:       "OBJECT";
+    properties: Record<string, { type: string; description: string; enum?: string[] }>;
+    required?:  string[];
+  };
+}
+
+interface GeminiToolCallRequest extends GeminiChatRequest {
+  tools?: Array<{ functionDeclarations: GeminiFunctionDeclaration[] }>;
+}
+
+interface GeminiToolCallResponse {
+  candidates: Array<{
+    content: {
+      parts: Array<
+        | { text: string; functionCall?: never }
+        | { functionCall: { name: string; args: Record<string, unknown> }; text?: never }
+      >;
+      role: string;
+    };
+    finishReason: string;
+  }>;
+  usageMetadata?: {
+    promptTokenCount:     number;
+    candidatesTokenCount: number;
+  };
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function chatEndpoint(model: string, apiKey: string): string {
@@ -91,6 +126,29 @@ function chatEndpoint(model: string, apiKey: string): string {
 function embedEndpoint(model: string): string {
   // v1beta, key goes in header x-goog-api-key, not URL query param
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent`;
+}
+
+function toGeminiFunctionDeclarations(
+  tools: ToolDefinition[]
+): GeminiFunctionDeclaration[] {
+  return tools.map((t) => ({
+    name:        t.name,
+    description: t.description,
+    parameters:  {
+      type:       "OBJECT" as const,
+      properties: Object.fromEntries(
+        Object.entries(t.input_schema.properties).map(([k, v]) => [
+          k,
+          {
+            type:        v.type.toUpperCase(),
+            description: v.description,
+            ...(v.enum ? { enum: v.enum } : {}),
+          },
+        ])
+      ),
+      required: t.input_schema.required,
+    },
+  }));
 }
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
@@ -134,6 +192,63 @@ export async function geminiChat(
   return { text, inputTokens, outputTokens };
 }
 
+// ─── Chat with tools ──────────────────────────────────────────────────────────
+
+/**
+ * Send a chat message to Gemini with tool/function calling support.
+ *
+ * @param apiKey   The raw API key string
+ * @param model    Exact model string e.g. "gemini-2.5-pro"
+ * @param messages Conversation history in Gemini format
+ * @param tools    Tool definitions to make available to the model
+ * @param system   Optional system instruction
+ * @returns        Content blocks (text and/or tool_use)
+ */
+export async function geminiChatWithTools(
+  apiKey:   string,
+  model:    string,
+  messages: GeminiMessage[],
+  tools:    ToolDefinition[],
+  system?:  string,
+): Promise<{ content: ContentBlock[] }> {
+  const body: GeminiToolCallRequest = {
+    contents: messages,
+    tools: [{ functionDeclarations: toGeminiFunctionDeclarations(tools) }],
+    ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+  };
+
+  const res = await fetch(chatEndpoint(model, apiKey), {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new GeminiError(res.status, err?.error?.message ?? res.statusText, model);
+  }
+
+  const data: GeminiToolCallResponse = await res.json();
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+
+  const content: ContentBlock[] = parts.map((part) => {
+    if (part.functionCall) {
+      return {
+        type:  "tool_use" as const,
+        id:    crypto.randomUUID(),
+        name:  part.functionCall.name,
+        input: part.functionCall.args,
+      };
+    }
+    return {
+      type: "text" as const,
+      text: part.text ?? "",
+    };
+  });
+
+  return { content };
+}
+
 // ─── Embedding ────────────────────────────────────────────────────────────────
 
 /**
@@ -149,10 +264,10 @@ export async function geminiEmbed(
   taskType: string = "RETRIEVAL_DOCUMENT",
 ): Promise<Float32Array> {
   const body: GeminiEmbedRequest = {
-  model:    `models/${GEMINI_EMBEDDING_MODEL}`,
-  content:  { parts: [{ text }] },
-  taskType,   // ← was hardcoded "RETRIEVAL_DOCUMENT"
-}
+    model:    `models/${GEMINI_EMBEDDING_MODEL}`,
+    content:  { parts: [{ text }] },
+    taskType,
+  };
 
   const res = await fetch(embedEndpoint(GEMINI_EMBEDDING_MODEL), {
     method:  "POST",

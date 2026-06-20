@@ -198,6 +198,21 @@ function convertTable(tableNode: PmNode): string {
   return lines.join("\n") + "\n";
 }
 
+// ─── Body-only markdown (no title/frontmatter) ───────────────────────────────
+// Used by the AI write-tool pipeline, which round-trips note bodies through
+// markdown for append/insert/replace operations and needs just the content —
+// not a full exportable document with a title header and YAML frontmatter.
+
+export function prosemirrorBodyToMarkdown(contentJson: string): string {
+  let doc: PmNode;
+  try {
+    doc = JSON.parse(contentJson);
+  } catch {
+    return "";
+  }
+  return convertNodes(doc.content ?? []);
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function prosemirrorToMarkdown(
