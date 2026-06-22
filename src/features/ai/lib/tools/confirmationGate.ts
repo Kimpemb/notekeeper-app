@@ -125,7 +125,9 @@ export const useConfirmationGate = create<ConfirmationGateState>((set, get) => (
     _setPendingWrite({ ...pw, status: "confirmed" });
 
     try {
+      console.log("[confirmWrite] dispatching:", pw.toolName, JSON.stringify(pw.toolInput).slice(0, 300));
       const result = await dispatch(pw.toolName, pw.toolInput);
+      console.log("[confirmWrite] result:", JSON.stringify(result).slice(0, 300));
 
       if (!result.success) {
         _setPendingWrite({
@@ -302,17 +304,20 @@ export function buildWritePreview(
 
     case "createCalendarEvents": {
       let events: unknown[] = [];
-      try {
-        events = JSON.parse(toolInput.events as string);
-      } catch { /* malformed — show empty */ }
+      const rawEv = toolInput.events;
+      if (Array.isArray(rawEv)) {
+        events = rawEv;
+      } else if (typeof rawEv === "string") {
+        try { events = JSON.parse(rawEv); } catch { /* malformed */ }
+      }
       const count = events.length;
-      // Content is the JSON for the table renderer to parse
+      const contentStr = Array.isArray(rawEv) ? JSON.stringify(rawEv) : (rawEv as string ?? "[]");
       return {
         title:         `Create ${count} calendar event${count === 1 ? "" : "s"}`,
         description:   conflicts && conflicts.length > 0
           ? `${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"} detected`
           : "No conflicts detected",
-        content:       toolInput.events as string,
+        content:       contentStr,
         wordCount:     count,
         isDestructive: false,
         isBatch:       true,
@@ -407,7 +412,12 @@ async function dispatch(
 
     case "createCalendarEvents": {
       let events: unknown[] = [];
-      try { events = JSON.parse(input.events as string); } catch { /* malformed */ }
+      const raw = input.events;
+      if (Array.isArray(raw)) {
+        events = raw;
+      } else if (typeof raw === "string") {
+        try { events = JSON.parse(raw); } catch { /* malformed */ }
+      }
       return executeCreateCalendarEvents({ events } as unknown as CreateCalendarEventsInput);
     }
 

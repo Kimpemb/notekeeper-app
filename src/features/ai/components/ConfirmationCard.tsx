@@ -187,6 +187,7 @@ export function ConfirmationCard({ pendingWrite: pw, onConfirm, onCancel, onUndo
       setBulkStep("confirm");
       return;
     }
+    console.log("[ConfirmationCard] handleApply fired, pw.id:", pw.id, "pw.status:", pw.status);
     setConfirming(true);
     await onConfirm(pw.id);
     setConfirming(false);

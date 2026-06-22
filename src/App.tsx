@@ -44,6 +44,7 @@ import { MoveBlockModal } from "@/features/ui/components/MoveBlockModal";
 // PATCH: 1. Add import near the top with other modal imports
 import { AISetupModal } from "@/features/ai/components/AISetupModal";
 import { setDev429Simulation } from "@/features/ai/lib/client"
+import { startUndoExpiryInterval } from "@/features/ai/lib/tools/confirmationGate"
 import { applyMidnightTransitions } from "@/features/calendar/lib/colourState";
 import { useScoreStore } from "@/features/score/store/useScoreStore";
 import {
@@ -305,6 +306,7 @@ useEffect(() => {
 useEffect(() => {
   // PATCH: Add dev testing hook
   (window as any).__aiTest = { setDev429Simulation }
+  startUndoExpiryInterval()
 }, [])
 
   // PATCH: 3. Add effect near the onboarding effect (after it, so it fires after)

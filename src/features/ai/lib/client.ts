@@ -942,3 +942,68 @@ export async function manualSwitchEmbeddingKey(
 
   return { wasExhausted };
 }
+
+// ─── Tool-use call (for AI Action Layer) ─────────────────────────────────────
+//
+// Non-streaming. Returns raw content blocks so the tool loop in chat.ts
+// can inspect each block type before routing (read → execute immediately,
+// write → hold at confirmation gate).
+
+export interface ContentBlock {
+  type:  "text" | "tool_use";
+  // type === "text"
+  text?: string;
+  // type === "tool_use"
+  id?:   string;
+  name?: string;
+  input?: Record<string, unknown>;
+}
+
+export async function callPrimaryWithTools(
+  messages: ProviderMessage[],
+  tools:    import("@/features/ai/lib/tools/definitions").ToolDefinition[],
+  system?:  string,
+): Promise<{ content: ContentBlock[] }> {
+  const { provider, model, apiKey } = resolveSlot("primary");
+
+  switch (provider) {
+    case "gemini": {
+      const { geminiChatWithTools } = await import("@/features/ai/lib/providers/gemini");
+      // Convert ProviderMessage → GeminiMessage
+      const geminiMessages = messages.map((m) => ({
+        role:  m.role === "assistant" ? "model" as const : "user" as const,
+        parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
+      }));
+      return geminiChatWithTools(apiKey, model, geminiMessages, tools, system);
+    }
+
+    case "deepseek": {
+      const { deepseekChatWithTools } = await import("@/features/ai/lib/providers/deepseek");
+      return deepseekChatWithTools(apiKey, model, messages, tools, system);
+    }
+
+    case "openai": {
+      const { openaiChatWithTools } = await import("@/features/ai/lib/providers/openai");
+      const openaiMessages = messages.map((m) => ({
+        role:    m.role as "user" | "assistant",
+        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      }));
+      return openaiChatWithTools(apiKey, model, openaiMessages, tools, system);
+    }
+
+    case "claude": {
+      const { claudeChatWithTools } = await import("@/features/ai/lib/providers/claude");
+      const claudeMessages = messages.map((m) => ({
+        role:    m.role as "user" | "assistant",
+        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      }));
+      return claudeChatWithTools(apiKey, model, claudeMessages, tools, system);
+    }
+
+    default: {
+      // Fallback — provider doesn't support tools, return plain text response
+      const result = await callPrimary(messages, system);
+      return { content: [{ type: "text", text: result.text }] };
+    }
+  }
+}

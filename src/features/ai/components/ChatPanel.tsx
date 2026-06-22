@@ -7,13 +7,20 @@ import { subscribeToIndexerStatus } from "@/features/ai/lib/indexer";
 import { onRecovery } from "@/features/ai/lib/client";
 import {
   streamChatWithNotes,
+  streamChatWithTools,
+  classifyActionIntent,
   runPipeline,
   type PipelineResult,
   type ChatMessage,
   type RelatedNote,
   type Tier1ResultCard,
 } from "@/features/ai/lib/chat";
-import { clearAIHistory, clearConversationSummary, getAllDescendants } from "@/features/notes/db/queries";
+import { ConfirmationCard } from "@/features/ai/components/ConfirmationCard";
+import {
+  useConfirmationGate,
+  type PendingWrite,
+} from "@/features/ai/lib/tools/confirmationGate";
+import { clearAIHistory, clearConversationSummary, getAllDescendants, appendAIHistory } from "@/features/notes/db/queries";
 import { useNoteStore }        from "@/features/notes/store/useNoteStore";
 import { useUIStore }          from "@/features/ui/store/useUIStore";
 import { useAIStore }          from "@/features/ai/store/useAIStore";
@@ -237,6 +244,26 @@ export function ChatPanel({ noteId, paneId }: Props) {
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
   const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
   const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set());
+  const [pendingWrites, setPendingWrites] = useState<Map<string, PendingWrite>>(new Map());
+
+  // Keep local pendingWrites in sync with gate store status changes
+  useEffect(() => {
+    return useConfirmationGate.subscribe((state) => {
+      setPendingWrites((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Map(prev);
+        let changed = false;
+        for (const [id, pw] of prev) {
+          const stored = state.pendingWrites.get(id);
+          if (stored && stored.status !== pw.status) {
+            next.set(id, stored);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    });
+  }, []);
   const { toasts, addToast } = useToasts();
 
   const messagesEndRef    = useRef<HTMLDivElement>(null);
@@ -620,6 +647,57 @@ useEffect(() => {
     try {
       const scopeNoteIds = await resolveScopeNoteIds();
 
+      // ── Action intent routing (Phase 15 Milestone 5) ───────────────────────
+      const { intent, confidence } = await classifyActionIntent(q);
+      console.log("[classifyActionIntent]", { intent, confidence, isActionMode: intent === "action" && confidence >= 0.85 });
+      const isActionMode = intent === "action" && confidence >= 0.85;
+
+      if (isActionMode) {
+        await streamChatWithTools(
+          q,
+          noteId,
+          currentNote,
+          {
+            onChunk: (token) => {
+              const current = useChatSessionStore.getState().getSessionByNoteId(noteId)
+              const existing = current.messages.find(m => m.id === assistantId)
+              setMessageContent(noteId, assistantId, (existing?.content ?? "") + token)
+              setStreamStatus(null)
+            },
+            onDone: () => {
+              setStreamStatus(null)
+              setStreamingId(null)
+              setLoading(false)
+            },
+            onError: (err: AICallError) => {
+              errorHandled = true
+              setStreamStatus(null)
+              useChatSessionStore.setState((s) => {
+                const sess = s.sessions[noteId]
+                if (!sess) return s
+                return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: sess.messages.filter(m => m.id !== assistantId) } } }
+              })
+              setCallError(err)
+              setErrorAfterMessageId(userMsgId)
+              setStreamingId(null)
+              setLoading(false)
+            },
+            onStatus: (msg) => setStreamStatus(msg),
+          },
+          useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
+          (pw) => setPendingWrites((prev) => new Map(prev).set(pw.id, pw)),
+          assistantId,
+        );
+
+        // Persist session and AI history after tool loop completes
+        const finalContent = useChatSessionStore.getState().getSessionByNoteId(noteId)
+          .messages.find(m => m.id === assistantId)?.content ?? "";
+        await appendAIHistory(noteId, "user", q);
+        await appendAIHistory(noteId, "assistant", finalContent);
+        await saveSession(noteId);
+        return;
+      }
+
       console.log('[handleSend] sessionMessages being passed:', 
         useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2).length,
         'paneNoteId:', paneNoteId,
@@ -729,6 +807,8 @@ useEffect(() => {
     setWebResultsMap(new Map())
     setSuppressedNudges(new Set())
     setRuntimeMetaMap(new Map())
+    setPendingWrites(new Map())
+    useConfirmationGate.getState().clearAll()
     await clearSession(noteId)
     await Promise.all([
       clearAIHistory(noteId),
@@ -1115,6 +1195,26 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
                       />
                     </div>
                   )}
+
+                  {/* ── ConfirmationCards for pending writes triggered by this message ── */}
+                  {[...pendingWrites.values()]
+                    .filter((pw) => pw.assistantMessageId === msg.id)
+                    .map((pw) => (
+                      <ConfirmationCard
+                        key={pw.id}
+                        pendingWrite={pw}
+                        onConfirm={(id) => useConfirmationGate.getState().confirmWrite(id)}
+                        onCancel={(id) => {
+                          useConfirmationGate.getState().cancelWrite(id)
+                          setPendingWrites((prev) => {
+                            const next = new Map(prev)
+                            next.delete(id)
+                            return next
+                          })
+                        }}
+                        onUndo={(id) => useConfirmationGate.getState().undoWrite(id)}
+                      />
+                    ))}
 
                   {/* Source footer */}
                   {msg.role === "assistant" && meta && !isStreaming && (

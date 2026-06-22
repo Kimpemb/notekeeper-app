@@ -25,6 +25,22 @@ import { getGoal, updateGoal as dbUpdateGoal, type GoalInput } from "@/features/
 import { prosemirrorBodyToMarkdown } from "@/lib/exporters/markdown";
 import { markdownToDoc }             from "@/features/ai/lib/save/parseMarkdown";
 
+// ─── Store refresh helpers ────────────────────────────────────────────────────
+
+async function refreshNoteInStore(noteId: string): Promise<void> {
+  try {
+    const { useNoteStore } = await import("@/features/notes/store/useNoteStore");
+    await useNoteStore.getState().refreshNote(noteId);
+  } catch { /* non-fatal */ }
+}
+
+async function refreshNotesListInStore(): Promise<void> {
+  try {
+    const { useNoteStore } = await import("@/features/notes/store/useNoteStore");
+    await useNoteStore.getState().loadNotes();
+  } catch { /* non-fatal */ }
+}
+
 // ─── Result types ─────────────────────────────────────────────────────────────
 
 export interface WriteToolResult {
@@ -104,17 +120,32 @@ export async function executeAppendToNote(
 
     const originalMarkdown = noteBodyToMarkdown(note.content);
 
-    // Build the block to append
-    const block = input.heading
-      ? `\n\n## ${input.heading}\n\n${input.content.trimStart()}`
-      : `\n\n${input.content.trimStart()}`;
+    // Parse existing doc to append at JSON level — preserves subpages,
+    // backlinks, and other custom nodes that don't survive markdown round-trip.
+    let doc: { type: string; content?: unknown[] };
+    try {
+      doc = note.content ? JSON.parse(note.content) : { type: "doc", content: [] };
+    } catch {
+      doc = { type: "doc", content: [] };
+    }
+    if (!Array.isArray(doc.content)) doc.content = [];
 
-    const newMarkdown = originalMarkdown.trimEnd() + block;
-    const { contentJson, plaintext } = markdownToNoteContent(newMarkdown);
+    // Build the nodes to append via markdownToDoc (only for the NEW content)
+    const newMarkdown = input.heading
+      ? `## ${input.heading}\n\n${input.content.trimStart()}`
+      : input.content.trimStart();
+    const newDoc = markdownToDoc(newMarkdown);
+    const newNodes = (newDoc as { content?: unknown[] }).content ?? [];
+
+    // Append new nodes to the existing doc
+    const mergedDoc = { ...doc, content: [...doc.content, ...newNodes] };
+    const contentJson = JSON.stringify(mergedDoc);
+    const plaintext = extractPlaintext(mergedDoc);
 
     await updateNote(note.id, { content: contentJson, plaintext });
 
-    // Notify editor in-process (same pattern as existing save paths)
+    // Refresh the store and notify editor
+    await refreshNoteInStore(note.id);
     window.dispatchEvent(
       new CustomEvent("idemora:note-updated", { detail: { noteId: note.id } })
     );
@@ -135,6 +166,7 @@ export async function undoAppendToNote(
 ): Promise<void> {
   const { contentJson, plaintext } = markdownToNoteContent(undoData.originalMarkdown);
   await updateNote(undoData.noteId, { content: contentJson, plaintext });
+  await refreshNoteInStore(undoData.noteId);
   window.dispatchEvent(
     new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } })
   );
@@ -195,6 +227,8 @@ export async function executeInsertInNote(
     const { contentJson, plaintext } = markdownToNoteContent(newMarkdown);
     await updateNote(note.id, { content: contentJson, plaintext });
 
+    // Refresh the store and notify editor
+    await refreshNoteInStore(note.id);
     window.dispatchEvent(
       new CustomEvent("idemora:note-updated", { detail: { noteId: note.id } })
     );
@@ -276,6 +310,7 @@ export async function undoInsertInNote(
 ): Promise<void> {
   const { contentJson, plaintext } = markdownToNoteContent(undoData.originalMarkdown);
   await updateNote(undoData.noteId, { content: contentJson, plaintext });
+  await refreshNoteInStore(undoData.noteId);
   window.dispatchEvent(
     new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } })
   );
@@ -318,6 +353,8 @@ export async function executeReplaceInNote(
 
     await updateNote(note.id, { content: contentJson, plaintext });
 
+    // Refresh the store and notify editor
+    await refreshNoteInStore(note.id);
     window.dispatchEvent(
       new CustomEvent("idemora:note-updated", { detail: { noteId: note.id } })
     );
@@ -338,6 +375,7 @@ export async function undoReplaceInNote(
 ): Promise<void> {
   const { contentJson, plaintext } = markdownToNoteContent(undoData.originalMarkdown);
   await updateNote(undoData.noteId, { content: contentJson, plaintext });
+  await refreshNoteInStore(undoData.noteId);
   window.dispatchEvent(
     new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } })
   );
@@ -381,7 +419,8 @@ export async function executeCreateNote(
       parent_id:  input.parent_id ?? null,
     });
 
-    // Notify sidebar to refresh
+    // Refresh the sidebar and notify
+    await refreshNotesListInStore();
     window.dispatchEvent(new CustomEvent("idemora:note-created", { detail: { noteId: note.id } }));
 
     return {
@@ -400,6 +439,7 @@ export async function undoCreateNote(
 ): Promise<void> {
   const { trashNote } = await import("@/features/notes/db/queries");
   await trashNote(undoData.noteId);
+  await refreshNotesListInStore();
   window.dispatchEvent(
     new CustomEvent("idemora:note-deleted", { detail: { noteId: undoData.noteId } })
   );

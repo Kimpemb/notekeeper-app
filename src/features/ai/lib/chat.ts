@@ -1689,6 +1689,322 @@ Answer:`
     }
   }
 
+  // ─── streamChatWithTools — AI Action Layer (Phase 15) ────────────────────────
+//
+// Routes action-intent messages through the tool loop.
+// Read tools execute immediately and feed results back into the conversation.
+// Write tools are held at the confirmation gate — never executed directly.
+// Existing streamChatWithNotes is completely untouched.
+
+import { TOOL_DEFINITIONS, READ_TOOL_NAMES, WRITE_TOOL_NAMES } from "@/features/ai/lib/tools/definitions";
+import {
+  executeGetNote,
+  executeGetCurrentNote,
+  executeSearchNotes,
+  executeGetCalendarEvents,
+  executeGetGoals,
+  classifyActionIntent,
+} from "@/features/ai/lib/tools/readTools";
+import {
+  useConfirmationGate,
+  awaitWriteDecision,
+  buildWritePreview,
+  type PendingWrite,
+} from "@/features/ai/lib/tools/confirmationGate";
+import { callPrimaryWithTools } from "@/features/ai/lib/client";
+import { getNoteById } from "@/features/notes/db/queries";
+import { getEventsForDateRange } from "@/features/calendar/db/calendarQueries";
+
+export { classifyActionIntent };
+
+const MAX_TOOL_ITERATIONS = 6;
+
+const TOOLS_SYSTEM_PROMPT = `You are an AI assistant with the ability to read and write within Idemora.
+
+READ TOOLS — use freely, no confirmation needed:
+getNote, searchNotes, getCalendarEvents, getGoals, getCurrentNote
+
+WRITE TOOLS — propose only, never assume execution:
+appendToNote, insertInNote, replaceInNote, createNote,
+createCalendarEvents, deleteCalendarEvent, updateGoal
+
+RULES:
+- Always call a read tool before proposing a write.
+  If the user says "look at X and do Y", call getNote(X) first.
+- Never invent note content or calendar data. Only work from what read tools return.
+- For timetables: call getCalendarEvents for the target date range before proposing events. Flag conflicts explicitly.
+- For assignment solving: call getCurrentNote or getNote first. Work only from actual note content.
+- If write position cannot be resolved with confidence, use appendToNote and state this in your response.
+- Propose one write operation at a time unless the user explicitly requested a batch.
+- If the user says "just do it" or "don't ask": still use the write tool. The confirmation gate is handled by the app, not you.`;
+
+export async function streamChatWithTools(
+  query:            string,
+  noteId:           string,
+  currentNote:      Note | undefined,
+  streaming:        StreamingChatOptions,
+  sessionMessages:  ChatMessage[],
+  onPendingWrite:   (write: PendingWrite) => void,
+  assistantMessageId: string,
+): Promise<void> {
+  // Build initial messages array
+  const messages: ProviderMessage[] = [
+    // Rolling session history (same window as existing RAG path)
+    ...sessionMessages.map((m) => ({
+      role:    m.role as "user" | "assistant",
+      content: m.content,
+    })),
+    { role: "user", content: query },
+  ];
+
+  // System prompt injected as first user turn if provider doesn't support system param
+  // (callPrimaryWithTools passes it via the tools-capable provider)
+  const systemPrompt = TOOLS_SYSTEM_PROMPT;
+
+  let iterations = 0;
+
+  try {
+    while (iterations < MAX_TOOL_ITERATIONS) {
+      iterations++;
+
+      streaming.onStatus?.(`Thinking… (${iterations})`);
+
+      const response = await callPrimaryWithTools(
+  messages,
+  TOOL_DEFINITIONS,
+  systemPrompt,
+);
+      // Append assistant turn to messages for multi-turn continuity
+      // DeepSeek/OpenAI require the raw tool_calls array on the assistant message.
+      // We reconstruct it from the content blocks.
+      const assistantToolCalls = response.content
+        .filter((b) => b.type === "tool_use")
+        .map((b) => ({
+          id:       b.id ?? crypto.randomUUID(),
+          type:     "function" as const,
+          function: {
+            name:      b.name ?? "",
+            arguments: JSON.stringify(b.input ?? {}),
+          },
+        }));
+
+      const assistantText = response.content
+        .filter((b) => b.type === "text")
+        .map((b) => b.text ?? "")
+        .join("");
+
+      messages.push({
+        role:    "assistant",
+        content: assistantText || null,
+        ...(assistantToolCalls.length > 0 ? { tool_calls: assistantToolCalls } : {}),
+      } as unknown as ProviderMessage);
+
+      // Process content blocks
+      let hasToolCall = false;
+
+      for (const block of response.content) {
+        if (block.type === "text" && block.text) {
+          streaming.onChunk(block.text);
+          streaming.onStatus?.(null as unknown as string);
+        }
+
+        if (block.type === "tool_use" && block.name && block.input !== undefined) {
+          hasToolCall = true;
+          const toolName  = block.name;
+          const toolInput = block.input as Record<string, unknown>;
+          // Use the ID from the block. If absent, generate once here and patch
+          // the assistant turn's tool_calls entry so IDs stay in sync.
+          const toolId = block.id ?? (() => {
+            const generated = crypto.randomUUID();
+            block.id = generated;
+            return generated;
+          })();
+
+          if (READ_TOOL_NAMES.has(toolName)) {
+            // ── Read tool — execute immediately ──────────────────────────
+            streaming.onStatus?.(`Reading: ${toolName}…`);
+
+            const result = await executeReadTool(toolName, toolInput, currentNote);
+
+            // Feed result back as tool role message (DeepSeek/OpenAI format)
+            messages.push({
+              role:         "tool",
+              tool_call_id: toolId,
+              content:      JSON.stringify(result.success ? result.data : { error: result.error }),
+            } as unknown as ProviderMessage);
+
+          } else if (WRITE_TOOL_NAMES.has(toolName)) {
+            // ── Write tool — hold at confirmation gate ────────────────────
+            streaming.onStatus?.("Preparing write…");
+
+            // Pre-fetch note title for the preview (if applicable)
+            const noteTitleMap = await buildNoteTitleMap(toolName, toolInput);
+
+            // Pre-fetch conflicts for createCalendarEvents
+            let conflicts: import("@/features/ai/lib/tools/writeTools").CalendarConflict[] | undefined;
+            if (toolName === "createCalendarEvents") {
+              conflicts = await detectCalendarConflicts(toolInput);
+            }
+
+            const preview = buildWritePreview(toolName, toolInput, noteTitleMap, conflicts);
+
+            const pendingWrite: PendingWrite = {
+              id:                  crypto.randomUUID(),
+              toolName,
+              toolInput,
+              preview,
+              status:              "pending",
+              assistantMessageId,
+            };
+
+            useConfirmationGate.getState().addPendingWrite(pendingWrite);
+            onPendingWrite(pendingWrite);
+
+            // Pause loop — await user decision
+            streaming.onStatus?.(null as unknown as string);
+            const decision = await awaitWriteDecision(pendingWrite.id);
+
+            if (decision === "confirmed") {
+              // Gate executed the write — feed success back
+              const executed = useConfirmationGate.getState().pendingWrites.get(pendingWrite.id);
+              messages.push({
+                role:         "tool",
+                tool_call_id: toolId,
+                content:      JSON.stringify({
+                  executed: true,
+                  insertedViaFallback: executed?.insertedViaFallback ?? false,
+                }),
+              } as unknown as ProviderMessage);
+            } else {
+              // Cancelled — feed cancellation back
+              messages.push({
+                role:         "tool",
+                tool_call_id: toolId,
+                content:      JSON.stringify({ cancelled: true }),
+              } as unknown as ProviderMessage);
+            }
+          }
+        }
+      }
+
+      // If no tool calls in this turn, the model is done
+      if (!hasToolCall) {
+        break;
+      }
+    }
+
+    if (iterations >= MAX_TOOL_ITERATIONS) {
+      console.warn("[streamChatWithTools] hit max iterations — breaking tool loop");
+    }
+
+    streaming.onDone?.();
+
+  } catch (err) {
+    streaming.onError?.(err as AICallError);
+  }
+}
+
+// ─── Read tool dispatcher ─────────────────────────────────────────────────────
+
+async function executeReadTool(
+  toolName:    string,
+  toolInput:   Record<string, unknown>,
+  currentNote: Note | undefined,
+): Promise<import("@/features/ai/lib/tools/readTools").ReadToolResult> {
+  switch (toolName) {
+    case "getNote":
+      return executeGetNote(toolInput as { title?: string; id?: string });
+
+    case "searchNotes":
+      return executeSearchNotes(toolInput as { query: string; limit?: number });
+
+    case "getCalendarEvents":
+  return executeGetCalendarEvents(toolInput as {
+    start_date: string;
+    end_date:   string;
+    layers?:    string;   // comma-separated — readTools.ts splits it internally
+  });
+
+    case "getGoals":
+      return executeGetGoals(toolInput as { filter?: string });
+
+    case "getCurrentNote":
+  return executeGetCurrentNote(currentNote);
+
+    default:
+      return { success: false, error: `Unknown read tool: ${toolName}` };
+  }
+}
+
+// ─── Note title pre-fetch for preview ────────────────────────────────────────
+
+async function buildNoteTitleMap(
+  _toolName: string,
+  toolInput: Record<string, unknown>,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+
+  const noteId = toolInput.note_id as string | undefined;
+  if (!noteId) return map;
+
+  try {
+    const note = await getNoteById(noteId);
+    if (note) map.set(note.id, note.title);
+  } catch { /* non-fatal */ }
+
+  return map;
+}
+
+// ─── Calendar conflict pre-detection (for preview card) ──────────────────────
+
+async function detectCalendarConflicts(
+  toolInput: Record<string, unknown>,
+): Promise<import("@/features/ai/lib/tools/writeTools").CalendarConflict[]> {
+  try {
+    let events: { title: string; date: string; time?: string | null; duration_mins?: number | null }[] = [];
+    const rawEvents = toolInput.events;
+    if (Array.isArray(rawEvents)) {
+      events = rawEvents as typeof events;
+    } else if (typeof rawEvents === "string") {
+      try { events = JSON.parse(rawEvents); } catch { return []; }
+    } else {
+      return [];
+    }
+
+    const conflicts: import("@/features/ai/lib/tools/writeTools").CalendarConflict[] = [];
+
+    for (const ev of events) {
+      const existing = await getEventsForDateRange({
+        startDate: ev.date,
+        endDate:   ev.date,
+        layers:    ["personal", "notes", "tasks", "goals", "cde"],
+      });
+
+      for (const ex of existing) {
+        if (ev.time && ex.time) {
+          // Simple overlap check
+          const aStart = timeToMinutes(ev.time);
+          const aEnd   = aStart + (ev.duration_mins ?? 60);
+          const bStart = timeToMinutes(ex.time);
+          const bEnd   = bStart + (ex.duration_mins ?? 60);
+          if (aStart < bEnd && bStart < aEnd) {
+            conflicts.push({ date: ev.date, time: ev.time, existingTitle: ex.title });
+          }
+        }
+      }
+    }
+
+    return conflicts;
+  } catch {
+    return [];
+  }
+}
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
   // ─── Non-streaming fallback ───────────────────────────────────────────────────
 
   export async function chatWithNotes(

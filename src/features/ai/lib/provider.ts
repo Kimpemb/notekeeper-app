@@ -81,8 +81,10 @@
   // through for debug log purposes only.
 
   export interface ProviderMessage {
-    role:    "user" | "assistant" | "system";
-    content: string;
+    role:    "user" | "assistant" | "system" | "tool";
+    content: string | null;
+    tool_call_id?: string;
+    tool_calls?: unknown[];
   }
 
   export interface ProviderChatResult {

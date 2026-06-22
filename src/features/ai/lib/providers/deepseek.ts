@@ -221,11 +221,11 @@ export async function deepseekChat(
 export async function deepseekChatWithTools(
   apiKey:   string,
   model:    string,
-  messages: DeepSeekMessage[],
+  messages: unknown[],
   tools:    ToolDefinition[],
   system?:  string,
-): Promise<{ content: ContentBlock[] }> {
-  const allMessages: DeepSeekMessage[] = system
+): Promise<{ content: ContentBlock[]; rawAssistantMessage?: unknown }> {
+  const allMessages: unknown[] = system
     ? [{ role: "system", content: system }, ...messages]
     : messages;
 
