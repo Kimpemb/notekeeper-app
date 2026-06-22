@@ -347,8 +347,8 @@ export async function executeReplaceInNote(
       };
     }
 
-    // Replace first occurrence only (safest for AI-driven edits)
-    const newMarkdown = originalMarkdown.replace(input.old_content, input.new_content);
+// Replace all occurrences
+    const newMarkdown = originalMarkdown.split(input.old_content).join(input.new_content);
     const { contentJson, plaintext } = markdownToNoteContent(newMarkdown);
 
     await updateNote(note.id, { content: contentJson, plaintext });

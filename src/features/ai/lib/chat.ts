@@ -1736,7 +1736,15 @@ RULES:
 - For assignment solving: call getCurrentNote or getNote first. Work only from actual note content.
 - If write position cannot be resolved with confidence, use appendToNote and state this in your response.
 - Propose one write operation at a time unless the user explicitly requested a batch.
-- If the user says "just do it" or "don't ask": still use the write tool. The confirmation gate is handled by the app, not you.`;
+- If the user says "just do it" or "don't ask": still use the write tool. The confirmation gate is handled by the app, not you.
+- CRITICAL: You CANNOT make changes to notes, calendar, or goals by describing them in text.
+  The ONLY way to make a change is to call a write tool. If you describe a change without
+  calling a tool, nothing will happen. Never say "I've replaced X with Y" unless you
+  called replaceInNote. Never say "I've added X" unless you called appendToNote or insertInNote.
+- If the user says a change didn't happen or was incomplete, call getNote to re-read
+  the current state, then call the appropriate write tool again.
+- replaceInNote replaces ALL occurrences of old_content. If you need to replace a specific
+  instance, make old_content long enough to be unique in the note.`;
 
 export async function streamChatWithTools(
   query:            string,

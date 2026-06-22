@@ -263,13 +263,26 @@ export async function executeReadTool(
 const INTENT_SYSTEM = `You classify user messages as either "action" or "chat".
 
 "action" = the user wants the AI to read or modify their notes, calendar, or goals.
-Examples: "write the solution beneath question 2", "create a study plan note",
-"add 3 study blocks next week", "summarise this note and append it",
-"look at my automata assignment and solve question 1",
-"delete Tuesday's study block", "mark my physics goal as complete".
+Examples:
+- "write the solution beneath question 2"
+- "create a study plan note"
+- "add 3 study blocks next week"
+- "summarise this note and append it"
+- "look at my automata assignment and solve question 1"
+- "delete Tuesday's study block"
+- "mark my physics goal as complete"
+- "it happens twice, change both" (follow-up correction to a previous write)
+- "do the other one too" (follow-up to complete a partial write)
+- "now replace X with Y" (follow-up replacement)
+- "you missed one, fix it" (follow-up correction)
+- "change all instances" (follow-up to replace all)
+- "do it for the other occurrence" (follow-up)
 
 "chat" = everything else: questions, explanations, analysis, summarisation
-without writing, general conversation.
+without writing, general conversation. Pure questions with no write intent.
+
+IMPORTANT: If the message is a follow-up that implies a previous write was
+incomplete or needs correction, classify as "action" with high confidence.
 
 Respond ONLY with a JSON object: { "intent": "action" | "chat", "confidence": 0.0–1.0 }
 No other text. No markdown.`;
