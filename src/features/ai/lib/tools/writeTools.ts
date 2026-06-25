@@ -694,6 +694,9 @@ export async function executeUpdateGoal(
 
     await dbUpdateGoal(input.goal_id, updates);
 
+    // Refresh UI — GoalsPanel listens for this event
+    window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+
     return {
       success:  true,
       undoData: { goalId: input.goal_id, originalFields } satisfies UpdateGoalUndoData,
