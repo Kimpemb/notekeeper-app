@@ -558,11 +558,16 @@ async function logScoreEvent(eventId: string, date: string): Promise<void> {
   try {
     const { getDb } = await import("@/features/notes/db/client");
     const db = await getDb();
-    await db.execute(
-      `INSERT OR IGNORE INTO score_event_log (event_id, date, logged_at)
-       VALUES ($1, $2, $3)`,
-      [eventId, date, Date.now()]
-    );
+    // Fetch the event to get title and category for the log row
+const event = await getEvent(eventId);
+if (event) {
+  await db.execute(
+    `INSERT OR IGNORE INTO score_event_log
+       (id, score_date, event_id, event_title, category, colour_state, locked)
+     VALUES ($1, $2, $3, $4, $5, $6, 0)`,
+    [crypto.randomUUID(), date, eventId, event.title, event.category ?? "personal", event.colour_state ?? "blue"]
+  );
+}
   } catch (err) {
     // Non-fatal — log and continue. Score logging failure must not block event creation.
     console.warn("[writeTools] score_event_log insert failed:", err);

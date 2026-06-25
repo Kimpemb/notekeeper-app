@@ -1723,7 +1723,7 @@ const MAX_TOOL_ITERATIONS = 6;
 const TOOLS_SYSTEM_PROMPT = `You are an AI assistant with the ability to read and write within Idemora.
 
 READ TOOLS — use freely, no confirmation needed:
-getNote, searchNotes, getCalendarEvents, getGoals, getCurrentNote
+getNote, searchNotes, getCalendarEvents, getGoals, getCurrentNote, getFileTree
 
 WRITE TOOLS — propose only, never assume execution:
 appendToNote, insertInNote, replaceInNote, createNote,
@@ -1736,18 +1736,14 @@ RULES:
 - For timetables: call getCalendarEvents for the target date range before proposing events. Flag conflicts explicitly.
 - For assignment solving: call getCurrentNote or getNote first. Work only from actual note content.
 - If write position cannot be resolved with confidence, use appendToNote and state this in your response.
-- When using parent_id in createNote, you MUST use the exact id field returned by searchNotes or getNote. Never construct or guess an id.
+- When the user asks to create a note under or inside another note, call getFileTree first to find the parent note's exact id. Never construct or guess a parent_id.
+- When using parent_id in createNote, you MUST use the exact id field returned by getFileTree, searchNotes, or getNote. Never construct or guess an id.
 - Propose one write operation at a time unless the user explicitly requested a batch.
 - If the user says "just do it" or "don't ask": still use the write tool. The confirmation gate is handled by the app, not you.
-- CRITICAL: You CANNOT make changes to notes, calendar, or goals by describing them in text.
-  The ONLY way to make a change is to call a write tool. If you describe a change without
-  calling a tool, nothing will happen. Never say "I've replaced X with Y" unless you
-  called replaceInNote. Never say "I've added X" unless you called appendToNote or insertInNote.
-- If the user says a change didn't happen or was incomplete, call getNote to re-read
-  the current state, then call the appropriate write tool again.
-- replaceInNote replaces ALL occurrences of old_content. If you need to replace a specific
-  instance, make old_content long enough to be unique in the note.`;
-
+- CRITICAL: You CANNOT make changes to notes, calendar, or goals by describing them in text. The ONLY way to make a change is to call a write tool. If you describe a change without calling a tool, nothing will happen. Never say "I've replaced X with Y" unless you called replaceInNote. Never say "I've added X" unless you called appendToNote or insertInNote.
+- If the user says a change didn't happen or was incomplete, call getNote to re-read the current state, then call the appropriate write tool again.
+- replaceInNote replaces ALL occurrences of old_content. If you need to replace a specific instance, make old_content long enough to be unique in the note.
+- When the user confirms or approves in chat (e.g. "yes", "do it", "go ahead", "create it"), do NOT call the write tool again. The confirmation gate is handled by the app via the Apply button on the card. Simply tell the user to click Apply on the card to proceed.`;
 export async function streamChatWithTools(
   query:            string,
   noteId:           string,
@@ -1769,7 +1765,7 @@ export async function streamChatWithTools(
 
   // System prompt injected as first user turn if provider doesn't support system param
   // (callPrimaryWithTools passes it via the tools-capable provider)
-  const systemPrompt = TOOLS_SYSTEM_PROMPT;
+const systemPrompt = `Today's date is ${new Date().toISOString().slice(0, 10)}.\n\n${TOOLS_SYSTEM_PROMPT}`;
 
   let iterations = 0;
 
@@ -1856,9 +1852,21 @@ export async function streamChatWithTools(
               conflicts = await detectCalendarConflicts(toolInput);
             }
 
-            const preview = buildWritePreview(toolName, toolInput, noteTitleMap, conflicts);
+// Don't propose another write if one is already awaiting user decision
+const existingPending = [...useConfirmationGate.getState().pendingWrites.values()]
+  .some((pw) => pw.status === "pending");
+if (existingPending) {
+  messages.push({
+    role:         "tool",
+    tool_call_id: toolId,
+    content:      JSON.stringify({ cancelled: true, reason: "Another write is already awaiting user approval." }),
+  } as unknown as ProviderMessage);
+  continue;
+}
 
-            const pendingWrite: PendingWrite = {
+const preview = buildWritePreview(toolName, toolInput, noteTitleMap, conflicts);
+
+const pendingWrite: PendingWrite = {
               id:                  crypto.randomUUID(),
               toolName,
               toolInput,
