@@ -38,7 +38,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "searchNotes",
     description:
       "Search notes by content when the exact title is unknown. " +
-      "Returns ranked excerpts. Use getNote on the best match to retrieve full content.",
+      "Returns ranked excerpts. Use getNote on the best match to retrieve full content. " +
+      "Do NOT use this to find a parent note ID — use getFileTree instead.",
     input_schema: {
       type: "object",
       properties: {
@@ -94,6 +95,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       "Return the note currently open in the editor. " +
       "Use this when the user says 'this note', 'the current note', or refers to content " +
       "visible in the editor without naming it explicitly.",
+    input_schema: {
+      type:       "object",
+      properties: {},
+      required:   [],
+    },
+  },
+
+  {
+    name: "getFileTree",
+    description:
+      "Return the full note hierarchy as a flat list with parent_id relationships. " +
+      "ALWAYS call this (not searchNotes) when the user wants to create a note under " +
+      "a specific parent, or uses words like 'under', 'inside', 'nested in', 'as a subpage of'. " +
+      "Each entry includes id, title, and parent_id (null = root level).",
     input_schema: {
       type:       "object",
       properties: {},
@@ -247,6 +262,7 @@ export const READ_TOOL_NAMES = new Set([
   "getCalendarEvents",
   "getGoals",
   "getCurrentNote",
+  "getFileTree",
 ]);
 
 export const WRITE_TOOL_NAMES = new Set([

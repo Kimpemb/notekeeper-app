@@ -58,14 +58,19 @@ export async function executeGetNote(input: {
       return { success: true, data: noteToReadShape(note) };
     }
 
-    if (input.title) {
-      // searchNotes ranks by title match — take the first result
-      const results = await searchNotes(input.title, 5);
-      if (results.length === 0) {
-        return { success: false, error: `No note found matching title "${input.title}".` };
-      }
-      // Fetch full note for the top result
-      const note = await getNoteById(results[0].id);
+   if (input.title) {
+  // Try exact match first (case-insensitive) before FTS
+  const { getDb } = await import("@/features/notes/db/client");
+  const db = await getDb();
+  const exact = await db.select<{ id: string }[]>(
+    `SELECT id FROM notes WHERE LOWER(title) = LOWER($1) AND deleted_at IS NULL LIMIT 1`,
+    [input.title]
+  );
+  const topId = exact[0]?.id ?? (await searchNotes(input.title, 5))[0]?.id;
+  if (!topId) {
+    return { success: false, error: `No note found matching title "${input.title}".` };
+  }
+  const note = await getNoteById(topId);
       if (!note || note.deleted_at !== null) {
         return { success: false, error: `Note "${input.title}" found in search but could not be retrieved.` };
       }
@@ -226,6 +231,19 @@ export async function executeGetCurrentNote(
 
 // ─── Read tool dispatcher ─────────────────────────────────────────────────────
 
+export async function executeGetFileTree(): Promise<ReadToolResult> {
+  try {
+    const { getDb } = await import("@/features/notes/db/client");
+    const db = await getDb();
+    const rows = await db.select<{ id: string; title: string; parent_id: string | null }[]>(
+      `SELECT id, title, parent_id FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
+    );
+    return { success: true, data: rows };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function executeReadTool(
   toolName:    string,
   toolInput:   Record<string, unknown>,
@@ -248,6 +266,9 @@ export async function executeReadTool(
 
     case "getCurrentNote":
       return executeGetCurrentNote(currentNote);
+
+    case "getFileTree":
+      return executeGetFileTree();
 
     default:
       return { success: false, error: `Unknown read tool: ${toolName}` };
@@ -277,6 +298,7 @@ Examples:
 - "you missed one, fix it" (follow-up correction)
 - "change all instances" (follow-up to replace all)
 - "do it for the other occurrence" (follow-up)
+- "create a note under X" (needs getFileTree to find parent ID, not searchNotes)
 
 "chat" = everything else: questions, explanations, analysis, summarisation
 without writing, general conversation. Pure questions with no write intent.

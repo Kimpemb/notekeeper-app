@@ -398,6 +398,14 @@ export async function executeCreateNote(
   input: CreateNoteInput
 ): Promise<WriteToolResult> {
   try {
+    // Validate parent_id exists before attempting insert
+    if (input.parent_id) {
+      const parent = await getNoteById(input.parent_id);
+      if (!parent) {
+        return { success: false, error: `Parent note ${input.parent_id} not found. Search for the correct note ID first.` };
+      }
+    }
+
     const { contentJson, plaintext } = markdownToNoteContent(input.content);
 
     // Parse frontmatter JSON string if provided

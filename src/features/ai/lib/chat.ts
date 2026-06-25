@@ -1703,6 +1703,7 @@ import {
   executeSearchNotes,
   executeGetCalendarEvents,
   executeGetGoals,
+  executeGetFileTree,
   classifyActionIntent,
 } from "@/features/ai/lib/tools/readTools";
 import {
@@ -1735,6 +1736,7 @@ RULES:
 - For timetables: call getCalendarEvents for the target date range before proposing events. Flag conflicts explicitly.
 - For assignment solving: call getCurrentNote or getNote first. Work only from actual note content.
 - If write position cannot be resolved with confidence, use appendToNote and state this in your response.
+- When using parent_id in createNote, you MUST use the exact id field returned by searchNotes or getNote. Never construct or guess an id.
 - Propose one write operation at a time unless the user explicitly requested a batch.
 - If the user says "just do it" or "don't ask": still use the write tool. The confirmation gate is handled by the app, not you.
 - CRITICAL: You CANNOT make changes to notes, calendar, or goals by describing them in text.
@@ -1937,7 +1939,10 @@ async function executeReadTool(
       return executeGetGoals(toolInput as { filter?: string });
 
     case "getCurrentNote":
-  return executeGetCurrentNote(currentNote);
+      return executeGetCurrentNote(currentNote);
+
+    case "getFileTree":
+      return executeGetFileTree();
 
     default:
       return { success: false, error: `Unknown read tool: ${toolName}` };
