@@ -798,6 +798,7 @@ export interface MoveNoteUndoData {
   originalParentId: string | null;
 }
 
+
 export async function executeMoveNote(
   input: MoveNoteInput
 ): Promise<WriteToolResult> {
@@ -807,7 +808,6 @@ export async function executeMoveNote(
       return { success: false, error: `Note ${input.note_id} not found.` };
     }
 
-    // Validate new parent exists if provided
     if (input.parent_id) {
       const parent = await getNoteById(input.parent_id);
       if (!parent) {
@@ -817,11 +817,11 @@ export async function executeMoveNote(
 
     const originalParentId = note.parent_id ?? null;
 
-    const { moveNote } = await import("@/features/notes/db/queries");
-    await moveNote(input.note_id, input.parent_id ?? null);
-
-    await refreshNotesListInStore();
-    window.dispatchEvent(new CustomEvent("idemora:note-updated", { detail: { noteId: input.note_id } }));
+    // Use the store action — updates parent_id in memory without calling
+    // loadNotes() / getAllNotesMeta(), so note content is never wiped from
+    // the store and open editors don't blank.
+    const { useNoteStore } = await import("@/features/notes/store/useNoteStore");
+    await useNoteStore.getState().moveNote(input.note_id, input.parent_id ?? null);
 
     return {
       success:   true,
@@ -837,8 +837,6 @@ export async function executeMoveNote(
 export async function undoMoveNote(
   undoData: MoveNoteUndoData
 ): Promise<void> {
-  const { moveNote } = await import("@/features/notes/db/queries");
-  await moveNote(undoData.noteId, undoData.originalParentId);
-  await refreshNotesListInStore();
-  window.dispatchEvent(new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } }));
+  const { useNoteStore } = await import("@/features/notes/store/useNoteStore");
+  await useNoteStore.getState().moveNote(undoData.noteId, undoData.originalParentId);
 }
