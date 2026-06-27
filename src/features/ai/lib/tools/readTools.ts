@@ -294,7 +294,9 @@ export async function executeGetCalendarEvents(input: {
       duration_mins: e.duration_mins,
       colour_state:  e.colour_state,
       category:      e.category,
+      recurrence:    e.recurrence,
       occurrence_id: e.occurrence_id,
+      is_recurring:  e.recurrence !== null,
     }));
 
     return { success: true, data };

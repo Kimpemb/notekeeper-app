@@ -222,7 +222,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Delete a calendar event by ID. " +
       "The score_event_log row is preserved — deleting does not change the user's score. " +
-      "Always requires user confirmation. Warn explicitly if the event is today or in the past.",
+      "Always requires user confirmation. Warn explicitly if the event is today or in the past. " +
+      "IMPORTANT: For recurring events (is_recurring: true), deleting by the event id removes ALL occurrences in the series — only one deletion is needed. Do not attempt to delete each occurrence separately.",
     input_schema: {
       type: "object",
       properties: {
