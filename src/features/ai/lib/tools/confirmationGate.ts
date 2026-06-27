@@ -11,6 +11,7 @@ import {
   executeInsertInNote,
   executeReplaceInNote,
   executeCreateNote,
+  executeMoveNote,
   executeCreateCalendarEvents,
   executeDeleteCalendarEvent,
   executeUpdateGoal,
@@ -18,6 +19,7 @@ import {
   undoInsertInNote,
   undoReplaceInNote,
   undoCreateNote,
+  undoMoveNote,
   undoCreateCalendarEvents,
   undoDeleteCalendarEvent,
   undoUpdateGoal,
@@ -25,6 +27,7 @@ import {
   type InsertInNoteInput,
   type ReplaceInNoteInput,
   type CreateNoteInput,
+  type MoveNoteInput,
   type CreateCalendarEventsInput,
   type DeleteCalendarEventInput,
   type UpdateGoalInput,
@@ -32,6 +35,7 @@ import {
   type InsertInNoteUndoData,
   type ReplaceInNoteUndoData,
   type CreateNoteUndoData,
+  type MoveNoteUndoData,
   type CreateCalendarEventsUndoData,
   type DeleteCalendarEventUndoData,
   type UpdateGoalUndoData,
@@ -357,6 +361,20 @@ export function buildWritePreview(
       };
     }
 
+    case "moveNote": {
+      const noteId   = toolInput.note_id as string;
+      const parentId = toolInput.parent_id as string | undefined;
+      const title    = noteTitleMap.get(noteId) ?? noteId;
+      const dest     = parentId ? (noteTitleMap.get(parentId) ?? parentId) : "root level";
+      return {
+        title:         `Move "${title}"`,
+        description:   `Moving to ${dest}`,
+        content:       `Note: "${title}"\nDestination: ${dest}`,
+        wordCount:     6,
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
     default:
       return {
         title:         toolName,
@@ -433,6 +451,8 @@ async function dispatch(
       } as unknown as UpdateGoalInput);
     }
 
+    case "moveNote":
+      return executeMoveNote(toolInput as unknown as MoveNoteInput);
     default:
       return { success: false, error: `Unknown tool: ${toolName}` };
   }
@@ -456,6 +476,8 @@ async function dispatchUndo(toolName: string, undoData: unknown): Promise<void> 
       return undoDeleteCalendarEvent(undoData as DeleteCalendarEventUndoData);
     case "updateGoal":
       return undoUpdateGoal(undoData as UpdateGoalUndoData);
+    case "moveNote":
+      return undoMoveNote(undoData as MoveNoteUndoData);
   }
 }
 

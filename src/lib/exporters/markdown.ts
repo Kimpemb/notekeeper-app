@@ -142,12 +142,14 @@ function convertNode(node: PmNode, indent = 0, listIndex = 0): string {
       return `> ${prefix}\n${lines}\n`;
     }
 
-    case "toggle": {
-      const summary = node.content?.find((n) => n.type === "toggleSummary");
-      const body    = node.content?.find((n) => n.type === "toggleBody");
-      const title   = inlineContent(summary?.content);
-      const inner   = body ? convertNodes(body.content ?? []) : "";
-      const bodyLines = inner.trim().split("\n").map((l) => `  ${l}`).join("\n");
+     case "toggle": {
+      // New schema: toggle > inline* + toggleBody?
+      // Inline nodes are the title, toggleBody holds the collapsible content.
+      const inlineNodes = (node.content ?? []).filter((n) => n.type !== "toggleBody");
+      const body        = node.content?.find((n) => n.type === "toggleBody");
+      const title       = inlineContent(inlineNodes);
+      const inner       = body ? convertNodes(body.content ?? []) : "";
+      const bodyLines   = inner.trim().split("\n").map((l) => `  ${l}`).join("\n");
       return `<details>\n<summary>${title}</summary>\n\n${bodyLines}\n\n</details>\n`;
     }
 
@@ -165,6 +167,14 @@ function convertNode(node: PmNode, indent = 0, listIndex = 0): string {
     case "blockRef": {
       const { sourceNoteId, blockId, snapshot } = node.attrs ?? {};
       return `<!-- blockref: ${JSON.stringify({ sourceNoteId, blockId, snapshot })} -->\n`;
+    }
+
+    case "subPage": {
+      // Atom node — no content. Encode as HTML comment for round-trip identity.
+      // The node is preserved at JSON level; this representation is only for
+      // model reads (getNote) so the model knows a subpage exists here.
+      const { noteId, title } = node.attrs ?? {};
+      return `<!-- subpage: ${JSON.stringify({ noteId, title })} -->\n`;
     }
 
     default:

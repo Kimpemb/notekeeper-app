@@ -250,7 +250,6 @@ export function ChatPanel({ noteId, paneId }: Props) {
   useEffect(() => {
     return useConfirmationGate.subscribe((state) => {
       setPendingWrites((prev) => {
-        if (prev.size === 0) return prev;
         const next = new Map(prev);
         let changed = false;
         for (const [id, pw] of prev) {
