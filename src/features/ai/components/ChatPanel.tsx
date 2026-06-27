@@ -248,21 +248,10 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
   // Keep local pendingWrites in sync with gate store status changes
   useEffect(() => {
-    return useConfirmationGate.subscribe((state) => {
-      setPendingWrites((prev) => {
-        const next = new Map(prev);
-        let changed = false;
-        for (const [id, pw] of prev) {
-          const stored = state.pendingWrites.get(id);
-          if (stored && stored.status !== pw.status) {
-            next.set(id, stored);
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    });
-  }, []);
+  return useConfirmationGate.subscribe((state) => {
+    setPendingWrites(new Map(state.pendingWrites));
+  });
+}, []);
   const { toasts, addToast } = useToasts();
 
   const messagesEndRef    = useRef<HTMLDivElement>(null);
