@@ -160,17 +160,19 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "replaceInNote",
     description:
-      "Replace a specific block of text in a note. " +
-      "old_content must match the note exactly — read the note first with getNote. " +
-      "Use for rewriting a section or applying timetable block edits.",
+      "Replace a specific block in a note by its block_id. " +
+      "Always call getNote first — the response includes a 'nodes' array where each entry has a block_id and a summary of what it contains. " +
+      "Pick the block_id of the node you want to replace and pass it here along with the new content as markdown. " +
+      "This is the correct tool for swapping a table, rewriting a paragraph, or replacing a heading section. " +
+      "Never attempt to match content by string — always use block_id.",
     input_schema: {
       type: "object",
       properties: {
         note_id:     { type: "string", description: "UUID of the target note." },
-        old_content: { type: "string", description: "Exact text to replace (must match note content verbatim)." },
-        new_content: { type: "string", description: "Replacement text." },
+        block_id:    { type: "string", description: "The blockId of the node to replace, taken from the 'nodes' array returned by getNote." },
+        new_content: { type: "string", description: "Replacement content as markdown. Will be parsed into the appropriate node types." },
       },
-      required: ["note_id", "old_content", "new_content"],
+      required: ["note_id", "block_id", "new_content"],
     },
   },
 
@@ -232,6 +234,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 
   {
+    name: "moveNote",
+    description:
+      "Move a note to a different parent, or to root level. " +
+      "Always call getFileTree first to find the correct parent_id. " +
+      "Use this when the user says 'move X under Y' or 'move X to root'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        note_id:   { type: "string", description: "UUID of the note to move." },
+        parent_id: { type: "string", description: "UUID of the new parent note. Omit or pass null to move to root level." },
+      },
+      required: ["note_id"],
+    },
+  },
+
+  {
     name: "updateGoal",
     description:
       "Update fields on an existing goal (title, dates, progress, colour_state, etc). " +
@@ -270,6 +288,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "insertInNote",
   "replaceInNote",
   "createNote",
+  "moveNote",
   "createCalendarEvents",
   "deleteCalendarEvent",
   "updateGoal",

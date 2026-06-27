@@ -28,15 +28,132 @@ export interface ReadToolResult {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+interface NodeIndexEntry {
+  block_id:  string | null;
+  type:      string;
+  level?:    number;
+  summary:   string;
+}
+
+function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[] {
+  if (!contentJson) return [];
+  let doc: { type: string; content?: unknown[] };
+  try { doc = JSON.parse(contentJson); } catch { return []; }
+
+  const entries: NodeIndexEntry[] = [];
+
+  function nodeText(node: Record<string, unknown>): string {
+    if (node.type === "text" && typeof node.text === "string") return node.text;
+    if (Array.isArray(node.content)) {
+      return (node.content as Record<string, unknown>[]).map(nodeText).join("");
+    }
+    return "";
+  }
+
+  function walk(nodes: unknown[]) {
+    for (const n of nodes) {
+      const node = n as Record<string, unknown>;
+      const attrs = (node.attrs ?? {}) as Record<string, unknown>;
+      const blockId = typeof attrs.blockId === "string" ? attrs.blockId : null;
+      const type = node.type as string;
+
+      if (type === "table") {
+        const rows = (node.content ?? []) as Record<string, unknown>[];
+        const firstRow = rows[0];
+        const headers = firstRow
+          ? ((firstRow.content ?? []) as Record<string, unknown>[])
+              .map((cell) =>
+                nodeText((((cell.content ?? []) as Record<string, unknown>[])[0]) ?? {})
+              )
+              .filter(Boolean)
+              .join(" | ")
+          : "";
+        entries.push({
+          block_id: blockId,
+          type:     "table",
+          summary:  `Table: | ${headers} | (${rows.length} rows)`,
+        });
+
+      } else if (type === "heading") {
+        entries.push({
+          block_id: blockId,
+          type:     "heading",
+          level:    typeof attrs.level === "number" ? attrs.level : 1,
+          summary:  nodeText(node),
+        });
+
+      } else if (type === "toggle") {
+        const inlineNodes = ((node.content ?? []) as Record<string, unknown>[])
+          .filter((c) => c.type !== "toggleBody");
+        const body = ((node.content ?? []) as Record<string, unknown>[])
+          .find((c) => c.type === "toggleBody");
+        const title = inlineNodes.map(nodeText).join("");
+        entries.push({
+          block_id: blockId,
+          type:     "toggle",
+          summary:  `Toggle: "${title}"`,
+        });
+        // Recurse into toggleBody so nested tables/headings are reachable
+        if (body && Array.isArray((body as Record<string, unknown>).content)) {
+          walk((body as Record<string, unknown>).content as unknown[]);
+        }
+
+      } else if (type === "bulletList" || type === "orderedList" || type === "taskList") {
+        const items = (node.content ?? []) as Record<string, unknown>[];
+        const preview = items
+          .slice(0, 3)
+          .map((item) => nodeText(item).trim())
+          .filter(Boolean)
+          .join("; ");
+        entries.push({
+          block_id: blockId,
+          type,
+          summary:  `${items.length} items — ${preview}${items.length > 3 ? "…" : ""}`,
+        });
+
+      } else if (type === "paragraph") {
+        const text = nodeText(node).trim();
+        if (text) {
+          entries.push({
+            block_id: blockId,
+            type:     "paragraph",
+            summary:  text.length > 120 ? text.slice(0, 120) + "…" : text,
+          });
+        }
+
+      } else if (type === "codeBlock") {
+        const lang = typeof attrs.language === "string" ? attrs.language : "";
+        const code = nodeText(node).trim();
+        entries.push({
+          block_id: blockId,
+          type:     "codeBlock",
+          summary:  `Code block (${lang || "no lang"}): ${code.slice(0, 60)}${code.length > 60 ? "…" : ""}`,
+        });
+
+      } else if (type === "blockquote") {
+        entries.push({
+          block_id: blockId,
+          type:     "blockquote",
+          summary:  nodeText(node).trim().slice(0, 120),
+        });
+
+      } else if (Array.isArray((node as Record<string, unknown>).content)) {
+        // Unknown container — recurse
+        walk((node as Record<string, unknown>).content as unknown[]);
+      }
+    }
+  }
+
+  walk(doc.content ?? []);
+  return entries;
+}
+
 function noteToReadShape(note: Note) {
   return {
     id:          note.id,
     title:       note.title,
-    // Markdown, not plaintext — this is the same representation write tools
-    // (appendToNote/insertInNote/replaceInNote) round-trip through, so
-    // replaceInNote's old_content argument can exact-match what the model
-    // was shown by getNote/getCurrentNote.
     content:     prosemirrorBodyToMarkdown(note.content ?? ""),
+    nodes:       buildNodeIndex(note.content),
     frontmatter: note.frontmatter ?? null,
     updated_at:  note.updated_at,
   };

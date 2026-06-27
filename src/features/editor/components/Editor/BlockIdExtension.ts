@@ -34,6 +34,7 @@ const TARGET_TYPES = new Set([
   "taskItem",
   "codeBlock",
   "blockquote",
+  "table",
 ]);
 
 export const BlockIdExtension = Extension.create({

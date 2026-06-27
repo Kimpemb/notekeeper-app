@@ -1745,7 +1745,7 @@ RULES:
   Reading a goal with getGoals and then describing the update in text does NOT update anything.
   You MUST call updateGoal. You MUST call appendToNote. You MUST call createNote. etc. The ONLY way to make a change is to call a write tool. If you describe a change without calling a tool, nothing will happen. Never say "I've replaced X with Y" unless you called replaceInNote. Never say "I've added X" unless you called appendToNote or insertInNote.
 - If the user says a change didn't happen or was incomplete, call getNote to re-read the current state, then call the appropriate write tool again.
-- replaceInNote replaces ALL occurrences of old_content. If you need to replace a specific instance, make old_content long enough to be unique in the note.
+- replaceInNote targets a node by block_id, not by content string. Always call getNote first and read the 'nodes' array to find the block_id of what you want to replace. Never guess or construct a block_id.
 - When the user confirms or approves in chat (e.g. "yes", "do it", "go ahead", "create it"), do NOT call the write tool again. The confirmation gate is handled by the app via the Apply button on the card. Simply tell the user to click Apply on the card to proceed.`;
 export async function streamChatWithTools(
   query:            string,
@@ -1968,13 +1968,17 @@ async function buildNoteTitleMap(
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
 
-  const noteId = toolInput.note_id as string | undefined;
-  if (!noteId) return map;
+  const idsToFetch = [
+    toolInput.note_id as string | undefined,
+    toolInput.parent_id as string | undefined,
+  ].filter(Boolean) as string[];
 
-  try {
-    const note = await getNoteById(noteId);
-    if (note) map.set(note.id, note.title);
-  } catch { /* non-fatal */ }
+  for (const id of idsToFetch) {
+    try {
+      const note = await getNoteById(id);
+      if (note) map.set(note.id, note.title);
+    } catch { /* non-fatal */ }
+  }
 
   return map;
 }

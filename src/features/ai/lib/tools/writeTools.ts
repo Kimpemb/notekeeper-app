@@ -106,7 +106,8 @@ export interface AppendToNoteInput {
 
 export interface AppendToNoteUndoData {
   noteId:          string;
-  originalMarkdown: string;
+  originalContent:  string;   // raw TipTap JSON
+  originalPlaintext: string;
 }
 
 export async function executeAppendToNote(
@@ -118,7 +119,8 @@ export async function executeAppendToNote(
       return { success: false, error: `Note ${input.note_id} not found.` };
     }
 
-    const originalMarkdown = noteBodyToMarkdown(note.content);
+    const originalContent   = note.content ?? JSON.stringify({ type: "doc", content: [] });
+    const originalPlaintext = note.plaintext ?? "";
 
     // Parse existing doc to append at JSON level — preserves subpages,
     // backlinks, and other custom nodes that don't survive markdown round-trip.
@@ -154,7 +156,7 @@ export async function executeAppendToNote(
       success:    true,
       noteId:     note.id,
       noteTitle:  note.title,
-      undoData:   { noteId: note.id, originalMarkdown } satisfies AppendToNoteUndoData,
+      undoData:   { noteId: note.id, originalContent, originalPlaintext } satisfies AppendToNoteUndoData,
     };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -164,8 +166,10 @@ export async function executeAppendToNote(
 export async function undoAppendToNote(
   undoData: AppendToNoteUndoData
 ): Promise<void> {
-  const { contentJson, plaintext } = markdownToNoteContent(undoData.originalMarkdown);
-  await updateNote(undoData.noteId, { content: contentJson, plaintext });
+  await updateNote(undoData.noteId, {
+    content:   undoData.originalContent,
+    plaintext: undoData.originalPlaintext,
+  });
   await refreshNoteInStore(undoData.noteId);
   window.dispatchEvent(
     new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } })
@@ -182,8 +186,9 @@ export interface InsertInNoteInput {
 }
 
 export interface InsertInNoteUndoData {
-  noteId:          string;
-  originalMarkdown: string;
+  noteId:           string;
+  originalContent:  string;   // raw TipTap JSON
+  originalPlaintext: string;
 }
 
 export async function executeInsertInNote(
@@ -195,36 +200,40 @@ export async function executeInsertInNote(
       return { success: false, error: `Note ${input.note_id} not found.` };
     }
 
-    const originalMarkdown = noteBodyToMarkdown(note.content);
-    let newMarkdown: string | null = null;
+    const originalContent   = note.content ?? JSON.stringify({ type: "doc", content: [] });
+    const originalPlaintext = note.plaintext ?? "";
     let insertedViaFallback = false;
 
-    // Resolution 1: after_block_id
-    // TipTap block IDs are stored as data-block-id attrs on nodes.
-    // In markdown space we can't address them precisely, so we fall
-    // straight through to heading resolution. Block-ID precision requires
-    // in-editor insertion (a future editor-command path); for now we treat
-    // after_block_id as a signal to prefer heading fallback over pure append.
-    if (input.after_block_id) {
-      // Nothing to do here yet — fall through to after_heading
-    }
-
-    // Resolution 2: after_heading
-    if (!newMarkdown && input.after_heading) {
-      newMarkdown = insertAfterHeading(
-        originalMarkdown,
-        input.after_heading,
-        input.content
-      );
-    }
-
     // Resolution 3: fallback — append to end
-    if (!newMarkdown) {
-      newMarkdown = originalMarkdown.trimEnd() + "\n\n" + input.content.trimStart();
+    if (!input.after_heading && !input.after_block_id) {
       insertedViaFallback = true;
     }
 
-    const { contentJson, plaintext } = markdownToNoteContent(newMarkdown);
+    // All paths: operate at JSON level to preserve custom nodes.
+    // Convert only the new content through markdownToDoc, then splice
+    // into the existing doc JSON rather than round-tripping the whole doc.
+    let doc: { type: string; content?: unknown[] };
+    try {
+      doc = note.content ? JSON.parse(note.content) : { type: "doc", content: [] };
+    } catch {
+      doc = { type: "doc", content: [] };
+    }
+    if (!Array.isArray(doc.content)) doc.content = [];
+
+    const newNodes = ((markdownToDoc(input.content) as { content?: unknown[] }).content ?? []);
+
+    let mergedDoc: { type: string; content: unknown[] };
+
+    if (insertedViaFallback || !input.after_heading) {
+      // Append to end
+      mergedDoc = { ...doc, content: [...doc.content, ...newNodes] };
+    } else {
+      // Insert after heading — find the heading node in JSON and splice after it
+      mergedDoc = insertNodesAfterHeading(doc, input.after_heading, newNodes);
+    }
+
+    const contentJson = JSON.stringify(mergedDoc);
+    const plaintext   = extractPlaintext(mergedDoc);
     await updateNote(note.id, { content: contentJson, plaintext });
 
     // Refresh the store and notify editor
@@ -238,78 +247,22 @@ export async function executeInsertInNote(
       noteId:               note.id,
       noteTitle:            note.title,
       insertedViaFallback,
-      undoData:             { noteId: note.id, originalMarkdown } satisfies InsertInNoteUndoData,
+      undoData:             { noteId: note.id, originalContent, originalPlaintext } satisfies InsertInNoteUndoData,
     };
   } catch (err) {
     return { success: false, error: String(err) };
   }
 }
 
-/**
- * Find the first heading line matching headingText (case-insensitive, prefix)
- * and insert content immediately after the heading's block (before the next
- * heading of equal or higher level, or at end of file).
- *
- * Returns null if the heading is not found.
- */
-function insertAfterHeading(
-  markdown:    string,
-  headingText: string,
-  content:     string
-): string | null {
-  const lines  = markdown.split("\n");
-  const needle = headingText.toLowerCase().trim();
-
-  // Find the target heading line index
-  let headingIdx = -1;
-  let headingLevel = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^(#{1,6})\s+(.*)$/);
-    if (!m) continue;
-    const text = m[2].toLowerCase().trim();
-    if (text === needle || text.startsWith(needle)) {
-      headingIdx  = i;
-      headingLevel = m[1].length;
-      break;
-    }
-  }
-
-  if (headingIdx === -1) return null;
-
-  // Find where this heading's block ends:
-  // The first subsequent line that is a heading of equal or higher level (fewer #s)
-  let insertIdx = lines.length; // default: end of file
-  for (let i = headingIdx + 1; i < lines.length; i++) {
-    const m = lines[i].match(/^(#{1,6})\s/);
-    if (m && m[1].length <= headingLevel) {
-      insertIdx = i;
-      break;
-    }
-  }
-
-  // Insert a blank line + content before insertIdx
-  const before = lines.slice(0, insertIdx);
-  const after  = lines.slice(insertIdx);
-
-  // Trim trailing blank lines from the heading block, then add content
-  while (before.length > 0 && before[before.length - 1].trim() === "") {
-    before.pop();
-  }
-
-  return [
-    ...before,
-    "",
-    content.trimEnd(),
-    "",
-    ...after,
-  ].join("\n").replace(/\n{3,}/g, "\n\n");
-}
+ 
 
 export async function undoInsertInNote(
   undoData: InsertInNoteUndoData
 ): Promise<void> {
-  const { contentJson, plaintext } = markdownToNoteContent(undoData.originalMarkdown);
-  await updateNote(undoData.noteId, { content: contentJson, plaintext });
+  await updateNote(undoData.noteId, {
+    content:   undoData.originalContent,
+    plaintext: undoData.originalPlaintext,
+  });
   await refreshNoteInStore(undoData.noteId);
   window.dispatchEvent(
     new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } })
@@ -320,13 +273,14 @@ export async function undoInsertInNote(
 
 export interface ReplaceInNoteInput {
   note_id:     string;
-  old_content: string;
+  block_id:    string;
   new_content: string;
 }
 
 export interface ReplaceInNoteUndoData {
-  noteId:          string;
-  originalMarkdown: string;
+  noteId:           string;
+  originalContent:  string;   // raw TipTap JSON
+  originalPlaintext: string;
 }
 
 export async function executeReplaceInNote(
@@ -338,22 +292,35 @@ export async function executeReplaceInNote(
       return { success: false, error: `Note ${input.note_id} not found.` };
     }
 
-    const originalMarkdown = noteBodyToMarkdown(note.content);
+    const originalContent   = note.content ?? JSON.stringify({ type: "doc", content: [] });
+    const originalPlaintext = note.plaintext ?? "";
 
-    if (!originalMarkdown.includes(input.old_content)) {
+    let doc: { type: string; content?: unknown[] };
+    try {
+      doc = note.content ? JSON.parse(note.content) : { type: "doc", content: [] };
+    } catch {
+      doc = { type: "doc", content: [] };
+    }
+    if (!Array.isArray(doc.content)) doc.content = [];
+
+    // Find the node by block_id — walk the full tree recursively
+    const { newDoc, found } = replaceNodeByBlockId(
+      doc as { type: string; content: unknown[] },
+      input.block_id,
+      (markdownToDoc(input.new_content) as { content?: unknown[] }).content ?? []
+    );
+
+    if (!found) {
       return {
         success: false,
-        error:   "content_not_found: old_content does not match anything in the note.",
+        error:   `block_not_found: No node with block_id "${input.block_id}" found in note. Call getNote to refresh the node list and try again.`,
       };
     }
 
-// Replace all occurrences
-    const newMarkdown = originalMarkdown.split(input.old_content).join(input.new_content);
-    const { contentJson, plaintext } = markdownToNoteContent(newMarkdown);
+    const contentJson = JSON.stringify(newDoc);
+    const plaintext   = extractPlaintext(newDoc);
 
     await updateNote(note.id, { content: contentJson, plaintext });
-
-    // Refresh the store and notify editor
     await refreshNoteInStore(note.id);
     window.dispatchEvent(
       new CustomEvent("idemora:note-updated", { detail: { noteId: note.id } })
@@ -363,7 +330,7 @@ export async function executeReplaceInNote(
       success:   true,
       noteId:    note.id,
       noteTitle: note.title,
-      undoData:  { noteId: note.id, originalMarkdown } satisfies ReplaceInNoteUndoData,
+      undoData:  { noteId: note.id, originalContent, originalPlaintext } satisfies ReplaceInNoteUndoData,
     };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -373,8 +340,10 @@ export async function executeReplaceInNote(
 export async function undoReplaceInNote(
   undoData: ReplaceInNoteUndoData
 ): Promise<void> {
-  const { contentJson, plaintext } = markdownToNoteContent(undoData.originalMarkdown);
-  await updateNote(undoData.noteId, { content: contentJson, plaintext });
+  await updateNote(undoData.noteId, {
+    content:   undoData.originalContent,
+    plaintext: undoData.originalPlaintext,
+  });
   await refreshNoteInStore(undoData.noteId);
   window.dispatchEvent(
     new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } })
@@ -710,4 +679,166 @@ export async function undoUpdateGoal(
   undoData: UpdateGoalUndoData
 ): Promise<void> {
   await dbUpdateGoal(undoData.goalId, undoData.originalFields);
+}
+
+// ─── JSON-level node helpers ──────────────────────────────────────────────────
+
+/**
+ * Walk the full doc tree and replace the node whose attrs.blockId matches
+ * targetBlockId with replacementNodes. Recurses into all container types
+ * so nested nodes (inside toggles, blockquotes, list items) are reachable.
+ * Returns { newDoc, found }.
+ */
+function replaceNodeByBlockId(
+  doc: { type: string; content: unknown[] },
+  targetBlockId: string,
+  replacementNodes: unknown[]
+): { newDoc: { type: string; content: unknown[] }; found: boolean } {
+  let found = false;
+
+  function walkNodes(nodes: unknown[]): unknown[] {
+    const result: unknown[] = [];
+    for (const node of nodes) {
+      if (found) { result.push(node); continue; }
+      const n = node as Record<string, unknown>;
+      const attrs = (n.attrs ?? {}) as Record<string, unknown>;
+
+      // Match on blockId attribute
+      if (attrs.blockId === targetBlockId) {
+        result.push(...replacementNodes);
+        found = true;
+        continue;
+      }
+
+      // Recurse into any node that has children
+      if (Array.isArray(n.content)) {
+        const newChildren = walkNodes(n.content as unknown[]);
+        result.push({ ...n, content: newChildren });
+        continue;
+      }
+
+      result.push(node);
+    }
+    return result;
+  }
+
+  const newNodes = walkNodes(doc.content);
+  return { newDoc: { ...doc, content: newNodes }, found };
+}
+
+/**
+ * Find the first heading node whose text matches headingText (case-insensitive)
+ * and insert newNodes immediately after the end of that heading's section
+ * (before the next heading of equal or higher level, or at end of doc).
+ * Falls back to appending at end if heading not found.
+ */
+function insertNodesAfterHeading(
+  doc: { type: string; content?: unknown[] },
+  headingText: string,
+  newNodes: unknown[]
+): { type: string; content: unknown[] } {
+  const nodes = doc.content ?? [];
+  const needle = headingText.toLowerCase().trim();
+
+  function nodeText(node: Record<string, unknown>): string {
+    if (node.type === "text" && typeof node.text === "string") return node.text;
+    if (Array.isArray(node.content)) {
+      return (node.content as Record<string, unknown>[]).map(nodeText).join("");
+    }
+    return "";
+  }
+
+  // Find heading index
+  let headingIdx = -1;
+  let headingLevel = 0;
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i] as Record<string, unknown>;
+    if (node.type === "heading") {
+      const text = nodeText(node).toLowerCase().trim();
+      if (text === needle || text.startsWith(needle)) {
+        headingIdx  = i;
+        headingLevel = ((node.attrs as Record<string, unknown>)?.level as number) ?? 1;
+        break;
+      }
+    }
+  }
+
+  if (headingIdx === -1) {
+    // Heading not found — append to end
+    return { ...doc, content: [...nodes, ...newNodes] };
+  }
+
+  // Find where this heading's section ends
+  let insertIdx = nodes.length;
+  for (let i = headingIdx + 1; i < nodes.length; i++) {
+    const node = nodes[i] as Record<string, unknown>;
+    if (node.type === "heading") {
+      const level = ((node.attrs as Record<string, unknown>)?.level as number) ?? 1;
+      if (level <= headingLevel) {
+        insertIdx = i;
+        break;
+      }
+    }
+  }
+
+  const result = [...nodes];
+  result.splice(insertIdx, 0, ...newNodes);
+  return { ...doc, content: result };
+}
+
+// ─── moveNote ─────────────────────────────────────────────────────────────────
+
+export interface MoveNoteInput {
+  note_id:   string;
+  parent_id?: string | null;
+}
+
+export interface MoveNoteUndoData {
+  noteId:          string;
+  originalParentId: string | null;
+}
+
+export async function executeMoveNote(
+  input: MoveNoteInput
+): Promise<WriteToolResult> {
+  try {
+    const note = await getNoteById(input.note_id);
+    if (!note) {
+      return { success: false, error: `Note ${input.note_id} not found.` };
+    }
+
+    // Validate new parent exists if provided
+    if (input.parent_id) {
+      const parent = await getNoteById(input.parent_id);
+      if (!parent) {
+        return { success: false, error: `Parent note ${input.parent_id} not found. Call getFileTree to find the correct id.` };
+      }
+    }
+
+    const originalParentId = note.parent_id ?? null;
+
+    const { moveNote } = await import("@/features/notes/db/queries");
+    await moveNote(input.note_id, input.parent_id ?? null);
+
+    await refreshNotesListInStore();
+    window.dispatchEvent(new CustomEvent("idemora:note-updated", { detail: { noteId: input.note_id } }));
+
+    return {
+      success:   true,
+      noteId:    note.id,
+      noteTitle: note.title,
+      undoData:  { noteId: note.id, originalParentId } satisfies MoveNoteUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoMoveNote(
+  undoData: MoveNoteUndoData
+): Promise<void> {
+  const { moveNote } = await import("@/features/notes/db/queries");
+  await moveNote(undoData.noteId, undoData.originalParentId);
+  await refreshNotesListInStore();
+  window.dispatchEvent(new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } }));
 }
