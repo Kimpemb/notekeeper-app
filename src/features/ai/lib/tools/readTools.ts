@@ -191,6 +191,9 @@ export async function executeGetNote(input: {
       if (!note || note.deleted_at !== null) {
         return { success: false, error: `Note "${input.title}" found in search but could not be retrieved.` };
       }
+      if (note.rag_excluded === 1) {
+        return { success: false, error: `Note "${note.title}" is excluded from AI access (.env).` };
+      }
       return { success: true, data: noteToReadShape(note) };
     }
 
@@ -241,11 +244,18 @@ export async function executeSearchNotes(input: {
     } catch {
       // hybridSearch may fail if embeddings aren't ready — fall back to keyword
       const keyword = await searchNotes(input.query, input.limit ?? 5);
-      results = keyword.map((r) => ({
-        id:         r.id,
-        title:      r.title,
-        excerpt:    r.snippet ?? "",
-        updated_at: r.updated_at,
+      // searchNotes doesn't filter rag_excluded — filter here to match hybridSearch behaviour
+      const nonExcluded = await Promise.all(
+        keyword.map(async (r) => {
+          const note = await getNoteById(r.id);
+          return note?.rag_excluded === 1 ? null : r;
+        })
+      );
+      results = nonExcluded.filter(Boolean).map((r) => ({
+        id:         r!.id,
+        title:      r!.title,
+        excerpt:    r!.snippet ?? "",
+        updated_at: r!.updated_at,
       }));
     }
 
@@ -345,6 +355,9 @@ export async function executeGetCurrentNote(
   if (!currentNote || currentNote.deleted_at !== null) {
     return { success: false, error: "no_note_open" };
   }
+  if (currentNote.rag_excluded === 1) {
+    return { success: false, error: `The current note "${currentNote.title}" is excluded from AI access (.env).` };
+  }
   return { success: true, data: noteToReadShape(currentNote) };
 }
 
@@ -355,7 +368,7 @@ export async function executeGetFileTree(): Promise<ReadToolResult> {
     const { getDb } = await import("@/features/notes/db/client");
     const db = await getDb();
     const rows = await db.select<{ id: string; title: string; parent_id: string | null }[]>(
-      `SELECT id, title, parent_id FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC`
+      `SELECT id, title, parent_id FROM notes WHERE deleted_at IS NULL AND COALESCE(rag_excluded, 0) = 0 ORDER BY sort_order ASC, created_at ASC`
     );
     return { success: true, data: rows };
   } catch (err) {
