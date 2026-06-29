@@ -452,7 +452,6 @@ export async function classifyActionIntent(
     return fallback;
   } catch (err) {
     if (err instanceof ProcessingExhaustedError) {
-      // Processing slot exhausted — safe fallback to chat
       return fallback;
     }
     return fallback;
