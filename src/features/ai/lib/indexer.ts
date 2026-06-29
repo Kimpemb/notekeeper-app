@@ -323,13 +323,19 @@ export async function startIndexer(): Promise<void> {
   }
 
   isPaused = false
-  tick()
+  // Delay first tick by 45 seconds — lets the app fully initialize
+  // before competing for network and DB resources at startup.
+  setTimeout(() => {
+    tick()
+  }, 45_000)
   intervalHandle = setInterval(tick, TICK_INTERVAL_MS)
   await emitStatus()
   console.info("[indexer] started")
 
-  // Warm embedding cache immediately — eliminates cold load on first search
-  warmEmbeddingCache().catch(() => {})
+  // Delay cache warm by 20 seconds — avoids blocking startup rendering
+  setTimeout(() => {
+    warmEmbeddingCache().catch(() => {})
+  }, 20_000)
 }
 
 /**
