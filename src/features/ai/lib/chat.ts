@@ -97,7 +97,7 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
     onChunk:   (token: string) => void
     onDone?:   () => void
     onError?:  (err: AICallError) => void
-    onStatus?: (message: string) => void
+    onStatus?: (message: string | null) => void
   }
 
   // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1814,7 +1814,7 @@ const systemPrompt = `Today's date is ${new Date().toISOString().slice(0, 10)}.\
       for (const block of response.content) {
         if (block.type === "text" && block.text) {
           streaming.onChunk(block.text);
-          streaming.onStatus?.(null as unknown as string);
+          streaming.onStatus?.(null);
         }
 
         if (block.type === "tool_use" && block.name && block.input !== undefined) {
@@ -1882,7 +1882,7 @@ const pendingWrite: PendingWrite = {
             onPendingWrite(pendingWrite);
 
             // Pause loop — await user decision
-            streaming.onStatus?.(null as unknown as string);
+            streaming.onStatus?.(null);
             const decision = await awaitWriteDecision(pendingWrite.id);
 
             if (decision === "confirmed") {
