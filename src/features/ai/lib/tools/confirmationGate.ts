@@ -15,6 +15,7 @@ import {
   executeCreateCalendarEvents,
   executeDeleteCalendarEvent,
   executeUpdateGoal,
+  executeLinkNoteToEvent,
   undoAppendToNote,
   undoInsertInNote,
   undoReplaceInNote,
@@ -23,6 +24,7 @@ import {
   undoCreateCalendarEvents,
   undoDeleteCalendarEvent,
   undoUpdateGoal,
+  undoLinkNoteToEvent,
   type AppendToNoteInput,
   type InsertInNoteInput,
   type ReplaceInNoteInput,
@@ -31,6 +33,7 @@ import {
   type CreateCalendarEventsInput,
   type DeleteCalendarEventInput,
   type UpdateGoalInput,
+  type LinkNoteToEventInput,
   type AppendToNoteUndoData,
   type InsertInNoteUndoData,
   type ReplaceInNoteUndoData,
@@ -39,6 +42,7 @@ import {
   type CreateCalendarEventsUndoData,
   type DeleteCalendarEventUndoData,
   type UpdateGoalUndoData,
+  type LinkNoteToEventUndoData,
 } from "./writeTools";
 import type { CalendarConflict } from "./writeTools";
 
@@ -453,6 +457,10 @@ async function dispatch(
 
     case "moveNote":
       return executeMoveNote(toolInput as unknown as MoveNoteInput);
+
+    case "linkNoteToEvent":
+      return executeLinkNoteToEvent(toolInput as unknown as LinkNoteToEventInput);
+
     default:
       return { success: false, error: `Unknown tool: ${toolName}` };
   }
@@ -478,6 +486,8 @@ async function dispatchUndo(toolName: string, undoData: unknown): Promise<void> 
       return undoUpdateGoal(undoData as UpdateGoalUndoData);
     case "moveNote":
       return undoMoveNote(undoData as MoveNoteUndoData);
+    case "linkNoteToEvent":
+      return undoLinkNoteToEvent(undoData as LinkNoteToEventUndoData);
   }
 }
 

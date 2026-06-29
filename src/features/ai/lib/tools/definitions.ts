@@ -251,6 +251,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 
   {
+    name: "linkNoteToEvent",
+    description:
+      "Link a note to a calendar event by setting linked_note_id on the event. " +
+      "Call getNote and getCalendarEvents first to confirm both exist. " +
+      "Use this when the user says 'link X note to Y event' or 'connect this note to that event'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        event_id: { type: "string", description: "UUID of the calendar event to update." },
+        note_id:  { type: "string", description: "UUID of the note to link to the event." },
+      },
+      required: ["event_id", "note_id"],
+    },
+  },
+
+  {
     name: "updateGoal",
     description:
       "Update fields on an existing goal (title, dates, progress, colour_state, etc). " +
@@ -293,4 +309,5 @@ export const WRITE_TOOL_NAMES = new Set([
   "createCalendarEvents",
   "deleteCalendarEvent",
   "updateGoal",
+  "linkNoteToEvent",
 ]);

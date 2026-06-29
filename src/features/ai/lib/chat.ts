@@ -1968,15 +1968,29 @@ async function buildNoteTitleMap(
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
 
-  const idsToFetch = [
+  const noteIdsToFetch = [
     toolInput.note_id as string | undefined,
     toolInput.parent_id as string | undefined,
   ].filter(Boolean) as string[];
 
-  for (const id of idsToFetch) {
+  for (const id of noteIdsToFetch) {
     try {
       const note = await getNoteById(id);
       if (note) map.set(note.id, note.title);
+    } catch { /* non-fatal */ }
+  }
+
+  // For linkNoteToEvent — pre-fetch event title so the confirmation card
+  // shows a human-readable name instead of the raw UUID.
+  if (toolInput.event_id && typeof toolInput.event_id === "string") {
+    try {
+      const event = await getEventsForDateRange({
+        startDate: "1970-01-01",
+        endDate:   "9999-12-31",
+        layers:    ["personal", "notes", "tasks", "goals", "cde"],
+      });
+      const match = event.find((e) => e.id === toolInput.event_id);
+      if (match) map.set(match.id, match.title);
     } catch { /* non-fatal */ }
   }
 

@@ -17,6 +17,7 @@ import {
   createEvent,
   deleteEvent,
   getEvent,
+  updateEvent,
   getEventsForDateRange,
   type CalendarEventInput,
   type CalendarEvent,
@@ -839,4 +840,52 @@ export async function undoMoveNote(
 ): Promise<void> {
   const { useNoteStore } = await import("@/features/notes/store/useNoteStore");
   await useNoteStore.getState().moveNote(undoData.noteId, undoData.originalParentId);
+}
+
+// ─── linkNoteToEvent ──────────────────────────────────────────────────────────
+
+export interface LinkNoteToEventInput {
+  event_id: string;
+  note_id:  string;
+}
+
+export interface LinkNoteToEventUndoData {
+  eventId:              string;
+  originalLinkedNoteId: string | null;
+}
+
+export async function executeLinkNoteToEvent(
+  input: LinkNoteToEventInput
+): Promise<WriteToolResult> {
+  try {
+    const event = await getEvent(input.event_id);
+    if (!event) {
+      return { success: false, error: `Event ${input.event_id} not found.` };
+    }
+
+    const note = await getNoteById(input.note_id);
+    if (!note) {
+      return { success: false, error: `Note ${input.note_id} not found.` };
+    }
+
+    const originalLinkedNoteId = event.linked_note_id ?? null;
+
+    await updateEvent(input.event_id, { linked_note_id: input.note_id });
+
+    window.dispatchEvent(new CustomEvent("idemora:calendar-updated"));
+
+    return {
+      success:  true,
+      undoData: { eventId: input.event_id, originalLinkedNoteId } satisfies LinkNoteToEventUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoLinkNoteToEvent(
+  undoData: LinkNoteToEventUndoData
+): Promise<void> {
+  await updateEvent(undoData.eventId, { linked_note_id: undoData.originalLinkedNoteId });
+  window.dispatchEvent(new CustomEvent("idemora:calendar-updated"));
 }
