@@ -181,7 +181,6 @@ export async function undoAppendToNote(
 export interface InsertInNoteInput {
   note_id:        string;
   content:        string;
-  after_heading?: string;
   after_block_id?: string;
 }
 
@@ -204,14 +203,14 @@ export async function executeInsertInNote(
     const originalPlaintext = note.plaintext ?? "";
     let insertedViaFallback = false;
 
-    // Resolution 3: fallback — append to end
-    if (!input.after_heading && !input.after_block_id) {
+    // Resolution: fallback — append to end if no anchor block_id supplied
+    if (!input.after_block_id) {
       insertedViaFallback = true;
     }
 
-    // All paths: operate at JSON level to preserve custom nodes.
-    // Convert only the new content through markdownToDoc, then splice
-    // into the existing doc JSON rather than round-tripping the whole doc.
+    // Operate at JSON level to preserve custom nodes. Convert only the new
+    // content through markdownToDoc, then splice into the existing doc JSON
+    // rather than round-tripping the whole doc.
     let doc: { type: string; content?: unknown[] };
     try {
       doc = note.content ? JSON.parse(note.content) : { type: "doc", content: [] };
@@ -224,12 +223,23 @@ export async function executeInsertInNote(
 
     let mergedDoc: { type: string; content: unknown[] };
 
-    if (insertedViaFallback || !input.after_heading) {
+    if (insertedViaFallback) {
       // Append to end
       mergedDoc = { ...doc, content: [...doc.content, ...newNodes] };
     } else {
-      // Insert after heading — find the heading node in JSON and splice after it
-      mergedDoc = insertNodesAfterHeading(doc, input.after_heading, newNodes);
+      // Insert immediately after the block matching after_block_id. If the
+      // block_id doesn't exist in the note (stale id, model error), this
+      // falls back to append and reports found: false — surface that as
+      // insertedViaFallback so the confirmation card and model response are
+      // honest about what happened, instead of silently appending while
+      // claiming a precise insertion.
+      const { newDoc, found } = insertNodesAfterBlockId(
+        doc as { type: string; content: unknown[] },
+        input.after_block_id!,
+        newNodes
+      );
+      mergedDoc = newDoc;
+      if (!found) insertedViaFallback = true;
     }
 
     const contentJson = JSON.stringify(mergedDoc);
@@ -737,63 +747,47 @@ function replaceNodeByBlockId(
 }
 
 /**
- * Find the first heading node whose text matches headingText (case-insensitive)
- * and insert newNodes immediately after the end of that heading's section
- * (before the next heading of equal or higher level, or at end of doc).
- * Falls back to appending at end if heading not found.
+ * Walk the full doc tree (recursing into containers, same shape as
+ * replaceNodeByBlockId) and splice newNodes immediately after the node
+ * whose attrs.blockId matches targetBlockId. Returns { newDoc, found }.
+ *
+ * This replaces the old heading-text matching approach. block_id is a
+ * stable identifier the model reads directly from getNote's nodes array —
+ * it never has to reconstruct or paraphrase a string to target a position,
+ * which eliminates the class of bugs where a heading-text match failed
+ * silently and content landed at the end of the note instead of where
+ * the model believed it was inserting.
  */
-function insertNodesAfterHeading(
-  doc: { type: string; content?: unknown[] },
-  headingText: string,
+function insertNodesAfterBlockId(
+  doc: { type: string; content: unknown[] },
+  targetBlockId: string,
   newNodes: unknown[]
-): { type: string; content: unknown[] } {
-  const nodes = doc.content ?? [];
-  const needle = headingText.toLowerCase().trim();
+): { newDoc: { type: string; content: unknown[] }; found: boolean } {
+  let found = false;
 
-  function nodeText(node: Record<string, unknown>): string {
-    if (node.type === "text" && typeof node.text === "string") return node.text;
-    if (Array.isArray(node.content)) {
-      return (node.content as Record<string, unknown>[]).map(nodeText).join("");
-    }
-    return "";
-  }
+  function walkNodes(nodes: unknown[]): unknown[] {
+    const result: unknown[] = [];
+    for (const node of nodes) {
+      const n = node as Record<string, unknown>;
+      const attrs = (n.attrs ?? {}) as Record<string, unknown>;
 
-  // Find heading index
-  let headingIdx = -1;
-  let headingLevel = 0;
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i] as Record<string, unknown>;
-    if (node.type === "heading") {
-      const text = nodeText(node).toLowerCase().trim();
-      if (text === needle || text.startsWith(needle)) {
-        headingIdx  = i;
-        headingLevel = ((node.attrs as Record<string, unknown>)?.level as number) ?? 1;
-        break;
+      if (Array.isArray(n.content)) {
+        const newChildren = walkNodes(n.content as unknown[]);
+        result.push({ ...n, content: newChildren });
+      } else {
+        result.push(node);
+      }
+
+      if (!found && attrs.blockId === targetBlockId) {
+        result.push(...newNodes);
+        found = true;
       }
     }
+    return result;
   }
 
-  if (headingIdx === -1) {
-    // Heading not found — append to end
-    return { ...doc, content: [...nodes, ...newNodes] };
-  }
-
-  // Find where this heading's section ends
-  let insertIdx = nodes.length;
-  for (let i = headingIdx + 1; i < nodes.length; i++) {
-    const node = nodes[i] as Record<string, unknown>;
-    if (node.type === "heading") {
-      const level = ((node.attrs as Record<string, unknown>)?.level as number) ?? 1;
-      if (level <= headingLevel) {
-        insertIdx = i;
-        break;
-      }
-    }
-  }
-
-  const result = [...nodes];
-  result.splice(insertIdx, 0, ...newNodes);
-  return { ...doc, content: result };
+  const newContent = walkNodes(doc.content);
+  return { newDoc: { ...doc, content: newContent }, found };
 }
 
 // ─── moveNote ─────────────────────────────────────────────────────────────────
@@ -896,5 +890,69 @@ export async function undoLinkNoteToEvent(
   undoData: LinkNoteToEventUndoData
 ): Promise<void> {
   await updateEvent(undoData.eventId, { linked_note_id: undoData.originalLinkedNoteId });
+  window.dispatchEvent(new CustomEvent("idemora:calendar-updated"));
+}
+
+// ─── updateCalendarEvent ──────────────────────────────────────────────────────
+
+export interface UpdateCalendarEventInput {
+  event_id: string;
+  updates:  string | Partial<CalendarEventInput>;   // JSON string from model, or parsed object
+}
+
+export interface UpdateCalendarEventUndoData {
+  eventId:        string;
+  originalFields: Partial<CalendarEventInput>;
+}
+
+export async function executeUpdateCalendarEvent(
+  input: UpdateCalendarEventInput
+): Promise<WriteToolResult> {
+  try {
+    const event = await getEvent(input.event_id);
+    if (!event) {
+      return { success: false, error: `Event ${input.event_id} not found.` };
+    }
+
+    let updates: Partial<CalendarEventInput>;
+    if (typeof input.updates === "string") {
+      try {
+        updates = JSON.parse(input.updates);
+      } catch {
+        return { success: false, error: "updates field is not valid JSON." };
+      }
+    } else {
+      updates = input.updates;
+    }
+
+    // Capture original values for the fields being changed (for undo)
+    const originalFields: Partial<CalendarEventInput> = {};
+    const allowedKeys: (keyof CalendarEventInput)[] = [
+      "title", "date", "time", "duration_mins", "category", "notes",
+    ];
+    for (const key of allowedKeys) {
+      if (key in updates) {
+        (originalFields as Record<string, unknown>)[key] =
+          (event as unknown as Record<string, unknown>)[key] ?? null;
+      }
+    }
+
+    await updateEvent(input.event_id, updates);
+
+    window.dispatchEvent(new CustomEvent("idemora:calendar-updated"));
+
+    return {
+      success:  true,
+      undoData: { eventId: input.event_id, originalFields } satisfies UpdateCalendarEventUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoUpdateCalendarEvent(
+  undoData: UpdateCalendarEventUndoData
+): Promise<void> {
+  await updateEvent(undoData.eventId, undoData.originalFields);
   window.dispatchEvent(new CustomEvent("idemora:calendar-updated"));
 }

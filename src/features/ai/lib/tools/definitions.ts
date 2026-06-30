@@ -265,6 +265,31 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ["event_id", "note_id"],
     },
   },
+{
+    name: "updateCalendarEvent",
+    description:
+      "Update fields on an existing calendar event (title, date, time, duration, category, notes). " +
+      "If the user refers to an event's 'body', 'description', or 'details', this maps to the notes field — " +
+      "use this tool, not a note-writing tool. " +
+      "Call getCalendarEvents first to find the event_id and check is_recurring/recurrence. " +
+      "For recurring events, this updates the whole series (the parent event), not a single occurrence — " +
+      "state this explicitly to the user before proposing the write. " +
+      "Show a field-by-field before/after in the confirmation.",
+    input_schema: {
+      type: "object",
+      properties: {
+        event_id: { type: "string", description: "UUID of the calendar event to update." },
+        updates: {
+          type: "string",
+          description:
+            "JSON object with fields to update: " +
+            "{ title?: string, date?: string (YYYY-MM-DD), time?: string (HH:MM 24h), " +
+            "duration_mins?: number, category?: 'personal'|'note'|'task'|'goal'|'cde', notes?: string }",
+        },
+      },
+      required: ["event_id", "updates"],
+    },
+  },
 
   {
     name: "updateGoal",
@@ -308,6 +333,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "moveNote",
   "createCalendarEvents",
   "deleteCalendarEvent",
+  "updateCalendarEvent",
   "updateGoal",
   "linkNoteToEvent",
 ]);

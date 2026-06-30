@@ -16,6 +16,7 @@ import {
   executeDeleteCalendarEvent,
   executeUpdateGoal,
   executeLinkNoteToEvent,
+  executeUpdateCalendarEvent,
   undoAppendToNote,
   undoInsertInNote,
   undoReplaceInNote,
@@ -25,6 +26,7 @@ import {
   undoDeleteCalendarEvent,
   undoUpdateGoal,
   undoLinkNoteToEvent,
+  undoUpdateCalendarEvent,
   type AppendToNoteInput,
   type InsertInNoteInput,
   type ReplaceInNoteInput,
@@ -34,6 +36,7 @@ import {
   type DeleteCalendarEventInput,
   type UpdateGoalInput,
   type LinkNoteToEventInput,
+  type UpdateCalendarEventInput,
   type AppendToNoteUndoData,
   type InsertInNoteUndoData,
   type ReplaceInNoteUndoData,
@@ -43,6 +46,7 @@ import {
   type DeleteCalendarEventUndoData,
   type UpdateGoalUndoData,
   type LinkNoteToEventUndoData,
+  type UpdateCalendarEventUndoData,
 } from "./writeTools";
 import type { CalendarConflict } from "./writeTools";
 
@@ -267,14 +271,11 @@ export function buildWritePreview(
     case "insertInNote": {
       const noteId      = toolInput.note_id as string;
       const content     = toolInput.content as string;
-      const afterHeading = toolInput.after_heading as string | undefined;
       const afterBlock   = toolInput.after_block_id as string | undefined;
       const title        = noteTitleMap.get(noteId) ?? noteId;
-      const description  = afterHeading
-        ? `Inserting after heading "${afterHeading}"`
-        : afterBlock
-          ? `Inserting after block ${afterBlock}`
-          : "Inserting (position to be resolved)";
+      const description  = afterBlock
+        ? `Inserting after block ${afterBlock}`
+        : "Inserting at end of note (no anchor block provided)";
       return {
         title:         `Write to "${title}"`,
         description,
@@ -361,6 +362,25 @@ export function buildWritePreview(
       return {
         title:         "Update goal",
         description:   `Changing: ${fields || goalId}`,
+        ...truncateContent(preview),
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
+
+    case "updateCalendarEvent": {
+      const eventId = toolInput.event_id as string;
+      let updates: Record<string, unknown> = {};
+      try {
+        updates = JSON.parse(toolInput.updates as string);
+      } catch { /* malformed */ }
+      const fields  = Object.keys(updates).join(", ");
+      const preview = Object.entries(updates)
+        .map(([k, v]) => `**${k}:** ${String(v)}`)
+        .join("\n");
+      return {
+        title:         "Update calendar event",
+        description:   `Changing: ${fields || eventId}`,
         ...truncateContent(preview),
         isDestructive: false,
         isBatch:       false,
@@ -463,6 +483,15 @@ async function dispatch(
     case "linkNoteToEvent":
       return executeLinkNoteToEvent(toolInput as unknown as LinkNoteToEventInput);
 
+    case "updateCalendarEvent": {
+      let updates: Record<string, unknown> = {};
+      try { updates = JSON.parse(input.updates as string); } catch { /* malformed */ }
+      return executeUpdateCalendarEvent({
+        event_id: input.event_id as string,
+        updates,
+      } as unknown as UpdateCalendarEventInput);
+    }
+
     default:
       return { success: false, error: `Unknown tool: ${toolName}` };
   }
@@ -490,6 +519,8 @@ async function dispatchUndo(toolName: string, undoData: unknown): Promise<void> 
       return undoMoveNote(undoData as MoveNoteUndoData);
     case "linkNoteToEvent":
       return undoLinkNoteToEvent(undoData as LinkNoteToEventUndoData);
+    case "updateCalendarEvent":
+      return undoUpdateCalendarEvent(undoData as UpdateCalendarEventUndoData);
   }
 }
 

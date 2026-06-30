@@ -33,6 +33,9 @@ interface NodeIndexEntry {
   type:      string;
   level?:    number;
   summary:   string;
+  index:     number;                       // position in document order (top-level + recursed sequence)
+  section_heading_block_id: string | null;  // block_id of the heading this entry logically falls under, or null
+  last_block_id_in_section?: string | null; // only set on heading entries — block_id of the last item in its section
 }
 
 function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[] {
@@ -41,6 +44,17 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
   try { doc = JSON.parse(contentJson); } catch { return []; }
 
   const entries: NodeIndexEntry[] = [];
+  let nextIndex = 0;
+
+  // Tracks the heading section each entry currently falls under. A new heading
+  // at level L closes out any open section at level >= L (matches the same
+  // "section ends at next heading of equal-or-shallower level" rule used by
+  // insertInNote's executor) and opens a new section keyed by its own block_id.
+  const sectionStack: { blockId: string; level: number }[] = [];
+
+  function currentSectionId(): string | null {
+    return sectionStack.length > 0 ? sectionStack[sectionStack.length - 1].blockId : null;
+  }
 
   function nodeText(node: Record<string, unknown>): string {
     if (node.type === "text" && typeof node.text === "string") return node.text;
@@ -72,15 +86,28 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
           block_id: blockId,
           type:     "table",
           summary:  `Table: | ${headers} | (${rows.length} rows)`,
+          index:    nextIndex++,
+          section_heading_block_id: currentSectionId(),
         });
 
       } else if (type === "heading") {
+        const level = typeof attrs.level === "number" ? attrs.level : 1;
+        // Close any open sections at this level or deeper
+        while (sectionStack.length > 0 && sectionStack[sectionStack.length - 1].level >= level) {
+          sectionStack.pop();
+        }
         entries.push({
           block_id: blockId,
           type:     "heading",
-          level:    typeof attrs.level === "number" ? attrs.level : 1,
+          level,
           summary:  nodeText(node),
+          index:    nextIndex++,
+          section_heading_block_id: currentSectionId(),
         });
+        // Open this heading's own section for subsequent siblings, if it has a block_id
+        if (blockId) {
+          sectionStack.push({ blockId, level });
+        }
 
       } else if (type === "toggle") {
         const inlineNodes = ((node.content ?? []) as Record<string, unknown>[])
@@ -92,6 +119,8 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
           block_id: blockId,
           type:     "toggle",
           summary:  `Toggle: "${title}"`,
+          index:    nextIndex++,
+          section_heading_block_id: currentSectionId(),
         });
         // Recurse into toggleBody so nested tables/headings are reachable
         if (body && Array.isArray((body as Record<string, unknown>).content)) {
@@ -109,6 +138,8 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
           block_id: blockId,
           type,
           summary:  `${items.length} items — ${preview}${items.length > 3 ? "…" : ""}`,
+          index:    nextIndex++,
+          section_heading_block_id: currentSectionId(),
         });
 
       } else if (type === "paragraph") {
@@ -118,6 +149,8 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
             block_id: blockId,
             type:     "paragraph",
             summary:  text.length > 120 ? text.slice(0, 120) + "…" : text,
+            index:    nextIndex++,
+            section_heading_block_id: currentSectionId(),
           });
         }
 
@@ -128,6 +161,8 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
           block_id: blockId,
           type:     "codeBlock",
           summary:  `Code block (${lang || "no lang"}): ${code.slice(0, 60)}${code.length > 60 ? "…" : ""}`,
+          index:    nextIndex++,
+          section_heading_block_id: currentSectionId(),
         });
 
       } else if (type === "blockquote") {
@@ -135,6 +170,8 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
           block_id: blockId,
           type:     "blockquote",
           summary:  nodeText(node).trim().slice(0, 120),
+          index:    nextIndex++,
+          section_heading_block_id: currentSectionId(),
         });
 
       } else if (Array.isArray((node as Record<string, unknown>).content)) {
@@ -145,6 +182,26 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
   }
 
   walk(doc.content ?? []);
+
+  // Second pass: for each heading entry, compute the block_id of the LAST
+  // entry that belongs to its section (highest index with matching
+  // section_heading_block_id). Exposed as last_block_id_in_section so the
+  // model can do a direct lookup instead of a search+filter+max computation —
+  // models reliably read a precomputed field but unreliably perform that
+  // computation inline from raw index/section data.
+  for (const entry of entries) {
+    if (entry.type !== "heading" || !entry.block_id) continue;
+    let lastMatch: NodeIndexEntry | null = null;
+    for (const candidate of entries) {
+      if (candidate.section_heading_block_id === entry.block_id) {
+        if (!lastMatch || candidate.index > lastMatch.index) {
+          lastMatch = candidate;
+        }
+      }
+    }
+    entry.last_block_id_in_section = lastMatch ? lastMatch.block_id : entry.block_id;
+  }
+
   return entries;
 }
 
@@ -154,6 +211,15 @@ function noteToReadShape(note: Note) {
     title:       note.title,
     content:     prosemirrorBodyToMarkdown(note.content ?? ""),
     nodes:       buildNodeIndex(note.content),
+    nodes_note:
+      "Each entry has a block_id and an index (document order). Heading entries also have " +
+      "last_block_id_in_section — the block_id of the LAST item belonging to that heading's " +
+      "section. To insert content at the END of a section (e.g. a new numbered subsection " +
+      "like '6.5' as the last item under section 6), find section 6's heading entry and pass " +
+      "ITS last_block_id_in_section as after_block_id — NOT the heading's own block_id, which " +
+      "would insert right under the heading instead of at the end of its content. " +
+      "To insert immediately after a specific item (not at section end), use that item's own " +
+      "block_id directly. Never use heading text strings to target a position — always use block_id.",
     frontmatter: note.frontmatter ?? null,
     updated_at:  note.updated_at,
   };
