@@ -64,9 +64,12 @@ export async function extractAndIndexPDF(
     pdf.cleanup()
     console.log("[extractPDFText] extraction complete, enqueuing for indexing")
 
-    // Enqueue for embedding — indexer picks up automatically
-    const { enqueueNoteForIndexing } = await import("@/features/ai/lib/indexer")
-    await enqueueNoteForIndexing(noteId)
+    const { enqueueEmbeddingJobs } = await import("@/features/notes/db/queries")
+    const blocks = await db.select<{ block_id: string }[]>(
+      `SELECT block_id FROM note_blocks WHERE note_id = $1 AND source_type = 'pdf'`,
+      [noteId]
+    )
+    await enqueueEmbeddingJobs(blocks.map(b => ({ blockId: b.block_id, noteId })))
 
   } catch (err) {
     // Non-fatal — PDF is still viewable, just won't be RAG-searchable
@@ -85,10 +88,6 @@ async function hashText(text: string): Promise<string> {
 }
 
 export async function backfillPdfBlocks(): Promise<void> {
-  const { getSetting, setSetting } = await import("@/features/notes/db/queries")
-  const alreadyDone = await getSetting("pdf_blocks_backfill_done")
-  if (alreadyDone === "1") return
-
   const { getDb } = await import("@/features/notes/db/client")
   const db = await getDb()
 
@@ -99,12 +98,13 @@ export async function backfillPdfBlocks(): Promise<void> {
        AND n.deleted_at IS NULL
        AND n.source_file IS NOT NULL
        AND NOT EXISTS (
-         SELECT 1 FROM note_blocks nb WHERE nb.note_id = n.id
+         SELECT 1 FROM note_blocks nb
+         WHERE nb.note_id = n.id AND nb.source_type = 'pdf'
        )`
   )
 
   if (pdfs.length === 0) {
-    await setSetting("pdf_blocks_backfill_done", "1")
+    console.log("[backfillPdfBlocks] no unindexed PDFs")
     return
   }
 
@@ -136,6 +136,5 @@ for (const { id, source_file } of pdfs) {
     }
   }
 
-  await setSetting("pdf_blocks_backfill_done", "1")
   console.log("[backfillPdfBlocks] complete")
 }

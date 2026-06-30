@@ -1894,6 +1894,7 @@ const pendingWrite: PendingWrite = {
                 content:      JSON.stringify({
                   executed: true,
                   insertedViaFallback: executed?.insertedViaFallback ?? false,
+                  createdEvents: executed?.createdEvents ?? undefined,
                 }),
               } as unknown as ProviderMessage);
             } else {

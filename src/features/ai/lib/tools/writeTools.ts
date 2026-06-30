@@ -35,12 +35,10 @@ async function refreshNoteInStore(noteId: string): Promise<void> {
   } catch { /* non-fatal */ }
 }
 
-async function refreshNotesListInStore(): Promise<void> {
-  try {
-    const { useNoteStore } = await import("@/features/notes/store/useNoteStore");
-    await useNoteStore.getState().loadNotes();
-  } catch { /* non-fatal */ }
-}
+// refreshNotesListInStore was removed — it called loadNotes()/getAllNotesMeta(),
+// which omits `content` and blanks every open editor when the result replaces
+// the store's notes array. Use addNoteToStore/removeNoteFromStore for in-memory
+// patches instead (see executeCreateNote / undoCreateNote below).
 
 // ─── Result types ─────────────────────────────────────────────────────────────
 
@@ -52,6 +50,7 @@ export interface WriteToolResult {
   undoData?:            unknown;        // tool-specific, opaque to the gate
   insertedViaFallback?: boolean;        // true when insertInNote fell back to append
   conflicts?:           CalendarConflict[];
+  createdEvents?:       { id: string; title: string; date: string; time: string | null }[];
 }
 
 export interface CalendarConflict {
@@ -397,8 +396,11 @@ export async function executeCreateNote(
       parent_id:  input.parent_id ?? null,
     });
 
-    // Refresh the sidebar and notify
-    await refreshNotesListInStore();
+    // Patch the store in-memory — never call loadNotes()/getAllNotesMeta()
+    // here, it would strip `content` from every note and blank all open
+    // editors (same bug class as the moveNote editor-blanking issue).
+    const { useNoteStore } = await import("@/features/notes/store/useNoteStore");
+    useNoteStore.getState().addNoteToStore(note);
     window.dispatchEvent(new CustomEvent("idemora:note-created", { detail: { noteId: note.id } }));
 
     return {
@@ -417,7 +419,8 @@ export async function undoCreateNote(
 ): Promise<void> {
   const { trashNote } = await import("@/features/notes/db/queries");
   await trashNote(undoData.noteId);
-  await refreshNotesListInStore();
+  const { useNoteStore } = await import("@/features/notes/store/useNoteStore");
+  useNoteStore.getState().removeNoteFromStore(undoData.noteId);
   window.dispatchEvent(
     new CustomEvent("idemora:note-deleted", { detail: { noteId: undoData.noteId } })
   );
@@ -495,6 +498,12 @@ export async function executeCreateCalendarEvents(
       success:   true,
       conflicts,
       undoData:  { eventIds: createdIds } satisfies CreateCalendarEventsUndoData,
+      createdEvents: createdIds.map((id, i) => ({
+        id,
+        title: events[i].title,
+        date:  events[i].date,
+        time:  events[i].time ?? null,
+      })),
     };
   } catch (err) {
     return { success: false, error: String(err) };

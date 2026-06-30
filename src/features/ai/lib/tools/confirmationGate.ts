@@ -78,6 +78,7 @@ export interface PendingWrite {
   undoExpiry?:         number;        // Date.now() + 60_000
   insertedViaFallback?: boolean;      // set when insertInNote fell back to append
   errorMessage?:       string;
+  createdEvents?:      { id: string; title: string; date: string; time: string | null }[];
 }
 
 // ─── Resolver callbacks ───────────────────────────────────────────────────────
@@ -154,6 +155,7 @@ export const useConfirmationGate = create<ConfirmationGateState>((set, get) => (
         undoData:            result.undoData,
         undoExpiry:          Date.now() + 60_000,
         insertedViaFallback: result.insertedViaFallback ?? pw.insertedViaFallback,
+        createdEvents:       (result as unknown as { createdEvents?: PendingWrite["createdEvents"] }).createdEvents,
       });
 
       _pendingResolvers.get(id)?.("confirmed");

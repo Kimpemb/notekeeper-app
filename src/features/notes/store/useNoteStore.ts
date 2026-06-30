@@ -102,6 +102,8 @@ interface NoteStore {
   moveNote: (id: string, newParentId: string | null) => Promise<void>;
   reorderNote: (draggedId: string, targetId: string, section: "pinned" | "notes") => Promise<void>;
   refreshNote: (id: string) => Promise<void>;
+  addNoteToStore: (note: Note) => void;
+  removeNoteFromStore: (id: string) => void;
   pinNote: (id: string) => Promise<void>;
   unpinNote: (id: string) => Promise<void>;
   isPinned: (id: string) => boolean;
@@ -519,6 +521,18 @@ moveNote: async (id, newParentId) => {
     set((state) => ({
       notes: state.notes.map((n) => (n.id === id ? updated : n)),
     }));
+  },
+
+  // In-memory append — never call loadNotes()/getAllNotesMeta() in a write
+  // path that executes while editors are open. That query omits `content`,
+  // which blanks every open editor's TipTap doc (same bug class as the
+  // moveNote editor-blanking issue).
+  addNoteToStore: (note) => {
+    set((state) => ({ notes: [...state.notes, note] }));
+  },
+
+  removeNoteFromStore: (id) => {
+    set((state) => ({ notes: state.notes.filter((n) => n.id !== id) }));
   },
 
   pinNote: async (id) => {
