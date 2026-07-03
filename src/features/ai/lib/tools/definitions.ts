@@ -177,6 +177,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 
   {
+    name: "deleteBlocksInNote",
+    description:
+      "Delete a contiguous range of blocks in a note, from from_block_id to to_block_id inclusive. " +
+      "Always call getNote first — the response includes a 'nodes' array where each entry has a block_id. " +
+      "To delete a single block, pass the same block_id for both from_block_id and to_block_id. " +
+      "This is destructive and only reversible within the 60-second undo window — use it deliberately, " +
+      "not as a way to 'clean up' content you could instead replace with replaceInNote.",
+    input_schema: {
+      type: "object",
+      properties: {
+        note_id:       { type: "string", description: "UUID of the target note." },
+        from_block_id: { type: "string", description: "blockId of the first block to delete (from the 'nodes' array returned by getNote)." },
+        to_block_id:   { type: "string", description: "blockId of the last block to delete, inclusive. Same as from_block_id for a single-block delete." },
+      },
+      required: ["note_id", "from_block_id", "to_block_id"],
+    },
+  },
+
+  {
     name: "createNote",
     description:
       "Create a new note with the given title and content. " +
@@ -329,6 +348,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "appendToNote",
   "insertInNote",
   "replaceInNote",
+  "deleteBlocksInNote",
   "createNote",
   "moveNote",
   "createCalendarEvents",

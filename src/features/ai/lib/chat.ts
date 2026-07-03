@@ -1746,9 +1746,11 @@ RULES:
   After reading with a read tool, you MUST call the appropriate write tool to make any change.
   Reading a goal with getGoals and then describing the update in text does NOT update anything.
   You MUST call updateGoal. You MUST call appendToNote. You MUST call createNote. etc. The ONLY way to make a change is to call a write tool. If you describe a change without calling a tool, nothing will happen. Never say "I've replaced X with Y" unless you called replaceInNote. Never say "I've added X" unless you called appendToNote or insertInNote.
+- This applies with equal force to createCalendarEvents: never say "Done!", "Created", or describe events as existing on the calendar unless you have already called createCalendarEvents in this exact turn or a prior turn and seen its result. If you determine you need to create multiple events (e.g. a "daily this week" request), you MUST actually call createCalendarEvents with the full events array — do not narrate the creation as if it happened.
 - If the user says a change didn't happen or was incomplete, call getNote to re-read the current state, then call the appropriate write tool again.
 - replaceInNote targets a node by block_id, not by content string. Always call getNote first and read the 'nodes' array to find the block_id of what you want to replace. Never guess or construct a block_id.
-- When the user confirms or approves in chat (e.g. "yes", "do it", "go ahead", "create it"), do NOT call the write tool again. The confirmation gate is handled by the app via the Apply button on the card. Simply tell the user to click Apply on the card to proceed.`;
+- When the user confirms or approves in chat (e.g. "yes", "do it", "go ahead", "create it") AFTER YOU have already called a write tool in this conversation and a card is showing: do NOT call the write tool again — tell the user to click Apply on the card.
+- If you asked a question in plain text (e.g. flagging a conflict, asking which time slot, asking for clarification) WITHOUT calling a write tool, and the user then responds "yes" / "go ahead" / confirms: this is the user answering your question, not confirming a card. There is no card yet. You MUST now call the write tool — this is your first opportunity to propose the write. Never tell the user to click Apply when you have not yet called the write tool in this conversation.`;
 export async function streamChatWithTools(
   query:            string,
   noteId:           string,
@@ -1785,6 +1787,8 @@ const systemPrompt = `Today's date is ${new Date().toISOString().slice(0, 10)}.\
   TOOL_DEFINITIONS,
   systemPrompt,
 );
+console.log("[toolLoop] raw response.content:", JSON.stringify(response.content, null, 2));
+console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => b.type === "tool_use").length);
       // Append assistant turn to messages for multi-turn continuity
       // DeepSeek/OpenAI require the raw tool_calls array on the assistant message.
       // We reconstruct it from the content blocks.
@@ -1834,8 +1838,10 @@ const systemPrompt = `Today's date is ${new Date().toISOString().slice(0, 10)}.\
           if (READ_TOOL_NAMES.has(toolName)) {
             // ── Read tool — execute immediately ──────────────────────────
             streaming.onStatus?.(`Reading: ${toolName}…`);
+            console.log(`[toolLoop] executing READ tool: ${toolName}`, JSON.stringify(toolInput));
 
             const result = await executeReadTool(toolName, toolInput, currentNote);
+            console.log(`[toolLoop] READ tool result (${toolName}):`, JSON.stringify(result).slice(0, 1000));
 
             // Feed result back as tool role message (DeepSeek/OpenAI format)
             messages.push({
@@ -1911,6 +1917,7 @@ const pendingWrite: PendingWrite = {
         }
       }
 
+      console.log(`[toolLoop] iteration ${iterations} — hasToolCall: ${hasToolCall}`);
       // If no tool calls in this turn, the model is done
       if (!hasToolCall) {
         break;

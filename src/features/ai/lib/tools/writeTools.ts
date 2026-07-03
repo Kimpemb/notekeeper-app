@@ -360,6 +360,150 @@ export async function undoReplaceInNote(
   );
 }
 
+// ─── deleteBlocksInNote ───────────────────────────────────────────────────────
+
+export interface DeleteBlocksInNoteInput {
+  note_id:        string;
+  from_block_id:  string;
+  to_block_id:    string;
+}
+
+export interface DeleteBlocksInNoteUndoData {
+  noteId:            string;
+  originalContent:   string;   // raw TipTap JSON — full-content snapshot for undo
+  originalPlaintext: string;
+}
+
+export async function executeDeleteBlocksInNote(
+  input: DeleteBlocksInNoteInput
+): Promise<WriteToolResult> {
+  try {
+    const note = await getNoteById(input.note_id);
+    if (!note) {
+      return { success: false, error: `Note ${input.note_id} not found.` };
+    }
+
+    const originalContent   = note.content ?? JSON.stringify({ type: "doc", content: [] });
+    const originalPlaintext = note.plaintext ?? "";
+
+    let doc: { type: string; content?: unknown[] };
+    try {
+      doc = note.content ? JSON.parse(note.content) : { type: "doc", content: [] };
+    } catch {
+      doc = { type: "doc", content: [] };
+    }
+    if (!Array.isArray(doc.content)) doc.content = [];
+
+    const { newDoc, found } = deleteBlocksInRange(
+      doc as { type: string; content: unknown[] },
+      input.from_block_id,
+      input.to_block_id
+    );
+
+    if (!found) {
+      return {
+        success: false,
+        error:
+          `blocks_not_found: Could not find a contiguous range from "${input.from_block_id}" ` +
+          `to "${input.to_block_id}" in note. Call getNote to refresh the node list and try again.`,
+      };
+    }
+
+    const contentJson = JSON.stringify(newDoc);
+    const plaintext   = extractPlaintext(newDoc);
+
+    await updateNote(note.id, { content: contentJson, plaintext });
+    await refreshNoteInStore(note.id);
+    window.dispatchEvent(
+      new CustomEvent("idemora:note-updated", { detail: { noteId: note.id } })
+    );
+
+    return {
+      success:   true,
+      noteId:    note.id,
+      noteTitle: note.title,
+      undoData:  { noteId: note.id, originalContent, originalPlaintext } satisfies DeleteBlocksInNoteUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoDeleteBlocksInNote(
+  undoData: DeleteBlocksInNoteUndoData
+): Promise<void> {
+  await updateNote(undoData.noteId, {
+    content:   undoData.originalContent,
+    plaintext: undoData.originalPlaintext,
+  });
+  await refreshNoteInStore(undoData.noteId);
+  window.dispatchEvent(
+    new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } })
+  );
+}
+
+/**
+ * Walk the doc tree and remove every node from the one matching
+ * fromBlockId through the one matching toBlockId, inclusive, at the
+ * same sibling level. Mirrors the recursive shape of replaceNodeByBlockId
+ * so nested containers (toggles, blockquotes, list items) are reachable
+ * while searching — but once a range is "open" (deleting), sibling nodes
+ * are removed as opaque units rather than recursed into, since a delete
+ * range is expected to span whole top-level blocks.
+ *
+ * Returns found: true only if BOTH endpoints were matched in sequence.
+ * On any incomplete match (from found but to never reached, or neither
+ * found) the original doc is returned unchanged — no partial deletion.
+ */
+function deleteBlocksInRange(
+  doc: { type: string; content: unknown[] },
+  fromBlockId: string,
+  toBlockId: string
+): { newDoc: { type: string; content: unknown[] }; found: boolean } {
+  const state: { phase: "searching" | "deleting" | "done" } = { phase: "searching" };
+
+  function walkNodes(nodes: unknown[]): unknown[] {
+    const result: unknown[] = [];
+    for (const node of nodes) {
+      if (state.phase === "done") {
+        result.push(node);
+        continue;
+      }
+
+      const n = node as Record<string, unknown>;
+      const attrs = (n.attrs ?? {}) as Record<string, unknown>;
+
+      if (state.phase === "searching") {
+        if (attrs.blockId === fromBlockId) {
+          state.phase = "deleting";
+          if (attrs.blockId === toBlockId) state.phase = "done";
+          continue; // deleted — not pushed
+        }
+        if (Array.isArray(n.content)) {
+          const newChildren = walkNodes(n.content as unknown[]);
+          result.push({ ...n, content: newChildren });
+        } else {
+          result.push(node);
+        }
+        continue;
+      }
+
+      // state.phase === "deleting"
+      if (attrs.blockId === toBlockId) {
+        state.phase = "done";
+      }
+      // deleted — not pushed, and not recursed into (whole subtree removed)
+    }
+    return result;
+  }
+
+  const newContent = walkNodes(doc.content);
+  const found = state.phase === "done";
+  return found
+    ? { newDoc: { ...doc, content: newContent }, found: true }
+    : { newDoc: doc, found: false };
+}
+
 // ─── createNote ───────────────────────────────────────────────────────────────
 
 export interface CreateNoteInput {

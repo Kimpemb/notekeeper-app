@@ -173,7 +173,7 @@ const openCalendar        = useUIStore((s) => s.openCalendar);
   const pane2OutlineOpen    = useUIStore((s) => s.pane2OutlineOpen);
   const chatOpen1           = useUIStore((s) => s.chatOpen1);
   const chatOpen2           = useUIStore((s) => s.chatOpen2);
-  const activeEditor = useUIStore((s) => s.activeEditor);
+  const activeEditors = useUIStore((s) => s.activeEditors);
   const openEmptyTab = useUIStore((s) => s.openEmptyTab);
   const reopenClosedTab = useUIStore((s) => s.reopenClosedTab);
 
@@ -570,7 +570,13 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
       },
       exportNotePdf: async () => {
         if (!activeNote) return;
-        try { await exportToPdf(activeNote.title, activeNote.content ?? ""); }
+        try {
+          const liveEditor = useUIStore.getState().getEditorForNote(activeNote.id);
+          const liveContent = liveEditor && !liveEditor.isDestroyed
+            ? JSON.stringify(liveEditor.getJSON())
+            : (activeNote.content ?? "");
+          await exportToPdf(activeNote.title, liveContent);
+        }
         catch (err) { console.error("Export failed:", err); }
       },
     });
@@ -622,8 +628,8 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
           {(activePaneId === paneId) && paneBacklinksOpen && paneNoteId && (
             <BacklinksPanel noteId={paneNoteId} paneId={paneId} />
           )}
-          {(activePaneId === paneId) && paneOutlineOpen && activeEditor && (
-            <OutlinePanel editor={activeEditor} paneId={paneId} />
+          {(activePaneId === paneId) && paneOutlineOpen && activeEditors[paneId] && (
+            <OutlinePanel editor={activeEditors[paneId]} paneId={paneId} />
           )}
           {paneChatOpen && paneNoteId && (
             <ChatPanel noteId={paneNoteId} paneId={paneId} />

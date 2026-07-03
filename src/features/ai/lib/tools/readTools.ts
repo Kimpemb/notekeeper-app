@@ -497,6 +497,12 @@ Examples:
 - "change all instances" (follow-up to replace all)
 - "do it for the other occurrence" (follow-up)
 - "create a note under X" (needs getFileTree to find parent ID, not searchNotes)
+- "what's free today" (needs getCalendarEvents to check availability)
+- "when am I free this week" (needs getCalendarEvents)
+- "do I have time for X on Thursday" (needs getCalendarEvents to check availability)
+- "am I busy tomorrow" (needs getCalendarEvents)
+- "what's on my calendar" (needs getCalendarEvents)
+- "do I have any gaps this afternoon" (needs getCalendarEvents)
 
 "chat" = everything else: questions, explanations, analysis, summarisation
 without writing, general conversation. Pure questions with no write intent.

@@ -10,6 +10,7 @@ import {
   executeAppendToNote,
   executeInsertInNote,
   executeReplaceInNote,
+  executeDeleteBlocksInNote,
   executeCreateNote,
   executeMoveNote,
   executeCreateCalendarEvents,
@@ -20,6 +21,7 @@ import {
   undoAppendToNote,
   undoInsertInNote,
   undoReplaceInNote,
+  undoDeleteBlocksInNote,
   undoCreateNote,
   undoMoveNote,
   undoCreateCalendarEvents,
@@ -30,6 +32,7 @@ import {
   type AppendToNoteInput,
   type InsertInNoteInput,
   type ReplaceInNoteInput,
+  type DeleteBlocksInNoteInput,
   type CreateNoteInput,
   type MoveNoteInput,
   type CreateCalendarEventsInput,
@@ -40,6 +43,7 @@ import {
   type AppendToNoteUndoData,
   type InsertInNoteUndoData,
   type ReplaceInNoteUndoData,
+  type DeleteBlocksInNoteUndoData,
   type CreateNoteUndoData,
   type MoveNoteUndoData,
   type CreateCalendarEventsUndoData,
@@ -301,6 +305,24 @@ export function buildWritePreview(
       };
     }
 
+    case "deleteBlocksInNote": {
+      const noteId  = toolInput.note_id as string;
+      const fromId  = toolInput.from_block_id as string;
+      const toId    = toolInput.to_block_id as string;
+      const title   = noteTitleMap.get(noteId) ?? noteId;
+      const single  = fromId === toId;
+      return {
+        title:         `Delete ${single ? "block" : "blocks"} in "${title}"`,
+        description:   single
+          ? `Deleting block ${fromId}`
+          : `Deleting blocks from ${fromId} through ${toId}`,
+        content:       single ? `Block: ${fromId}` : `From: ${fromId}\nTo: ${toId}`,
+        wordCount:     single ? 2 : 4,
+        isDestructive: true,
+        isBatch:       false,
+      };
+    }
+
     case "createNote": {
       const noteTitle = toolInput.title as string;
       const content   = toolInput.content as string;
@@ -451,6 +473,9 @@ async function dispatch(
     case "replaceInNote":
       return executeReplaceInNote(toolInput as unknown as ReplaceInNoteInput);
 
+    case "deleteBlocksInNote":
+      return executeDeleteBlocksInNote(toolInput as unknown as DeleteBlocksInNoteInput);
+
     case "createNote":
       return executeCreateNote(toolInput as unknown as CreateNoteInput);
 
@@ -507,6 +532,8 @@ async function dispatchUndo(toolName: string, undoData: unknown): Promise<void> 
       return undoInsertInNote(undoData as InsertInNoteUndoData);
     case "replaceInNote":
       return undoReplaceInNote(undoData as ReplaceInNoteUndoData);
+    case "deleteBlocksInNote":
+      return undoDeleteBlocksInNote(undoData as DeleteBlocksInNoteUndoData);
     case "createNote":
       return undoCreateNote(undoData as CreateNoteUndoData);
     case "createCalendarEvents":

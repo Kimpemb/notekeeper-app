@@ -492,9 +492,10 @@ const setActiveEditor = useUIStore((s) => s.setActiveEditor)
 
 useEffect(() => {
   if (!editor) return
-  setActiveEditor(editor)
-  return () => setActiveEditor(null)
-}, [editor])
+  if (!isActiveTab) return
+  setActiveEditor(paneId, editor)
+  return () => setActiveEditor(paneId, null)
+}, [editor, paneId, isActiveTab])
 
 useEffect(() => {
   if (!editor) return;

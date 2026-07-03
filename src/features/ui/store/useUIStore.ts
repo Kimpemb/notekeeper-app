@@ -248,8 +248,9 @@ interface UIStore {
   resetRightPanelsForPane: (pane: 1 | 2) => void;
   anyRightPanelActive: (pane: 1 | 2) => boolean;
 
-  activeEditor: any;
-  setActiveEditor: (editor: any) => void;
+  activeEditors: { 1: any; 2: any };
+  setActiveEditor: (pane: 1 | 2, editor: any) => void;
+  getEditorForNote: (noteId: string) => any;
 
   // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
   tabs: Tab[];
@@ -599,8 +600,14 @@ closeCalendar: () => {
       return s.pane2OutlineOpen || s.pane2BacklinksOpen || s.pane2SimilarOpen || s.chatOpen2 || s.pane2VersionHistoryOpen || s.pane2TagsOpen;
     },
 
-    activeEditor: null,
-    setActiveEditor: (editor) => set({ activeEditor: editor }),
+    activeEditors: { 1: null, 2: null },
+    setActiveEditor: (pane, editor) => set((s) => ({ activeEditors: { ...s.activeEditors, [pane]: editor } })),
+    getEditorForNote: (noteId) => {
+      const s = get();
+      if (s.paneActiveNoteId(1) === noteId) return s.activeEditors[1];
+      if (s.paneActiveNoteId(2) === noteId) return s.activeEditors[2];
+      return null;
+    },
 
     // ─── Pane 1 tabs ─────────────────────────────────────────────────────────
     tabs: [], activeTabId: null,
