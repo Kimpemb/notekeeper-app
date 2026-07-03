@@ -12,6 +12,7 @@ interface HeadingItem {
 interface Props {
   editor: Editor | null; // Made nullable for safety
   paneId: 1 | 2;
+  noteId: string; // forces refresh on note switch even when setContent is called without emitUpdate: true
 }
 
 function extractHeadings(editor: Editor | null): HeadingItem[] {
@@ -75,7 +76,7 @@ const dotSize: Record<1 | 2 | 3, string> = {
   3: "w-1 h-1",
 };
 
-export function OutlinePanel({ editor, paneId }: Props) {
+export function OutlinePanel({ editor, paneId, noteId }: Props) {
   const [headings, setHeadings] = useState<HeadingItem[]>([]);
   const [activePos, setActivePos] = useState<number | null>(null);
   const closeOutline = useUIStore((s) => s.closeOutline);
@@ -89,7 +90,7 @@ export function OutlinePanel({ editor, paneId }: Props) {
     refresh();
     editor.on("update", refresh);
     return () => { editor.off("update", refresh); };
-  }, [editor, refresh]);
+  }, [editor, refresh, noteId]);
 
   useEffect(() => {
     if (!editor || headings.length === 0) return;

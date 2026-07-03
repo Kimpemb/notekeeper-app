@@ -628,8 +628,12 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
           {(activePaneId === paneId) && paneBacklinksOpen && paneNoteId && (
             <BacklinksPanel noteId={paneNoteId} paneId={paneId} />
           )}
-          {(activePaneId === paneId) && paneOutlineOpen && activeEditors[paneId] && (
-            <OutlinePanel editor={activeEditors[paneId]} paneId={paneId} />
+          {(activePaneId === paneId) && paneOutlineOpen && activeEditors[paneId] && paneNoteId && (
+            <OutlinePanel
+              editor={activeEditors[paneId]}
+              paneId={paneId}
+              noteId={paneNoteId}
+            />
           )}
           {paneChatOpen && paneNoteId && (
             <ChatPanel noteId={paneNoteId} paneId={paneId} />

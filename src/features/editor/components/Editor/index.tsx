@@ -24,7 +24,6 @@ import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { syncBacklinks } from "@/features/notes/db/queries";
 import { NoteLink } from "./NoteLink";
 import { NoteLinkSuggest } from "./NoteLinkSuggest";
-import { OutlinePanel } from "./OutlinePanel";
 import { SimilarNotesPanel } from "./SimilarNotesPanel";
 import { StatusBar } from "./StatusBar";
 import { VersionHistory } from "./VersionHistory";
@@ -206,7 +205,6 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
 
   const showEditorButtons = isActiveTab && activePaneId === paneId;
 
-  const myOutlineOpen        = useUIStore((s) => paneId === 1 ? s.pane1OutlineOpen        : s.pane2OutlineOpen);
   const mySimilarOpen        = useUIStore((s) => paneId === 1 ? s.pane1SimilarOpen        : s.pane2SimilarOpen);
   const myVersionHistoryOpen = useUIStore((s) => paneId === 1 ? s.pane1VersionHistoryOpen : s.pane2VersionHistoryOpen);
 
@@ -1209,7 +1207,7 @@ if (!contentReady) return null;
         {myVersionHistoryOpen && isActiveTab && <VersionHistory noteId={note.id} paneId={paneId} />}
       </div>
 
-      {myOutlineOpen && editor && isActiveTab && <OutlinePanel editor={editor} paneId={paneId} />}
+      {/* OutlinePanel is rendered once, centrally, in App.tsx's renderPane — not here, to avoid double-mounting */}
       {mySimilarOpen && isActiveTab && <SimilarNotesPanel noteId={note.id} paneId={paneId} />}
       {editor && <TableToolbar editor={editor} />}
 
