@@ -15,6 +15,16 @@
     return true;
   }
 
+  export async function exportDocxToFile(data: Uint8Array, defaultName = "idemora-export.docx"): Promise<boolean> {
+    const path = await save({
+      defaultPath: defaultName,
+      filters: [{ name: "Word Document", extensions: ["docx"] }],
+    });
+    if (!path) return false;
+    await invoke("write_file_bytes", { path, data: Array.from(data) });
+    return true;
+  }
+
   export async function importNotesFromFile(): Promise<{ content: string; ext: string } | null> {
   const path = await open({
     multiple: false,

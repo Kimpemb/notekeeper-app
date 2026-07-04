@@ -20,7 +20,8 @@ import { GraphView, type GraphViewHandle } from "@/features/graph/GraphView";
 import { CalendarView, type CalendarViewHandle } from "@/features/calendar/components/CalendarView"; 
 import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
-import { exportNotesToFile } from "@/lib/tauri/fs";
+import { exportToDocx } from "@/lib/exporters/docx";
+import { exportNotesToFile, exportDocxToFile } from "@/lib/tauri/fs";
 import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
 import { DeadlineResurfaceBar } from "@/features/ui/components/DeadlineResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -578,6 +579,18 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
           await exportToPdf(activeNote.title, liveContent);
         }
         catch (err) { console.error("Export failed:", err); }
+      },
+      exportNoteDocx: async () => {
+        if (!activeNote) return;
+        setExporting(true);
+        try {
+          const liveEditor = useUIStore.getState().getEditorForNote(activeNote.id);
+          const liveContent = liveEditor && !liveEditor.isDestroyed
+            ? JSON.stringify(liveEditor.getJSON())
+            : (activeNote.content ?? "");
+          const bytes = await exportToDocx(activeNote.title, liveContent);
+          await exportDocxToFile(bytes, `${noteSlug(activeNote.title)}.docx`);
+        } catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
     });
   }, [notes, activeNote]);

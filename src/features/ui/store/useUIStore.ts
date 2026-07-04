@@ -233,12 +233,14 @@ interface UIStore {
     exportNoteJson: () => Promise<void>;
     exportNoteMarkdown: () => Promise<void>;
     exportNotePdf: () => Promise<void>;
+    exportNoteDocx: () => Promise<void>;
   } | null;
   setExportHandlers: (handlers: {
     exportAll: () => Promise<void>;
     exportNoteJson: () => Promise<void>;
     exportNoteMarkdown: () => Promise<void>;
     exportNotePdf: () => Promise<void>;
+    exportNoteDocx: () => Promise<void>;
   }) => void;
 
   // ─── Right Panel Management ───────────────────────────────────────────────

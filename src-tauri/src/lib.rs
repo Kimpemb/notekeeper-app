@@ -7,6 +7,11 @@ fn write_file(path: String, contents: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn write_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&path, data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
@@ -176,6 +181,7 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             write_file,
+            write_file_bytes,
             read_file,
             read_file_bytes,
             get_app_data_dir,

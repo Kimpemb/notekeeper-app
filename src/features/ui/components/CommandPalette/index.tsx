@@ -163,7 +163,7 @@ const ActionIcon = ({ id }: { id: string }) => {
       <path d="M4 6.5h5M4 4.5h5M4 8.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   );
-  if (id === "export-json" || id === "export-md" || id === "export-pdf") return (
+  if (id === "export-json" || id === "export-md" || id === "export-pdf" || id === "export-docx") return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" className="shrink-0 text-idemora-text-muted">
       <path d="M2 1h6l3 3v8H2V1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
       <path d="M8 1v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
@@ -478,6 +478,10 @@ const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
     {
       kind: "action", id: "export-pdf", label: "Export Current Note as PDF", hint: "",
       action: async () => { await exportHandlers?.exportNotePdf(); closePalette(); },
+    },
+    {
+      kind: "action", id: "export-docx", label: "Export Current Note as Word Document", hint: "",
+      action: async () => { await exportHandlers?.exportNoteDocx(); closePalette(); },
     },
   ], [
     theme, closePalette, openTemplatePicker, toggleTheme, 
