@@ -11,13 +11,12 @@
 //   subPage, pdfLink, blockRef -> Category 2: labeled reference, never recursed (cycle-safe)
 //   dataview                   -> Category 3: placeholder showing the raw query string
 //
-// ── ASSUMPTIONS FLAGGED FOR REVIEW ─────────────────────────────────────────────
-// DateChipExtension.ts and BlockRefNode.ts were not available at write time.
-// Confirm these attr names against the real extensions and adjust if wrong:
-//   - dateChip: expects attrs.date (ISO/display string), falls back to attrs.label
-//     or the node's own text
-//   - blockRef: expects attrs.label (resolved display text, mirroring noteLink's
-//     `label` attr pattern) — falls back to "[Reference]" if absent
+// ── ASSUMPTIONS RESOLVED (confirmed against real extension source) ────────────
+// - blockRef: uses attrs.snapshot (plaintext), not attrs.label as originally
+//   guessed. See the blockRef case below.
+// - dateChip: uses attrs.displayDate (human-readable, e.g. "15 Jun 2026"),
+//   falling back to attrs.isoDate. Neither "date" nor "label" exist on this
+//   node — both were incorrect initial guesses. See textRunsFromInline below.
 //
 // ── KNOWN SIMPLIFICATIONS (v1, deliberate) ─────────────────────────────────────
 // - Ordered lists use a manual "N. " text prefix rather than native Word
@@ -113,8 +112,11 @@ function textRunsFromInline(nodes: PmNode[] = [], forceItalic = false): (TextRun
     }
 
     if (node.type === "dateChip") {
-      // Category 1 — flatten inline, no marker. See top-of-file assumption note.
-      const text = String(node.attrs?.date ?? node.attrs?.label ?? node.text ?? "");
+      // Category 1 — flatten inline, no marker. Confirmed against
+      // DateChipExtension.ts: displayDate is the human-readable chip text
+      // (e.g. "15 Jun 2026"), isoDate is the fallback if displayDate is
+      // somehow empty. Neither "date" nor "label" attrs exist on this node.
+      const text = String(node.attrs?.displayDate || node.attrs?.isoDate || "");
       runs.push(new TextRun({ text, italics: forceItalic }));
       continue;
     }
@@ -343,10 +345,12 @@ async function nodeToDocxElements(node: PmNode, depth = 0): Promise<DocxBlock[]>
     }
 
     case "blockRef": {
-      // ASSUMPTION FLAGGED — see top-of-file note. Confirm against BlockRefNode.ts.
-      const label = node.attrs?.label as string | undefined;
-      const excerpt = label ? label.slice(0, 60) : null;
-      const truncated = label && label.length > 60 ? "…" : "";
+      // Confirmed against BlockRefNode.ts — the node stores a plaintext
+      // `snapshot` attr (used as its own offline/loading fallback), which is
+      // exactly the static text export needs. No live DB lookup required.
+      const snapshot = node.attrs?.snapshot as string | undefined;
+      const excerpt = snapshot ? snapshot.slice(0, 60) : null;
+      const truncated = snapshot && snapshot.length > 60 ? "…" : "";
       return [new Paragraph({
         children: [new TextRun({
           text: excerpt ? `→ Reference: "${excerpt}${truncated}"` : "[Reference]",
@@ -387,6 +391,13 @@ async function nodeToDocxElements(node: PmNode, depth = 0): Promise<DocxBlock[]>
 
 async function tableToDocx(tableNode: PmNode): Promise<Table> {
   const rows = tableNode.content ?? [];
+  // Explicit column widths in DXA (twentieths of a point) — percentage-only
+  // width is unreliable across renderers (mobile viewers, some preview tools
+  // default near-zero per column without an explicit DXA width to fall back on).
+  const columnCount = Math.max(1, ...rows.map((r) => (r.content ?? []).length));
+  const totalWidthDxa = 9000; // ~6.25in usable width at standard 1in margins
+  const colWidthDxa = Math.floor(totalWidthDxa / columnCount);
+
   const tableRows: TableRow[] = [];
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -400,6 +411,7 @@ async function tableToDocx(tableNode: PmNode): Promise<Table> {
       }
       cells.push(new TableCell({
         children: cellParagraphs.length > 0 ? cellParagraphs : [new Paragraph({ children: [] })],
+        width: { size: colWidthDxa, type: WidthType.DXA },
         shading: rowIndex === 0 ? { type: ShadingType.CLEAR, fill: "F8FAFC" } : undefined,
       }));
     }
@@ -409,6 +421,7 @@ async function tableToDocx(tableNode: PmNode): Promise<Table> {
   return new Table({
     rows: tableRows,
     width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: Array(columnCount).fill(colWidthDxa),
   });
 }
 
