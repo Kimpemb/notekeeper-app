@@ -4,7 +4,7 @@ import { getDb } from "@/features/notes/db/client"
 import { convertDocx } from "./convertDocx"
 import { invoke } from "@tauri-apps/api/core"
 import type { NoteSourceMeta } from "@/types"
-import { checkFileSize, ImportError } from "./importErrors"
+import { checkFileSize, ImportError, userFriendlyMessage, type ImportResult } from "./importErrors"
 
 async function checkDuplicate(originalName: string): Promise<string | null> {
   const db = await getDb()
@@ -18,13 +18,12 @@ async function checkDuplicate(originalName: string): Promise<string | null> {
   return rows[0]?.id ?? null
 }
 
-export async function importDocx(
+// ── Single-file import — core logic, parameterized on srcPath ───────────────
+async function importDocxFromPath(
+  srcPath: string,
   onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
   parentId?: string | null
 ): Promise<string | null> {
-  const srcPath = await pickDocxFile()
-  if (!srcPath) return null
-
   const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
 
   checkFileSize(bytes.length)
@@ -61,9 +60,6 @@ export async function importDocx(
     throw new ImportError("EMPTY_CONVERSION", "This file appears to have no readable text content.")
   }
 
-  // Use the real ProseMirror JSON produced during conversion (images included)
-  // instead of rebuilding content from the lossy plaintext markdown, which
-  // never carried image data in the first place.
   const content = JSON.stringify({ type: "doc", content: doc.content ?? [] })
   const plaintext = markdown.replace(/^#+\s+/gm, "").replace(/[*_`~]/g, "").trim()
 
@@ -85,4 +81,31 @@ export async function importDocx(
   })
 
   return note.id
+}
+
+// ── Batch entry point ────────────────────────────────────────────────────────
+export async function importDocx(
+  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
+  parentId?: string | null
+): Promise<ImportResult[] | null> {
+  const srcPaths = await pickDocxFile()
+  if (!srcPaths || srcPaths.length === 0) return null
+
+  const results: ImportResult[] = []
+
+  for (const srcPath of srcPaths) {
+    const fileName = srcPath.replace(/\\/g, "/").split("/").pop() ?? "document.docx"
+    try {
+      const noteId = await importDocxFromPath(srcPath, onDuplicateFound, parentId)
+      if (noteId === null) {
+        results.push({ fileName, cancelled: true })
+      } else {
+        results.push({ fileName, noteId })
+      }
+    } catch (err) {
+      results.push({ fileName, error: userFriendlyMessage(err) })
+    }
+  }
+
+  return results
 }

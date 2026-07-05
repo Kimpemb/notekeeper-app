@@ -9,11 +9,11 @@ import type { Note } from "@/types";
 import { importPDF } from "@/features/importer/lib/importPDF";
 import { importDocx } from "@/features/importer/lib/importDocx";
 import { importPptx } from "@/features/importer/lib/importPptx";
-import { userFriendlyMessage } from "@/features/importer/lib/importErrors";
+import { userFriendlyMessage, type ImportResult } from "@/features/importer/lib/importErrors";
 import { NotePickerModal } from "@/features/ui/components/NotePickerModal";
 
 type Strategy = "skip" | "overwrite" | "copy";
-type Stage = "idle" | "preview" | "importing" | "done" | "error";
+type Stage = "idle" | "preview" | "importing" | "done" | "batch-done" | "error";
 
 interface Preview {
   notes: Note[];
@@ -166,6 +166,7 @@ export function ImportModal() {
   } | null>(null)
   
   const [scannedPdfNoteId, setScannedPdfNoteId] = useState<string | null>(null)
+  const [batchResults, setBatchResults] = useState<ImportResult[] | null>(null)
 
   const [parentId,         setParentId]         = useState<string | null>(null);
   const [parentNote,       setParentNote]        = useState<Note | null>(null);
@@ -177,6 +178,7 @@ export function ImportModal() {
       setRawJson(""); setImported(0); setError("");
       setScannedPdfNoteId(null);
       setDuplicatePromise(null);
+      setBatchResults(null);
       setParentId(null);
       setParentNote(null);
     }
@@ -204,135 +206,140 @@ export function ImportModal() {
       new Promise((resolve) => setDuplicatePromise({ resolve, title }))
   }
 
-  const parseFile = useCallback(async (content: string, ext: string) => {
+  // Parses ONE file's content into Note[]. Throws on invalid content —
+  // caller (parseFiles) is responsible for catching and surfacing the error.
+  const parseOneFile = useCallback((content: string, ext: string): Note[] => {
+    if (ext === "md") {
+      const existingNotes = useNoteStore.getState().notes;
+      const maxSortOrder = existingNotes.reduce((max, n) => Math.max(max, n.sort_order ?? 0), -1);
+
+      const { tags, frontmatter, body } = extractYamlFrontmatter(content);
+
+      const lines = body.split("\n");
+      const titleLine = lines.find((l) => l.startsWith("# "));
+      const title = titleLine ? titleLine.replace(/^# /, "").trim() : "Imported Note";
+      const bodyLines = lines.filter((l) => !l.startsWith("# ")).join("\n");
+
+      const newNote: Note = {
+        id: crypto.randomUUID(),
+        title,
+        content: "",
+        plaintext: bodyLines.trim(),
+        tags,
+        frontmatter,
+        parent_id: parentId,
+        sync_id: crypto.randomUUID(),
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        deleted_at: null,
+        sort_order: maxSortOrder + 1,
+        is_canvas: false,
+        canvas_state: null,
+        rag_excluded: 0,
+        source_type: "note",
+      };
+
+      const notesByTitle = new Map<string, string>(
+        existingNotes.map((n) => [n.title.toLowerCase(), n.id])
+      );
+      notesByTitle.set(title.toLowerCase(), newNote.id);
+
+      const doc = markdownToDoc(bodyLines, notesByTitle);
+      newNote.content = JSON.stringify(doc);
+      return [newNote];
+    }
+
+    const cleaned = content.replace(/^\uFEFF/, "").trim();
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed)) throw new Error("File must contain a JSON array of notes.");
+    if (parsed.length === 0) throw new Error("The file contains no notes.");
+    const looksValid = parsed.every((n: unknown) =>
+      typeof n === "object" && n !== null &&
+      "id" in n && "title" in n && "content" in n && "created_at" in n
+    );
+    if (!looksValid) throw new Error("This file doesn't look like an Idemora export. Only .json files exported from Idemora can be imported.");
+
+    let notes = (parsed as Note[]).map((n) => ({
+      ...n,
+      rag_excluded: (n as any).rag_excluded ?? 0,
+    }));
+
+    // Re-root top-level notes to the chosen location. Notes whose parent_id
+    // points to another note in the batch keep their relative structure —
+    // only true roots get re-parented.
+    if (parentId) {
+      const batchIds = new Set(notes.map((n) => n.id));
+      notes = notes.map((n) => ({
+        ...n,
+        parent_id: (!n.parent_id || !batchIds.has(n.parent_id))
+          ? parentId
+          : n.parent_id,
+      }));
+    }
+
+    return notes;
+  }, [parentId]);
+
+  // Parses one or more picked/dropped files and merges them into a single
+  // combined preview, so multi-file json/md drops go through the existing
+  // duplicate-strategy flow as one batch.
+  const parseFiles = useCallback((files: { content: string; ext: string }[]) => {
     try {
-      let notes: Note[];
-
-      if (ext === "md") {
-        const existingNotes = useNoteStore.getState().notes;
-        const maxSortOrder = existingNotes.reduce((max, n) => Math.max(max, n.sort_order ?? 0), -1);
-
-        // Extract YAML frontmatter if present
-        const { tags, frontmatter, body } = extractYamlFrontmatter(content);
-
-        const lines = body.split("\n");
-        const titleLine = lines.find((l) => l.startsWith("# "));
-        const title = titleLine ? titleLine.replace(/^# /, "").trim() : "Imported Note";
-        const bodyLines = lines.filter((l) => !l.startsWith("# ")).join("\n");
-
-        const newNote: Note = {
-          id: crypto.randomUUID(),
-          title,
-          content: "",
-          plaintext: bodyLines.trim(),
-          tags,
-          frontmatter,
-          parent_id: parentId,
-          sync_id: crypto.randomUUID(),
-          created_at: Date.now(),
-          updated_at: Date.now(),
-          deleted_at: null,
-          sort_order: maxSortOrder + 1,
-          is_canvas: false,
-          canvas_state: null,
-          rag_excluded: 0,
-          source_type: "note",
-        };
-
-        const notesByTitle = new Map<string, string>(
-          existingNotes.map((n) => [n.title.toLowerCase(), n.id])
-        );
-        notesByTitle.set(title.toLowerCase(), newNote.id);
-
-        const doc = markdownToDoc(bodyLines, notesByTitle);
-        newNote.content = JSON.stringify(doc);
-        notes = [newNote];
-
-      } else {
-        const cleaned = content.replace(/^\uFEFF/, "").trim();
-        const parsed = JSON.parse(cleaned);
-        if (!Array.isArray(parsed)) throw new Error("File must contain a JSON array of notes.");
-        if (parsed.length === 0) throw new Error("The file contains no notes.");
-        const looksValid = parsed.every((n: unknown) =>
-          typeof n === "object" && n !== null &&
-          "id" in n && "title" in n && "content" in n && "created_at" in n
-        );
-        if (!looksValid) throw new Error("This file doesn't look like an Idemora export. Only .json files exported from Idemora can be imported.");
-        
-        // Ensure each note has rag_excluded (default to 0 if missing)
-        notes = (parsed as Note[]).map((n) => ({
-          ...n,
-          rag_excluded: (n as any).rag_excluded ?? 0,
-        }));
-        
-        // Re-root top-level notes to the chosen location.
-        // Notes whose parent_id points to another note in the batch keep
-        // their relative structure — only true roots get re-parented.
-        if (parentId) {
-          const batchIds = new Set(notes.map((n) => n.id));
-          notes = notes.map((n) => ({
-            ...n,
-            parent_id: (!n.parent_id || !batchIds.has(n.parent_id))
-              ? parentId
-              : n.parent_id,
-          }));
-        }
+      const allNotes: Note[] = [];
+      for (const file of files) {
+        allNotes.push(...parseOneFile(file.content, file.ext));
       }
 
       const existingIds = new Set(useNoteStore.getState().notes.map((n) => n.id));
-      const duplicateCount = notes.filter((n) => existingIds.has(n.id)).length;
-      setPreview({ notes, duplicateCount, newCount: notes.length - duplicateCount });
-      setRawJson(JSON.stringify(notes));
+      const duplicateCount = allNotes.filter((n) => existingIds.has(n.id)).length;
+      setPreview({ notes: allNotes, duplicateCount, newCount: allNotes.length - duplicateCount });
+      setRawJson(JSON.stringify(allNotes));
       setStage("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid file.");
       setStage("error");
     }
-  }, [parentId]);
+  }, [parseOneFile]);
 
   async function handlePickFile() {
     try {
-      const result = await importNotesFromFile();
-      if (result === null) return;
-      await parseFile(result.content, result.ext);
+      const results = await importNotesFromFile();
+      if (results === null) return;
+      parseFiles(results);
     } catch (err) { setError(String(err)); setStage("error"); }
   }
 
-  async function handleImportPDF() {
+  // Shared batch runner for PDF/DOCX/PPTX. Preserves the original single-file
+  // UX (auto-open the note / show the scanned-PDF warning) when exactly one
+  // file was picked and it succeeded cleanly; otherwise shows a per-file
+  // summary screen so partial failures across a batch are visible.
+  async function runBatchImport(
+    importFn: (
+      onDuplicateFound: ReturnType<typeof makeDuplicateHandler>,
+      parentId: string | null
+    ) => Promise<ImportResult[] | null>
+  ) {
     setStage("importing")
     try {
-      const noteId = await importPDF(makeDuplicateHandler(), parentId)
-      if (!noteId) {
-        setStage("idle")  // user cancelled duplicate dialog
+      const results = await importFn(makeDuplicateHandler(), parentId)
+      if (!results) {
+        setStage("idle") // user cancelled the file picker
         return
       }
-      closeImport()
-      useUIStore.getState().openTab(noteId)
-    } catch (err) {
-      // Scanned PDF — note was created, just warn
-      if (err instanceof Error && err.message.startsWith("__SCANNED__:")) {
-        const noteId = err.message.split(":")[1]
-        setScannedPdfNoteId(noteId)
-        setStage("idle") // stay open to show warning
-        return
-      }
-      setError(userFriendlyMessage(err))
-      setStage("error")
-    } finally {
-      setDuplicatePromise(null)
-    }
-  }
 
-  async function handleImportDocx() {
-    setStage("importing")
-    try {
-      const noteId = await importDocx(makeDuplicateHandler(), parentId)
-      if (!noteId) {
-        setStage("idle")  // user cancelled duplicate dialog
+      if (results.length === 1 && results[0].noteId && !results[0].error) {
+        if (results[0].scanned) {
+          setScannedPdfNoteId(results[0].noteId)
+          setStage("idle") // stay open to show warning
+          return
+        }
+        closeImport()
+        useUIStore.getState().openTab(results[0].noteId)
         return
       }
-      closeImport()
-      useUIStore.getState().openTab(noteId)
+
+      setBatchResults(results)
+      setStage("batch-done")
     } catch (err) {
       setError(userFriendlyMessage(err))
       setStage("error")
@@ -341,23 +348,9 @@ export function ImportModal() {
     }
   }
 
-  async function handleImportPptx() {
-    setStage("importing")
-    try {
-      const noteId = await importPptx(makeDuplicateHandler(), parentId)
-      if (!noteId) {
-        setStage("idle")  // user cancelled duplicate dialog
-        return
-      }
-      closeImport()
-      useUIStore.getState().openTab(noteId)
-    } catch (err) {
-      setError(userFriendlyMessage(err))
-      setStage("error")
-    } finally {
-      setDuplicatePromise(null)
-    }
-  }
+  const handleImportPDF  = () => runBatchImport(importPDF)
+  const handleImportDocx = () => runBatchImport(importDocx)
+  const handleImportPptx = () => runBatchImport(importPptx)
 
   useEffect(() => {
     if (!importOpen) return;
@@ -368,18 +361,24 @@ export function ImportModal() {
       else if (event.payload.type === "drop") {
         setDragging(false);
         const paths: string[] = event.payload.paths ?? [];
-        const filePath = paths[0];
-        if (!filePath) return;
-        const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-        if (ext !== "json" && ext !== "md") { setError("Only .json and .md files are supported."); setStage("error"); return; }
+        if (paths.length === 0) return;
+        const validPaths = paths.filter((p) => {
+          const ext = p.split(".").pop()?.toLowerCase() ?? "";
+          return ext === "json" || ext === "md";
+        });
+        if (validPaths.length === 0) { setError("Only .json and .md files are supported."); setStage("error"); return; }
         try {
-          const text = await invoke<string>("read_file", { path: filePath });
-          await parseFile(text, ext);
+          const files = await Promise.all(validPaths.map(async (p) => {
+            const ext = p.split(".").pop()?.toLowerCase() ?? "";
+            const text = await invoke<string>("read_file", { path: p });
+            return { content: text, ext };
+          }));
+          parseFiles(files);
         } catch (err) { setError(String(err)); setStage("error"); }
       }
     });
     return () => { unlisten.then((fn) => fn()); };
-  }, [importOpen, parseFile]);
+  }, [importOpen, parseFiles]);
 
   async function handleImport() {
     if (!preview) return;
@@ -425,7 +424,7 @@ export function ImportModal() {
                 <path d="M4 24v2a2 2 0 002 2h20a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
               </svg>
               <div className="text-center">
-                <p className="text-sm text-idemora-text-normal text-idemora-text-muted">Drop a <span className="font-medium">.json</span> or <span className="font-medium">.md</span> file here</p>
+                <p className="text-sm text-idemora-text-normal text-idemora-text-muted">Drop one or more <span className="font-medium">.json</span> or <span className="font-medium">.md</span> files here</p>
                 <p className="text-xs text-idemora-text-muted  mt-0.5">or</p>
               </div>
               <button onClick={handlePickFile} className="px-4 py-2 rounded-lg text-sm font-medium bg-idemora-bg-primary  text-idemora-text-normal    transition-colors duration-150">Choose file</button>
@@ -597,9 +596,58 @@ export function ImportModal() {
               <button onClick={() => setStage("idle")} className="text-sm text-idemora-text-muted   transition-colors duration-150">Try again</button>
             </div>
           )}
+
+          {stage === "batch-done" && batchResults && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-idemora-bg-primary px-3 py-2">
+                  <p className="text-lg font-semibold text-idemora-text-normal">
+                    {batchResults.filter((r) => r.noteId && !r.error).length}
+                  </p>
+                  <p className="text-xs text-idemora-text-muted">Imported</p>
+                </div>
+                <div className="rounded-lg bg-idemora-bg-primary px-3 py-2">
+                  <p className="text-lg font-semibold text-amber-500">
+                    {batchResults.filter((r) => r.cancelled).length}
+                  </p>
+                  <p className="text-xs text-idemora-text-muted">Skipped</p>
+                </div>
+                <div className="rounded-lg bg-idemora-bg-primary px-3 py-2">
+                  <p className="text-lg font-semibold text-red-500">
+                    {batchResults.filter((r) => r.error).length}
+                  </p>
+                  <p className="text-xs text-idemora-text-muted">Failed</p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-idemora-border overflow-hidden max-h-48 overflow-y-auto">
+                {batchResults.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2 border-b border-idemora-border/50 last:border-b-0">
+                    <span className="flex-1 text-sm text-idemora-text-normal truncate">{r.fileName}</span>
+                    {r.noteId && !r.error && (
+                      <>
+                        {r.scanned && <span className="text-xs text-amber-500 shrink-0">scanned</span>}
+                        <button
+                          onClick={() => { closeImport(); useUIStore.getState().openTab(r.noteId!) }}
+                          className="text-xs text-blue-500 hover:underline shrink-0"
+                        >
+                          Open
+                        </button>
+                      </>
+                    )}
+                    {r.cancelled && <span className="text-xs text-idemora-text-muted shrink-0">skipped</span>}
+                    {r.error && (
+                      <span className="text-xs text-red-500 shrink-0 truncate max-w-[140px]" title={r.error}>
+                        {r.error}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {(stage === "preview" || stage === "done") && (
+        {(stage === "preview" || stage === "done" || stage === "batch-done") && (
           <div className="flex items-center justify-end gap-2 px-5 py-4 border-t  border-idemora-border">
             {stage === "preview" && (
               <>
@@ -610,6 +658,9 @@ export function ImportModal() {
               </>
             )}
             {stage === "done" && (
+              <button onClick={closeImport} className="px-4 py-2 rounded-lg text-sm font-medium bg-idemora-bg-primary  text-idemora-text-normal    transition-colors duration-150">Done</button>
+            )}
+            {stage === "batch-done" && (
               <button onClick={closeImport} className="px-4 py-2 rounded-lg text-sm font-medium bg-idemora-bg-primary  text-idemora-text-normal    transition-colors duration-150">Done</button>
             )}
           </div>

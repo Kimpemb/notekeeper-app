@@ -19,6 +19,17 @@ export class ImportError extends Error {
   }
 }
 
+// Shared per-file outcome for batch imports (PDF/DOCX/PPTX). Exactly one of
+// noteId / error / cancelled is meaningfully set per result; `scanned` is an
+// independent flag only relevant to successful PDF imports.
+export interface ImportResult {
+  fileName: string
+  noteId?: string
+  error?: string
+  cancelled?: boolean
+  scanned?: boolean
+}
+
 export const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MB
 
 export function checkFileSize(byteLength: number): void {

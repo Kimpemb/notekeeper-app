@@ -5,6 +5,8 @@ import type { NoteSourceMeta } from "@/types"
 import {
   ImportError,
   checkFileSize,
+  userFriendlyMessage,
+  type ImportResult,
 } from "./importErrors"
 
 const SCANNED_PDF_CHARS_PER_PAGE = 50
@@ -27,37 +29,33 @@ async function checkDuplicate(originalName: string): Promise<string | null> {
   return rows[0]?.id ?? null
 }
 
-export async function importPDF(
+// ── Single-file import — same logic as before, just parameterized on srcPath
+// instead of calling the picker itself. `scanned` is now a plain return field
+// instead of the old __SCANNED__ sentinel thrown as an error message. ────────
+async function importPDFFromPath(
+  srcPath: string,
   onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
   parentId?: string | null
-): Promise<string | null> {
-  const srcPath = await pickPdfFile()
-  if (!srcPath) return null
-
+): Promise<{ noteId: string; scanned: boolean } | null> {
   const { invoke } = await import("@tauri-apps/api/core")
   const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
 
-  // 1. Oversized check
   checkFileSize(bytes.length)
 
   const originalName = (srcPath.replace(/\\/g, "/").split("/").pop() ?? "document.pdf")
 
-  // 2. Duplicate check
   const existingId = await checkDuplicate(originalName)
   if (existingId && onDuplicateFound) {
     const existing = useNoteStore.getState().notes.find(n => n.id === existingId)
     const action = await onDuplicateFound(existingId, existing?.title ?? originalName)
     if (action === "cancel") return null
     if (action === "replace") {
-      // trash the old one before importing fresh
       await useNoteStore.getState().deleteNote(existingId)
     }
-    // "copy" falls through — creates a new note alongside
   }
 
   const arrayBuffer = new Uint8Array(bytes).buffer
 
-  // 3. Load PDF — catches ENCRYPTED_PDF and CORRUPT_FILE
   let pageCount = 0
   let isScanned = false
 
@@ -83,7 +81,6 @@ export async function importPDF(
 
     pageCount = doc.numPages
 
-    // 4. Scanned PDF detection — sample up to 5 pages
     const samplePages = Math.min(5, pageCount)
     let totalChars = 0
     for (let i = 1; i <= samplePages; i++) {
@@ -102,7 +99,6 @@ export async function importPDF(
     throw new ImportError("CORRUPT_FILE", "This file could not be read. It may be damaged.")
   }
 
-  // 5. Copy to $APPDATA/attachments/
   const uuid = crypto.randomUUID()
   const destFileName = `${uuid}.pdf`
   await copyPdfToAttachments(srcPath, destFileName)
@@ -111,10 +107,9 @@ export async function importPDF(
     pageCount,
     originalName,
     importedAt: Date.now(),
-    fileSize: bytes.length,  // fixed: was hardcoded 0
+    fileSize: bytes.length,
   }
 
-  // 6. Create note row
   const note = await useNoteStore.getState().createNote({
     title: inferTitle(srcPath),
     content: JSON.stringify({ type: "doc", content: [] }),
@@ -125,13 +120,11 @@ export async function importPDF(
     parent_id: parentId ?? null,
   })
 
-  // 7. RAG extraction — non-blocking
   try {
     const { extractAndIndexPDF } = await import("./extractPDFText")
     extractAndIndexPDF(note.id, arrayBuffer) // intentionally not awaited
   } catch { /* non-fatal */ }
 
-  // 8. Insert pdfLink block into active note if different
   const { activeNoteId, notes: storeNotes, updateNote } = useNoteStore.getState()
   if (activeNoteId && activeNoteId !== note.id) {
     const activeNote = storeNotes.find(n => n.id === activeNoteId)
@@ -151,13 +144,34 @@ export async function importPDF(
     }
   }
 
-  // Return noteId with scanned flag attached so modal can show warning
-  if (isScanned) {
-    throw new ImportError(
-      "SCANNED_PDF",
-      `__SCANNED__:${note.id}` // special sentinel — modal unwraps this
-    )
+  return { noteId: note.id, scanned: isScanned }
+}
+
+// ── Batch entry point — picks one or more PDFs and imports each in turn.
+// A failure on one file does not abort the rest; every file's outcome is
+// reported back independently in the returned array. ────────────────────────
+export async function importPDF(
+  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
+  parentId?: string | null
+): Promise<ImportResult[] | null> {
+  const srcPaths = await pickPdfFile()
+  if (!srcPaths || srcPaths.length === 0) return null
+
+  const results: ImportResult[] = []
+
+  for (const srcPath of srcPaths) {
+    const fileName = srcPath.replace(/\\/g, "/").split("/").pop() ?? "document.pdf"
+    try {
+      const outcome = await importPDFFromPath(srcPath, onDuplicateFound, parentId)
+      if (outcome === null) {
+        results.push({ fileName, cancelled: true })
+      } else {
+        results.push({ fileName, noteId: outcome.noteId, scanned: outcome.scanned })
+      }
+    } catch (err) {
+      results.push({ fileName, error: userFriendlyMessage(err) })
+    }
   }
 
-  return note.id
+  return results
 }

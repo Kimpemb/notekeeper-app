@@ -5,7 +5,7 @@ import { convertPptx }  from "./convertPptx"
 import { invoke }        from "@tauri-apps/api/core"
 import type { NoteSourceMeta } from "@/types"
 import { markdownToDoc } from "@/features/ai/lib/save/parseMarkdown"
-import { checkFileSize, ImportError } from "./importErrors"
+import { checkFileSize, ImportError, userFriendlyMessage, type ImportResult } from "./importErrors"
 import { getDb } from "@/features/notes/db/client"
 
 async function checkDuplicate(originalName: string): Promise<string | null> {
@@ -20,13 +20,11 @@ async function checkDuplicate(originalName: string): Promise<string | null> {
   return rows[0]?.id ?? null
 }
 
-export async function importPptx(
+async function importPptxFromPath(
+  srcPath: string,
   onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
   parentId?: string | null
 ): Promise<string | null> {
-  const srcPath = await pickPptxFile()
-  if (!srcPath) return null
-
   const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
 
   checkFileSize(bytes.length)
@@ -86,4 +84,30 @@ export async function importPptx(
   })
 
   return note.id
+}
+
+export async function importPptx(
+  onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
+  parentId?: string | null
+): Promise<ImportResult[] | null> {
+  const srcPaths = await pickPptxFile()
+  if (!srcPaths || srcPaths.length === 0) return null
+
+  const results: ImportResult[] = []
+
+  for (const srcPath of srcPaths) {
+    const fileName = srcPath.replace(/\\/g, "/").split("/").pop() ?? "presentation.pptx"
+    try {
+      const noteId = await importPptxFromPath(srcPath, onDuplicateFound, parentId)
+      if (noteId === null) {
+        results.push({ fileName, cancelled: true })
+      } else {
+        results.push({ fileName, noteId })
+      }
+    } catch (err) {
+      results.push({ fileName, error: userFriendlyMessage(err) })
+    }
+  }
+
+  return results
 }

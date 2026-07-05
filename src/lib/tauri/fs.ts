@@ -24,18 +24,26 @@
     await invoke("write_file_bytes", { path, data: Array.from(data) });
     return true;
   }
-
-  export async function importNotesFromFile(): Promise<{ content: string; ext: string } | null> {
-  const path = await open({
-    multiple: false,
+  
+  export async function importNotesFromFile(): Promise<{ content: string; ext: string; fileName: string }[] | null> {
+  const paths = await open({
+    multiple: true,
     filters: [
       { name: "Notes (JSON, Markdown)", extensions: ["json", "md"] },
     ],
   });
-  if (!path) return null;
-  const content = await invoke<string>("read_file", { path });
-  const ext = (path as string).split(".").pop()?.toLowerCase() ?? "json";
-  return { content, ext };
+  if (!paths) return null;
+  const pathList = Array.isArray(paths) ? paths : [paths];
+  if (pathList.length === 0) return null;
+
+  const results: { content: string; ext: string; fileName: string }[] = [];
+  for (const path of pathList) {
+    const content = await invoke<string>("read_file", { path });
+    const ext = path.split(".").pop()?.toLowerCase() ?? "json";
+    const fileName = path.replace(/\\/g, "/").split("/").pop() ?? "file";
+    results.push({ content, ext, fileName });
+  }
+  return results;
 }
 
   export async function getAppDataDir(): Promise<string> {
@@ -77,19 +85,22 @@
     return (path as string) ?? null;
   }
 
-export async function pickDocxFile(): Promise<string | null> {
-  const path = await open({
-    multiple: false,
+export async function pickDocxFile(): Promise<string[] | null> {
+  const paths = await open({
+    multiple: true,
     filters: [{ name: "Word Document", extensions: ["docx"] }],
   });
-  return (path as string) ?? null;
+  if (!paths) return null;
+  return Array.isArray(paths) ? paths : [paths];
 }
 
-export async function pickPdfFile(): Promise<string | null> {  const path = await open({
-    multiple: false,
+export async function pickPdfFile(): Promise<string[] | null> {
+  const paths = await open({
+    multiple: true,
     filters: [{ name: "PDF", extensions: ["pdf"] }],
   });
-  return (path as string) ?? null;
+  if (!paths) return null;
+  return Array.isArray(paths) ? paths : [paths];
 }
 
 export async function copyPdfToAttachments(srcPath: string, destFileName: string): Promise<void> {
@@ -152,10 +163,11 @@ export async function copyPdfToAttachments(srcPath: string, destFileName: string
     await invoke("write_file", { path: fullPath, contents });
     return fullPath;
   }
-export async function pickPptxFile(): Promise<string | null> {
-  const path = await open({
-    multiple: false,
+export async function pickPptxFile(): Promise<string[] | null> {
+  const paths = await open({
+    multiple: true,
     filters: [{ name: "PowerPoint", extensions: ["pptx"] }],
   });
-  return (path as string) ?? null;
+  if (!paths) return null;
+  return Array.isArray(paths) ? paths : [paths];
 }
