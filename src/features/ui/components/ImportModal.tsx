@@ -147,7 +147,6 @@ function extractYamlFrontmatter(content: string): ParsedFrontmatter {
 export function ImportModal() {
   const importOpen  = useUIStore((s) => s.importOpen);
   const closeImport = useUIStore((s) => s.closeImport);
-  const loadNotes   = useNoteStore((s) => s.loadNotes);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const dropRef  = useRef<HTMLDivElement>(null);
@@ -386,12 +385,14 @@ export function ImportModal() {
     if (!preview) return;
     setStage("importing");
     try {
-      let count = 0;
-      if (strategy === "skip")      count = await importNotes(rawJson);
-      if (strategy === "overwrite") count = await importNotesOverwrite(rawJson);
-      if (strategy === "copy")      count = await importNotesAsCopies(rawJson);
-      await loadNotes();
-      setImported(count);
+      let importedNotes: Note[] = [];
+      if (strategy === "skip")      importedNotes = await importNotes(rawJson);
+      if (strategy === "overwrite") importedNotes = await importNotesOverwrite(rawJson);
+      if (strategy === "copy")      importedNotes = await importNotesAsCopies(rawJson);
+      // Merge by ID instead of loadNotes() — loadNotes() calls getAllNotesMeta(),
+      // which omits `content` and blanks every currently-mounted editor's text.
+      useNoteStore.getState().mergeImportedNotes(importedNotes);
+      setImported(importedNotes.length);
       setStage("done");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

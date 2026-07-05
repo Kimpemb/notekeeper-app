@@ -1363,12 +1363,12 @@ function extractNoteLinkIdsFromJson(contentJson: string): string[] {
   return ids;
 }
 
-export async function importNotes(json: string): Promise<number> {
+export async function importNotes(json: string): Promise<Note[]> {
   const db = await getDb();
   const raw = JSON.parse(json);
   if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
   const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
-  let imported = 0;
+  const imported: Note[] = [];
 
   for (const note of notes) {
     const rows = await db.select<{ id: string; deleted_at: number | null }[]>(
@@ -1376,12 +1376,13 @@ export async function importNotes(json: string): Promise<number> {
     );
     if (rows.length > 0 && rows[0].deleted_at === null) continue;
     if (rows.length > 0) {
+      const updatedAt = now();
       await db.execute(
         `UPDATE notes SET deleted_at = NULL, title = $1, content = $2, plaintext = $3,
          tags = $4, frontmatter = $5, updated_at = $6 WHERE id = $7`,
-        [note.title, note.content, note.plaintext, note.tags, note.frontmatter, now(), note.id]
+        [note.title, note.content, note.plaintext, note.tags, note.frontmatter, updatedAt, note.id]
       );
-      imported++;
+      imported.push({ ...note, updated_at: updatedAt, deleted_at: null });
       continue;
     }
     await db.execute(
@@ -1390,22 +1391,21 @@ export async function importNotes(json: string): Promise<number> {
       [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
       note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null, note.sort_order]
     );
-    imported++;
+    imported.push(note);
   }
 
-  for (const note of notes) {
+  for (const note of imported) {
     await syncBacklinks(note.id, extractNoteLinkIdsFromJson(note.content ?? ""));
   }
 
   return imported;
 }
 
-export async function importNotesOverwrite(json: string): Promise<number> {
+export async function importNotesOverwrite(json: string): Promise<Note[]> {
   const db = await getDb();
   const raw = JSON.parse(json);
   if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
   const notes: Note[] = topoSort(raw.map((r) => sanitizeNote(r as Record<string, unknown>)));
-  let count = 0;
 
   for (const note of notes) {
     await db.execute(
@@ -1418,17 +1418,16 @@ export async function importNotesOverwrite(json: string): Promise<number> {
       [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
       note.parent_id, note.sync_id ?? uuid(), note.created_at, note.updated_at, null, note.sort_order]
     );
-    count++;
   }
 
   for (const note of notes) {
     await syncBacklinks(note.id, extractNoteLinkIdsFromJson(note.content ?? ""));
   }
 
-  return count;
+  return notes;
 }
 
-export async function importNotesAsCopies(json: string): Promise<number> {
+export async function importNotesAsCopies(json: string): Promise<Note[]> {
   const db = await getDb();
   const raw = JSON.parse(json);
   if (!Array.isArray(raw)) throw new Error("Expected a JSON array of notes.");
@@ -1437,8 +1436,8 @@ export async function importNotesAsCopies(json: string): Promise<number> {
   const idMap = new Map<string, string>();
   for (const note of notes) idMap.set(note.id, uuid());
 
-  let count = 0;
   const remappedContents = new Map<string, string>();
+  const copiedNotes: Note[] = [];
 
   for (const note of notes) {
     const newId = idMap.get(note.id)!;
@@ -1450,20 +1449,32 @@ export async function importNotesAsCopies(json: string): Promise<number> {
     }
     remappedContents.set(newId, remappedContent);
 
+    const newSyncId = uuid();
+    const createdAt = now();
     await db.execute(
       `INSERT INTO notes (id, title, content, plaintext, tags, frontmatter, parent_id, sync_id, created_at, updated_at, deleted_at, sort_order)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [newId, note.title, remappedContent, note.plaintext, note.tags, note.frontmatter,
-      newParentId, uuid(), now(), now(), null, note.sort_order]
+      newParentId, newSyncId, createdAt, createdAt, null, note.sort_order]
     );
-    count++;
+
+    copiedNotes.push({
+      ...note,
+      id: newId,
+      parent_id: newParentId,
+      content: remappedContent,
+      sync_id: newSyncId,
+      created_at: createdAt,
+      updated_at: createdAt,
+      deleted_at: null,
+    });
   }
 
   for (const [newId, remappedContent] of remappedContents.entries()) {
     await syncBacklinks(newId, extractNoteLinkIdsFromJson(remappedContent ?? ""));
   }
 
-  return count;
+  return copiedNotes;
 }
 
 // ─── Stats ────────────────────────────────────────────────────────────────────

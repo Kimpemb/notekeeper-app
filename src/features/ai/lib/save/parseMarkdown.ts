@@ -26,6 +26,7 @@ import { TextStyle }             from "@tiptap/extension-text-style"
 import Highlight                 from "@tiptap/extension-highlight"
 import { Mathematics }           from "@tiptap/extension-mathematics"
 import { NoteLink }              from "@/features/editor/components/Editor/NoteLink"
+import { ImageExtension }        from "@/features/editor/components/Editor/ImageExtension"
 
 export const PARSE_EXTENSIONS = [
   StarterKit.configure({ codeBlock: false }),
@@ -41,6 +42,7 @@ export const PARSE_EXTENSIONS = [
   TaskItem.configure({ nested: true }),
   Mathematics.configure({ katexOptions: { throwOnError: false } }),
   NoteLink.configure({ onNavigate: () => {} }),
+  ImageExtension,
 ]
 
 // ─── Math delimiter normalisation ────────────────────────────────────────────

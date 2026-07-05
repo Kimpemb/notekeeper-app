@@ -117,6 +117,7 @@ export default function App() {
   const [dbReady, setDbReady]     = useState(false);
   const [dbError, setDbError]     = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [moveBlockOpen, setMoveBlockOpen] = useState(false);
@@ -583,6 +584,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
       exportNoteDocx: async () => {
         if (!activeNote) return;
         setExporting(true);
+        setExportNotice("Toggles, callouts, and dynamic views will be flattened to plain text/formatting for Word compatibility.");
         try {
           const liveEditor = useUIStore.getState().getEditorForNote(activeNote.id);
           const liveContent = liveEditor && !liveEditor.isDestroyed
@@ -590,7 +592,10 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
             : (activeNote.content ?? "");
           const bytes = await exportToDocx(activeNote.title, liveContent);
           await exportDocxToFile(bytes, `${noteSlug(activeNote.title)}.docx`);
-        } catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
+        } catch (err) { console.error("Export failed:", err); } finally {
+          setExporting(false);
+          setTimeout(() => setExportNotice(null), 4000);
+        }
       },
     });
   }, [notes, activeNote]);
@@ -929,6 +934,12 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
       {exporting && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-muted shadow-lg animate-pulse">
           Exporting…
+        </div>
+      )}
+
+      {!exporting && exportNotice && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-xs px-3 py-2 rounded-lg bg-idemora-bg-secondary border border-idemora-border text-idemora-text-muted shadow-lg text-sm">
+          {exportNotice}
         </div>
       )}
 

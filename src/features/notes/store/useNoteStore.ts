@@ -104,6 +104,7 @@ interface NoteStore {
   refreshNote: (id: string) => Promise<void>;
   addNoteToStore: (note: Note) => void;
   removeNoteFromStore: (id: string) => void;
+  mergeImportedNotes: (importedNotes: Note[]) => void;
   pinNote: (id: string) => Promise<void>;
   unpinNote: (id: string) => Promise<void>;
   isPinned: (id: string) => boolean;
@@ -533,6 +534,18 @@ moveNote: async (id, newParentId) => {
 
   removeNoteFromStore: (id) => {
     set((state) => ({ notes: state.notes.filter((n) => n.id !== id) }));
+  },
+
+  // Upsert-by-id merge — used after import instead of loadNotes(), which
+  // calls getAllNotesMeta() and blanks content for every mounted editor
+  // (same bug class as the moveNote/addNoteToStore editor-blanking issue).
+  // Only touches notes that were actually part of the import batch.
+  mergeImportedNotes: (importedNotes) => {
+    set((state) => {
+      const byId = new Map(state.notes.map((n) => [n.id, n]));
+      for (const note of importedNotes) byId.set(note.id, note);
+      return { notes: Array.from(byId.values()) };
+    });
   },
 
   pinNote: async (id) => {

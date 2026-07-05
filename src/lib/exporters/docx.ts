@@ -18,6 +18,18 @@
 //   falling back to attrs.isoDate. Neither "date" nor "label" exist on this
 //   node — both were incorrect initial guesses. See textRunsFromInline below.
 //
+// ── ONE-WAY EXPORT, BY DESIGN (not a round-trip format) ────────────────────────
+// toggle, callout, dataview, subPage, pdfLink, and blockRef are all flattened
+// to plain paragraphs/formatting with no marker distinguishing them from
+// ordinary text (see Category 1/2/3 handling below). This is deliberate: docx
+// is a portability target for sharing notes outside the app, not a save
+// format. Re-importing an exported .docx will NOT reconstruct these node
+// types — Word has no concept of them, and mammoth (the import-side HTML
+// converter) has no way to tell a flattened toggle from a heading someone
+// typed by hand. If lossless round-tripping is ever needed, use the app's own
+// JSON export/import instead. Do not "fix" reimport of these node types
+// without first revisiting this decision.
+//
 // ── KNOWN SIMPLIFICATIONS (v1, deliberate) ─────────────────────────────────────
 // - Ordered lists use a manual "N. " text prefix rather than native Word
 //   numbering (avoids registering a numbering config on the Document, which is

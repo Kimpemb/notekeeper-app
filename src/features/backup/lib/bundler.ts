@@ -98,12 +98,12 @@ export function validateBundle(raw: unknown): BackupBundle {
  * Notes are restored with overwrite (ON CONFLICT → UPDATE).
  * Settings are restored selectively — AI key is never overwritten.
  */
-export async function restoreBundle(bundle: BackupBundle): Promise<void> {
+export async function restoreBundle(bundle: BackupBundle): Promise<Note[]> {
   const { importNotesOverwrite, setSetting } = await import("@/features/notes/db/queries");
   const { getDb } = await import("@/features/notes/db/client");
 
   // ── Restore notes ─────────────────────────────────────────────────────────
-  await importNotesOverwrite(JSON.stringify(bundle.notes));
+  const restoredNotes = await importNotesOverwrite(JSON.stringify(bundle.notes));
 
   // ── Restore backlinks ─────────────────────────────────────────────────────
   const db = await getDb();
@@ -121,4 +121,6 @@ export async function restoreBundle(bundle: BackupBundle): Promise<void> {
       await setSetting(key, value);
     }
   }
+
+  return restoredNotes;
 }

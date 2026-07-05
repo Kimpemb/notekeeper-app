@@ -10,9 +10,12 @@ export interface ExportResult {
   fileName:  string;
 }
 
+import type { Note } from "@/types";
+
 export interface RestoreResult {
   success:   boolean;
   noteCount: number;
+  notes:     Note[];
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────
@@ -74,7 +77,7 @@ export async function restoreBackup(password: string): Promise<RestoreResult> {
   }
 
   const bundle = validateBundle(raw);
-  await restoreBundle(bundle);
+  const restoredNotes = await restoreBundle(bundle);
 
-  return { success: true, noteCount: bundle.noteCount };
+  return { success: true, noteCount: bundle.noteCount, notes: restoredNotes };
 }

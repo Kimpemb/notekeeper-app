@@ -3,6 +3,7 @@ import mammoth from "mammoth/mammoth.browser"
 import { generateJSON } from "@tiptap/core"
 import { PARSE_EXTENSIONS } from "@/features/ai/lib/save/parseMarkdown"
 import JSZip from "jszip"
+import { saveImage } from "@/lib/tauri/fs"
 
 export interface ConvertDocxResult {
   doc:       object
@@ -47,6 +48,36 @@ async function extractDocxTitle(arrayBuffer: ArrayBuffer): Promise<string | null
   }
 }
 
+// ── Persist mammoth's inline base64 images to disk ─────────────────────────
+// mammoth.convertToHtml() embeds images as data: URIs directly in the HTML.
+// generateJSON will happily parse those into image nodes with a base64 `src`,
+// but every other image in the app stores a real filesystem path (written by
+// ImageExtension.ts's persistImage/saveImage on paste/drop), which is also
+// what docx.ts's export-side loadImageBytes() expects to read back later.
+// Decode + save each embedded image here so imported notes match that shape.
+async function persistEmbeddedImages(node: any): Promise<void> {
+  if (!node || typeof node !== "object") return
+
+  if (node.type === "image" && typeof node.attrs?.src === "string" && node.attrs.src.startsWith("data:")) {
+    const match = node.attrs.src.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/)
+    if (match) {
+      const [, mime, base64] = match
+      const ext = mime.split("/")[1]?.replace("jpeg", "jpg") ?? "png"
+      try {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+        const fileName = `docx_image_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+        node.attrs.src = await saveImage(fileName, bytes)
+      } catch (err) {
+        console.warn("[convertDocx] failed to persist embedded image:", err)
+      }
+    }
+  }
+
+  if (Array.isArray(node.content)) {
+    for (const child of node.content) await persistEmbeddedImages(child)
+  }
+}
+
 function extractTitle(html: string, filenameFallback: string): string {
   // Try <h1> first
   const h1Match = html.match(/<h1[^>]*>(.*?)<\/h1>/i)
@@ -83,6 +114,11 @@ export async function convertDocx(
 
   // ── HTML → ProseMirror JSON directly ──────────────────────────────────────
   const doc = generateJSON(html, PARSE_EXTENSIONS)
+
+  // Decode mammoth's inline base64 images and persist them to disk, rewriting
+  // each image node's src to the real path (matches how normal image
+  // paste/drop stores images — see ImageExtension.ts).
+  await persistEmbeddedImages(doc)
 
   // ── Plaintext for RAG/search ───────────────────────────────────────────────
   const markdown = html

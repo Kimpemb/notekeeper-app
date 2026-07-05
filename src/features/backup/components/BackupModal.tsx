@@ -471,7 +471,6 @@ function TelegramFlow({ onBack }: { onBack: () => void }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function BackupModal() {
-  const loadNotes = useNoteStore((s) => s.loadNotes);
 
   const [flow,     setFlow]     = useState<Flow>("idle");
   const [password, setPassword] = useState("");
@@ -513,7 +512,9 @@ export function BackupModal() {
     setMessage(null);
     try {
       const result = await restoreBackup(password);
-      await loadNotes();
+      // Merge by ID instead of loadNotes() — loadNotes() calls getAllNotesMeta(),
+      // which omits `content` and blanks every currently-mounted editor's text.
+      useNoteStore.getState().mergeImportedNotes(result.notes);
       setStatus("success");
       setMessage(`Restore complete — ${result.noteCount} note${result.noteCount !== 1 ? "s" : ""} restored.`);
       setPassword("");
@@ -637,7 +638,6 @@ export function BackupModal() {
         <div className="space-y-3">
           <div className="p-3 rounded-lg border border-green-500/30 bg-green-500/10">
             <p className="text-sm text-green-400 font-medium">✓ {message}</p>
-            <p className="text-xs text-green-500/70 mt-1">Restart the app to see all restored notes.</p>
           </div>
           <button onClick={reset} className="w-full py-1.5 rounded-lg text-xs font-medium bg-idemora-bg-secondary text-idemora-text-muted border border-idemora-border hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100">Done</button>
         </div>

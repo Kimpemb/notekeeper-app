@@ -4,7 +4,6 @@ import { getDb } from "@/features/notes/db/client"
 import { convertDocx } from "./convertDocx"
 import { invoke } from "@tauri-apps/api/core"
 import type { NoteSourceMeta } from "@/types"
-import { markdownToDoc } from "@/features/ai/lib/save/parseMarkdown"
 import { checkFileSize, ImportError } from "./importErrors"
 
 async function checkDuplicate(originalName: string): Promise<string | null> {
@@ -46,12 +45,14 @@ export async function importDocx(
   let markdown: string
   let title: string
   let pageCount: number
+  let doc: { content: unknown[] }
 
   try {
     const result = await convertDocx(arrayBuffer, filenameWithoutExt)
     markdown = result.markdown
     title = result.title
     pageCount = result.pageCount
+    doc = result.doc as { content: unknown[] }
   } catch {
     throw new ImportError("CORRUPT_FILE", "This file could not be read. It may be damaged.")
   }
@@ -60,7 +61,9 @@ export async function importDocx(
     throw new ImportError("EMPTY_CONVERSION", "This file appears to have no readable text content.")
   }
 
-  const doc = markdownToDoc(markdown) as { content: unknown[] }
+  // Use the real ProseMirror JSON produced during conversion (images included)
+  // instead of rebuilding content from the lossy plaintext markdown, which
+  // never carried image data in the first place.
   const content = JSON.stringify({ type: "doc", content: doc.content ?? [] })
   const plaintext = markdown.replace(/^#+\s+/gm, "").replace(/[*_`~]/g, "").trim()
 
