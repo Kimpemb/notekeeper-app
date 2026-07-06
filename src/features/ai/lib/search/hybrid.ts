@@ -62,6 +62,7 @@ export interface HybridSearchOptions {
 export interface HybridSearchResult {
   results:              HybridResult[]
   excludedTitleMatches: ExcludedTitleMatch[]
+  lowTermCoverage:      boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -155,6 +156,7 @@ async function ftsPass(
   currentNoteId?:        string,
   excludedTitleMatches?: Map<string, string>,
   overrideNoteIds?:      string[],
+  coverageStats?:        { zeroHitTerms: number; totalTerms: number },
 ): Promise<Map<string, { row: FtsRow; rank: number }>> {
   const db         = await getDb()
   const results    = new Map<string, { row: FtsRow; rank: number }>()
@@ -200,6 +202,14 @@ async function ftsPass(
       const surviving = termFreqs.filter((t) => t.count <= MAX_DF)
       if (surviving.length > 0) {
         filteredTerms = surviving.map((t) => t.term)
+      }
+
+      // Coverage tracking — terms with zero hits anywhere in the vault are the
+      // strongest signal the query's actual subject isn't covered, independent
+      // of how many generic filler words happen to match something.
+      if (coverageStats) {
+        coverageStats.totalTerms   += termFreqs.length
+        coverageStats.zeroHitTerms += termFreqs.filter((t) => t.count === 0).length
       }
     }
 
@@ -617,7 +627,7 @@ export async function hybridSearch(
   topK:    number = 8,
   options: HybridSearchOptions = {}
 ): Promise<HybridSearchResult> {
-  if (!query.trim()) return { results: [], excludedTitleMatches: [] }
+  if (!query.trim()) return { results: [], excludedTitleMatches: [], lowTermCoverage: false }
 
   const {
     currentNoteId,
@@ -633,12 +643,16 @@ export async function hybridSearch(
   const excludedTitleMatches = new Map<string, string>()
   const overrideSet   = new Set(overrideNoteIds ?? [])
 
+  const coverageStats = { zeroHitTerms: 0, totalTerms: 0 }
   const ftsResults = await ftsPass(
-  allQueries, resolvedScope, 20, currentNoteId, excludedTitleMatches, overrideNoteIds
+  allQueries, resolvedScope, 20, currentNoteId, excludedTitleMatches, overrideNoteIds, coverageStats
 )
 const vectorResults = await vectorPass(
   query, resolvedScope, 20, currentNoteId, overrideSet, ftsResults.size
 )
+const lowTermCoverage = coverageStats.totalTerms > 0
+  && (coverageStats.zeroHitTerms / coverageStats.totalTerms) >= 0.5
+console.log(`[hybrid] term coverage: ${coverageStats.zeroHitTerms}/${coverageStats.totalTerms} zero-hit — lowTermCoverage=${lowTermCoverage}`)
 
   console.log(`[hybrid] query="${query.slice(0, 60)}"`)
   console.log(`[hybrid] FTS hits: ${ftsResults.size}  vector hits: ${vectorResults.size}`)
@@ -654,7 +668,7 @@ const vectorResults = await vectorPass(
 
   if (fused.size === 0) {
     console.log('[hybrid] fused: 0 results — returning empty')
-    return { results: [], excludedTitleMatches: [] }
+    return { results: [], excludedTitleMatches: [], lowTermCoverage }
   }
 
   await enrichMissingRows(fused)
@@ -704,5 +718,5 @@ const vectorResults = await vectorPass(
     breadcrumb:    fused.get(r.block_id)?.row?.breadcrumb ?? undefined,
   }))
 
-  return { results, excludedTitleMatches: excludedList }
+  return { results, excludedTitleMatches: excludedList, lowTermCoverage }
 }

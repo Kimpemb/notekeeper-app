@@ -41,6 +41,19 @@ import {
 import { detectIntent } from "@/features/ai/lib/search/intentDetection"
 import { onExplicitClear } from "@/features/ai/lib/memory/episodeManager"
 
+// Queries containing pasted/quoted content (captions, lists, long blocks of text)
+// can't be reliably compressed into one search phrase — cutting them down
+// (by position, by colon, by word count) either drops the substantive content
+// or keeps only generic instruction text, producing junk search results either
+// way. Rather than guess, treat these as "not auto-searchable": skip auto-fire
+// and let the user manually search with their own chosen phrasing instead.
+function isAutoSearchable(raw: string): boolean {
+  const trimmed = raw.trim()
+  if (trimmed.includes('"') || trimmed.includes("\n")) return false
+  const words = trimmed.split(/\s+/).filter(Boolean)
+  return words.length <= 20
+}
+
 interface Props {
   noteId: string;
   paneId: 1 | 2;
@@ -361,11 +374,23 @@ useEffect(() => {
     const QUESTION_WORDS = /\b(what|who|how|why|when|where|does|is|can|which)\b/i
     if (words.length <= 8 && !QUESTION_WORDS.test(userQuery)) return
 
+    // Skip auto-fire for queries with pasted content, quotes, or long lists —
+    // there's no reliable way to compress these into one search phrase. The
+    // manual "Search the web" nudge button is still available for the user.
+    if (!isAutoSearchable(userQuery)) {
+      console.log('[autoSearch] skipping — query not auto-searchable:', userQuery.slice(0, 60))
+      return
+    }
+
     console.log('[autoSearch] firing auto web search for:', userQuery)
+    setSuppressedNudges((prev) => new Set(prev).add(lastMsg.id))
     const provider = getWebSearchProvider()
     provider.search(userQuery).then((results) => {
       console.log('[autoSearch] search results:', results.length, results[0])
-      setSuppressedNudges((prev) => new Set(prev).add(lastMsg.id))
+      if (results.length === 0) {
+        setDismissedNudges((prev) => new Set(prev).add(lastMsg.id))
+        return
+      }
       handleWebSearch(userQuery, results)
     }).catch(console.error)
   })()
@@ -598,6 +623,12 @@ useEffect(() => {
         titleMatchedNoteIds: meta.titleMatchedNoteIds,
         webNudge:            meta.webNudge,
       }))
+
+      // A response that already used web search should never show its own
+      // "search the web" nudge — mirrors the suppression handleSend applies.
+      if (meta.webGrounded) {
+        setSuppressedNudges((prev) => new Set(prev).add(assistantId))
+      }
     } catch { /* errors handled by onError above */ }
   }
 

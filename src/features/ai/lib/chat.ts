@@ -313,6 +313,30 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
 
   // ─── Citation filtering ───────────────────────────────────────────────────────
 
+  // ─── Relevance tag extraction ─────────────────────────────────────────────────
+  //
+  // Parses the trailing "RELEVANT: yes|no" line the model is instructed to emit
+  // (see buildPrompt). Returns the text with that line stripped, plus the parsed
+  // boolean — or null if the tag is missing/malformed, so callers fall back to
+  // legacy heuristics instead of assuming either way.
+
+  function extractRelevanceTag(text: string): { text: string; relevant: boolean | null } {
+    const match = text.match(/\n?RELEVANT:\s*(yes|no)\s*$/i)
+    if (!match) return { text, relevant: null }
+    const relevant = match[1].toLowerCase() === "yes"
+    return { text: text.slice(0, match.index).trimEnd(), relevant }
+  }
+
+  // A query with pasted/quoted content or long lists can't be compressed into
+  // one web search phrase (see ChatPanel's isAutoSearchable) — for those, web
+  // search isn't a viable next step, so general knowledge is the better fallback.
+  function isAutoSearchableQuery(raw: string): boolean {
+    const trimmed = raw.trim()
+    if (trimmed.includes('"') || trimmed.includes("\n")) return false
+    const words = trimmed.split(/\s+/).filter(Boolean)
+    return words.length <= 20
+  }
+
   function extractCitedIndices(text: string): Set<number> {
     const cited = new Set<number>()
     // Keep 1-based — we'll convert when resolving
@@ -620,24 +644,31 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
   // ─── deriveWebNudge helper ───────────────────────────────────────────────
 
 function deriveWebNudge(
-    pipeline:    PipelineResult,
-    answerText?: string,
-    isPersonal?: boolean,
+    pipeline:              PipelineResult,
+    answerText?:           string,
+    _isPersonal?:          boolean,
+    selfReportedRelevant?: boolean | null,
   ): "limited" | "zero" | undefined {
     const intent = pipeline.detectedIntent
 
-    // Exploration and non-personal lookups don't benefit from web search
+    // Only exploration is exempt — reflecting on your own notes never needs web search.
+    // _isPersonal is kept in the signature so call sites don't need updating.
     if (intent === "exploration") return undefined
-    if (intent === "lookup" && !isPersonal) return undefined
     if (pipeline.inventoryMode)   return undefined
     if (pipeline.isTitleDirected) return undefined
 
     if (pipeline.chunkCount === 0) return "zero"
 
     // Clean signal: pipeline confidence is low = retrieval was junk
+    // (also catches the term-coverage override applied in runPipeline)
     if (pipeline.confidence === "low") return "limited"
 
-    // Fallback: model explicitly said it found nothing despite ok-looking retrieval
+    // Strongest signal: the model explicitly told us whether the excerpts answered
+    // the question, via the RELEVANT: yes/no tag. Trust it over text-sniffing.
+    if (selfReportedRelevant === false) return "limited"
+    if (selfReportedRelevant === true)  return undefined
+
+    // Fallback (tag missing/malformed): legacy phrase-matching on the answer text
     if (answerText) {
       const lower = answerText.toLowerCase()
       if (
@@ -843,7 +874,7 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
         overrideNoteIds,
       }).catch((error) => {
         console.error('[pipeline] ERROR in hybridSearch:', error)
-        return { results: [], excludedTitleMatches: [] }
+        return { results: [], excludedTitleMatches: [], lowTermCoverage: false }
       }),
     ])
 
@@ -931,6 +962,7 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
     let results: HybridResult[]              = hybridSearchResult.results
     let usedEmbeddings                        = results.some((r) => r.matched_by.includes("semantic"))
     let hybridExcludedNotices: ExcludedTitleMatch[] = hybridSearchResult.excludedTitleMatches
+    const lowTermCoverage                     = hybridSearchResult.lowTermCoverage
 
     if (results.length > 0) {
       // When scoped, drop weak matches — prevents hallucination from thin evidence
@@ -957,7 +989,12 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
 
     const chunkTitles  = merged.map((r) => r.note_title)
     const chunkNoteIds = merged.map((r) => r.note_id)
-    const confidence   = merged[0]?.confidence ?? "low"
+    // A cluster of mediocre-but-consistent scores can read as "medium" via the
+    // reranker's self-relative calibration even when none of it covers the actual
+    // subject. Override with the term-coverage signal from hybrid.ts when that happens.
+    const rerankConfidence = merged[0]?.confidence ?? "low"
+    const confidence   = lowTermCoverage ? "low" : rerankConfidence
+    if (lowTermCoverage) console.log('[pipeline] low term coverage — confidence forced to "low"')
 
     const { block: excerptBlock, includedCount } = buildExcerptBlock(merged)
 
@@ -1112,6 +1149,7 @@ const memoryBlock = relevantMemory && relevantMemory.length > 0
   ${memoryBlock}
   [QUESTION]
   ${query}
+  ${hasVault ? `\nAfter writing your answer, add one final line by itself, exactly in this form:\nRELEVANT: yes\nor\nRELEVANT: no\nWrite "RELEVANT: no" if the excerpts above did not actually contain the information needed to answer the question, even if some were topically adjacent. This line is stripped before the user sees your answer — do not mention it in your answer text.\n` : ""}
 
   Answer:`
   }
@@ -1134,6 +1172,12 @@ const memoryBlock = relevantMemory && relevantMemory.length > 0
 
     // Declare assembled early to avoid TDZ errors
     let assembled = ""
+    // Model's own self-reported relevance signal (parsed from RELEVANT: yes/no tag).
+    // null = tag absent/malformed — deriveWebNudge falls back to legacy heuristics.
+    let selfReportedRelevant: boolean | null = null
+    // True once we've auto-appended a general-knowledge answer inline —
+    // suppresses the web nudge since the miss was already resolved this turn.
+    let generalKnowledgeAppended = false
 
     // Tier 1 — no AI key configured
     if (!isAIReady()) {
@@ -1633,6 +1677,31 @@ Answer:`
       clearTimeout(stallTimer)
       assembled    = result.text
 
+      const parsedRelevance = extractRelevanceTag(assembled)
+      assembled              = parsedRelevance.text
+      selfReportedRelevant   = parsedRelevance.relevant
+
+      // Vault didn't help, and the query isn't shaped for auto web search
+      // (pasted content, quotes, long lists) — resolve it now with general
+      // knowledge rather than leaving the user at a dead-end nudge.
+      if (selfReportedRelevant === false && !isAutoSearchableQuery(query)) {
+        try {
+          streaming.onStatus?.("Notes didn't help — answering from general knowledge…")
+          const generalPrompt = `You are a knowledgeable assistant. The user's personal notes did not contain information relevant to this request. Answer directly from your general knowledge, as helpfully and completely as you can.
+
+[QUESTION]
+${query}
+
+Answer:`
+          const generalResult = await callPrimary([{ role: "user", content: generalPrompt }])
+          assembled = `${assembled}\n\n---\n\n*Your notes didn't cover this — here's an answer from general knowledge:*\n\n${generalResult.text}`
+          generalKnowledgeAppended = true
+        } catch {
+          // If the follow-up call fails, keep the original vault-miss answer as-is —
+          // the nudge will still show since generalKnowledgeAppended stays false.
+        }
+      }
+
       streaming.onChunk(assembled)
 
       await appendAIHistory(noteId, "user",      query)
@@ -1684,7 +1753,9 @@ Answer:`
       relatedNotes,
       excludedNoteNotices: pipeline.excludedNoteNotices,
       titleMatchedNoteIds: pipeline.titleMatchedNoteIds,
-      webNudge:            deriveWebNudge(pipeline, assembled, isPersonal),
+      webNudge:            generalKnowledgeAppended
+        ? undefined
+        : deriveWebNudge(pipeline, assembled, isPersonal, selfReportedRelevant),
       webGrounded:         webResults && webResults.length > 0 ? true : undefined,
     }
   }
