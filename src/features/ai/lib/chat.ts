@@ -1718,7 +1718,7 @@ import { getEventsForDateRange } from "@/features/calendar/db/calendarQueries";
 
 export { classifyActionIntent };
 
-const MAX_TOOL_ITERATIONS = 6;
+const MAX_TOOL_ITERATIONS = 10;
 
 const TOOLS_SYSTEM_PROMPT = `You are an AI assistant with the ability to read and write within Idemora.
 
@@ -1906,12 +1906,31 @@ const pendingWrite: PendingWrite = {
                 }),
               } as unknown as ProviderMessage);
             } else {
-              // Cancelled — feed cancellation back
-              messages.push({
-                role:         "tool",
-                tool_call_id: toolId,
-                content:      JSON.stringify({ cancelled: true }),
-              } as unknown as ProviderMessage);
+              // The awaiter resolves "cancelled" for TWO distinct cases: the user
+              // rejected the card, or the user approved it but executeDeleteBlocksInNote
+              // (or any other executor) rejected the input during confirmWrite() and
+              // set status "error" with errorMessage. Those cases must not collapse
+              // into the same { cancelled: true } payload — the model has no way to
+              // tell "you were rejected" from "your input was invalid" otherwise, and
+              // will retry blind variations instead of correcting its approach.
+              const finalState = useConfirmationGate.getState().pendingWrites.get(pendingWrite.id);
+
+              if (finalState?.status === "error") {
+                messages.push({
+                  role:         "tool",
+                  tool_call_id: toolId,
+                  content:      JSON.stringify({
+                    cancelled: false,
+                    error:     finalState.errorMessage ?? "Write failed.",
+                  }),
+                } as unknown as ProviderMessage);
+              } else {
+                messages.push({
+                  role:         "tool",
+                  tool_call_id: toolId,
+                  content:      JSON.stringify({ cancelled: true }),
+                } as unknown as ProviderMessage);
+              }
             }
           }
         }

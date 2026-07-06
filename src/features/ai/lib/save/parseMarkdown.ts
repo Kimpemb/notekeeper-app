@@ -27,6 +27,11 @@ import Highlight                 from "@tiptap/extension-highlight"
 import { Mathematics }           from "@tiptap/extension-mathematics"
 import { NoteLink }              from "@/features/editor/components/Editor/NoteLink"
 import { ImageExtension }        from "@/features/editor/components/Editor/ImageExtension"
+import {
+  Toggle,
+  ToggleSummary,
+  ToggleBody,
+}                                 from "@/features/editor/components/Editor/toggleSchema"
 
 export const PARSE_EXTENSIONS = [
   StarterKit.configure({ codeBlock: false }),
@@ -43,6 +48,23 @@ export const PARSE_EXTENSIONS = [
   Mathematics.configure({ katexOptions: { throwOnError: false } }),
   NoteLink.configure({ onNavigate: () => {} }),
   ImageExtension,
+  // Registered here so AI write-tool content (which round-trips through this
+  // schema via markdownToDoc) can actually produce toggle nodes. Previously
+  // absent — any <details> HTML the model wrote had no matching schema rule,
+  // so generateJSON silently dropped the wrapper tags and hoisted their text
+  // as bare paragraphs.
+  //
+  // Imported from extensions.ts (the live editor's real, valid definitions),
+  // NOT from toggleSchema.ts — that file defines a newer "content: inline*
+  // toggleBody?" shape which ProseMirror rejects outright (mixing inline and
+  // block content in one expression is invalid), and which the live editor
+  // never actually adopted. extensions.ts's older toggle > toggleSummary
+  // (inline*) + toggleBody? (block+) structure is what's actually running
+  // today, so this keeps the AI write path aligned with the real schema
+  // instead of a half-finished refactor.
+  Toggle,
+  ToggleSummary,
+  ToggleBody,
 ]
 
 // ─── Math delimiter normalisation ────────────────────────────────────────────

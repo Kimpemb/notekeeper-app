@@ -219,7 +219,15 @@ function noteToReadShape(note: Note) {
       "ITS last_block_id_in_section as after_block_id — NOT the heading's own block_id, which " +
       "would insert right under the heading instead of at the end of its content. " +
       "To insert immediately after a specific item (not at section end), use that item's own " +
-      "block_id directly. Never use heading text strings to target a position — always use block_id.",
+      "block_id directly. Never use heading text strings to target a position — always use block_id. " +
+      "TOGGLE WRITE SYNTAX: the 'content' shown above for a toggle uses <details>/<summary> — " +
+      "that is a DISPLAY-ONLY format for reading, not valid write syntax. To WRITE a toggle, use " +
+      "exactly this HTML shape instead: " +
+      "<div data-toggle=\"false\"><div data-toggle-summary>TITLE TEXT</div>" +
+      "<div data-toggle-body>BODY CONTENT</div></div> " +
+      "— where BODY CONTENT can contain any block markdown (paragraphs, tables, lists, even " +
+      "another nested toggle in the same shape). Writing <details>/<summary> will silently fail " +
+      "and produce plain flattened paragraphs instead of a real toggle.",
     frontmatter: note.frontmatter ?? null,
     updated_at:  note.updated_at,
   };
@@ -418,13 +426,29 @@ export async function executeGetGoals(input: {
 export async function executeGetCurrentNote(
   currentNote: Note | null | undefined,
 ): Promise<ReadToolResult> {
-  if (!currentNote || currentNote.deleted_at !== null) {
+  if (!currentNote) {
     return { success: false, error: "no_note_open" };
   }
-  if (currentNote.rag_excluded === 1) {
-    return { success: false, error: `The current note "${currentNote.title}" is excluded from AI access (.env).` };
+
+  // IMPORTANT: currentNote is sourced from the in-memory useNoteStore.notes
+  // array via React state, not read fresh from the DB. useAutoSave's debounced
+  // save calls updateNote(id, input, silent: true) — the `silent` flag
+  // deliberately skips patching the store's `notes` array (to avoid a mounted
+  // TipTap editor re-reading a stale `content` prop mid-keystroke and jumping
+  // the cursor). That means a note edited and then immediately acted on via
+  // chat in the same session can have its store copy still pointing at
+  // whatever content it had at creation — stale/empty — even though the DB
+  // (and the visible editor) has the real content. getNote/searchNotes/
+  // getFileTree don't have this problem because they query the DB directly.
+  // Re-fetch by id here so this tool is never fooled by a stale store entry.
+  const fresh = await getNoteById(currentNote.id);
+  if (!fresh || fresh.deleted_at !== null) {
+    return { success: false, error: "no_note_open" };
   }
-  return { success: true, data: noteToReadShape(currentNote) };
+  if (fresh.rag_excluded === 1) {
+    return { success: false, error: `The current note "${fresh.title}" is excluded from AI access (.env).` };
+  }
+  return { success: true, data: noteToReadShape(fresh) };
 }
 
 // ─── Read tool dispatcher ─────────────────────────────────────────────────────

@@ -19,12 +19,10 @@ import { markdownToDoc, looksLikeMarkdown } from "@/features/ai/lib/save/parseMa
 import { Mathematics } from "@tiptap/extension-mathematics"
 import "katex/dist/katex.min.css"
 
-import {
-  ToggleNodeView,
-  ToggleSummaryNodeView,
-  ToggleBodyNodeView,
-  toggleOpenState,
-} from "./ToggleNodeView";
+import { toggleOpenState } from "./ToggleNodeView";
+import { Toggle, ToggleSummary, ToggleBody } from "./toggleSchema";
+
+export { Toggle, ToggleSummary, ToggleBody };
 
 export { Color, TextStyle };
 export const MultiHighlight = Highlight.configure({ multicolor: true });
@@ -244,59 +242,7 @@ export const Callout = Node.create({
   },
 });
 
-// ── Toggle nodes ──────────────────────────────────────────────────────────────
-export const ToggleSummary = Node.create({
-  name: "toggleSummary",
-  content: "inline*",
-  defining: true,
-  isolating: false,
-  parseHTML() { return [{ tag: "div[data-toggle-summary]" }]; },
-  renderHTML({ HTMLAttributes }) {
-    return ["div", { "data-toggle-summary": "", ...HTMLAttributes }, 0];
-  },
-  addNodeView() {
-    return ReactNodeViewRenderer(ToggleSummaryNodeView);
-  },
-});
-
-export const ToggleBody = Node.create({
-  name: "toggleBody",
-  content: "block+",
-  defining: true,
-  isolating: false,
-  parseHTML() { return [{ tag: "div[data-toggle-body]" }]; },
-  renderHTML({ HTMLAttributes }) {
-    return ["div", { "data-toggle-body": "", ...HTMLAttributes }, 0];
-  },
-  addNodeView() {
-    return ReactNodeViewRenderer(ToggleBodyNodeView);
-  },
-});
-
-export const Toggle = Node.create({
-  name: "toggle",
-  group: "block",
-  content: "toggleSummary toggleBody?",
-  defining: true,
-
-  addAttributes() {
-    return {
-      open: {
-        default: false,
-        parseHTML: (el) => el.getAttribute("data-open") === "true",
-        renderHTML: (attrs) => ({ "data-open": attrs.open ? "true" : "false" }),
-      },
-    };
-  },
-
-  parseHTML() { return [{ tag: "div[data-toggle]" }]; },
-  renderHTML({ HTMLAttributes }) {
-    return ["div", { "data-toggle": "", ...HTMLAttributes }, 0];
-  },
-  addNodeView() {
-    return ReactNodeViewRenderer(ToggleNodeView);
-  },
-});
+ 
 
 // ── Toggle keyboard extension ─────────────────────────────────────────────────
 export const ToggleKeyboardExtension = Extension.create({

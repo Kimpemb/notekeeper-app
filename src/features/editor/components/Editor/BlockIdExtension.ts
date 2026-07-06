@@ -35,6 +35,7 @@ const TARGET_TYPES = new Set([
   "codeBlock",
   "blockquote",
   "table",
+  "toggle",
 ]);
 
 export const BlockIdExtension = Extension.create({

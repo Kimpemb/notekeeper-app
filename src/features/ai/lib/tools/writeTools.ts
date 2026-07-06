@@ -26,6 +26,51 @@ import { getGoal, updateGoal as dbUpdateGoal, type GoalInput } from "@/features/
 import { prosemirrorBodyToMarkdown } from "@/lib/exporters/markdown";
 import { markdownToDoc }             from "@/features/ai/lib/save/parseMarkdown";
 
+// ─── Block-ID backfill for tool-generated nodes ──────────────────────────────
+//
+// Write-tool operations never pass through a mounted TipTap editor, so the
+// BlockIdExtension appendTransaction plugin (which normally stamps a fresh
+// blockId onto any indexable node missing one) never runs for content that
+// markdownToDoc() produces here. Without this, every node an AI write inserts
+// or replaces persists with blockId: null — permanently, unless the user later
+// happens to edit that exact node inside the editor.
+//
+// Mirrors BlockIdExtension's TARGET_TYPES. TODO: extract to a single shared
+// constant once BlockIdExtension.ts and this file can share an import without
+// pulling ProseMirror/TipTap into the tool-execution bundle.
+const BACKFILL_TARGET_TYPES = new Set([
+  "paragraph",
+  "heading",
+  "bulletList",
+  "orderedList",
+  "listItem",
+  "taskItem",
+  "codeBlock",
+  "blockquote",
+  "table",
+  "toggle",
+]);
+
+/**
+ * Recursively stamp a fresh blockId onto any node of a target type that is
+ * missing one. Mutates the nodes in place — safe because these nodes were
+ * just produced by markdownToDoc() for this call and aren't shared elsewhere.
+ */
+function backfillBlockIds(nodes: unknown[]): void {
+  for (const node of nodes) {
+    const n = node as Record<string, unknown>;
+    if (typeof n.type === "string" && BACKFILL_TARGET_TYPES.has(n.type)) {
+      const attrs = (n.attrs ?? {}) as Record<string, unknown>;
+      if (!attrs.blockId) {
+        n.attrs = { ...attrs, blockId: crypto.randomUUID() };
+      }
+    }
+    if (Array.isArray(n.content)) {
+      backfillBlockIds(n.content as unknown[]);
+    }
+  }
+}
+
 // ─── Store refresh helpers ────────────────────────────────────────────────────
 
 async function refreshNoteInStore(noteId: string): Promise<void> {
@@ -138,6 +183,7 @@ export async function executeAppendToNote(
       : input.content.trimStart();
     const newDoc = markdownToDoc(newMarkdown);
     const newNodes = (newDoc as { content?: unknown[] }).content ?? [];
+    backfillBlockIds(newNodes);
 
     // Append new nodes to the existing doc
     const mergedDoc = { ...doc, content: [...doc.content, ...newNodes] };
@@ -220,6 +266,7 @@ export async function executeInsertInNote(
     if (!Array.isArray(doc.content)) doc.content = [];
 
     const newNodes = ((markdownToDoc(input.content) as { content?: unknown[] }).content ?? []);
+    backfillBlockIds(newNodes);
 
     let mergedDoc: { type: string; content: unknown[] };
 
@@ -314,10 +361,12 @@ export async function executeReplaceInNote(
     if (!Array.isArray(doc.content)) doc.content = [];
 
     // Find the node by block_id — walk the full tree recursively
+    const replacementNodes = (markdownToDoc(input.new_content) as { content?: unknown[] }).content ?? [];
+    backfillBlockIds(replacementNodes);
     const { newDoc, found } = replaceNodeByBlockId(
       doc as { type: string; content: unknown[] },
       input.block_id,
-      (markdownToDoc(input.new_content) as { content?: unknown[] }).content ?? []
+      replacementNodes
     );
 
     if (!found) {
@@ -394,18 +443,28 @@ export async function executeDeleteBlocksInNote(
     }
     if (!Array.isArray(doc.content)) doc.content = [];
 
-    const { newDoc, found } = deleteBlocksInRange(
+    const { newDoc, found, error: rangeError } = deleteBlocksInRange(
       doc as { type: string; content: unknown[] },
       input.from_block_id,
       input.to_block_id
     );
 
     if (!found) {
+      const detail =
+        rangeError === "blocks_not_same_level"
+          ? `Blocks "${input.from_block_id}" and "${input.to_block_id}" are not siblings at the same ` +
+            `nesting level — a range delete can only span blocks that share the same parent container ` +
+            `(e.g. both top-level, or both inside the same toggle/list item). ` +
+            `Do NOT retry this same range with a different batch size — resizing does not fix a ` +
+            `nesting-level mismatch. Instead, split the operation: (1) delete the top-level siblings ` +
+            `in one call, then (2) delete the container itself (the toggle, list item, etc.) in a ` +
+            `SEPARATE call, passing the container's own block_id as BOTH from_block_id and to_block_id — ` +
+            `this removes the container and everything nested inside it in one operation.`
+          : `Could not find a contiguous range from "${input.from_block_id}" to "${input.to_block_id}" ` +
+            `in note. Call getNote to refresh the node list and try again.`;
       return {
         success: false,
-        error:
-          `blocks_not_found: Could not find a contiguous range from "${input.from_block_id}" ` +
-          `to "${input.to_block_id}" in note. Call getNote to refresh the node list and try again.`,
+        error: `${rangeError ?? "blocks_not_found"}: ${detail}`,
       };
     }
 
@@ -455,53 +514,67 @@ export async function undoDeleteBlocksInNote(
  * On any incomplete match (from found but to never reached, or neither
  * found) the original doc is returned unchanged — no partial deletion.
  */
+/**
+ * Flatten the doc into an ordered list of (blockId, parent-siblings-array,
+ * index-within-that-array) entries, then delete a contiguous range between
+ * fromBlockId and toBlockId.
+ *
+ * The old implementation used a single mutable phase flag shared across the
+ * whole recursive walk. Once it flipped to "deleting" it stopped recursing
+ * into containers entirely, so any range whose endpoints didn't sit at the
+ * exact same nesting depth either (a) never found the second endpoint and
+ * silently reverted the whole delete, or (b) deleted a container as one
+ * opaque unit while leaving a partially-matched sibling structure behind.
+ *
+ * This version identifies the endpoints first, requires them to be literal
+ * siblings in the same content array, and reports *why* it failed
+ * ("blocks_not_found" vs "blocks_not_same_level") instead of collapsing both
+ * cases into one unhelpful error.
+ */
 function deleteBlocksInRange(
   doc: { type: string; content: unknown[] },
   fromBlockId: string,
   toBlockId: string
-): { newDoc: { type: string; content: unknown[] }; found: boolean } {
-  const state: { phase: "searching" | "deleting" | "done" } = { phase: "searching" };
-
-  function walkNodes(nodes: unknown[]): unknown[] {
-    const result: unknown[] = [];
-    for (const node of nodes) {
-      if (state.phase === "done") {
-        result.push(node);
-        continue;
-      }
-
-      const n = node as Record<string, unknown>;
-      const attrs = (n.attrs ?? {}) as Record<string, unknown>;
-
-      if (state.phase === "searching") {
-        if (attrs.blockId === fromBlockId) {
-          state.phase = "deleting";
-          if (attrs.blockId === toBlockId) state.phase = "done";
-          continue; // deleted — not pushed
-        }
-        if (Array.isArray(n.content)) {
-          const newChildren = walkNodes(n.content as unknown[]);
-          result.push({ ...n, content: newChildren });
-        } else {
-          result.push(node);
-        }
-        continue;
-      }
-
-      // state.phase === "deleting"
-      if (attrs.blockId === toBlockId) {
-        state.phase = "done";
-      }
-      // deleted — not pushed, and not recursed into (whole subtree removed)
-    }
-    return result;
+): { newDoc: { type: string; content: unknown[] }; found: boolean; error?: string } {
+  interface FlatEntry {
+    blockId: string | null;
+    siblings: unknown[];
+    index: number;
   }
 
-  const newContent = walkNodes(doc.content);
-  const found = state.phase === "done";
-  return found
-    ? { newDoc: { ...doc, content: newContent }, found: true }
-    : { newDoc: doc, found: false };
+  function flatten(nodes: unknown[], acc: FlatEntry[]): FlatEntry[] {
+    nodes.forEach((node, i) => {
+      const n = node as Record<string, unknown>;
+      const attrs = (n.attrs ?? {}) as Record<string, unknown>;
+      const blockId = typeof attrs.blockId === "string" ? attrs.blockId : null;
+      acc.push({ blockId, siblings: nodes, index: i });
+      if (Array.isArray(n.content)) {
+        flatten(n.content as unknown[], acc);
+      }
+    });
+    return acc;
+  }
+
+  const flat      = flatten(doc.content, []);
+  const fromEntry = flat.find((e) => e.blockId === fromBlockId);
+  const toEntry   = flat.find((e) => e.blockId === toBlockId);
+
+  if (!fromEntry || !toEntry) {
+    return { newDoc: doc, found: false, error: "blocks_not_found" };
+  }
+  if (fromEntry.siblings !== toEntry.siblings) {
+    return { newDoc: doc, found: false, error: "blocks_not_same_level" };
+  }
+
+  const start = Math.min(fromEntry.index, toEntry.index);
+  const end   = Math.max(fromEntry.index, toEntry.index);
+
+  // Mutating the shared siblings array reference in place is safe here:
+  // `doc` is a fresh JSON.parse result scoped to this single call and is
+  // discarded (or persisted, but never reused) after this function returns.
+  fromEntry.siblings.splice(start, end - start + 1);
+
+  return { newDoc: doc, found: true };
 }
 
 // ─── createNote ───────────────────────────────────────────────────────────────

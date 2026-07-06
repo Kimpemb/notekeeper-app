@@ -1,36 +1,45 @@
 // src/features/editor/components/Editor/toggleSchema.ts
 //
-// Toggle schema — simplified structure.
+// Single source of truth for the toggle node trio, shared by both the live
+// editor (extensions.ts) and the AI write-tool parsing schema (parseMarkdown.ts).
 //
-// Old: toggle > toggleSummary (inline*) + toggleBody? (block+)
-// New: toggle > inline* + toggleBody?
+// Structure: toggle > toggleSummary (inline*) + toggleBody? (block+)
+// This is the ORIGINAL three-node structure. A newer two-node structure
+// ("toggle > inline* + toggleBody?") was attempted here previously but is
+// invalid — ProseMirror rejects mixing inline and block content in a single
+// node's content expression — and the live editor never adopted it anyway.
+// This file now matches what extensions.ts has always actually run.
 //
-// The toggleSummary wrapper node has been removed. Toggle now holds its title
-// content (inline*) directly, followed by an optional toggleBody. This makes
-// position math straightforward:
-//
-//   togglePos + 0  = toggle open token        (not a content position)
-//   togglePos + 1  = first editable position inside toggle title  ← cursor
-//   togglePos + N  = toggleBody open token (when body exists)
-//
-// toggleBody (content: block+) allows any block node including nested toggles,
-// so arbitrary nesting depth works without any schema changes.
-//
-// Body show/hide is pure CSS driven by .toggle-open / .toggle-closed on the
-// parent NodeViewWrapper. The body is always present in the ProseMirror DOM
-// (never display:none) to prevent content corruption.
+// Deliberately has NO import from parseMarkdown.ts or extensions.ts, so it
+// can be safely imported by both without creating a circular dependency.
 
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { ToggleNodeView, ToggleBodyNodeView } from "./ToggleNodeView";
+import {
+  ToggleNodeView,
+  ToggleSummaryNodeView,
+  ToggleBodyNodeView,
+} from "./ToggleNodeView";
+
+export const ToggleSummary = Node.create({
+  name: "toggleSummary",
+  content: "inline*",
+  defining: true,
+  isolating: false,
+  parseHTML() { return [{ tag: "div[data-toggle-summary]" }]; },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", { "data-toggle-summary": "", ...HTMLAttributes }, 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ToggleSummaryNodeView);
+  },
+});
 
 export const ToggleBody = Node.create({
   name: "toggleBody",
   content: "block+",
   defining: true,
   isolating: false,
-
-  // No open attr — visibility is CSS-driven from parent .toggle-closed class
   parseHTML() { return [{ tag: "div[data-toggle-body]" }]; },
   renderHTML({ HTMLAttributes }) {
     return ["div", { "data-toggle-body": "", ...HTMLAttributes }, 0];
@@ -43,8 +52,7 @@ export const ToggleBody = Node.create({
 export const Toggle = Node.create({
   name: "toggle",
   group: "block",
-  // inline* = the title text, toggleBody? = the collapsible body
-  content: "inline* toggleBody?",
+  content: "toggleSummary toggleBody?",
   defining: true,
 
   addAttributes() {

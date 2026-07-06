@@ -462,6 +462,7 @@ export async function initDb(): Promise<void> {
     await backfillNoteBlocks()
     await backfillUnblockedNotes()
     await backfillPdfBlocks()
+    await backfillMissingBlockIds()
     await backfillBacklinks()
     await backfillBreadcrumbs();
     await backfillExcludedTitleChunks();
@@ -475,6 +476,13 @@ export async function initDb(): Promise<void> {
     console.log("[initDb] Background maintenance complete");
     _dbReadyResolve?.();
   }, 5000);
+
+  if (typeof window !== "undefined") {
+    (window as unknown as Record<string, unknown>).__idemoraDebug = {
+      ...(window as unknown as Record<string, unknown>).__idemoraDebug as object,
+      countMissingBlockIds,
+    };
+  }
 
   console.log("[initDb] Database initialized successfully");
 }
@@ -1939,6 +1947,145 @@ export async function backfillBacklinks(): Promise<void> {
     await syncBacklinks(note.id, extractNoteLinkIdsFromJson(note.content));
   }
   await setSetting("v3_backlinks_backfill_done", "1");
+}
+
+// ─── Block ID backfill (post block-id-bug fix) ───────────────────────────────
+//
+// One-time pass: stamps a blockId onto any indexable node that's missing one.
+// Needed because notes written by AI write-tools before the backfill fix in
+// writeTools.ts persisted tables/toggles/etc with attrs.blockId: null forever.
+//
+// Deliberately bypasses updateNote() — this is a structural-only patch. Text,
+// plaintext, tags, frontmatter, and title are all untouched, so we skip
+// updateNote()'s side effects (bumping updated_at, recomputing breadcrumbs,
+// resyncing calendar event titles tied to this note). Bumping updated_at for
+// every note in the vault on a silent background pass would wrongly surface
+// them all as "recently edited" and skew staleness/search-recency ordering.
+//
+// Deliberately does NOT dispatch idemora:note-updated. Nothing in the UI
+// displays blockId, so no re-render is needed for correctness — and firing
+// that event risks reloading an actively-open editor from DB mid-keystroke,
+// stomping unsaved edits (same bug class as the loadNotes() editor-blanking
+// issue noted elsewhere in this file). Silence here is the safe choice.
+
+const BLOCK_ID_BACKFILL_TARGET_TYPES = new Set([
+  "paragraph", "heading", "bulletList", "orderedList", "listItem",
+  "taskItem", "codeBlock", "blockquote", "table", "toggle",
+]);
+
+function stampMissingBlockIds(nodes: unknown[]): boolean {
+  let modified = false;
+  for (const node of nodes) {
+    const n = node as Record<string, unknown>;
+    if (typeof n.type === "string" && BLOCK_ID_BACKFILL_TARGET_TYPES.has(n.type)) {
+      const attrs = (n.attrs ?? {}) as Record<string, unknown>;
+      if (!attrs.blockId) {
+        n.attrs = { ...attrs, blockId: crypto.randomUUID() };
+        modified = true;
+      }
+    }
+    if (Array.isArray(n.content)) {
+      if (stampMissingBlockIds(n.content as unknown[])) modified = true;
+    }
+  }
+  return modified;
+}
+
+export async function backfillMissingBlockIds(): Promise<void> {
+  const alreadyDone = await getSetting("block_id_backfill_v1_done");
+  if (alreadyDone === "1") return;
+
+  const db = await getDb();
+  const notes = await db.select<{ id: string; content: string | null }[]>(
+    `SELECT id, content FROM notes WHERE deleted_at IS NULL AND content IS NOT NULL`
+  );
+
+  let patchedCount = 0;
+  let skippedCount = 0;
+
+  for (const note of notes) {
+    if (!note.content) continue;
+    let doc: { type: string; content?: unknown[] };
+    try {
+      doc = JSON.parse(note.content);
+    } catch {
+      console.warn(`[block-id backfill] skipping note ${note.id} — content is not valid JSON`);
+      skippedCount++;
+      continue;
+    }
+    if (!Array.isArray(doc.content)) continue;
+
+    const modified = stampMissingBlockIds(doc.content);
+    if (!modified) continue;
+
+    await db.execute(
+      `UPDATE notes SET content = $1 WHERE id = $2`,
+      [JSON.stringify(doc), note.id]
+    );
+    patchedCount++;
+  }
+
+  await setSetting("block_id_backfill_v1_done", "1");
+  console.log(`[block-id backfill] patched ${patchedCount} notes, skipped ${skippedCount} malformed, ${notes.length} total scanned`);
+}
+
+// ─── Block ID backfill verification ──────────────────────────────────────────
+//
+// Run manually from the devtools console after backfillMissingBlockIds() has
+// completed, to confirm no indexable node was missed:
+//   await window.__idemoraDebug.countMissingBlockIds()
+// Returns a per-note breakdown so you can spot-check specific notes if the
+// total isn't 0. A non-zero count doesn't necessarily mean a bug — it can
+// also mean a note was created/edited after the migration's setting flag was
+// already marked done (normal ongoing operation, not a backfill failure) —
+// but it should always be small and explainable, never a bulk mystery.
+
+export async function countMissingBlockIds(): Promise<{
+  totalMissing: number;
+  byNote: { id: string; title: string; missing: number }[];
+}> {
+  const db = await getDb();
+  const notes = await db.select<{ id: string; title: string; content: string | null }[]>(
+    `SELECT id, title, content FROM notes WHERE deleted_at IS NULL AND content IS NOT NULL`
+  );
+
+  const byNote: { id: string; title: string; missing: number }[] = [];
+  let totalMissing = 0;
+
+  function countMissing(nodes: unknown[]): number {
+    let count = 0;
+    for (const node of nodes) {
+      const n = node as Record<string, unknown>;
+      if (typeof n.type === "string" && BLOCK_ID_BACKFILL_TARGET_TYPES.has(n.type)) {
+        const attrs = (n.attrs ?? {}) as Record<string, unknown>;
+        if (!attrs.blockId) count++;
+      }
+      if (Array.isArray(n.content)) {
+        count += countMissing(n.content as unknown[]);
+      }
+    }
+    return count;
+  }
+
+  for (const note of notes) {
+    if (!note.content) continue;
+    let doc: { type: string; content?: unknown[] };
+    try {
+      doc = JSON.parse(note.content);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(doc.content)) continue;
+
+    const missing = countMissing(doc.content);
+    if (missing > 0) {
+      byNote.push({ id: note.id, title: note.title, missing });
+      totalMissing += missing;
+    }
+  }
+
+  console.log(`[block-id verify] ${totalMissing} nodes missing blockId across ${byNote.length} notes`, byNote);
+  return { totalMissing, byNote };
 }
 
 export async function backfillBreadcrumbs(): Promise<void> {
