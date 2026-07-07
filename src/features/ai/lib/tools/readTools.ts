@@ -7,7 +7,7 @@
 // Also exports classifyActionIntent, which routes messages to the tool loop
 // vs the existing RAG pipeline.
 
-import { getNoteById, searchNotes }             from "@/features/notes/db/queries";
+import { getNoteById, searchNotes, getNoteBlocksText } from "@/features/notes/db/queries";
 import { getEventsForDateRange }                from "@/features/calendar/db/calendarQueries";
 import { listGoals }                            from "@/features/goals/db/goalQueries";
 import { hybridSearch }                         from "@/features/ai/lib/search/hybrid";
@@ -205,11 +205,16 @@ function buildNodeIndex(contentJson: string | null | undefined): NodeIndexEntry[
   return entries;
 }
 
-function noteToReadShape(note: Note) {
+async function noteToReadShape(note: Note) {
+  const renderedContent = prosemirrorBodyToMarkdown(note.content ?? "");
+  const content = renderedContent.trim()
+    ? renderedContent
+    : await getNoteBlocksText(note.id);
+
   return {
     id:          note.id,
     title:       note.title,
-    content:     prosemirrorBodyToMarkdown(note.content ?? ""),
+    content,
     nodes:       buildNodeIndex(note.content),
     nodes_note:
       "Each entry has a block_id and an index (document order). Heading entries also have " +
@@ -246,7 +251,7 @@ export async function executeGetNote(input: {
       if (!note || note.deleted_at !== null) {
         return { success: false, error: `Note with id "${input.id}" not found.` };
       }
-      return { success: true, data: noteToReadShape(note) };
+      return { success: true, data: await noteToReadShape(note) };
     }
 
    if (input.title) {
@@ -268,7 +273,7 @@ export async function executeGetNote(input: {
       if (note.rag_excluded === 1) {
         return { success: false, error: `Note "${note.title}" is excluded from AI access (.env).` };
       }
-      return { success: true, data: noteToReadShape(note) };
+      return { success: true, data: await noteToReadShape(note) };
     }
 
     return { success: false, error: "Provide either a note title or id." };
@@ -448,7 +453,7 @@ export async function executeGetCurrentNote(
   if (fresh.rag_excluded === 1) {
     return { success: false, error: `The current note "${fresh.title}" is excluded from AI access (.env).` };
   }
-  return { success: true, data: noteToReadShape(fresh) };
+  return { success: true, data: await noteToReadShape(fresh) };
 }
 
 // ─── Read tool dispatcher ─────────────────────────────────────────────────────

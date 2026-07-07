@@ -1934,9 +1934,11 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
               conflicts = await detectCalendarConflicts(toolInput);
             }
 
-// Don't propose another write if one is already awaiting user decision
+// Don't propose another write if one is already awaiting user decision —
+// scoped to THIS note's session, so a stuck write elsewhere never blocks
+// unrelated notes.
 const existingPending = [...useConfirmationGate.getState().pendingWrites.values()]
-  .some((pw) => pw.status === "pending");
+  .some((pw) => pw.status === "pending" && pw.noteId === noteId);
 if (existingPending) {
   messages.push({
     role:         "tool",
@@ -1950,11 +1952,13 @@ const preview = buildWritePreview(toolName, toolInput, noteTitleMap, conflicts);
 
 const pendingWrite: PendingWrite = {
               id:                  crypto.randomUUID(),
+              noteId,
               toolName,
               toolInput,
               preview,
               status:              "pending",
               assistantMessageId,
+              createdAt:           Date.now(),
             };
 
             useConfirmationGate.getState().addPendingWrite(pendingWrite);

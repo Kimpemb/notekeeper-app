@@ -5,7 +5,7 @@
 
 import type { Note } from "@/types";
 import { getSimilarityResults } from "@/features/notes/similarity/similarityUtils";
-import { getAllBacklinks } from "@/features/notes/db/queries";
+import { getAllBacklinks, getNoteBlocksText } from "@/features/notes/db/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,19 +65,29 @@ export async function buildAIContext(
   // ── Current note ──────────────────────────────────────────────────────────
   const currentTags        = parseTags(note.tags);
   const currentFrontmatter = parseFrontmatter(note.frontmatter);
-  const currentBody        = note.plaintext?.trim() ?? "";
+  const currentBody        = note.plaintext?.trim()
+    ? note.plaintext.trim()
+    : await getNoteBlocksText(note.id);
 
   // ── Similar notes (algorithmic, top 3) ───────────────────────────────────
   const indexableNotes = allNotes.filter((n) => !n.rag_excluded);
   const similarResults = getSimilarityResults(note, indexableNotes, [], new Set(), 3); 
-  const relatedNotes = similarResults
+  const relatedCandidates = similarResults
     .map((r) => allNotes.find((n) => n.id === r.noteId))
-    .filter((n): n is Note => n !== undefined)
-    .map((n) => ({
-      title: n.title,
-      body: (n.plaintext ?? "").slice(0, 500), // keep related notes brief
-      tags: parseTags(n.tags),
-    }));
+    .filter((n): n is Note => n !== undefined);
+
+  const relatedNotes = await Promise.all(
+    relatedCandidates.map(async (n) => {
+      const body = n.plaintext?.trim()
+        ? n.plaintext.trim()
+        : await getNoteBlocksText(n.id);
+      return {
+        title: n.title,
+        body: body.slice(0, 500), // keep related notes brief
+        tags: parseTags(n.tags),
+      };
+    })
+  );
 
   // ── Backlinks (titles only) ───────────────────────────────────────────────
   let backlinkTitles: string[] = [];

@@ -120,10 +120,20 @@ function noteBodyToMarkdown(contentJson: string | null | undefined): string {
  * markdownToDoc returns { type: "doc", content: [...] }.
  */
 function markdownToNoteContent(md: string): { contentJson: string; plaintext: string } {
-  const doc = markdownToDoc(md);
-  const contentJson = JSON.stringify(doc);
-  const plaintext   = extractPlaintext(doc);
-  return { contentJson, plaintext };
+  const doc = markdownToDoc(md) as { type: string; content?: unknown[] }
+  // createNote's initial content is written straight to the DB and never
+  // passes through a mounted editor, so BlockIdExtension's appendTransaction
+  // plugin never runs on it — every node would persist with blockId: null
+  // forever, exactly as already guarded against for appendToNote/insertInNote/
+  // replaceInNote's NEW content. createNote was missing that same guard for
+  // a note's INITIAL content, which is why AI-created notes were completely
+  // untargetable by every block-based write tool from the moment they existed.
+  if (Array.isArray(doc.content)) {
+    backfillBlockIds(doc.content)
+  }
+  const contentJson = JSON.stringify(doc)
+  const plaintext   = extractPlaintext(doc)
+  return { contentJson, plaintext }
 }
 
 /** Naive plaintext extractor — mirrors what the note store does for indexing. */

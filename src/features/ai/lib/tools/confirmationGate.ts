@@ -77,11 +77,13 @@ export type PendingWriteStatus =
 
 export interface PendingWrite {
   id:                  string;
+  noteId:              string;        // which chat session proposed this — scopes the gate per note
   toolName:            string;
   toolInput:           unknown;
   preview:             WritePreview;
   status:              PendingWriteStatus;
   assistantMessageId:  string;        // which chat message triggered this
+  createdAt:           number;        // Date.now() at proposal — drives stale-pending expiry
   undoData?:           unknown;       // populated after execution
   undoExpiry?:         number;        // Date.now() + 60_000
   insertedViaFallback?: boolean;      // set when insertInNote fell back to append
@@ -106,6 +108,7 @@ interface ConfirmationGateState {
   cancelWrite:       (id: string) => void;
   undoWrite:         (id: string) => Promise<void>;
   clearExpiredUndos: () => void;
+  clearStalePending: () => void;
   clearAll:          () => void;
 
   // internal
@@ -216,6 +219,28 @@ export const useConfirmationGate = create<ConfirmationGateState>((set, get) => (
     for (const [id, pw] of next) {
       if (pw.status === "executed" && pw.undoExpiry && now > pw.undoExpiry) {
         next.set(id, { ...pw, undoExpiry: undefined });
+        changed = true;
+      }
+    }
+    if (changed) set({ pendingWrites: next });
+  },
+
+  // ── clearStalePending ──────────────────────────────────────────────────────
+  // Safety net: a "pending" write with no user decision after 5 minutes is
+  // almost certainly orphaned (UI closed/remounted, session abandoned, etc).
+  // Without this, an orphaned pending write blocks all future writes for that
+  // note forever — the gate check in chat.ts has no other way to recover.
+  clearStalePending() {
+    const STALE_MS = 5 * 60 * 1000;
+    const { pendingWrites } = get();
+    const now = Date.now();
+    let changed = false;
+    const next = new Map(pendingWrites);
+    for (const [id, pw] of next) {
+      if (pw.status === "pending" && now - pw.createdAt > STALE_MS) {
+        next.set(id, { ...pw, status: "cancelled" });
+        _pendingResolvers.get(id)?.("cancelled");
+        _pendingResolvers.delete(id);
         changed = true;
       }
     }
@@ -560,5 +585,6 @@ export function startUndoExpiryInterval(): void {
   _undoIntervalStarted = true;
   setInterval(() => {
     useConfirmationGate.getState().clearExpiredUndos();
+    useConfirmationGate.getState().clearStalePending();
   }, 5_000);
 }

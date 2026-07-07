@@ -108,13 +108,40 @@ function normaliseMathDelimiters(md: string): string {
   )
 }
 
+// marked percent-encodes special characters (notably backslashes) in
+// markdown image/link URLs, since it treats the parenthesized part as a
+// URL. This is correct for real URLs but wrong for local filesystem paths —
+// a Windows path like "C:\Users\...\logo.png" comes out as
+// "C:%5CUsers%5C...%5Clogo.png", which Tauri's convertFileSrc cannot
+// resolve, silently breaking any image the model reproduces from an
+// existing note's src attribute (e.g. copying a logo between assignments).
+// Decoding is scoped to image nodes only — it never touches paste/drop
+// image insertion, which sets src directly and never passes through marked.
+function decodeImageSrcs(node: any): any {
+  if (node && typeof node === "object") {
+    if (node.type === "image" && typeof node.attrs?.src === "string") {
+      try {
+        node.attrs.src = decodeURIComponent(node.attrs.src)
+      } catch {
+        // malformed percent-encoding — leave as-is rather than throw
+      }
+    }
+    if (Array.isArray(node.content)) {
+      node.content.forEach(decodeImageSrcs)
+    }
+  }
+  return node
+}
+
 export function markdownToDoc(md: string): object {
   // 1. Convert math delimiters → HTML math nodes
   const withMathAsHtml = normaliseMathDelimiters(md)
   // 2. Parse remaining markdown → HTML (marked leaves our <span>/<div> intact)
   const html = marked.parse(withMathAsHtml) as string
   // 3. generateJSON parses the combined HTML using Tiptap's schema
-  return generateJSON(html, PARSE_EXTENSIONS)
+  const doc = generateJSON(html, PARSE_EXTENSIONS)
+  // 4. Restore literal filesystem paths mangled by marked's URL encoding
+  return decodeImageSrcs(doc)
 }
 
 export function markdownToContent(md: string): { content: string; plaintext: string } {

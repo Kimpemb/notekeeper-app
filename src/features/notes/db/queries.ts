@@ -2590,6 +2590,28 @@ export async function getSurroundingBlocks(
   return allBlocks.slice(start, end + 1).map((b) => b.plaintext).filter(Boolean)
 }
 
+// ─── Note body from blocks (fallback for PDF/DOCX/PPTX notes) ───────────────
+//
+// notes.content stays as empty ProseMirror JSON for imported source types
+// (see file-import plan) — the real text lives only in note_blocks. Any AI
+// read path that needs the note's body text must fall back to this when
+// note.content/plaintext comes back empty.
+
+export async function getNoteBlocksText(noteId: string): Promise<string> {
+  const db = await getDb();
+  const rows = await db.select<{ plaintext: string; chunk_heading: string | null }[]>(
+    `SELECT plaintext, chunk_heading
+     FROM note_blocks
+     WHERE note_id = $1
+     ORDER BY chunk_index ASC`,
+    [noteId]
+  );
+  return rows
+    .filter((r) => r.plaintext?.trim())
+    .map((r) => (r.chunk_heading ? `[${r.chunk_heading}]\n${r.plaintext}` : r.plaintext))
+    .join("\n\n");
+}
+
 // ─── Rolling conversation summary ────────────────────────────────────────────
 
 export interface ConversationSummaryRow {

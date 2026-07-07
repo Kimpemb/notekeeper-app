@@ -261,10 +261,16 @@ export function ChatPanel({ noteId, paneId }: Props) {
 
   // Keep local pendingWrites in sync with gate store status changes
   useEffect(() => {
-  return useConfirmationGate.subscribe((state) => {
-    setPendingWrites(new Map(state.pendingWrites));
-  });
-}, []);
+    // Seed with the store's CURRENT state immediately — subscribe() only fires
+    // on future changes, so without this, any write already pending before
+    // this mount (e.g. panel was closed/reopened) is invisible to this
+    // component forever, even though the gate itself still blocks new writes.
+    setPendingWrites(new Map(useConfirmationGate.getState().pendingWrites));
+
+    return useConfirmationGate.subscribe((state) => {
+      setPendingWrites(new Map(state.pendingWrites));
+    });
+  }, []);
   const { toasts, addToast } = useToasts();
 
   const messagesEndRef    = useRef<HTMLDivElement>(null);
