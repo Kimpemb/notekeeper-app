@@ -55,34 +55,34 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v1.5.0
+            ## What's new in v2.0.0
 
-            **Redesigned UI**
-            - Fully restructured and upgraded interface — cleaner layout, refined typography, and a more cohesive visual language throughout
+            **AI Action Layer**
+            - The AI can now directly create, edit, move, and restructure notes, not just chat about them
+            - New write tools: create notes, insert or replace content, delete blocks, update calendar events, update goals, move notes
+            - Confirmation step before any AI write is applied, so nothing changes without your approval
 
-            **Canvas**
-            - Freeform canvas notes — create nodes, connect them, pan and zoom freely
-            - Full editing power inside canvas nodes — slash commands, note links, sub-pages
-            - Export your canvas as PNG, SVG, Markdown, or JSON
+            **Calendar**
+            - Full calendar with day, week, month, and agenda views
+            - Recurring events with a redesigned edit/delete flow
+            - Notes and calendar events stay in sync automatically
 
-            **Bookmarks**
-            - Pin any note to your bookmarks panel for quick access
-            - Organise bookmarks into named groups and reorder them freely
+            **Goals**
+            - Track goals with milestones and progress computed automatically from your notes
+            - Daily streaks and a score widget showing your progress over day, week, or month
 
-            **Backup System**
-            - Export your vault as an AES-256-GCM encrypted .nkbackup file
-            - Schedule automatic backups daily, weekly, or on every change
-            - Point your backup folder at iCloud Drive, Dropbox, or Google Drive for automatic cloud sync
+            **Smarter search and memory**
+            - Hybrid search combining keyword and semantic matching for better results
+            - The AI now remembers relevant context across your notes more reliably
+            - Web search results are used more intelligently for general knowledge questions
 
-            **Performance**
-            - Cold start cut from 7–8s to under 2s — notes load metadata first, content on demand
-            - Canvas engine now only redraws when something actually changes
+            **Document import/export**
+            - Export notes to Word (.docx), including tables and images
+            - Import multiple files at once (PDF, DOCX, PPTX, JSON, Markdown)
 
-            **Bug fixes**
-            - Graph node editor now correctly loads note content when opened with E
-            - Triple-clicking a graph node opens it in the main editor as expected
-            - Canvas node drag no longer jumps on pointer-down
-            - Canvas textarea overlay stays pixel-aligned after panning
+            **Bug fixes and stability**
+            - Fixed several issues where the AI could act on stale or outdated note content
+            - More reliable error recovery when the AI's edits conflict with note structure
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
