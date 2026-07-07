@@ -350,21 +350,94 @@ export function buildBacklinkMap(
   return map;
 }
 
+/**
+ * Synchronous variant — kept for any caller that genuinely needs the result
+ * immediately (e.g. tests). Prefer buildUnlinkedMentionMapAsync for anything
+ * running on app mount or a timer, since this can block the main thread for
+ * a noticeable moment on larger vaults.
+ */
 export function buildUnlinkedMentionMap(allNotes: Note[]): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
-  for (const target of allNotes) {
-    if (!target.title || UNTITLED_RE.test(target.title)) continue;
-    const escaped = target.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex   = new RegExp(`(?<![\\w])${escaped}(?![\\w])`, "i");
-    for (const source of allNotes) {
-      if (source.id === target.id || !source.plaintext) continue;
-      if (regex.test(source.plaintext)) {
-        if (!map.has(target.id)) map.set(target.id, new Set());
-        map.get(target.id)!.add(source.id);
-      }
-    }
+  const combined = buildMentionRegex(allNotes);
+  if (!combined) return map;
+
+  for (const source of allNotes) {
+    scanSourceForMentions(source, combined.regex, combined.titleKeyToId, map);
   }
   return map;
+}
+
+/**
+ * Chunked async variant. Splits the per-note scan across multiple
+ * microtask/idle turns so this never occupies a single long frame,
+ * regardless of vault size. Use this from ResurfaceBar / any UI-triggered
+ * caller instead of the sync version.
+ */
+export function buildUnlinkedMentionMapAsync(
+  allNotes: Note[],
+  chunkSize = 100
+): Promise<Map<string, Set<string>>> {
+  return new Promise((resolve) => {
+    const map = new Map<string, Set<string>>();
+    const combined = buildMentionRegex(allNotes);
+    if (!combined) { resolve(map); return; }
+
+    let i = 0;
+    function processChunk() {
+      const end = Math.min(i + chunkSize, allNotes.length);
+      for (; i < end; i++) {
+        scanSourceForMentions(allNotes[i], combined!.regex, combined!.titleKeyToId, map);
+      }
+      if (i < allNotes.length) {
+        const schedule = (window as any).requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 0));
+        schedule(processChunk);
+      } else {
+        resolve(map);
+      }
+    }
+    processChunk();
+  });
+}
+
+function buildMentionRegex(
+  allNotes: Note[]
+): { regex: RegExp; titleKeyToId: Map<string, string> } | null {
+  const targets = allNotes.filter((n) => n.title && !UNTITLED_RE.test(n.title));
+  if (targets.length === 0) return null;
+
+  // Longest titles first, so overlapping/substring titles (e.g. "Meeting" vs
+  // "Meeting Notes") match the more specific one first in the alternation.
+  const sortedTargets = [...targets].sort((a, b) => b.title.length - a.title.length);
+
+  const titleKeyToId = new Map<string, string>();
+  const patterns: string[] = [];
+  for (const t of sortedTargets) {
+    const key = t.title.toLowerCase();
+    if (titleKeyToId.has(key)) continue;
+    titleKeyToId.set(key, t.id);
+    patterns.push(t.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  }
+
+  const regex = new RegExp(`(?<![\\w])(${patterns.join("|")})(?![\\w])`, "gi");
+  return { regex, titleKeyToId };
+}
+
+function scanSourceForMentions(
+  source: Note,
+  regex: RegExp,
+  titleKeyToId: Map<string, string>,
+  map: Map<string, Set<string>>
+) {
+  if (!source.plaintext) return;
+  regex.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(source.plaintext)) !== null) {
+    const targetId = titleKeyToId.get(match[1].toLowerCase());
+    if (targetId && targetId !== source.id) {
+      if (!map.has(targetId)) map.set(targetId, new Set());
+      map.get(targetId)!.add(source.id);
+    }
+  }
 }
 
 export function isNewCluster(previousCluster: string[], currentCluster: Set<string>): boolean {

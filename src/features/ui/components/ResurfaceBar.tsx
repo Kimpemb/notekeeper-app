@@ -7,7 +7,7 @@ import {
   shouldTrigger,
   scoreGapCandidates,
   buildBacklinkMap,
-  buildUnlinkedMentionMap,
+  buildUnlinkedMentionMapAsync,
   isNewCluster,
 } from "@/features/notes/similarity/clusterEngine";
 import {
@@ -68,9 +68,7 @@ export function ResurfaceBar() {
       const backlinkMap = buildBacklinkMap(allBacklinks);
 
       const [unlinkedMentionMap, cluster] = await Promise.all([
-        new Promise<Map<string, Set<string>>>((resolve) =>
-          setTimeout(() => resolve(buildUnlinkedMentionMap(notes)), 0)
-        ),
+        buildUnlinkedMentionMapAsync(notes),
         new Promise<Set<string>>((resolve) =>
           setTimeout(() => resolve(identifyCluster(clusterSession, notes, backlinkMap, feedback)), 0)
         ),
@@ -134,9 +132,13 @@ export function ResurfaceBar() {
   }, [clusterSession, notes, activeNoteId]);
 
   useEffect(() => {
+    // Delay the first check so app boot isn't competing with this scan —
+    // buildUnlinkedMentionMap is O(vault size); running it the instant the
+    // app mounts was the primary cause of post-load UI jank.
+    const initialDelay = setTimeout(checkTrigger, 5000);
     intervalRef.current = setInterval(checkTrigger, CHECK_INTERVAL);
-    checkTrigger();
     return () => {
+      clearTimeout(initialDelay);
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (timerRef.current)    clearTimeout(timerRef.current);
     };
