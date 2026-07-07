@@ -23,7 +23,7 @@ import {
   type CalendarEvent,
 } from "@/features/calendar/db/calendarQueries";
 import { getGoal, updateGoal as dbUpdateGoal, type GoalInput } from "@/features/goals/db/goalQueries";
-import { prosemirrorBodyToMarkdown } from "@/lib/exporters/markdown";
+ 
 import { markdownToDoc }             from "@/features/ai/lib/save/parseMarkdown";
 
 // ─── Block-ID backfill for tool-generated nodes ──────────────────────────────
@@ -106,14 +106,7 @@ export interface CalendarConflict {
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-/**
- * Convert a note's TipTap JSON to a markdown body string.
- * Returns "" on parse failure (safe default — produces empty diff).
- */
-function noteBodyToMarkdown(contentJson: string | null | undefined): string {
-  if (!contentJson) return "";
-  return prosemirrorBodyToMarkdown(contentJson);
-}
+ 
 
 /**
  * Convert a markdown string back to TipTap JSON + plaintext.

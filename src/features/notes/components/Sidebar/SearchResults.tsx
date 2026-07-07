@@ -20,7 +20,7 @@ function useEditorMatchCount(query: string, activeNoteId: string | null, onCount
     if (!activeNoteId || !query.trim()) return;
     // Wait for editor to mount and scroll to settle
     const timer = setTimeout(() => {
-      const activeEditor = useUIStore.getState().activeEditor
+      const activeEditor = useUIStore.getState().getEditorForNote(activeNoteId)
       if (!activeEditor || activeEditor.isDestroyed) return
       let count = 0
       const needle  = query.trim().toLowerCase()

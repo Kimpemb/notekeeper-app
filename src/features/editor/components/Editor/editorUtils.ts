@@ -154,7 +154,7 @@ export function scrollToQuery(
 
   const needle  = query.trim().toLowerCase();
   const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex   = new RegExp(escaped, "i");
+   
 
   // Collect all matches across text nodes
   const allMatches: { from: number; to: number }[] = [];

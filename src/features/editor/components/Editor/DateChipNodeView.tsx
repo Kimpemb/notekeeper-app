@@ -4,7 +4,7 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useCalendarStore } from "@/features/calendar/store/useCalendarStore";
-import { formatTimeForChip } from "@/features/calendar/lib/dateParser";
+ 
 
 export function DateChipNodeView({ node }: NodeViewProps) {
   const { displayDate, isoDate } = node.attrs as {

@@ -5,7 +5,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import {
   parseNaturalDate, formatDateForChip, dateToISO,
-  extractTime, extractTimeRange, computeDurationMins, formatTimeForChip,
+  extractTime, extractTimeRange, computeDurationMins,
 } from "@/features/calendar/lib/dateParser";
 import { createEvent, deleteEvent } from "@/features/calendar/db/calendarQueries";
 import { DateChipNodeView } from "./DateChipNodeView";

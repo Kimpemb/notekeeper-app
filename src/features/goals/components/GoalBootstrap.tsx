@@ -57,7 +57,6 @@ export function GoalBootstrap({ onDone }: Props) {
     const notes = await getAllNotes();
     const noteMap = new Map(notes.map((n) => [n.id, n]));
 
-    let created = 0;
     let linked  = 0;
 
     for (const candidate of candidates) {

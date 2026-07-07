@@ -220,7 +220,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const pendingScrollQuery      = useUIStore((s) => s.pendingScrollQuery);
   const setPendingScrollQuery   = useUIStore((s) => s.setPendingScrollQuery);
   const pendingScrollIndex      = useUIStore((s) => s.pendingScrollIndex);
-  const setPendingScrollIndex   = useUIStore((s) => s.setPendingScrollIndex);
+   
 
   const spellCheck = useAppSettings((s) => s.settings.spellCheck);
 

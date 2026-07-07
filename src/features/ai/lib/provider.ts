@@ -105,13 +105,13 @@
     system?:  string,
   ): Promise<ProviderChatResult> {
     switch (provider) {
-      case "gemini":
+       case "gemini":
         return geminiChat(
           apiKey,
           model,
           messages.map((m) => ({
             role:  m.role === "assistant" ? "model" : "user",
-            parts: [{ text: m.content }],
+            parts: [{ text: m.content ?? "" }],
           })),
           system,
         );
@@ -122,7 +122,7 @@
           model,
           messages.map((m) => ({
             role:    m.role as "user" | "assistant" | "system",
-            content: m.content,
+            content: m.content ?? "",
           })),
           system,
         );
@@ -133,7 +133,7 @@
           model,
           messages.map((m) => ({
             role:    m.role as "user" | "assistant" | "system",
-            content: m.content,
+            content: m.content ?? "",
           })),
           system,
         );
@@ -150,7 +150,7 @@
             .filter((m) => m.role !== "system")
             .map((m) => ({
               role:    m.role as "user" | "assistant",
-              content: m.content,
+              content: m.content ?? "",
             })),
           system,
         );
@@ -161,7 +161,7 @@
           model,
           messages.map((m) => ({
             role:    m.role as "system" | "user" | "assistant",
-            content: m.content,
+            content: m.content ?? "",
           })),
           system,
         );

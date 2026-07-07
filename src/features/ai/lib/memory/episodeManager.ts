@@ -158,7 +158,7 @@ async function closeCurrentEpisode(
 
     // Form memory block from closed episode — non-blocking
     const { getOpenEpisode: _getEpisode } = await import('@/features/notes/db/queries')
-    const closedEpisode = await _getEpisode(state.episodeId).catch(() => null)
+    await _getEpisode(state.episodeId).catch(() => null)
     // getOpenEpisode won't find it since it's closed — fetch directly
     const db = await (await import('@/features/notes/db/client')).getDb()
     const rows = await db.select<EpisodeRow[]>(

@@ -10,12 +10,7 @@ const STATE_BG: Record<ColourState, string> = {
   red:    "bg-red-500/80",
 };
 
-const STATE_DOT: Record<ColourState, string> = {
-  blue:   "bg-blue-500",
-  green:  "bg-green-500",
-  yellow: "bg-yellow-500",
-  red:    "bg-red-500",
-};
+ 
 
 interface Props {
   selectedDate:  string;
@@ -35,7 +30,7 @@ function addDays(isoDate: string, days: number): string {
 function buildMonthGrid(selectedDate: string): string[] {
   const d         = new Date(selectedDate + "T00:00:00");
   const firstDay  = new Date(d.getFullYear(), d.getMonth(), 1);
-  const lastDay   = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+   
 
   // Monday-aligned: 0=Mon … 6=Sun
   const startOffset = (firstDay.getDay() + 6) % 7;

@@ -156,7 +156,7 @@ describe("excluded note notices", () => {
 
   it("hybridSearch receives overrideNoteIds when passed", async () => {
     mockSelect.mockResolvedValue([])
-    mockHybridSearch.mockResolvedValue({ results: [], excludedTitleMatches: [] })
+    mockHybridSearch.mockResolvedValue({ results: [], excludedTitleMatches: [], lowTermCoverage: false })
 
     const streaming = makeStreaming()
     await streamChatWithNotes(
@@ -178,7 +178,7 @@ describe("excluded note notices", () => {
 
   it("hybridSearch not passed overrideNoteIds when none provided", async () => {
     mockSelect.mockResolvedValue([])
-    mockHybridSearch.mockResolvedValue({ results: [], excludedTitleMatches: [] })
+    mockHybridSearch.mockResolvedValue({ results: [], excludedTitleMatches: [], lowTermCoverage: false })
 
     const streaming = makeStreaming()
     await streamChatWithNotes(
