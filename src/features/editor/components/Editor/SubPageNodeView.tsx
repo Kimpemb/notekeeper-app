@@ -256,7 +256,7 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
       />
 
       {/* Move modal — allows moving this subpage to a different parent */}
-      {noteId && (
+      {noteId && moveOpen && (
         <MoveNoteModal
           open={moveOpen}
           noteId={noteId}

@@ -1923,8 +1923,16 @@ async function backfillUnblockedNotes(): Promise<void> {
   if (notes.length === 0) return
   console.log(`[backfill] chunking ${notes.length} notes with plaintext but no blocks`)
 
-  for (const note of notes) {
-    await syncNoteBlocks(note.id, note.content, "note", note.title)
+  const BACKFILL_BATCH_SIZE = 5
+  for (let i = 0; i < notes.length; i += BACKFILL_BATCH_SIZE) {
+    const batch = notes.slice(i, i + BACKFILL_BATCH_SIZE)
+    for (const note of batch) {
+      await syncNoteBlocks(note.id, note.content, "note", note.title)
+    }
+    // Yield to the event loop between batches so other pending IPC calls
+    // (settings loads, UI interaction, etc.) aren't starved behind a long
+    // uninterrupted burst of sequential DB round-trips.
+    await new Promise((resolve) => setTimeout(resolve, 0))
   }
 
   console.log("[backfill] unblocked notes complete")

@@ -237,9 +237,11 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
 
   useEffect(() => {
   let cancelled = false;
+  console.log("[boot] effect start", performance.now());
 
   initDb()
     .then(async () => {
+      console.log("[boot] initDb resolved", performance.now());
       if (cancelled) return;
       setDbReady(true);
       return Promise.all([
@@ -248,8 +250,12 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
         useAIStore.getState().loadAISettings(),
       ]);
     })
-    .then(() => { if (!cancelled) return loadNotes(); })
+    .then(() => {
+      console.log("[boot] settings loaded", performance.now());
+      if (!cancelled) return loadNotes();
+    })
     .then(async () => {
+      console.log("[boot] loadNotes resolved (loading screen should disappear now)", performance.now());
       if (cancelled) return;
       setNotesLoaded(true);
       setTimeout(() => { if (!cancelled) setDbSettled(); }, 6000);

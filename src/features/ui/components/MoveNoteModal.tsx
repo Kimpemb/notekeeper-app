@@ -1,5 +1,5 @@
 // src/features/ui/components/MoveNoteModal.tsx
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import type { Note } from "@/types";
 
@@ -25,16 +25,29 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
   useEffect(() => { selectedIdxRef.current = selectedIdx; }, [selectedIdx]);
 
   const getCandidates = useCallback(() => {
-    const note = notes.find((n) => n.id === noteId);
+    if (!open) return [];
+
+    const noteMap = new Map(notes.map((n) => [n.id, n]));
+    const note = noteMap.get(noteId);
     if (!note) return [];
+
+    const childrenByParent = new Map<string, Note[]>();
+    for (const n of notes) {
+      if (n.parent_id) {
+        const siblings = childrenByParent.get(n.parent_id);
+        if (siblings) siblings.push(n);
+        else childrenByParent.set(n.parent_id, [n]);
+      }
+    }
 
     function descendants(id: string): Set<string> {
       const result = new Set<string>();
       const queue = [id];
       while (queue.length) {
         const cur = queue.shift()!;
-        for (const n of notes) {
-          if (n.parent_id === cur) { result.add(n.id); queue.push(n.id); }
+        for (const n of childrenByParent.get(cur) ?? []) {
+          result.add(n.id);
+          queue.push(n.id);
         }
       }
       return result;
@@ -46,7 +59,7 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
       const parts: string[] = [];
       let cur: Note | undefined = n;
       while (cur?.parent_id) {
-        const parent = notes.find((p) => p.id === cur!.parent_id);
+        const parent = noteMap.get(cur.parent_id);
         if (!parent) break;
         parts.unshift(parent.title);
         cur = parent;
@@ -63,10 +76,12 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
       : [];
 
     return [...rootOption, ...list];
-  }, [notes, noteId]);
+  }, [notes, noteId, open]);
 
   // ── Improved search ranking ────────────────────────────────────────────────
   const getFiltered = useCallback(() => {
+    if (!open) return [];
+
     const q = query.trim().toLowerCase();
     const all = getCandidates();
     
@@ -116,9 +131,9 @@ export function MoveNoteModal({ open, noteId, onClose }: Props) {
         return a.title.localeCompare(b.title);
       })
       .map(({ id, title, breadcrumb }) => ({ id, title, breadcrumb }));
-  }, [getCandidates, query]);
+  }, [getCandidates, query, open]);
 
-  const items = getFiltered();
+  const items = useMemo(() => getFiltered(), [getFiltered]);
   const filteredRef = useRef(items);
   useEffect(() => { filteredRef.current = items; }, [items]);
 
