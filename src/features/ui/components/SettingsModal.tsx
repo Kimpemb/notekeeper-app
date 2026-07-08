@@ -1077,7 +1077,7 @@ export function SettingsModal() {
                   </div>
                   <div className="flex items-center justify-between px-3 py-2 border-b border-idemora-border bg-idemora-bg-secondary">
                     <span className="text-sm text-idemora-text-normal">Version</span>
-                    <span className="text-sm text-idemora-text-muted font-mono">2.0.0</span>
+                    <span className="text-sm text-idemora-text-muted font-mono">2.0.1</span>
                   </div>
                   <div className="flex items-center justify-between px-3 py-2 bg-idemora-bg-secondary">
                     <span className="text-sm text-idemora-text-normal">Storage</span>

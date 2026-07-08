@@ -55,34 +55,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.0.0
+            ## What's new in v2.0.1
 
-            **AI Action Layer**
-            - The AI can now directly create, edit, move, and restructure notes, not just chat about them
-            - New write tools: create notes, insert or replace content, delete blocks, update calendar events, update goals, move notes
-            - Confirmation step before any AI write is applied, so nothing changes without your approval
+            **Performance**
+            - Fixed a ~20 second period of sluggish scrolling and slow tab switching right after startup, caused by an expensive unlinked-mentions scan running on the main thread
+            - Fixed the Move Note dialog doing unnecessary work on every render, and mounting invisibly for every subpage in a note even when closed
+            - Fixed a startup delay where background note-indexing work could block app settings from loading for several seconds
 
-            **Calendar**
-            - Full calendar with day, week, month, and agenda views
-            - Recurring events with a redesigned edit/delete flow
-            - Notes and calendar events stay in sync automatically
-
-            **Goals**
-            - Track goals with milestones and progress computed automatically from your notes
-            - Daily streaks and a score widget showing your progress over day, week, or month
-
-            **Smarter search and memory**
-            - Hybrid search combining keyword and semantic matching for better results
-            - The AI now remembers relevant context across your notes more reliably
-            - Web search results are used more intelligently for general knowledge questions
-
-            **Document import/export**
-            - Export notes to Word (.docx), including tables and images
-            - Import multiple files at once (PDF, DOCX, PPTX, JSON, Markdown)
-
-            **Bug fixes and stability**
-            - Fixed several issues where the AI could act on stale or outdated note content
-            - More reliable error recovery when the AI's edits conflict with note structure
+            This release is entirely under-the-hood performance work — no user-facing feature changes.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
