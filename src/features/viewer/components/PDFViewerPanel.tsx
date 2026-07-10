@@ -125,8 +125,10 @@ if (import.meta.env.DEV) {
   const data = new Uint8Array(bytes).buffer;
   loadingTask = pdfjs.getDocument({ data });
 } else {
-  const normalised = appDataDir.replace(/\\/g, "/").replace(/\/$/, "");
-  const assetUrl = `asset://localhost/${normalised}/attachments/${note!.source_file}`;
+  const { convertFileSrc } = await import("@tauri-apps/api/core");
+  const sep = appDataDir.includes("\\") ? "\\" : "/";
+  const fullPath = `${appDataDir}${sep}attachments${sep}${note!.source_file}`;
+  const assetUrl = convertFileSrc(fullPath);
   loadingTask = pdfjs.getDocument({ url: assetUrl });
 }
         const doc = await loadingTask.promise;
