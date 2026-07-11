@@ -61,6 +61,7 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
     role:      "user" | "assistant"
     content:   string
     createdAt: number
+    attachments?: { id: string; label: string; lineCount: number; charCount: number; content: string }[]
   }
 
   export interface RelatedNote {

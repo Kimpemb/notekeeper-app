@@ -811,27 +811,7 @@ const URL_REGEX = /^https?:\/\/[^\s]+$/
 // colon/equals. Human-readable labels like "INDEX NO:" or "COURSE CODE:"
 // have spaces in the key and no structural punctuation, so they're
 // correctly rejected.
-function looksLikeCodeBlob(text: string): boolean {
-  const trimmed = text.trim()
-
-  try {
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      JSON.parse(trimmed)
-      return true
-    }
-  } catch { /* not valid JSON — fall through to punctuation/shape check */ }
-
-  const lines = trimmed.split("\n").filter((l) => l.trim().length > 0)
-  if (lines.length === 0) return false
-
-  const codeLikeLines = lines.filter((line) => {
-    if (/[{}[\];]|=>/.test(line)) return true
-    const kv = line.match(/^\s*["']?([\w.-]+)["']?\s*[:=]\s*\S/)
-    return !!kv
-  }).length
-
-  return codeLikeLines / lines.length > 0.6 && codeLikeLines >= 2
-}
+import { looksLikeCodeBlob } from "@/lib/looksLikeCode"
 
 export const MarkdownPasteExtension = Extension.create({
   name: "markdownPaste",

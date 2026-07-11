@@ -40,6 +40,7 @@ import {
 } from "@/features/ai/lib/search/webSearchProvider"
 import { detectIntent } from "@/features/ai/lib/search/intentDetection"
 import { onExplicitClear } from "@/features/ai/lib/memory/episodeManager"
+import { looksLikeCodeBlob, wrapAsCodeFence } from "@/lib/looksLikeCode"
 
 // Queries containing pasted/quoted content (captions, lists, long blocks of text)
 // can't be reliably compressed into one search phrase — cutting them down
@@ -52,6 +53,21 @@ function isAutoSearchable(raw: string): boolean {
   if (trimmed.includes('"') || trimmed.includes("\n")) return false
   const words = trimmed.split(/\s+/).filter(Boolean)
   return words.length <= 20
+}
+
+const LONG_PASTE_CHAR_THRESHOLD = 3000
+const LONG_PASTE_LINE_THRESHOLD = 80
+
+function detectLongPaste(pasted: string): { label: string; lineCount: number; charCount: number } | null {
+  const lineCount = pasted.split("\n").length
+  const charCount = pasted.length
+  if (charCount <= LONG_PASTE_CHAR_THRESHOLD && lineCount <= LONG_PASTE_LINE_THRESHOLD) return null
+  const firstLine = pasted.split("\n").find((l) => l.trim().length > 0)?.trim() ?? "Pasted content"
+  return {
+    label: firstLine.length > 60 ? firstLine.slice(0, 60) + "…" : firstLine,
+    lineCount,
+    charCount,
+  }
 }
 
 interface Props {
@@ -255,6 +271,16 @@ export function ChatPanel({ noteId, paneId }: Props) {
     assistant: { role: "user" | "assistant"; content: string };
   } | null>(null);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
+  const [pendingAttachments, setPendingAttachments] = useState<
+    { id: string; label: string; lineCount: number; charCount: number; content: string }[]
+  >([]);
+  const MAX_PENDING_ATTACHMENTS = 5;
+  const removePendingAttachment = useCallback((id: string) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+  const clearPendingAttachments = useCallback(() => {
+    setPendingAttachments([]);
+  }, []);
   const [webResultsMap, setWebResultsMap] = useState<Map<string, WebSearchResult[]>>(new Map());
   const [suppressedNudges, setSuppressedNudges] = useState<Set<string>>(new Set());
   const [pendingWrites, setPendingWrites] = useState<Map<string, PendingWrite>>(new Map());
@@ -533,14 +559,20 @@ useEffect(() => {
 
   // ── handleWebSearch ────────────────────────────────────────────────────────
   async function handleDirectWebSearch() {
-    const q = input.trim()
+    const typed = input.trim()
+    const attachmentText = pendingAttachments.map((a) => a.content).join("\n\n")
+    const q = attachmentText
+      ? (typed ? `${attachmentText}\n\n${typed}` : attachmentText)
+      : typed
     if (!q || loading) return
 
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(), role: "user", content: q, createdAt: Date.now(),
+      ...(pendingAttachments.length > 0 ? { attachments: pendingAttachments } : {}),
     }
     addMessage(noteId, userMsg)
     setInput("")
+    clearPendingAttachments()
     if (inputRef.current) inputRef.current.style.height = "auto"
     setLoading(true)
     setStreamStatus("Searching…")
@@ -642,12 +674,17 @@ useEffect(() => {
 
   const handleSend = useCallback(async () => {
     console.log('[handleSend] ragScopeRef:', ragScopeRef.current, 'ragScope:', ragScope)
-    const q = input.trim();
+    const typed = input.trim();
+    const attachmentText = pendingAttachments.map((a) => a.content).join("\n\n");
+    const q = attachmentText
+      ? (typed ? `${attachmentText}\n\n${typed}` : attachmentText)
+      : typed;
     if (!q || loading || isFreeTier) return;
 
     const userMsgId = crypto.randomUUID();
     const userMsg: ChatMessage = {
       id: userMsgId, role: "user", content: q, createdAt: Date.now(),
+      ...(pendingAttachments.length > 0 ? { attachments: pendingAttachments } : {}),
     };
     const assistantId = crypto.randomUUID();
     const assistantMsg: ChatMessage = {
@@ -658,6 +695,7 @@ useEffect(() => {
     addMessage(noteId, assistantMsg);
     await saveSession(noteId);
     setInput("");
+    clearPendingAttachments();
     if (inputRef.current) {
       inputRef.current.style.height = "auto"
     }
@@ -818,7 +856,7 @@ useEffect(() => {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus, resolveScopeNoteIds]);
+  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus, resolveScopeNoteIds, pendingAttachments, clearPendingAttachments]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -912,9 +950,62 @@ const handleRetry = useCallback(async (userMessageId?: string, userMessageConten
     setStreamingId(targetAssistantId)
   }
 
-  const scopeNoteIds = await resolveScopeNoteIds()
+   const scopeNoteIds = await resolveScopeNoteIds()
 
   try {
+    // Re-classify intent so retry re-attempts an action the same way the
+    // original send would have, instead of silently downgrading every
+    // retry to plain RAG chat regardless of what was originally asked.
+    const { intent, confidence } = await classifyActionIntent(targetContent);
+    const isActionMode = intent === "action" && confidence >= 0.85;
+
+    if (isActionMode) {
+      await streamChatWithTools(
+        targetContent,
+        noteId,
+        currentNote,
+        {
+          onChunk: (token) => {
+            setCallError(null)
+            setErrorAfterMessageId(null)
+            useChatSessionStore.setState((s) => {
+              const sess = s.sessions[noteId]
+              if (!sess) return s
+              const msgs = sess.messages.map(m =>
+                m.id === targetAssistantId ? { ...m, content: m.content + token } : m
+              )
+              return { sessions: { ...s.sessions, [noteId]: { ...sess, messages: msgs } } }
+            })
+            setStreamStatus(null)
+          },
+          onDone: () => {
+            setStreamStatus(null)
+            setStreamingId(null)
+            setLoading(false)
+            saveSession(noteId)
+          },
+          onError: (err) => {
+            setStreamStatus(null)
+            setStreamingId(null)
+            setLoading(false)
+            setCallError(err)
+            setErrorAfterMessageId(targetUser.id)
+          },
+          onStatus: (msg) => setStreamStatus(msg),
+        },
+        currentMessages.slice(0, targetUserIndex),
+        (pw) => setPendingWrites((prev) => new Map(prev).set(pw.id, pw)),
+        targetAssistantId,
+      );
+
+      const finalContent = useChatSessionStore.getState().getSessionByNoteId(noteId)
+        .messages.find(m => m.id === targetAssistantId)?.content ?? "";
+      await appendAIHistory(noteId, "user", targetContent);
+      await appendAIHistory(noteId, "assistant", finalContent);
+      await saveSession(noteId);
+      return;
+    }
+
     const meta = await streamChatWithNotes(
       targetContent,
       notes,
@@ -1205,7 +1296,15 @@ const meta = await streamChatWithNotes(
                       navigator.clipboard.writeText(plain).catch(console.error)
                       addToast("Copied")
                     }}
-                    onEdit={msg.role === "user" ? (content) => setInput(content) : undefined}
+                    onEdit={msg.role === "user" ? (content) => {
+                      if (msg.attachments && msg.attachments.length > 0) {
+                        setInput("");
+                        setPendingAttachments(msg.attachments);
+                      } else {
+                        setInput(content);
+                        clearPendingAttachments();
+                      }
+                    } : undefined}
                     // Pass retry to user bubbles so the icon shows on hover
 onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefined}
                   />
@@ -1312,20 +1411,67 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
         <div className="shrink-0 px-3 pt-2 pb-3">
           <div className="rounded-2xl border border-idemora-border/60 bg-idemora-bg-secondary transition-all duration-150 focus-within:border-violet-500/30 focus-within:shadow-[0_0_0_1px_rgba(139,92,246,0.15)]">
 
+            {/* Pending-paste chip — shown when a large paste was intercepted */}
+            {pendingAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mx-3 mt-2">
+                {pendingAttachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-idemora-bg-primary border border-idemora-border/70 max-w-[160px]"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 15 15" fill="none" className="text-idemora-text-muted shrink-0">
+                      <rect x="3" y="2" width="9" height="11" rx="1.3" stroke="currentColor" strokeWidth="1.1"/>
+                      <path d="M5.5 2V1.3a.8.8 0 01.8-.8h2.4a.8.8 0 01.8.8V2M5.5 6h4M5.5 8.5h4M5.5 11h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                    </svg>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] text-idemora-text-normal truncate leading-tight">{att.label}</p>
+                      <p className="text-[9px] text-idemora-text-muted leading-tight">
+                        {att.lineCount}L · {att.charCount.toLocaleString()}c
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => removePendingAttachment(att.id)}
+                      title="Remove"
+                      className="w-4 h-4 flex items-center justify-center rounded text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 shrink-0"
+                    >
+                      <svg width="7" height="7" viewBox="0 0 9 9" fill="none">
+                        <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Textarea */}
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+              }}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData("text");
+                if (!pasted) return;
+                const detected = detectLongPaste(pasted);
+                if (detected) {
+                  e.preventDefault();
+                  if (pendingAttachments.length >= MAX_PENDING_ATTACHMENTS) {
+                    addToast(`Max ${MAX_PENDING_ATTACHMENTS} pasted items — remove one to add another`);
+                    return;
+                  }
+                  setPendingAttachments((prev) => [...prev, { id: crypto.randomUUID(), ...detected, content: pasted }]);
+                }
+              }}
               onKeyDown={handleKeyDown}
               placeholder="Ask anything about your notes…"
               rows={1}
               className="w-full resize-none px-3 pt-3 pb-1 text-sm bg-transparent text-idemora-text-normal placeholder-idemora-text-muted/50 focus:outline-none leading-relaxed"
-              style={{ height: "auto", minHeight: "38px", maxHeight: "128px" }}
+              style={{ height: "auto", minHeight: "38px", maxHeight: "45vh", overflowY: "auto" }}
               onInput={(e) => {
                 const el = e.currentTarget;
                 el.style.height = "auto";
-                el.style.height = Math.min(el.scrollHeight, 128) + "px";
+                el.style.height = el.scrollHeight + "px";
               }}
             />
 
@@ -1487,15 +1633,56 @@ function MessageBubble({
 // Replace with:
 //   {renderedContent}
   const [copied, setCopied] = useState(false)
+  const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null)
 
   // ── User bubble ────────────────────────────────────────────────────────────
   if (isUser) {
+    const attachments = message.attachments ?? []
+    const attachmentBlock = attachments.map((a) => a.content).join("\n\n")
+    const leftoverText = attachments.length > 0
+      ? message.content.slice(attachmentBlock.length).replace(/^\n\n/, "")
+      : message.content
+    const openAttachment = attachments.find((a) => a.id === openAttachmentId)
+
     return (
       <div className="px-4 py-1.5 flex justify-end">
-        <div className="flex flex-col items-end gap-0.5 max-w-[85%]">
-          <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed break-all">
-            {message.content}
-          </div>
+        <div className="flex flex-col items-end gap-1 max-w-[85%]">
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {attachments.map((att) => (
+                <button
+                  key={att.id}
+                  onClick={() => setOpenAttachmentId(att.id)}
+                  className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl bg-violet-500 hover:bg-violet-600 text-left transition-colors duration-100 max-w-[180px]"
+                >
+                  <div className="w-6 h-6 rounded-md bg-white/15 flex items-center justify-center shrink-0">
+                    <svg width="12" height="12" viewBox="0 0 15 15" fill="none" className="text-white">
+                      <rect x="3" y="2" width="9" height="11" rx="1.3" stroke="currentColor" strokeWidth="1.1"/>
+                      <path d="M5.5 2V1.3a.8.8 0 01.8-.8h2.4a.8.8 0 01.8.8V2M5.5 6h4M5.5 8.5h4M5.5 11h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] text-white truncate leading-tight">{att.label}</p>
+                    <p className="text-[10px] text-violet-100/70 leading-tight">
+                      {att.lineCount}L · {att.charCount.toLocaleString()}c
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {leftoverText && (
+            <div className="w-full px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm leading-relaxed break-words whitespace-pre-wrap">
+              {leftoverText}
+            </div>
+          )}
+          {openAttachment && (
+            <PastedContentOverlay
+              label={openAttachment.label}
+              content={openAttachment.content}
+              onClose={() => setOpenAttachmentId(null)}
+            />
+          )}
           <div className={`flex items-center gap-0.5 transition-opacity duration-150 ${
             isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
           }`}>
@@ -1579,6 +1766,55 @@ function MessageBubble({
     )}
   </div>
 )}
+      </div>
+    </div>
+  )
+}
+
+function PastedContentOverlay({
+  label, content, onClose,
+}: { label: string; content: string; onClose: () => void }) {
+  const isCode = looksLikeCodeBlob(content)
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { e.stopPropagation(); onClose() }
+    }
+    document.addEventListener("keydown", handleKey, true)
+    return () => document.removeEventListener("keydown", handleKey, true)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
+      onClick={onClose}
+      data-overlay-sentinel
+    >
+      <div
+        className="w-full max-w-lg mx-4 max-h-[80vh] rounded-xl bg-idemora-bg-secondary border border-idemora-border shadow-2xl overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-idemora-border shrink-0">
+          <span className="text-sm font-semibold text-idemora-text-normal truncate pr-2">{label}</span>
+          <button
+            onClick={onClose}
+            title="Close (Esc)"
+            className="w-6 h-6 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100 shrink-0"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div className="p-4 overflow-y-auto">
+          {isCode ? (
+            <MessageRenderer content={wrapAsCodeFence(content)} isStreaming={false} />
+          ) : (
+            <p className="text-sm text-idemora-text-normal whitespace-pre-wrap break-words leading-relaxed">
+              {content}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )
