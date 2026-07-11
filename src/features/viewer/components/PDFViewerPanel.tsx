@@ -121,8 +121,7 @@ if (import.meta.env.DEV) {
   const sep = appDataDir.includes("\\") ? "\\" : "/";
   const fullPath = `${appDataDir}${sep}attachments${sep}${note!.source_file}`;
   await new Promise(r => setTimeout(r, 0));
-  const bytes = await invoke<number[]>("read_file_bytes", { path: fullPath });
-  const data = new Uint8Array(bytes).buffer;
+  const data = await invoke<ArrayBuffer>("read_file_bytes", { path: fullPath });
   loadingTask = pdfjs.getDocument({ data });
 } else {
   const { convertFileSrc } = await import("@tauri-apps/api/core");

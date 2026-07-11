@@ -61,7 +61,7 @@
   }
 
   export async function readImageFile(path: string): Promise<Uint8Array> {
-    const data = await invoke<number[]>("read_file_bytes", { path });
+    const data = await invoke<ArrayBuffer>("read_file_bytes", { path });
     return new Uint8Array(data);
   }
 
@@ -104,8 +104,8 @@ export async function pickPdfFile(): Promise<string[] | null> {
 }
 
 export async function copyPdfToAttachments(srcPath: string, destFileName: string): Promise<void> {
-  const data = await invoke<number[]>("read_file_bytes", { path: srcPath });
-  await invoke("save_attachment", { fileName: destFileName, data });
+  const raw = await invoke<ArrayBuffer>("read_file_bytes", { path: srcPath });
+  await invoke("save_attachment", { fileName: destFileName, data: Array.from(new Uint8Array(raw)) });
 }
 
   // ─── Backup helpers ───────────────────────────────────────────────────────────

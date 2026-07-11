@@ -152,7 +152,7 @@ function plainTextFromInline(nodes: PmNode[] = []): string {
 
 async function loadImageBytes(path: string): Promise<Uint8Array | null> {
   try {
-    const data = await invoke<number[]>("read_file_bytes", { path });
+    const data = await invoke<ArrayBuffer>("read_file_bytes", { path });
     return new Uint8Array(data);
   } catch (err) {
     console.warn("[docx-export] failed to read image bytes:", path, err);

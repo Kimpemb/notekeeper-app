@@ -38,7 +38,8 @@ async function importPDFFromPath(
   parentId?: string | null
 ): Promise<{ noteId: string; scanned: boolean } | null> {
   const { invoke } = await import("@tauri-apps/api/core")
-  const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
+  const raw = await invoke<ArrayBuffer>("read_file_bytes", { path: srcPath })
+  const bytes = new Uint8Array(raw)
 
   checkFileSize(bytes.length)
 
@@ -54,7 +55,7 @@ async function importPDFFromPath(
     }
   }
 
-  const arrayBuffer = new Uint8Array(bytes).buffer
+  const arrayBuffer = bytes.buffer
 
   let pageCount = 0
   let isScanned = false

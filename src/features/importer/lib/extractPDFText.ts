@@ -119,9 +119,8 @@ const attachmentsDir = `${appDataDir}${sep}attachments`
 for (const { id, source_file } of pdfs) {
   try {
     const fullPath = `${attachmentsDir}${sep}${source_file}`
-    const data = await invoke<number[]>("read_file_bytes", { path: fullPath })
-    const bytes = new Uint8Array(data)
-    await extractAndIndexPDF(id, bytes.buffer)
+    const data = await invoke<ArrayBuffer>("read_file_bytes", { path: fullPath })
+    await extractAndIndexPDF(id, data)
 
       const newBlocks = await db.select<{ block_id: string }[]>(
         `SELECT block_id FROM note_blocks WHERE note_id = $1`,

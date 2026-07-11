@@ -24,7 +24,8 @@ async function importDocxFromPath(
   onDuplicateFound?: (existingId: string, title: string) => Promise<"replace" | "copy" | "cancel">,
   parentId?: string | null
 ): Promise<string | null> {
-  const bytes = await invoke<number[]>("read_file_bytes", { path: srcPath })
+  const raw = await invoke<ArrayBuffer>("read_file_bytes", { path: srcPath })
+  const bytes = new Uint8Array(raw)
 
   checkFileSize(bytes.length)
 
@@ -39,7 +40,7 @@ async function importDocxFromPath(
     if (action === "replace") await useNoteStore.getState().deleteNote(existingId)
   }
 
-  const arrayBuffer = new Uint8Array(bytes).buffer
+  const arrayBuffer = bytes.buffer
 
   let markdown: string
   let title: string

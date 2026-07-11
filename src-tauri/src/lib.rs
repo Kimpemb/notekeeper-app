@@ -1,4 +1,5 @@
 use tauri::Manager;
+use tauri::ipc::Response;
 use tauri_plugin_updater::UpdaterExt;
 
 #[tauri::command]
@@ -17,8 +18,10 @@ fn read_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(|e| e.to_string())
+fn read_file_bytes(path: String) -> Result<Response, String> {
+    std::fs::read(&path)
+        .map(Response::new)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
