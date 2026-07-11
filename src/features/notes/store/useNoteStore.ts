@@ -57,6 +57,7 @@ export function getDailyNoteTitle(date = new Date()): string {
 interface NoteStore {
   notes: Note[];
   trashedNotes: Note[];
+  staleContentIds: Set<string>;
   activeNoteId: string | null;
   pinnedIds: Set<string>;
   visitedNoteIds: string[];
@@ -152,6 +153,7 @@ function collectDescendants(id: string, notes: Note[]): Set<string> {
 export const useNoteStore = create<NoteStore>((set, get) => ({
   notes: [],
   trashedNotes: [],
+  staleContentIds: new Set<string>(),
   activeNoteId: null,
   pinnedIds: new Set(),
   visitedNoteIds: [],
@@ -360,6 +362,18 @@ updateNote: async (id, input, silent = false) => {
         n.id === id ? { ...n, ...input, updated_at: Date.now() } : n
       ),
     }));
+  } else if ("content" in input) {
+    // Silent saves (autosave) intentionally skip the in-memory patch, so a
+    // mounted editor never re-reads a stale `content` prop mid-keystroke
+    // (see readTools.ts comment on executeGetCurrentNote). Mark the note
+    // stale instead, so the *next* mount knows its in-memory content is
+    // out of date and should re-fetch from the DB via loadNoteContent,
+    // rather than treating stale-but-non-empty content as already loaded.
+    set((state) => {
+      const staleContentIds = new Set(state.staleContentIds);
+      staleContentIds.add(id);
+      return { staleContentIds };
+    });
   }
   await dbUpdateNote(id, input);
 },
@@ -575,14 +589,20 @@ loadNoteContent: async (id: string) => {
   if (!note) return;
   const isEmpty = !note.content || 
     note.content === JSON.stringify({ type: "doc", content: [] });
-  if (!isEmpty) return;
+  const isStale = get().staleContentIds.has(id);
+  if (!isEmpty && !isStale) return;
   const { getNoteContent } = await import("@/features/notes/db/queries");
   const { content, canvas_state } = await getNoteContent(id);
-  set((state) => ({
-    notes: state.notes.map((n) =>
-      n.id === id ? { ...n, content: content ?? n.content, canvas_state: canvas_state ?? n.canvas_state } : n
-    ),
-  }));
+  set((state) => {
+    const staleContentIds = new Set(state.staleContentIds);
+    staleContentIds.delete(id);
+    return {
+      notes: state.notes.map((n) =>
+        n.id === id ? { ...n, content: content ?? n.content, canvas_state: canvas_state ?? n.canvas_state } : n
+      ),
+      staleContentIds,
+    };
+  });
 },
 
   // ─── Bookmark actions ──────────────────────────────────────────────────────

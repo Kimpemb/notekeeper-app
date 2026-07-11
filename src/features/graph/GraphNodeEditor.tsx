@@ -93,19 +93,37 @@ export function GraphNodeEditor({
   const updateNote = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
   const loadNoteContent = useNoteStore((s) => s.loadNoteContent);
+  const isStaleContent  = useNoteStore((s) => s.staleContentIds.has(noteId));
   const spellCheck    = useAppSettings((s) => s.settings.spellCheck);
 
   // Fire loadNoteContent during render — before useEditor mounts — same
   // pattern as the main editor (Fix 4 from perf session). note.content at
   // this point is the meta-only placeholder so we must fetch it on demand.
+  // This one-shot-at-mount check also catches the case where the note is
+  // ALREADY marked stale at the moment this component mounts.
   const contentLoadFired = useRef(false);
   if (!contentLoadFired.current) {
     contentLoadFired.current = true;
     const raw = note?.content;
     const isEmpty = !raw || raw === "null" || raw === "" ||
                     raw === '{"type":"doc","content":[]}';
-    if (isEmpty) loadNoteContent(noteId);
+    if (isEmpty || isStaleContent) loadNoteContent(noteId);
   }
+
+  // Separate from the mount-time check above: catches staleness that
+  // happens WHILE this instance stays mounted (e.g. the main Editor tab
+  // for the same note autosaves in the background). Uses its own
+  // in-flight guard so it can fire again on a later staleness episode,
+  // unlike the permanent one-shot above.
+  const staleLoadInFlight = useRef(false);
+  useEffect(() => {
+    if (!isStaleContent) return;
+    if (staleLoadInFlight.current) return;
+    staleLoadInFlight.current = true;
+    loadNoteContent(noteId).finally(() => {
+      staleLoadInFlight.current = false;
+    });
+  }, [isStaleContent, noteId, loadNoteContent]);
 
   // ── Title editing ─────────────────────────────────────────────────────────
   const titleRef        = useRef<HTMLHeadingElement>(null);

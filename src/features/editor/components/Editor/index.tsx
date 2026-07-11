@@ -234,12 +234,14 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const suppressSave        = useRef(false);
 const contentLoadingRef   = useRef(false);
 
+const isStaleContent = useNoteStore((s) => s.staleContentIds.has(noteId));
+
 const isEmptyContent = !note?.content ||
   note.content === "null" ||
   note.content === "" ||
   note.content === '{"type":"doc","content":[]}';
 
-const [contentReady, setContentReady] = useState(!isEmptyContent);
+const [contentReady, setContentReady] = useState(!isEmptyContent && !isStaleContent);
   const [bubblePos, setBubblePos]       = useState<BubblePos | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const bubblePosRef                    = useRef<BubblePos | null>(null);
@@ -268,19 +270,26 @@ const [contentReady, setContentReady] = useState(!isEmptyContent);
 
   const loadNoteContent = useNoteStore((s) => s.loadNoteContent);
 
-  // Load content if empty/stub — only fires once per mount
-  const _contentLoadFired = useRef(false);
-
+  // Load content if empty/stub, or if it's been marked stale by a silent
+  // save elsewhere (see staleContentIds in useNoteStore). This ref is an
+  // in-flight guard, NOT a permanent one-shot lock — it must reset once
+  // the fetch resolves, since this same mounted instance can go stale
+  // again later (e.g. a background tab, edited via the graph panel,
+  // while it stays mounted the whole time).
+  const _contentLoadInFlight = useRef(false);
 
 useEffect(() => {
-  if (!isEmptyContent) {
+  if (!isEmptyContent && !isStaleContent) {
     setContentReady(true);
     return;
   }
-  if (_contentLoadFired.current) return;
-  _contentLoadFired.current = true;
-  loadNoteContent(noteId).then(() => setContentReady(true));
-}, [noteId, isEmptyContent]);
+  if (_contentLoadInFlight.current) return;
+  _contentLoadInFlight.current = true;
+  loadNoteContent(noteId).then(() => {
+    _contentLoadInFlight.current = false;
+    setContentReady(true);
+  });
+}, [noteId, isEmptyContent, isStaleContent]);
 
 // preserve positions; only append genuinely missing children
 const initialContent = (() => {
