@@ -310,12 +310,34 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     const { notes } = get();
     const title = getDailyNoteTitle();
     const existing = notes.find((n) => n.title === title && !n.deleted_at);
+    const { useUIStore } = await import("@/features/ui/store/useUIStore");
+    const ui = useUIStore.getState();
+
+    const focusExisting = (noteId: string) => {
+      if (ui.activePaneId === 2) {
+        ui.replacePane2Tab(noteId);
+      } else {
+        get().setActiveNote(noteId, true);
+        ui.replaceTab(noteId);
+      }
+    };
+
+    const openNew = (noteId: string) => {
+      if (ui.activePaneId === 2) {
+        ui.openTabInPane2(noteId);
+      } else {
+        ui.openTab(noteId);
+      }
+    };
+
     if (existing) {
-      get().setActiveNote(existing.id);
+      focusExisting(existing.id);
       return existing;
     }
     const { daily } = await import("@/lib/templates/daily");
-    return get().createNoteFromTemplate(daily, { title });
+    const created = await get().createNoteFromTemplate(daily, { title });
+    openNew(created.id);
+    return created;
   },
 
   createChildNote: async (parentId, title?) => {
