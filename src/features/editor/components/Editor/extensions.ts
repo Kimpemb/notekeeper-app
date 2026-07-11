@@ -803,6 +803,36 @@ export { Mathematics }
 // ── Markdown paste handler ────────────────────────────────────────────────────
 const URL_REGEX = /^https?:\/\/[^\s]+$/
 
+// Distinguishes real code/config pastes from multi-line prose that merely
+// lacks markdown formatting (e.g. form fields like "NAME: John Smith").
+// The old heuristic ("multi-line + not markdown" = code) caught both —
+// this requires genuine code signals: valid JSON, structural punctuation
+// ({ } [ ] ; =>), or identifier-shaped keys (no internal spaces) before a
+// colon/equals. Human-readable labels like "INDEX NO:" or "COURSE CODE:"
+// have spaces in the key and no structural punctuation, so they're
+// correctly rejected.
+function looksLikeCodeBlob(text: string): boolean {
+  const trimmed = text.trim()
+
+  try {
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      JSON.parse(trimmed)
+      return true
+    }
+  } catch { /* not valid JSON — fall through to punctuation/shape check */ }
+
+  const lines = trimmed.split("\n").filter((l) => l.trim().length > 0)
+  if (lines.length === 0) return false
+
+  const codeLikeLines = lines.filter((line) => {
+    if (/[{}[\];]|=>/.test(line)) return true
+    const kv = line.match(/^\s*["']?([\w.-]+)["']?\s*[:=]\s*\S/)
+    return !!kv
+  }).length
+
+  return codeLikeLines / lines.length > 0.6 && codeLikeLines >= 2
+}
+
 export const MarkdownPasteExtension = Extension.create({
   name: "markdownPaste",
 
@@ -845,18 +875,7 @@ export const MarkdownPasteExtension = Extension.create({
             //    If so, wrap in a code fence so it pastes as a single block.
             if (html) {
               const trimmed = plain.trim()
-              const looksLikeCode = (() => {
-                try {
-                  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-                    JSON.parse(trimmed)
-                    return true
-                  }
-                } catch { /* not valid JSON */ }
-                // Multi-line content with no markdown signals — treat as code
-                const lines = trimmed.split("\n")
-                if (lines.length > 3 && !looksLikeMarkdown(plain)) return true
-                return false
-              })()
+              const looksLikeCode = looksLikeCodeBlob(trimmed)
 
               if (looksLikeCode) {
                 try {
@@ -879,7 +898,7 @@ export const MarkdownPasteExtension = Extension.create({
             }
 
             // ── Plain code/JSON (no HTML source) → wrap in code block ─────
-            if (!html && !looksLikeMarkdown(plain) && plain.includes("\n")) {
+            if (!html && plain.includes("\n") && looksLikeCodeBlob(plain)) {
               try {
                 const { state, dispatch } = view
                 const { from, to } = state.selection
