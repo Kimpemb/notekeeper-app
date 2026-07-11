@@ -10,7 +10,7 @@ import { EmptyState } from "@/features/ui/components/EmptyState";
 import { CommandPalette } from "@/features/ui/components/CommandPalette";
 import { KeyboardShortcuts } from "@/features/ui/components/KeyboardShortcuts";
 import { ImportModal } from "@/features/ui/components/ImportModal";
-import { TemplatePickerModal } from "@/features/ui/components/TemplatePickerModal";
+ 
 import { SettingsModal } from "@/features/ui/components/SettingsModal";
 import { TabBar } from "@/features/ui/components/TabBar";
 import { SplitDivider } from "@/features/ui/components/SplitDivider";
@@ -25,7 +25,7 @@ import { exportNotesToFile, exportDocxToFile } from "@/lib/tauri/fs";
 import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
 import { DeadlineResurfaceBar } from "@/features/ui/components/DeadlineResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Template } from "@/lib/templates";
+ 
 import "@/styles/main.css";
 import "@/styles/idemora-theme.css";
 import { invoke } from "@tauri-apps/api/core";
@@ -133,7 +133,7 @@ export default function App() {
   const loadNotes              = useNoteStore((s) => s.loadNotes);
   const activeNoteId           = useNoteStore((s) => s.activeNoteId);
   const notes                  = useNoteStore((s) => s.notes);
-  const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
+    
   const setActive              = useNoteStore((s) => s.setActiveNote);
   const setDbSettled           = useNoteStore((s) => s.setDbSettled);
 
@@ -151,8 +151,7 @@ export default function App() {
   const closeBacklinks      = useUIStore((s) => s.closeBacklinks);
   const openOutline         = useUIStore((s) => s.openOutline);
   const closeOutline        = useUIStore((s) => s.closeOutline);
-  const templatePickerOpen  = useUIStore((s) => s.templatePickerOpen);
-  const closeTemplatePicker = useUIStore((s) => s.closeTemplatePicker);
+    
 const graphOpen           = useUIStore((s) => s.graphOpen);
 const openGraph           = useUIStore((s) => s.openGraph);
 const graphFocusNoteId    = useUIStore((s) => s.graphFocusNoteId);
@@ -162,7 +161,7 @@ const openCalendar        = useUIStore((s) => s.openCalendar);
   const tabs                = useUIStore((s) => s.tabs);
   const activeTabId         = useUIStore((s) => s.activeTabId);
   const openTab             = useUIStore((s) => s.openTab);
-  const replaceTab          = useUIStore((s) => s.replaceTab);
+    
   const closeActiveTab      = useUIStore((s) => s.closeActiveTab);
   const cycleTab            = useUIStore((s) => s.cycleTab);
   const pane2Tabs           = useUIStore((s) => s.pane2Tabs);
@@ -201,8 +200,7 @@ const pane2TagsOpen = useUIStore((s) => s.pane2TagsOpen);
   const graphViewRef     = useRef<GraphViewHandle>(null);
 const calendarViewRef  = useRef<CalendarViewHandle>(null);
   const slideTimeout     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const openInNewTabRef  = useRef(false);
-  const newNoteParentRef = useRef<string | null>(null);
+    
   const scrollPositions  = useRef<Map<string, number>>(new Map());
 
   // Right panel active states
@@ -380,11 +378,9 @@ useEffect(() => {
 
   
 
-  useEffect(() => {
+    useEffect(() => {
     function handle() {
-      openInNewTabRef.current = true;
-      newNoteParentRef.current = useNoteStore.getState().activeNoteId;
-      useUIStore.getState().openTemplatePicker();
+      createNewNoteInNewTab();
     }
     window.addEventListener("idemora:new-note-new-tab", handle);
     return () => window.removeEventListener("idemora:new-note-new-tab", handle);
@@ -467,19 +463,11 @@ useEffect(() => {
 
     if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
     if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
-    if (ctrl && e.shiftKey && e.key.toLowerCase() === "n") {
+    if (ctrl && e.key === "t") { e.preventDefault(); openEmptyTab(); }
+    if (ctrl && e.key.toLowerCase() === "n") {
       e.preventDefault();
-      openInNewTabRef.current = true;
-      newNoteParentRef.current = useNoteStore.getState().activeNoteId;
-      useUIStore.getState().openTemplatePicker();
+      createNewNoteInNewTab();
       return;
-    }
-  if (ctrl && e.key === "t") { e.preventDefault(); openEmptyTab(); }
-    if (ctrl && !e.shiftKey && e.key.toLowerCase() === "n") {
-      e.preventDefault();
-      openInNewTabRef.current = false;
-      newNoteParentRef.current = useNoteStore.getState().activeNoteId;
-      useUIStore.getState().openTemplatePicker();
     }
     if (ctrl && e.key === "\\") { e.preventDefault(); toggleSidebarPanel("notes"); }
     if (ctrl && e.key === ";")  { 
@@ -529,24 +517,17 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
 }
     if (ctrl && e.key === ",") { e.preventDefault(); openSettings(); }
   }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, openBacklinks, closeBacklinks, openOutline, closeOutline,
-    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, calendarOpen, openCalendar, activePaneId, loadNotes, backlinkActive, outlineActive, setRightPanelOpen, reopenClosedTab]);
+    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, calendarOpen, openCalendar, activePaneId, loadNotes, backlinkActive, outlineActive, setRightPanelOpen, reopenClosedTab, openTab, openTabInPane2]);
     
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  async function handleTemplateSelect(template: Template) {
-    closeTemplatePicker();
-    const parentId = newNoteParentRef.current ?? undefined;
-    const note = await createNoteFromTemplate(template, parentId ? { parent_id: parentId } : {});
-    if (openInNewTabRef.current) {
-      if (activePaneId === 2) { openTabInPane2(note.id); } else { openTab(note.id); }
-    } else {
-      if (activePaneId === 2) { openTabInPane2(note.id); } else { setActive(note.id); replaceTab(note.id); }
-    }
-    openInNewTabRef.current  = false;
-    newNoteParentRef.current = null;
+  async function createNewNoteInNewTab() {
+    const parentId = useNoteStore.getState().activeNoteId ?? undefined;
+    const note = await useNoteStore.getState().createNote(parentId ? { parent_id: parentId } : {});
+    if (activePaneId === 2) { openTabInPane2(note.id); } else { openTab(note.id); }
   }
 
   function noteSlug(title: string): string {
@@ -928,11 +909,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
       <KeyboardShortcuts />
       <ImportModal />
       <SettingsModal />
-      <TemplatePickerModal
-        open={templatePickerOpen}
-        onSelect={handleTemplateSelect}
-        onCancel={() => { openInNewTabRef.current = false; newNoteParentRef.current = null; closeTemplatePicker(); }}
-      />
+       
 
       {graphOpen    && <GraphView    ref={graphViewRef}    initialFocusNoteId={graphFocusNoteId} />}
 {calendarOpen && <CalendarView ref={calendarViewRef} />}

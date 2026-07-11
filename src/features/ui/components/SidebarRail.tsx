@@ -60,7 +60,7 @@ function RailButton({
 
 export function SidebarRail() {
   const openSettings          = useUIStore((s) => s.openSettings);
-  const openTemplatePicker    = useUIStore((s) => s.openTemplatePicker);
+   
   const graphOpen             = useUIStore((s) => s.graphOpen);
   const openGraph             = useUIStore((s) => s.openGraph);
   const closeGraph            = useUIStore((s) => s.closeGraph);
@@ -151,14 +151,7 @@ export function SidebarRail() {
         </svg>
       </RailButton>
 
-      <RailButton label="Templates" onClick={openTemplatePicker}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="4" y="4" width="16" height="16" rx="2"/>
-          <line x1="9" y1="8" x2="15" y2="8"/>
-          <line x1="9" y1="12" x2="13" y2="12"/>
-          <line x1="9" y1="16" x2="11" y2="16"/>
-        </svg>
-      </RailButton>
+        
 
       <RailButton label="Settings (Ctrl+,)" onClick={openSettings}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

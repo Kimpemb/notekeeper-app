@@ -205,10 +205,7 @@ interface UIStore {
   openCalendar: () => void;
   closeCalendar: () => void;
 
-  // ─── Template picker ──────────────────────────────────────────────────────
-  templatePickerOpen: boolean;
-  openTemplatePicker: () => void;
-  closeTemplatePicker: () => void;
+   
 
   // ─── Search ───────────────────────────────────────────────────────────────
   searchQuery: string;
@@ -526,10 +523,7 @@ closeCalendar: () => {
   setTimeout(() => saveSession(get()), 0);
 },
 
-    // ─── Template picker ──────────────────────────────────────────────────────
-    templatePickerOpen: false,
-    openTemplatePicker: () => set({ templatePickerOpen: true }),
-    closeTemplatePicker: () => set({ templatePickerOpen: false }),
+     
 
     // ─── Search ───────────────────────────────────────────────────────────────
     searchQuery: "",
