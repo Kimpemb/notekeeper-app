@@ -1,6 +1,7 @@
 // src/features/notes/components/Sidebar/NotesPanel.tsx
 import { useState } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { NoteTree } from "./NoteTree";
 
 type SortOrder = 
@@ -37,7 +38,7 @@ const CollapseAllIcon = () => (
 );
 
 export function NotesPanel() {
-  const openTemplatePicker = useUIStore((s) => s.openTemplatePicker);
+  const createNote = useNoteStore((s) => s.createNote);
   const collapseAllNodes   = useUIStore((s) => s.collapseAllNodes);
   const expandAllNodes     = useUIStore((s) => s.expandAllNodes);
   const expandedNodes      = useUIStore((s) => s.expandedNodes);
@@ -62,7 +63,7 @@ export function NotesPanel() {
       <div className="flex items-center justify-center gap-2 px-2 pt-0 pb-0 shrink-0 relative">
 
         {/* 1. New note */}
-        <button onClick={openTemplatePicker} title="New note" className={btnClass}>
+        <button onClick={() => createNote()} title="New note" className={btnClass}>
           <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
             <path
               d="M10 4H5a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"

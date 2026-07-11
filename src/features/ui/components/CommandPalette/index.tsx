@@ -287,7 +287,7 @@ export function CommandPalette() {
   const toggleSidebarPanel = useUIStore((s) => s.toggleSidebarPanel);
   const openShortcuts      = useUIStore((s) => s.openShortcuts);
   const openImport         = useUIStore((s) => s.openImport);
-  const openTemplatePicker = useUIStore((s) => s.openTemplatePicker);
+  const createNote = useNoteStore((s) => s.createNote);
   const exportHandlers     = useUIStore((s) => s.exportHandlers);
   const graphOpen          = useUIStore((s) => s.graphOpen);
   const openGraph          = useUIStore((s) => s.openGraph);
@@ -349,7 +349,7 @@ const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
   const actions: ActionItem[] = useMemo(() => [
     {
       kind: "action", id: "new-note", label: "New Note", hint: "Ctrl+N",
-      action: () => { closePalette(); openTemplatePicker(); },
+      action: () => { closePalette(); createNote(); },
     },
     {
       kind: "action", id: "new-note-new-tab", label: "New Note in New Tab", hint: "Ctrl+Shift+N",
@@ -484,7 +484,7 @@ const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
       action: async () => { await exportHandlers?.exportNoteDocx(); closePalette(); },
     },
   ], [
-    theme, closePalette, openTemplatePicker, toggleTheme, 
+    theme, closePalette, createNote, toggleTheme, 
     toggleFileTree, toggleSidebarPanel, toggleTips, openShortcuts, openImport,
     exportHandlers, activeNoteId, graphOpen, openGraph, closeGraph, loadNotes, createOrOpenDailyNote,
   ]);

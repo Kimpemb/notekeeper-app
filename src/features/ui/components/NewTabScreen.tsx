@@ -5,7 +5,6 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useNoteSearch } from "@/features/notes/hooks/useNoteSearch";
 import { useOpenNoteWithScroll } from "@/features/notes/hooks/useOpenNoteWithScroll";
 import { SnippetText, snippetKind, TagIcon } from "@/features/notes/components/Sidebar/searchUtils";
-type View = "home" | "templates";
 import type { SearchResult } from "@/features/notes/db/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
