@@ -176,16 +176,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     pushToHistory(nodeId);
   }, [data, pushToHistory]);
 
-  const handleOpenInEditor = useCallback((nodeId: string) => {
-    const targetNode = data?.nodes.find((n) => n.id === nodeId);
-    if (!targetNode) return;
-    setEditNodeId(nodeId);
-    setFullscreen(true);
-    setDetailNode(targetNode);
-    setEdgeContext(null);
-    setFocusNodeId(nodeId);
-    pushToHistory(nodeId);
-  }, [data, pushToHistory]);
+   
 
   const handleGoBack = useCallback(() => {
     if (historyIndex <= 0) return;
@@ -325,6 +316,40 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2500);
   }, []);
 
+  const handleOpenInEditor = useCallback((nodeId: string) => {
+    const targetNode = data?.nodes.find((n) => n.id === nodeId);
+    if (!targetNode) return;
+    // Canvas notes have no TipTap content — GraphNodeEditor would mount
+    // against an empty/stub content field and autosave could clobber
+    // canvas_state. Route canvas notes to the normal open flow instead.
+    const noteRecord = notes.find((n) => n.id === nodeId);
+    if (noteRecord?.is_canvas) {
+      setActiveNote(nodeId);
+      showToast(`Opening "${targetNode.title}"…`);
+      setTimeout(() => handleClose(), 300);
+      return;
+    }
+    setEditNodeId(nodeId);
+    setFullscreen(true);
+    setDetailNode(targetNode);
+    setEdgeContext(null);
+    setFocusNodeId(nodeId);
+    pushToHistory(nodeId);
+  }, [data, pushToHistory, notes, setActiveNote, showToast, handleClose]);
+
+  const handleEnterEdit = useCallback(() => {
+    if (!detailNode) return;
+    const noteRecord = notes.find((n) => n.id === detailNode.id);
+    if (noteRecord?.is_canvas) {
+      setActiveNote(detailNode.id);
+      showToast(`Opening "${detailNode.title}"…`);
+      setTimeout(() => handleClose(), 300);
+      return;
+    }
+    setEditNodeId(detailNode.id);
+    setFullscreen(true);
+  }, [detailNode, notes, setActiveNote, showToast, handleClose]);
+
   // ── Graph edit hook ───────────────────────────────────────────────────────
   const { createNodeAt, deleteNode, renameNode, createLink, deleteLink } = useGraphEdit({
     simNodesRef,
@@ -372,11 +397,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   }, [deleteLink, patchData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Enter edit mode ───────────────────────────────────────────────────────
-  const handleEnterEdit = useCallback(() => {
-    if (!detailNode) return;
-    setEditNodeId(detailNode.id);
-    setFullscreen(true);
-  }, [detailNode]);
+   
 
   // ── Exit edit mode ────────────────────────────────────────────────────────
   const handleExitEdit = useCallback(() => {
