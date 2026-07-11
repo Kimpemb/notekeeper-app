@@ -5,8 +5,7 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useNoteSearch } from "@/features/notes/hooks/useNoteSearch";
 import { useOpenNoteWithScroll } from "@/features/notes/hooks/useOpenNoteWithScroll";
 import { SnippetText, snippetKind, TagIcon } from "@/features/notes/components/Sidebar/searchUtils";
-import { TEMPLATES } from "@/lib/templates";
-import type { Template } from "@/lib/templates";
+type View = "home" | "templates";
 import type { SearchResult } from "@/features/notes/db/queries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -15,7 +14,7 @@ interface Props {
   paneId: 1 | 2;
 }
 
-type View = "home" | "templates";
+ 
 
 type Note = ReturnType<typeof useNoteStore.getState>["notes"][number];
 
@@ -288,44 +287,7 @@ function RecentNotesView({ notes, onOpen }: RecentNotesViewProps) {
   );
 }
 
-interface TemplatesViewProps {
-  onSelect: (template: Template) => void;
-}
 
-function TemplatesView({ onSelect }: TemplatesViewProps) {
-  return (
-    <div className="animate-in fade-in slide-in-from-top-1 duration-150">
-      <SectionLabel>Templates</SectionLabel>
-      <div className="grid grid-cols-2 gap-2">
-        {TEMPLATES.map((template) => (
-          <button
-            key={template.id}
-            onClick={() => onSelect(template)}
-            className="
-              flex items-center gap-3 px-3 py-2.5 rounded-lg text-left
-              bg-idemora-bg-secondary border border-idemora-border
-              hover:border-blue-500/30 hover:bg-idemora-bg-primary
-              hover:shadow-[0_0_0_3px_rgb(59_130_246_/_0.06)]
-              transition-all duration-150 group
-            "
-          >
-            <div className="w-8 h-8 rounded-md bg-idemora-bg-primary border border-idemora-border flex items-center justify-center shrink-0 text-base group-hover:border-blue-500/25 transition-colors">
-              {template.icon}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-idemora-text-normal truncate">
-                {template.label}
-              </div>
-              <div className="text-[10px] text-idemora-text-faint truncate mt-0.5">
-                {template.description}
-              </div>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -340,12 +302,10 @@ const SHORTCUTS = [
 export function NewTabScreen({ paneId }: Props) {
   const [query, setQuery] = useState("");
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [view, setView] = useState<View>("home");
 
   const inputRef = useRef<HTMLInputElement>(null);
 
   const createNote = useNoteStore((s) => s.createNote);
-  const createNoteFromTemplate = useNoteStore((s) => s.createNoteFromTemplate);
   const openNote    = useOpenNoteWithScroll(paneId);
   const recentNotes = useRecentNotes();
 
@@ -378,14 +338,7 @@ export function NewTabScreen({ paneId }: Props) {
     openNote(note.id);
   }, [createNote, openNote]);
 
-  const handleTemplateNote = useCallback(
-    async (template: Template) => {
-      const note = await createNoteFromTemplate(template);
-      openNote(note.id);
-      setView("home");
-    },
-    [createNoteFromTemplate, openNote]
-  );
+   
 
   const handleCreateFromQuery = useCallback(async () => {
     if (!query.trim()) return;
@@ -398,7 +351,6 @@ export function NewTabScreen({ paneId }: Props) {
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          if (view === "templates") setView("home");
           setSelectedIdx((i) => Math.min(i + 1, results.length - 1));
           break;
 
@@ -416,28 +368,19 @@ export function NewTabScreen({ paneId }: Props) {
           }
           break;
 
-        case "ArrowRight":
-          if (!isSearching && view === "home") {
-            e.preventDefault();
-            setView("templates");
-          }
-          break;
-
         case "Escape":
           e.preventDefault();
           if (query) {
             setQuery("");
-          } else if (view === "templates") {
-            setView("home");
           }
           inputRef.current?.focus();
           break;
       }
     },
-    [view, results, selectedIdx, query, isSearching, openNote, handleCreateFromQuery]
+    [results, selectedIdx, query, openNote, handleCreateFromQuery]
   );
 
-  const isTemplatesActive = !isSearching && view === "templates";
+   
 
   return (
     <div className="flex flex-col items-center w-full h-full bg-idemora-bg-primary overflow-y-auto">
@@ -483,46 +426,19 @@ export function NewTabScreen({ paneId }: Props) {
         <div className="flex gap-2 mb-6">
           <button
             onClick={handleNewNote}
-            className={`
+            className="
               flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
               transition-all duration-150
-              ${!isTemplatesActive
-                ? "bg-blue-500/10 text-blue-400 shadow-[inset_0_0_0_1px_rgb(59_130_246_/_0.25)]"
-                : "bg-idemora-bg-secondary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-primary"
-              }
-            `}
+              bg-blue-500/10 text-blue-400 shadow-[inset_0_0_0_1px_rgb(59_130_246_/_0.25)]
+            "
           >
             <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
               <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
             New note
-            <kbd className={`ml-0.5 px-1.5 py-0.5 text-[9px] font-mono rounded ${
-              !isTemplatesActive
-                ? "bg-blue-500/15 text-blue-300"
-                : "bg-idemora-bg-primary border border-idemora-border text-idemora-text-faint"
-            }`}>
+            <kbd className="ml-0.5 px-1.5 py-0.5 text-[9px] font-mono rounded bg-blue-500/15 text-blue-300">
               ⌘N
             </kbd>
-          </button>
-
-          <button
-            onClick={() => setView((v) => (v === "templates" ? "home" : "templates"))}
-            className={`
-              flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-              transition-all duration-150
-              ${isTemplatesActive
-                ? "bg-blue-500/10 text-blue-400 shadow-[inset_0_0_0_1px_rgb(59_130_246_/_0.25)]"
-                : "bg-idemora-bg-secondary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-primary"
-              }
-            `}
-          >
-            <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
-              <rect x="1" y="1" width="3.3" height="3.3" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
-              <rect x="5.7" y="1" width="3.3" height="3.3" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
-              <rect x="1" y="5.7" width="3.3" height="3.3" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
-              <rect x="5.7" y="5.7" width="3.3" height="3.3" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-            Templates
           </button>
           <button
   onClick={async () => {
@@ -566,11 +482,7 @@ export function NewTabScreen({ paneId }: Props) {
           />
         )}
 
-        {!loading && !isSearching && view === "templates" && (
-          <TemplatesView onSelect={handleTemplateNote} />
-        )}
-
-        {!loading && !isSearching && view === "home" && (
+        {!loading && !isSearching && (
           <RecentNotesView notes={recentNotes} onOpen={openNote} />
         )}
 
