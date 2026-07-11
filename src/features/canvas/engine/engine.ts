@@ -277,8 +277,9 @@ export class CanvasEngine {
         const dpr = window.devicePixelRatio ?? 1;
         canvas.width  = Math.floor(width  * dpr);
         canvas.height = Math.floor(height * dpr);
-        canvas.style.width  = `${width}px`;
-        canvas.style.height = `${height}px`;
+        // canvas.style.width/height intentionally left alone — CSS (100%, set
+        // in CanvasViewport's JSX) drives display size; this block only sets
+        // backing-store resolution for crisp rendering at the current DPR.
         if (this.ctx) {
           this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
