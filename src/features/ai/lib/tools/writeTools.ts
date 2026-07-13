@@ -34,7 +34,6 @@ import {
   removeGoalLink,
   type GoalInput,
   type MilestoneInput,
-  type GoalMilestone,
   type GoalLink,
   type GoalLinkSourceType,
 } from "@/features/goals/db/goalQueries";
