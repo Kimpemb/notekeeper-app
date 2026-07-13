@@ -1,8 +1,15 @@
 // src/features/goals/components/GoalDetail.tsx
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { Goal, GoalMilestone, MilestoneInput } from "@/features/goals/db/goalQueries";
+import { getGoalLinks } from "@/features/goals/db/goalQueries";
+import { getNoteById } from "@/features/notes/db/queries";
 import { MilestoneList } from "./MilestoneList";
+
+interface LinkedNoteRef {
+  noteId: string;
+  title:  string;
+}
 
 interface GoalDetailProps {
   goal:              Goal;
@@ -13,6 +20,7 @@ interface GoalDetailProps {
   onAddMilestone:    (input: MilestoneInput) => Promise<string | void>;
   onUpdateMilestone: (id: string, goalId: string, updates: Partial<Omit<MilestoneInput, "goal_id">>) => Promise<void>;
   onDeleteMilestone: (id: string, goalId: string) => Promise<void>;
+  onOpenNote?:       (noteId: string) => void;
 }
 
 const STATE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
@@ -60,9 +68,46 @@ export function GoalDetail({
   onAddMilestone,
   onUpdateMilestone,
   onDeleteMilestone,
+  onOpenNote,
 }: GoalDetailProps) {
   const badge     = STATE_BADGE[goal.colour_state] ?? STATE_BADGE.blue;
   const elapsed   = timelinePercent(goal.start_date, goal.target_date);
+
+  const [linkedNotes, setLinkedNotes] = useState<LinkedNoteRef[]>([]);
+  const [linksLoading, setLinksLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLinksLoading(true);
+    (async () => {
+      try {
+        const links = await getGoalLinks(goal.id);
+        const noteLinks = links.filter((l) => l.source_type === "note");
+        const resolved = await Promise.all(
+          noteLinks.map(async (l) => {
+            const note = await getNoteById(l.source_id);
+            return note ? { noteId: note.id, title: note.title } : null;
+          })
+        );
+        if (!cancelled) {
+          setLinkedNotes(resolved.filter((r): r is LinkedNoteRef => r !== null));
+        }
+      } catch {
+        if (!cancelled) setLinkedNotes([]);
+      } finally {
+        if (!cancelled) setLinksLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [goal.id]);
+
+  function handleOpenLinkedNote(noteId: string) {
+    if (onOpenNote) {
+      onOpenNote(noteId);
+    } else {
+      window.dispatchEvent(new CustomEvent("idemora:open-note", { detail: { noteId } }));
+    }
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -233,13 +278,36 @@ export function GoalDetail({
             />
           </div>
 
-          {/* Evidence — stub */}
+          {/* Linked notes */}
           <div className="space-y-2">
-            <span className="text-xs font-medium text-idemora-text-muted">Evidence</span>
-            <p className="text-xs text-idemora-text-faint">
-              Evidence linking available in Phase 9.
-              {/* TODO Phase 9: replace with EvidenceLinker component */}
-            </p>
+            <span className="text-xs font-medium text-idemora-text-muted">Linked notes</span>
+            {linksLoading ? (
+              <p className="text-xs text-idemora-text-faint">Loading…</p>
+            ) : linkedNotes.length === 0 ? (
+              <p className="text-xs text-idemora-text-faint">
+                No notes linked yet. Ask the AI to link a note, or link one from chat.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {linkedNotes.map((n) => (
+                  <button
+                    key={n.noteId}
+                    onClick={() => handleOpenLinkedNote(n.noteId)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs
+                               text-idemora-text-normal border border-idemora-border
+                               hover:border-violet-400/40 hover:text-violet-400
+                               bg-idemora-bg-secondary transition-colors duration-100 max-w-[220px]"
+                    title={`Open note: ${n.title}`}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 8 8" fill="none" className="shrink-0">
+                      <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
+                      <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
+                    </svg>
+                    <span className="truncate">{n.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Metadata */}

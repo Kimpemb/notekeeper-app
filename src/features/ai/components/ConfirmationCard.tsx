@@ -5,8 +5,9 @@
 // executes. All card variants (small write, large write, batch calendar,
 // destructive, bulk destructive) are handled here.
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import type { PendingWrite } from "@/features/ai/lib/tools/confirmationGate";
+import { MessageRenderer } from "@/features/ai/components/MessageRenderer";
 
 interface Props {
   pendingWrite: PendingWrite;
@@ -85,6 +86,20 @@ function useUndoCountdown(undoExpiry: number | undefined): number | null {
   return remaining;
 }
 
+function useIsOverflowing(deps: unknown[]): [React.RefObject<HTMLDivElement | null>, boolean] {
+  const ref = useRef<HTMLDivElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setIsOverflowing(el.scrollHeight > el.clientHeight);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  return [ref, isOverflowing];
+}
+
 // ─── ConfirmationCard ─────────────────────────────────────────────────────────
 
 export function ConfirmationCard({ pendingWrite: pw, onConfirm, onCancel, onUndo }: Props) {
@@ -98,10 +113,16 @@ export function ConfirmationCard({ pendingWrite: pw, onConfirm, onCancel, onUndo
     (pw.preview.wordCount > 200 ||
       (pw.toolName === "deleteCalendarEvent" && pw.preview.isBatch));
 
+  const [previewRef, isOverflowing] = useIsOverflowing([
+    pw.preview.content,
+    expanded,
+  ]);
+
   const needsExpansion =
     !pw.preview.isBatch &&
     !!pw.preview.fullContent &&
-    pw.preview.wordCount > 200;
+    isOverflowing &&
+    !expanded;
 
   const applyDisabled = needsExpansion && !expanded;
 
@@ -237,6 +258,7 @@ export function ConfirmationCard({ pendingWrite: pw, onConfirm, onCancel, onUndo
             expanded={expanded}
             onExpand={() => setExpanded(true)}
             isDestructive={pw.preview.isDestructive}
+            previewRef={previewRef}
           />
         )}
       </div>
@@ -302,24 +324,28 @@ export function ConfirmationCard({ pendingWrite: pw, onConfirm, onCancel, onUndo
 // ─── TextPreview ──────────────────────────────────────────────────────────────
 
 function TextPreview({
-  content, fullContent, expanded, onExpand, isDestructive,
+  content, fullContent, expanded, onExpand, isDestructive, previewRef,
 }: {
   content:      string;
   fullContent?: string;
   expanded:     boolean;
   onExpand:     () => void;
   isDestructive: boolean;
+  previewRef:   React.RefObject<HTMLDivElement | null>;
 }) {
   const displayText = expanded && fullContent ? fullContent : content;
   const isTruncated = !!fullContent && !expanded;
 
   return (
-    <div className={`rounded-md text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-words max-h-48 overflow-y-auto ${
-      isDestructive
-        ? "bg-red-50/30 text-red-700 border border-red-100 p-2"
-        : "bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border/40 p-2"
-    }`}>
-      {displayText}
+    <div
+      ref={previewRef}
+      className={`rounded-md text-[11px] leading-relaxed max-h-48 overflow-y-auto ${
+        isDestructive
+          ? "bg-red-50/30 text-red-700 border border-red-100 p-2"
+          : "bg-idemora-bg-secondary text-idemora-text-normal border border-idemora-border/40 p-2"
+      }`}
+    >
+      <MessageRenderer content={displayText} isStreaming={false} />
       {isTruncated && (
         <button
           onClick={onExpand}

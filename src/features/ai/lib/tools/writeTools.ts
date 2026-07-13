@@ -22,7 +22,22 @@ import {
   type CalendarEventInput,
   type CalendarEvent,
 } from "@/features/calendar/db/calendarQueries";
-import { getGoal, updateGoal as dbUpdateGoal, type GoalInput } from "@/features/goals/db/goalQueries";
+import {
+  getGoal,
+  updateGoal as dbUpdateGoal,
+  createGoal as dbCreateGoal,
+  createMilestone as dbCreateMilestone,
+  deleteGoal as dbDeleteGoal,
+  getMilestonesForGoal,
+  getGoalLinks,
+  addGoalLink,
+  removeGoalLink,
+  type GoalInput,
+  type MilestoneInput,
+  type GoalMilestone,
+  type GoalLink,
+  type GoalLinkSourceType,
+} from "@/features/goals/db/goalQueries";
  
 import { markdownToDoc }             from "@/features/ai/lib/save/parseMarkdown";
 
@@ -919,6 +934,304 @@ export async function undoUpdateGoal(
   undoData: UpdateGoalUndoData
 ): Promise<void> {
   await dbUpdateGoal(undoData.goalId, undoData.originalFields);
+}
+
+// ─── createGoal ───────────────────────────────────────────────────────────────
+
+export interface CreateGoalMilestoneInput {
+  title:         string;
+  date:          string;
+  colour_state?: GoalInput["colour_state"];
+}
+
+export interface CreateGoalInput {
+  title:        string;
+  description?: string | null;
+  start_date:   string;
+  target_date:  string;
+  colour_state?: GoalInput["colour_state"];
+  category?:    string | null;
+  milestones?:  string | CreateGoalMilestoneInput[];   // JSON string from model, or parsed array
+}
+
+export interface CreateGoalUndoData {
+  goalId: string;
+}
+
+export async function executeCreateGoal(
+  input: CreateGoalInput
+): Promise<WriteToolResult> {
+  try {
+    // Parse milestones — the model sends this as a JSON string per the tool schema
+    let milestones: CreateGoalMilestoneInput[] = [];
+    if (input.milestones) {
+      if (typeof input.milestones === "string") {
+        try {
+          const parsed = JSON.parse(input.milestones);
+          if (Array.isArray(parsed)) milestones = parsed;
+        } catch {
+          // malformed milestones JSON — proceed without milestones rather than failing the whole goal
+        }
+      } else {
+        milestones = input.milestones;
+      }
+    }
+
+    const goalId = await dbCreateGoal({
+      title:        input.title,
+      description:  input.description ?? null,
+      start_date:   input.start_date,
+      target_date:  input.target_date,
+      colour_state: input.colour_state ?? "blue",
+      progress:     0,
+      category:     input.category ?? null,
+    });
+
+    for (const m of milestones) {
+      if (!m.title || !m.date) continue;
+      await dbCreateMilestone({
+        goal_id: goalId,
+        title:   m.title,
+        date:    m.date,
+        colour_state: m.colour_state ?? "blue",
+      } satisfies MilestoneInput);
+    }
+
+    window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+
+    return {
+      success:  true,
+      undoData: { goalId } satisfies CreateGoalUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoCreateGoal(
+  undoData: CreateGoalUndoData
+): Promise<void> {
+  // deleteGoal cascades to goal_milestones and goal_links — see goalQueries.ts
+  await dbDeleteGoal(undoData.goalId);
+  window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+}
+
+// ─── deleteGoal ───────────────────────────────────────────────────────────────
+
+export interface DeleteGoalInput {
+  goal_id: string;
+  reason?: string;
+}
+
+export interface DeleteGoalUndoData {
+  goal:       GoalInput;
+  milestones: Omit<MilestoneInput, "goal_id">[];
+  links:      Omit<GoalLink, "id" | "goal_id" | "created_at">[];
+}
+
+export async function executeDeleteGoal(
+  input: DeleteGoalInput
+): Promise<WriteToolResult> {
+  try {
+    const goal = await getGoal(input.goal_id);
+    if (!goal) {
+      return { success: false, error: `Goal ${input.goal_id} not found.` };
+    }
+
+    // Snapshot everything needed to fully reconstruct the goal on undo —
+    // deleteGoal cascades to goal_milestones and goal_links at the DB level,
+    // so both must be captured here before the delete, not after.
+    const milestones = await getMilestonesForGoal(input.goal_id);
+    const links      = await getGoalLinks(input.goal_id);
+
+    const undoData: DeleteGoalUndoData = {
+      goal: {
+        title:        goal.title,
+        description:  goal.description,
+        start_date:   goal.start_date,
+        target_date:  goal.target_date,
+        colour_state: goal.colour_state,
+        progress:     goal.progress,
+        category:     goal.category,
+      },
+      milestones: milestones.map((m) => ({
+        title:        m.title,
+        date:         m.date,
+        colour_state: m.colour_state,
+      })),
+      links: links.map((l) => ({
+        source_id:   l.source_id,
+        source_type: l.source_type,
+        weight:      l.weight,
+      })),
+    };
+
+    await dbDeleteGoal(input.goal_id);
+
+    window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+
+    return {
+      success:  true,
+      undoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoDeleteGoal(
+  undoData: DeleteGoalUndoData
+): Promise<void> {
+  // Recreate with original field values is not possible via createGoal (it
+  // generates a new UUID) — same limitation as undoDeleteCalendarEvent.
+  // Milestones and links are recreated pointing at the new goal id.
+  const newGoalId = await dbCreateGoal(undoData.goal);
+
+  for (const m of undoData.milestones) {
+    await dbCreateMilestone({ goal_id: newGoalId, ...m } satisfies MilestoneInput);
+  }
+
+  for (const l of undoData.links) {
+    await addGoalLink(newGoalId, l.source_id, l.source_type, l.weight);
+  }
+
+  window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+}
+
+// ─── linkNoteToGoal ───────────────────────────────────────────────────────────
+//
+// Mirrors executeLinkNoteToEvent's shape, but goal_links is a many-rows-per-goal
+// join table (unlike linked_note_id, a single column on the event) — so undo
+// removes the row just added rather than restoring a previous value, and a
+// dedup check guards against the same note/goal pair being linked twice (e.g.
+// once via autoLinkNoteToGoal below, once via an explicit follow-up call).
+
+export interface LinkNoteToGoalInput {
+  goal_id: string;
+  note_id: string;
+}
+
+export interface LinkNoteToGoalUndoData {
+  linkId: string;
+}
+
+export async function executeLinkNoteToGoal(
+  input: LinkNoteToGoalInput
+): Promise<WriteToolResult> {
+  try {
+    const goal = await getGoal(input.goal_id);
+    if (!goal) {
+      return { success: false, error: `Goal ${input.goal_id} not found.` };
+    }
+    const note = await getNoteById(input.note_id);
+    if (!note) {
+      return { success: false, error: `Note ${input.note_id} not found.` };
+    }
+
+    // Dedup guard — don't insert a second row for a pair that's already linked.
+    const existing = await getGoalLinks(input.goal_id);
+    const already = existing.find(
+      (l) => l.source_id === input.note_id && l.source_type === "note"
+    );
+    if (already) {
+      return {
+        success:  true,
+        undoData: { linkId: already.id } satisfies LinkNoteToGoalUndoData,
+      };
+    }
+
+    const linkId = await addGoalLink(input.goal_id, input.note_id, "note");
+
+    window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+
+    return {
+      success:  true,
+      undoData: { linkId } satisfies LinkNoteToGoalUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoLinkNoteToGoal(
+  undoData: LinkNoteToGoalUndoData
+): Promise<void> {
+  await removeGoalLink(undoData.linkId);
+  window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+}
+
+// ─── unlinkNoteFromGoal ───────────────────────────────────────────────────────
+
+export interface UnlinkNoteFromGoalInput {
+  goal_id: string;
+  note_id: string;
+}
+
+export interface UnlinkNoteFromGoalUndoData {
+  goalId:     string;
+  sourceId:   string;
+  sourceType: GoalLinkSourceType;
+  weight:     number;
+}
+
+export async function executeUnlinkNoteFromGoal(
+  input: UnlinkNoteFromGoalInput
+): Promise<WriteToolResult> {
+  try {
+    const links = await getGoalLinks(input.goal_id);
+    const link  = links.find(
+      (l) => l.source_id === input.note_id && l.source_type === "note"
+    );
+    if (!link) {
+      return { success: false, error: `No link found between goal ${input.goal_id} and note ${input.note_id}.` };
+    }
+
+    await removeGoalLink(link.id);
+
+    window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+
+    return {
+      success:  true,
+      undoData: {
+        goalId:     input.goal_id,
+        sourceId:   input.note_id,
+        sourceType: "note",
+        weight:     link.weight,
+      } satisfies UnlinkNoteFromGoalUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoUnlinkNoteFromGoal(
+  undoData: UnlinkNoteFromGoalUndoData
+): Promise<void> {
+  await addGoalLink(undoData.goalId, undoData.sourceId, undoData.sourceType, undoData.weight);
+  window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+}
+
+// ─── Auto-link helper (batch-detected note+goal pairing) ─────────────────────
+//
+// Called from confirmationGate.ts, never proposed as its own pending write —
+// note_id and goal_id don't exist until createNote/createGoal have each
+// actually executed, so there's no way to render this as a pre-confirmation
+// card. Once both sides of a same-batch createNote/createGoal pair have
+// executed, this links them silently. Reuses the same dedup guard as
+// executeLinkNoteToGoal so a note already linked (e.g. by an explicit
+// follow-up linkNoteToGoal call) is never double-linked.
+export async function autoLinkNoteToGoal(
+  goalId: string,
+  noteId: string
+): Promise<void> {
+  try {
+    const existing = await getGoalLinks(goalId);
+    if (existing.some((l) => l.source_id === noteId && l.source_type === "note")) return;
+    await addGoalLink(goalId, noteId, "note");
+    window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+  } catch (err) {
+    console.warn("[writeTools] autoLinkNoteToGoal failed:", err);
+  }
 }
 
 // ─── JSON-level node helpers ──────────────────────────────────────────────────
