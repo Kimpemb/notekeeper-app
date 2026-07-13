@@ -1812,7 +1812,7 @@ RULES:
 - If the user refers to a calendar event's "body", "description", or "details", this means the event's notes field — call getCalendarEvents to find the event, then updateCalendarEvent to write it. This is NOT a note in the notes app. Only search notes if the user explicitly says "note".
 - When the user asks to create a note under or inside another note, call getFileTree first to find the parent note's exact id. Never construct or guess a parent_id.
 - When using parent_id in createNote, you MUST use the exact id field returned by getFileTree, searchNotes, or getNote. Never construct or guess an id.
-- Propose one write operation at a time unless the user explicitly requested a batch.
+- When the user's request naturally implies multiple related writes (e.g. creating several notes for one project, or several calendar events), call all of the corresponding write tools together in this SAME response/turn — do not propose one, wait for the result, then propose the next. Otherwise, propose one write operation at a time.
 - If the user says "just do it" or "don't ask": still use the write tool. The confirmation gate is handled by the app, not you.
 - CRITICAL: You CANNOT make changes to notes, calendar, or goals by describing them in text.
   After reading with a read tool, you MUST call the appropriate write tool to make any change.
@@ -1889,6 +1889,17 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
       // Process content blocks
       let hasToolCall = false;
 
+      // All write tools proposed in THIS model turn share one batchId, so the
+      // UI can group them and offer "Approve all" — even though each write's
+      // execution still only happens once its individual decision resolves.
+      const batchId = crypto.randomUUID();
+
+      // Pass 1 — walk blocks: execute read tools immediately (unchanged),
+      // register write tools at the gate WITHOUT awaiting a decision yet.
+      // This is what lets multiple writes proposed in one turn become
+      // visible in the UI together, instead of one at a time.
+      const pendingDecisions: { toolId: string; writeId: string }[] = [];
+
       for (const block of response.content) {
         if (block.type === "text" && block.text) {
           streaming.onChunk(block.text);
@@ -1923,7 +1934,7 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
             } as unknown as ProviderMessage);
 
           } else if (WRITE_TOOL_NAMES.has(toolName)) {
-            // ── Write tool — hold at confirmation gate ────────────────────
+            // ── Write tool — register at confirmation gate, decision deferred to pass 2 ──
             streaming.onStatus?.("Preparing write…");
 
             // Pre-fetch note title for the preview (if applicable)
@@ -1935,11 +1946,12 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
               conflicts = await detectCalendarConflicts(toolInput);
             }
 
-// Don't propose another write if one is already awaiting user decision —
-// scoped to THIS note's session, so a stuck write elsewhere never blocks
-// unrelated notes.
+// Don't propose another write if one from a DIFFERENT batch is already
+// awaiting user decision — scoped to THIS note's session, so a stuck write
+// elsewhere never blocks unrelated notes. Writes within the SAME batch
+// (this model turn) are exempt — that's the whole point of batching.
 const existingPending = [...useConfirmationGate.getState().pendingWrites.values()]
-  .some((pw) => pw.status === "pending" && pw.noteId === noteId);
+  .some((pw) => pw.status === "pending" && pw.noteId === noteId && pw.batchId !== batchId);
 if (existingPending) {
   messages.push({
     role:         "tool",
@@ -1953,6 +1965,7 @@ const preview = buildWritePreview(toolName, toolInput, noteTitleMap, conflicts);
 
 const pendingWrite: PendingWrite = {
               id:                  crypto.randomUUID(),
+              batchId,
               noteId,
               toolName,
               toolInput,
@@ -1965,48 +1978,63 @@ const pendingWrite: PendingWrite = {
             useConfirmationGate.getState().addPendingWrite(pendingWrite);
             onPendingWrite(pendingWrite);
 
-            // Pause loop — await user decision
-            streaming.onStatus?.(null);
-            const decision = await awaitWriteDecision(pendingWrite.id);
+            pendingDecisions.push({ toolId, writeId: pendingWrite.id });
+          }
+        }
+      }
 
-            if (decision === "confirmed") {
-              // Gate executed the write — feed success back
-              const executed = useConfirmationGate.getState().pendingWrites.get(pendingWrite.id);
+      // Pass 2 — now that every write proposed this turn is visible in the
+      // UI at once, wait for each individual decision (approve/cancel per
+      // item, or all resolved together via "Approve all" in the UI) and
+      // feed results back to the model in original proposal order.
+      if (pendingDecisions.length > 0) {
+        streaming.onStatus?.(null);
+
+        const decisions = await Promise.all(
+          pendingDecisions.map(({ writeId }) => awaitWriteDecision(writeId))
+        );
+
+        for (let i = 0; i < pendingDecisions.length; i++) {
+          const { toolId, writeId } = pendingDecisions[i];
+          const decision = decisions[i];
+
+          if (decision === "confirmed") {
+            // Gate executed the write — feed success back
+            const executed = useConfirmationGate.getState().pendingWrites.get(writeId);
+            messages.push({
+              role:         "tool",
+              tool_call_id: toolId,
+              content:      JSON.stringify({
+                executed: true,
+                insertedViaFallback: executed?.insertedViaFallback ?? false,
+                createdEvents: executed?.createdEvents ?? undefined,
+              }),
+            } as unknown as ProviderMessage);
+          } else {
+            // The awaiter resolves "cancelled" for TWO distinct cases: the user
+            // rejected the card, or the user approved it but executeDeleteBlocksInNote
+            // (or any other executor) rejected the input during confirmWrite() and
+            // set status "error" with errorMessage. Those cases must not collapse
+            // into the same { cancelled: true } payload — the model has no way to
+            // tell "you were rejected" from "your input was invalid" otherwise, and
+            // will retry blind variations instead of correcting its approach.
+            const finalState = useConfirmationGate.getState().pendingWrites.get(writeId);
+
+            if (finalState?.status === "error") {
               messages.push({
                 role:         "tool",
                 tool_call_id: toolId,
                 content:      JSON.stringify({
-                  executed: true,
-                  insertedViaFallback: executed?.insertedViaFallback ?? false,
-                  createdEvents: executed?.createdEvents ?? undefined,
+                  cancelled: false,
+                  error:     finalState.errorMessage ?? "Write failed.",
                 }),
               } as unknown as ProviderMessage);
             } else {
-              // The awaiter resolves "cancelled" for TWO distinct cases: the user
-              // rejected the card, or the user approved it but executeDeleteBlocksInNote
-              // (or any other executor) rejected the input during confirmWrite() and
-              // set status "error" with errorMessage. Those cases must not collapse
-              // into the same { cancelled: true } payload — the model has no way to
-              // tell "you were rejected" from "your input was invalid" otherwise, and
-              // will retry blind variations instead of correcting its approach.
-              const finalState = useConfirmationGate.getState().pendingWrites.get(pendingWrite.id);
-
-              if (finalState?.status === "error") {
-                messages.push({
-                  role:         "tool",
-                  tool_call_id: toolId,
-                  content:      JSON.stringify({
-                    cancelled: false,
-                    error:     finalState.errorMessage ?? "Write failed.",
-                  }),
-                } as unknown as ProviderMessage);
-              } else {
-                messages.push({
-                  role:         "tool",
-                  tool_call_id: toolId,
-                  content:      JSON.stringify({ cancelled: true }),
-                } as unknown as ProviderMessage);
-              }
+              messages.push({
+                role:         "tool",
+                tool_call_id: toolId,
+                content:      JSON.stringify({ cancelled: true }),
+              } as unknown as ProviderMessage);
             }
           }
         }
