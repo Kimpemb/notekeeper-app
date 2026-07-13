@@ -55,15 +55,13 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.0.2
+            ## What's new in v2.0.3
 
-            **Chat**
-            - You can now paste multiple large blocks of text into chat (up to 5 at once) — each shows as its own small pill above the message box, viewable and removable independently
-            - Fixed pasted plain text with labeled fields (e.g. cover sheets, forms) being incorrectly wrapped as a code block
-
-            **Notes**
-            - Fixed "Today's note" in the sidebar not opening the note when clicked
-            - Removed the templates feature — daily notes now work standalone
+            **AI actions**
+            - Requesting multiple changes at once (e.g. "create 3 notes for this project") now shows a single review window with a list of proposed changes and a preview, instead of separate cards stacked one after another
+            - Calendar events created from a note's chat no longer default to the wrong category — generic or test events now default to "personal" instead of "note"
+            - Write confirmation cards now show real, readable content instead of raw IDs: creating a note under a parent shows the actual destination, updating a goal or calendar event shows its actual title, and deleting a note section or calendar event shows what's actually being removed
+            - Added a safeguard that flags it in chat if the AI claims a change was made but no confirmation card actually appeared, so you're never left thinking something happened when it didn't
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
