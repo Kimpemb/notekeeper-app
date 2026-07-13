@@ -209,7 +209,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: "string",
           description: "Optional JSON string of frontmatter key-value pairs (e.g. '{\"course\":\"Math\"}').",
         },
-        parent_id: { type: "string", description: "Optional UUID of a parent note to nest this note under." },
+        parent_id: { type: "string", description: "Optional UUID of a parent note to nest this note under. If the user names a parent by title (e.g. 'under Y'), call getFileTree first to resolve the correct id — do not guess." },
       },
       required: ["title", "content"],
     },
@@ -229,7 +229,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description:
             "JSON array of event objects. Each object: " +
             "{ title: string, date: string (YYYY-MM-DD), time?: string (HH:MM 24h), " +
-            "duration_mins?: number, category?: 'personal'|'note'|'task'|'goal'|'cde', notes?: string }",
+            "duration_mins?: number, category?: 'personal'|'note'|'task'|'goal'|'cde', notes?: string }. " +
+            "category defaults to 'personal' — use that unless the event is clearly, " +
+            "directly derived from or about a specific note's content. Do not default " +
+            "to 'note' just because this conversation is happening inside a note's chat panel; " +
+            "generic, test, or unrelated events should be 'personal'.",
         },
       },
       required: ["events"],
@@ -303,7 +307,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description:
             "JSON object with fields to update: " +
             "{ title?: string, date?: string (YYYY-MM-DD), time?: string (HH:MM 24h), " +
-            "duration_mins?: number, category?: 'personal'|'note'|'task'|'goal'|'cde', notes?: string }",
+            "duration_mins?: number, category?: 'personal'|'note'|'task'|'goal'|'cde', notes?: string }. " +
+            "Only change category if the user explicitly asks — don't default to 'note' " +
+            "just because this update was requested from within a note's chat panel.",
         },
       },
       required: ["event_id", "updates"],

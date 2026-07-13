@@ -1787,6 +1787,7 @@ import {
 import { callPrimaryWithTools } from "@/features/ai/lib/client";
 import { getNoteById } from "@/features/notes/db/queries";
 import { getEventsForDateRange } from "@/features/calendar/db/calendarQueries";
+import { getGoal } from "@/features/goals/db/goalQueries";
 
 export { classifyActionIntent };
 
@@ -1948,6 +1949,16 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
               conflicts = await detectCalendarConflicts(toolInput);
             }
 
+            // Pre-fetch real content for deleteBlocksInNote's preview
+            let deletedBlocksText: string | undefined;
+            if (toolName === "deleteBlocksInNote") {
+              deletedBlocksText = await fetchDeletedBlocksPreview(
+                toolInput.note_id as string,
+                toolInput.from_block_id as string,
+                toolInput.to_block_id as string,
+              );
+            }
+
 // Don't propose another write if one from a DIFFERENT batch is already
 // awaiting user decision — scoped to THIS note's session, so a stuck write
 // elsewhere never blocks unrelated notes. Writes within the SAME batch
@@ -1963,7 +1974,7 @@ if (existingPending) {
   continue;
 }
 
-const preview = buildWritePreview(toolName, toolInput, noteTitleMap, conflicts);
+const preview = buildWritePreview(toolName, toolInput, noteTitleMap, conflicts, deletedBlocksText);
 
 const pendingWrite: PendingWrite = {
               id:                  crypto.randomUUID(),
@@ -2115,8 +2126,10 @@ async function buildNoteTitleMap(
     } catch { /* non-fatal */ }
   }
 
-  // For linkNoteToEvent — pre-fetch event title so the confirmation card
-  // shows a human-readable name instead of the raw UUID.
+  // For linkNoteToEvent / updateCalendarEvent / deleteCalendarEvent —
+  // pre-fetch event title (and stash date/time on the map's value string
+  // for previews that need more than a title) so the confirmation card
+  // shows human-readable info instead of the raw UUID.
   if (toolInput.event_id && typeof toolInput.event_id === "string") {
     try {
       const event = await getEventsForDateRange({
@@ -2125,7 +2138,20 @@ async function buildNoteTitleMap(
         layers:    ["personal", "notes", "tasks", "goals", "cde"],
       });
       const match = event.find((e) => e.id === toolInput.event_id);
-      if (match) map.set(match.id, match.title);
+      if (match) {
+        const dateTimeSuffix = match.time ? `${match.date} at ${match.time}` : match.date;
+        map.set(match.id, match.title);
+        map.set(`${match.id}::datetime`, dateTimeSuffix);
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  // For updateGoal — pre-fetch goal title so the confirmation card
+  // shows a human-readable name instead of the raw UUID.
+  if (toolInput.goal_id && typeof toolInput.goal_id === "string") {
+    try {
+      const goal = await getGoal(toolInput.goal_id);
+      if (goal) map.set(goal.id, goal.title);
     } catch { /* non-fatal */ }
   }
 
@@ -2180,6 +2206,71 @@ async function detectCalendarConflicts(
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return (h ?? 0) * 60 + (m ?? 0);
+}
+
+// ─── Delete-range preview text (for deleteBlocksInNote preview card) ─────────
+// Mirrors the flatten() pattern in writeTools.ts's deleteBlocksInRange —
+// same sibling-matching logic, but instead of splicing the range out, it
+// extracts real plaintext from it so the confirmation card shows what's
+// actually being deleted instead of raw block_ids.
+async function fetchDeletedBlocksPreview(
+  noteId:      string,
+  fromBlockId: string,
+  toBlockId:   string,
+): Promise<string | undefined> {
+  try {
+    const note = await getNoteById(noteId);
+    if (!note?.content) return undefined;
+
+    const doc = JSON.parse(note.content) as { type: string; content?: unknown[] };
+    if (!Array.isArray(doc.content)) return undefined;
+
+    interface FlatEntry {
+      blockId:  string | null;
+      node:     Record<string, unknown>;
+      siblings: unknown[];
+      index:    number;
+    }
+
+    function flatten(nodes: unknown[], acc: FlatEntry[]): FlatEntry[] {
+      nodes.forEach((node, i) => {
+        const n     = node as Record<string, unknown>;
+        const attrs = (n.attrs ?? {}) as Record<string, unknown>;
+        const blockId = typeof attrs.blockId === "string" ? attrs.blockId : null;
+        acc.push({ blockId, node: n, siblings: nodes, index: i });
+        if (Array.isArray(n.content)) flatten(n.content as unknown[], acc);
+      });
+      return acc;
+    }
+
+    const flat      = flatten(doc.content, []);
+    const fromEntry = flat.find((e) => e.blockId === fromBlockId);
+    const toEntry   = flat.find((e) => e.blockId === toBlockId);
+    if (!fromEntry || !toEntry || fromEntry.siblings !== toEntry.siblings) return undefined;
+
+    const start = Math.min(fromEntry.index, toEntry.index);
+    const end   = Math.max(fromEntry.index, toEntry.index);
+    const range = fromEntry.siblings.slice(start, end + 1);
+
+    function extractText(node: Record<string, unknown>): string {
+      const lines: string[] = [];
+      function walk(n: Record<string, unknown>) {
+        if (n.type === "text" && typeof n.text === "string") lines.push(n.text as string);
+        if (Array.isArray(n.content)) (n.content as Record<string, unknown>[]).forEach(walk);
+      }
+      walk(node);
+      return lines.join(" ").replace(/\s+/g, " ").trim();
+    }
+
+    const text = range
+      .map((n) => extractText(n as Record<string, unknown>))
+      .filter(Boolean)
+      .join("\n\n");
+
+    return text || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
   // ─── Non-streaming fallback ───────────────────────────────────────────────────

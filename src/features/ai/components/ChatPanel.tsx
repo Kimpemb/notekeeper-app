@@ -74,6 +74,18 @@ function isAutoSearchable(raw: string): boolean {
   return words.length <= 20
 }
 
+// Detects the model narrating a write as done ("I've created...", "Done!")
+// in its own text. Used ONLY as a secondary check when we already know no
+// write was registered at the gate for this message — kept narrow (first-
+// person action claims) to avoid flagging unrelated uses of these words,
+// e.g. "this note was created in 2024".
+// KNOWN LIMITATION: checked once per whole turn, not per tool-loop iteration —
+// if one real write happens early in a turn and a later iteration falsely
+// claims a second action with no tool call, this will not catch it.
+function containsUnverifiedWriteClaim(text: string): boolean {
+  return /\b(I(?:'ve| have) (?:created|deleted|updated|added|moved|replaced|removed)|has been (?:created|deleted|updated|added|moved|replaced|removed)|Done!|successfully (?:created|deleted|updated|added|moved))\b/i.test(text)
+}
+
 const LONG_PASTE_CHAR_THRESHOLD = 3000
 const LONG_PASTE_LINE_THRESHOLD = 80
 
@@ -830,8 +842,20 @@ useEffect(() => {
         );
 
         // Persist session and AI history after tool loop completes
-        const finalContent = useChatSessionStore.getState().getSessionByNoteId(noteId)
+        let finalContent = useChatSessionStore.getState().getSessionByNoteId(noteId)
           .messages.find(m => m.id === assistantId)?.content ?? "";
+
+        // Trust-but-verify: if the model's text claims a write succeeded but
+        // nothing was ever registered at the gate for this message, the claim
+        // is false — narrated success with no actual tool call (or a call
+        // that silently failed to register, e.g. HMR/module-load issues).
+        const registeredWrites = [...useConfirmationGate.getState().pendingWrites.values()]
+          .filter((w) => w.assistantMessageId === assistantId);
+        if (registeredWrites.length === 0 && containsUnverifiedWriteClaim(finalContent)) {
+          finalContent += "\n\n---\n\n⚠️ *No changes were actually made — no confirmation card appeared for this request. Please try again.*";
+          setMessageContent(noteId, assistantId, finalContent);
+        }
+
         await appendAIHistory(noteId, "user", q);
         await appendAIHistory(noteId, "assistant", finalContent);
         await saveSession(noteId);
@@ -1075,8 +1099,16 @@ const handleRetry = useCallback(async (userMessageId?: string, userMessageConten
         targetAssistantId,
       );
 
-      const finalContent = useChatSessionStore.getState().getSessionByNoteId(noteId)
+      let finalContent = useChatSessionStore.getState().getSessionByNoteId(noteId)
         .messages.find(m => m.id === targetAssistantId)?.content ?? "";
+
+      const registeredWrites = [...useConfirmationGate.getState().pendingWrites.values()]
+        .filter((w) => w.assistantMessageId === targetAssistantId);
+      if (registeredWrites.length === 0 && containsUnverifiedWriteClaim(finalContent)) {
+        finalContent += "\n\n---\n\n⚠️ *No changes were actually made — no confirmation card appeared for this request. Please try again.*";
+        setMessageContent(noteId, targetAssistantId, finalContent);
+      }
+
       await appendAIHistory(noteId, "user", targetContent);
       await appendAIHistory(noteId, "assistant", finalContent);
       await saveSession(noteId);

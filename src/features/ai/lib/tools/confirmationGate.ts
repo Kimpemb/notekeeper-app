@@ -296,7 +296,8 @@ export function buildWritePreview(
   toolName:   string,
   toolInput:  Record<string, unknown>,
   noteTitleMap: Map<string, string>,   // noteId → title, pre-fetched by chat.ts
-  conflicts?: CalendarConflict[]
+  conflicts?: CalendarConflict[],
+  deletedBlocksText?: string,          // pre-fetched real content for deleteBlocksInNote
 ): WritePreview {
   switch (toolName) {
 
@@ -354,6 +355,18 @@ export function buildWritePreview(
       const toId    = toolInput.to_block_id as string;
       const title   = noteTitleMap.get(noteId) ?? noteId;
       const single  = fromId === toId;
+      const description = single ? "Deleting 1 block" : "Deleting a range of blocks";
+      if (deletedBlocksText) {
+        return {
+          title:         `Delete ${single ? "block" : "blocks"} in "${title}"`,
+          description,
+          ...truncateContent(deletedBlocksText),
+          isDestructive: true,
+          isBatch:       false,
+        };
+      }
+      // Fallback — real content couldn't be resolved (note deleted mid-flow,
+      // malformed doc, etc). Raw ids are better than nothing here.
       return {
         title:         `Delete ${single ? "block" : "blocks"} in "${title}"`,
         description:   single
@@ -368,10 +381,12 @@ export function buildWritePreview(
 
     case "createNote": {
       const noteTitle = toolInput.title as string;
-      const content   = toolInput.content as string;
+      const content    = toolInput.content as string;
+      const parentId   = toolInput.parent_id as string | undefined;
+      const dest        = parentId ? (noteTitleMap.get(parentId) ?? parentId) : "root level";
       return {
         title:         `Create note "${noteTitle}"`,
-        description:   "New note will appear in the sidebar",
+        description:   `Will appear under "${dest}"`,
         ...truncateContent(content),
         isDestructive: false,
         isBatch:       false,
@@ -402,12 +417,14 @@ export function buildWritePreview(
     }
 
     case "deleteCalendarEvent": {
-      const eventId = toolInput.event_id as string;
-      const reason  = toolInput.reason as string | undefined;
+      const eventId   = toolInput.event_id as string;
+      const reason     = toolInput.reason as string | undefined;
+      const eventTitle = noteTitleMap.get(eventId) ?? eventId;
+      const dateTime   = noteTitleMap.get(`${eventId}::datetime`);
       return {
-        title:         "Delete calendar event",
-        description:   reason ? `Reason: ${reason}` : `Event ID: ${eventId}`,
-        content:       `Deleting event ${eventId}`,
+        title:         `Delete "${eventTitle}"`,
+        description:   reason ? `Reason: ${reason}` : (dateTime ? `Scheduled: ${dateTime}` : "No reason given"),
+        content:       dateTime ? `Deleting "${eventTitle}"\n${dateTime}` : `Deleting "${eventTitle}"`,
         wordCount:     4,
         isDestructive: true,
         isBatch:       false,
@@ -416,6 +433,7 @@ export function buildWritePreview(
 
     case "updateGoal": {
       const goalId  = toolInput.goal_id as string;
+      const goalTitle = noteTitleMap.get(goalId) ?? goalId;
       let updates: Record<string, unknown> = {};
       try {
         updates = JSON.parse(toolInput.updates as string);
@@ -425,8 +443,8 @@ export function buildWritePreview(
         .map(([k, v]) => `**${k}:** ${String(v)}`)
         .join("\n");
       return {
-        title:         "Update goal",
-        description:   `Changing: ${fields || goalId}`,
+        title:         `Update "${goalTitle}"`,
+        description:   `Changing: ${fields || "no fields specified"}`,
         ...truncateContent(preview),
         isDestructive: false,
         isBatch:       false,
@@ -435,6 +453,7 @@ export function buildWritePreview(
 
     case "updateCalendarEvent": {
       const eventId = toolInput.event_id as string;
+      const eventTitle = noteTitleMap.get(eventId) ?? eventId;
       let updates: Record<string, unknown> = {};
       try {
         updates = JSON.parse(toolInput.updates as string);
@@ -444,8 +463,8 @@ export function buildWritePreview(
         .map(([k, v]) => `**${k}:** ${String(v)}`)
         .join("\n");
       return {
-        title:         "Update calendar event",
-        description:   `Changing: ${fields || eventId}`,
+        title:         `Update "${eventTitle}"`,
+        description:   `Changing: ${fields || "no fields specified"}`,
         ...truncateContent(preview),
         isDestructive: false,
         isBatch:       false,
