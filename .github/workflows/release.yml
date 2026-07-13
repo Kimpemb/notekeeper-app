@@ -55,13 +55,16 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.0.3
+            ## What's new in v2.0.4
+
+            **Goals**
+            - The AI can now create goals with milestones from scratch, not just update existing ones — ask it to track a deadline, exam, or project and it'll set up the goal and checkpoints in one step
+            - Goals can now be deleted through the AI as well, with milestones removed alongside them
+            - Notes can now be linked to goals — link an existing note to a goal by asking, or when the AI creates a note and a goal together in the same request (e.g. a study plan), it links them automatically
+            - Goal details now show any notes linked to that goal, with one click to open them
 
             **AI actions**
-            - Requesting multiple changes at once (e.g. "create 3 notes for this project") now shows a single review window with a list of proposed changes and a preview, instead of separate cards stacked one after another
-            - Calendar events created from a note's chat no longer default to the wrong category — generic or test events now default to "personal" instead of "note"
-            - Write confirmation cards now show real, readable content instead of raw IDs: creating a note under a parent shows the actual destination, updating a goal or calendar event shows its actual title, and deleting a note section or calendar event shows what's actually being removed
-            - Added a safeguard that flags it in chat if the AI claims a change was made but no confirmation card actually appeared, so you're never left thinking something happened when it didn't
+            - Every write the AI proposes — single or batched — now goes through one consistent review window, with a 60-second undo available after any change is applied
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
