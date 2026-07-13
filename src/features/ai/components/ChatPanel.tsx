@@ -148,6 +148,49 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
   );
 }
 
+// ─── Delayed single-write reveal ───────────────────────────────────────────
+// A write proposed alone might just be the first of several landing across
+// separate tool-loop iterations (e.g. read → write → read → write). Showing
+// the bare card immediately, then swapping it for a modal moments later, is
+// jarring. Hold a brief skeleton instead — if the write is still alone once
+// the delay elapses, reveal the card. If a second write joins its batch
+// before then, this component unmounts (parent re-groups it into the modal
+// branch) and the skeleton never resolves into a flashing card.
+function PendingSingleWrite({
+  write, onConfirm, onCancel, onUndo,
+}: {
+  write:     PendingWrite
+  onConfirm: (id: string) => Promise<void>
+  onCancel:  (id: string) => void
+  onUndo:    (id: string) => Promise<void>
+}) {
+  const [ready, setReady] = useState(write.status !== "pending")
+
+  useEffect(() => {
+    if (write.status !== "pending") { setReady(true); return }
+    const t = setTimeout(() => setReady(true), 500)
+    return () => clearTimeout(t)
+  }, [write.id, write.status])
+
+  if (!ready) {
+    return (
+      <div className="mx-3 mt-1 mb-1 px-3 py-2.5 rounded-lg border border-idemora-border bg-idemora-bg-primary flex items-center gap-2">
+        <span className="w-3 h-3 rounded-full border-2 border-idemora-text-muted/30 border-t-violet-400 animate-spin shrink-0" />
+        <span className="text-[11px] text-idemora-text-muted">Preparing changes…</span>
+      </div>
+    )
+  }
+
+  return (
+    <ConfirmationCard
+      pendingWrite={write}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+      onUndo={onUndo}
+    />
+  )
+}
+
 // ─── Quota exhausted card ─────────────────────────────────────────────────────
 
 function QuotaExhaustedCard({ onRetry }: { onRetry: () => void }) {
@@ -1405,9 +1448,9 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
                           )
                         })}
                         {singleWrites.map((group) => (
-                          <ConfirmationCard
+                          <PendingSingleWrite
                             key={group[0].id}
-                            pendingWrite={group[0]}
+                            write={group[0]}
                             onConfirm={(id) => useConfirmationGate.getState().confirmWrite(id)}
                             onCancel={(id) => {
                               useConfirmationGate.getState().cancelWrite(id)

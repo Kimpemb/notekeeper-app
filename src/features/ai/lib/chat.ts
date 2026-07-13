@@ -1848,6 +1848,13 @@ const systemPrompt = `Today's date is ${new Date().toISOString().slice(0, 10)}.\
 
   let iterations = 0;
 
+  // All write tools proposed anywhere during this streamChatWithTools call
+  // (i.e. this whole user request, across every tool-loop iteration) share
+  // one batchId, so the UI can group them and offer "Approve all" — even
+  // when the model spreads its writes across multiple response turns
+  // instead of emitting them all in a single tool_use batch.
+  const batchId = crypto.randomUUID();
+
   try {
     while (iterations < MAX_TOOL_ITERATIONS) {
       iterations++;
@@ -1888,11 +1895,6 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
 
       // Process content blocks
       let hasToolCall = false;
-
-      // All write tools proposed in THIS model turn share one batchId, so the
-      // UI can group them and offer "Approve all" — even though each write's
-      // execution still only happens once its individual decision resolves.
-      const batchId = crypto.randomUUID();
 
       // Pass 1 — walk blocks: execute read tools immediately (unchanged),
       // register write tools at the gate WITHOUT awaiting a decision yet.

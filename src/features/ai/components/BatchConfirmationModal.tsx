@@ -13,7 +13,7 @@
 // tree, struck through, so the whole proposed plan remains visible even
 // after partial rejection (resolves the "visible-but-skipped" question).
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { PendingWrite } from "@/features/ai/lib/tools/confirmationGate";
 import { MessageRenderer } from "@/features/ai/components/MessageRenderer";
 import { BatchCalendarPreview } from "@/features/ai/components/ConfirmationCard";
@@ -119,6 +119,14 @@ export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveA
   const [selectedId, setSelectedId] = useState(sorted[0]?.id);
   const [approvingAll, setApprovingAll] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { e.stopPropagation(); onClose() }
+    }
+    document.addEventListener("keydown", handleKey, true)
+    return () => document.removeEventListener("keydown", handleKey, true)
+  }, [onClose])
 
   const selected = sorted.find((w) => w.id === selectedId) ?? sorted[0];
   const batchId  = sorted[0]?.batchId;
