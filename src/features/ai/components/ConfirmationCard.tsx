@@ -334,7 +334,7 @@ function TextPreview({
 
 // ─── BatchCalendarPreview ─────────────────────────────────────────────────────
 
-function BatchCalendarPreview({
+export function BatchCalendarPreview({
   content,
   conflicts,
 }: {

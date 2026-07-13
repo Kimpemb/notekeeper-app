@@ -77,6 +77,7 @@ export type PendingWriteStatus =
 
 export interface PendingWrite {
   id:                  string;
+  batchId:             string;        // shared by all writes proposed in the same model turn
   noteId:              string;        // which chat session proposed this — scopes the gate per note
   toolName:            string;
   toolInput:           unknown;
@@ -105,6 +106,7 @@ interface ConfirmationGateState {
 
   addPendingWrite:   (write: PendingWrite) => void;
   confirmWrite:      (id: string) => Promise<void>;
+  confirmBatch:      (batchId: string) => Promise<void>;
   cancelWrite:       (id: string) => void;
   undoWrite:         (id: string) => Promise<void>;
   clearExpiredUndos: () => void;
@@ -179,6 +181,22 @@ export const useConfirmationGate = create<ConfirmationGateState>((set, get) => (
       });
       _pendingResolvers.get(id)?.("cancelled");
       _pendingResolvers.delete(id);
+    }
+  },
+
+  // ── confirmBatch ────────────────────────────────────────────────────────────
+  // Approves every still-pending write sharing a batchId, in the order they
+  // were proposed. Sequential (not Promise.all) — mirrors the existing
+  // per-item execution model and avoids race conditions when later writes in
+  // a batch depend on earlier ones (e.g. a note created earlier in the batch).
+  async confirmBatch(batchId) {
+    const { pendingWrites, confirmWrite } = get();
+    const batchWrites = [...pendingWrites.values()]
+      .filter((pw) => pw.batchId === batchId && pw.status === "pending")
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    for (const pw of batchWrites) {
+      await confirmWrite(pw.id);
     }
   },
 

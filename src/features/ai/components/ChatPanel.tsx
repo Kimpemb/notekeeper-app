@@ -16,10 +16,29 @@ import {
   type Tier1ResultCard,
 } from "@/features/ai/lib/chat";
 import { ConfirmationCard } from "@/features/ai/components/ConfirmationCard";
+import { BatchConfirmationModal, BatchSummaryChip } from "@/features/ai/components/BatchConfirmationModal";
 import {
   useConfirmationGate,
   type PendingWrite,
 } from "@/features/ai/lib/tools/confirmationGate";
+
+// ─── Batch grouping helper ─────────────────────────────────────────────────────
+// Groups pending writes by batchId (all writes proposed in the same model
+// turn). `?? pw.id` is a defensive fallback for any pending write that
+// somehow lacks a batchId, so it still renders standalone rather than
+// crashing the group-by.
+
+function groupPendingWritesByBatch(writes: PendingWrite[]): PendingWrite[][] {
+  const groups = new Map<string, PendingWrite[]>();
+  for (const pw of writes) {
+    const key = pw.batchId ?? pw.id;
+    const arr = groups.get(key) ?? [];
+    arr.push(pw);
+    groups.set(key, arr);
+  }
+  return [...groups.values()];
+}
+
 import { clearAIHistory, clearConversationSummary, getAllDescendants, appendAIHistory } from "@/features/notes/db/queries";
 import { useNoteStore }        from "@/features/notes/store/useNoteStore";
 import { useUIStore }          from "@/features/ui/store/useUIStore";
@@ -297,6 +316,21 @@ export function ChatPanel({ noteId, paneId }: Props) {
       setPendingWrites(new Map(state.pendingWrites));
     });
   }, []);
+
+  // Which batch's modal is currently open (at most one at a time). null means
+  // "nothing forced open" — resolved/queued batches collapse to an inline
+  // BatchSummaryChip in the message list and can be reopened anytime by
+  // clicking it, for as long as the chat session is alive.
+  const [openBatchId, setOpenBatchId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (openBatchId) return; // don't steal focus from something the user is actively reviewing
+    const groups = groupPendingWritesByBatch([...pendingWrites.values()]);
+    const nextPendingBatch = groups
+      .filter((g) => g.length > 1 && g.some((w) => w.status === "pending"))
+      .sort((a, b) => a[0].createdAt - b[0].createdAt)[0];
+    if (nextPendingBatch) setOpenBatchId(nextPendingBatch[0].batchId);
+  }, [pendingWrites, openBatchId]);
   const { toasts, addToast } = useToasts();
 
   const messagesEndRef    = useRef<HTMLDivElement>(null);
@@ -1320,25 +1354,75 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
                     </div>
                   )}
 
-                  {/* ── ConfirmationCards for pending writes triggered by this message ── */}
-                  {[...pendingWrites.values()]
-                    .filter((pw) => pw.assistantMessageId === msg.id)
-                    .map((pw) => (
-                      <ConfirmationCard
-                        key={pw.id}
-                        pendingWrite={pw}
-                        onConfirm={(id) => useConfirmationGate.getState().confirmWrite(id)}
-                        onCancel={(id) => {
-                          useConfirmationGate.getState().cancelWrite(id)
-                          setPendingWrites((prev) => {
-                            const next = new Map(prev)
-                            next.delete(id)
-                            return next
-                          })
-                        }}
-                        onUndo={(id) => useConfirmationGate.getState().undoWrite(id)}
-                      />
-                    ))}
+                  {/* ── Pending writes triggered by this message ──
+                       Batches (N>1) render as a centered modal; single writes
+                       stay inline as a bare ConfirmationCard, unchanged. ── */}
+                  {(() => {
+                    const groups = groupPendingWritesByBatch(
+                      [...pendingWrites.values()].filter((pw) => pw.assistantMessageId === msg.id)
+                    )
+                    const batchGroups  = groups.filter((g) => g.length > 1)
+                    const singleWrites = groups.filter((g) => g.length === 1)
+
+                    return (
+                      <>
+                        {batchGroups.map((group) => {
+                          const batchId = group[0].batchId
+                          const isOpen  = batchId === openBatchId
+
+                          // Modal for whichever batch is currently open — either the
+                          // auto-opened oldest-pending one, or one the user reopened
+                          // by clicking its chip.
+                          if (isOpen) {
+                            return (
+                              <BatchConfirmationModal
+                                key={batchId}
+                                writes={group}
+                                onConfirm={(id) => useConfirmationGate.getState().confirmWrite(id)}
+                                onCancel={(id) => {
+                                  useConfirmationGate.getState().cancelWrite(id)
+                                }}
+                                onApproveAll={(bId) => useConfirmationGate.getState().confirmBatch(bId)}
+                                onOpenNote={handleOpenNote}
+                                onClose={() => {
+                                  // Collapse to a chip — do NOT delete from pendingWrites.
+                                  // The batch (and its previews) stays reachable for the
+                                  // rest of the session via the chip's "View" click.
+                                  setOpenBatchId(null)
+                                }}
+                              />
+                            )
+                          }
+
+                          // Every non-open batch — whether fully resolved or still
+                          // pending-but-queued — collapses to a persistent chip.
+                          return (
+                            <BatchSummaryChip
+                              key={batchId}
+                              writes={group}
+                              onOpen={() => setOpenBatchId(batchId)}
+                            />
+                          )
+                        })}
+                        {singleWrites.map((group) => (
+                          <ConfirmationCard
+                            key={group[0].id}
+                            pendingWrite={group[0]}
+                            onConfirm={(id) => useConfirmationGate.getState().confirmWrite(id)}
+                            onCancel={(id) => {
+                              useConfirmationGate.getState().cancelWrite(id)
+                              setPendingWrites((prev) => {
+                                const next = new Map(prev)
+                                next.delete(id)
+                                return next
+                              })
+                            }}
+                            onUndo={(id) => useConfirmationGate.getState().undoWrite(id)}
+                          />
+                        ))}
+                      </>
+                    )
+                  })()}
 
                   {/* Source footer */}
                   {msg.role === "assistant" && meta && !isStreaming && (
