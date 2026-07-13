@@ -18,6 +18,10 @@ import {
   executeUpdateGoal,
   executeLinkNoteToEvent,
   executeUpdateCalendarEvent,
+  executeCreateGoal,
+  executeDeleteGoal,
+  executeLinkNoteToGoal,
+  executeUnlinkNoteFromGoal,
   undoAppendToNote,
   undoInsertInNote,
   undoReplaceInNote,
@@ -29,6 +33,11 @@ import {
   undoUpdateGoal,
   undoLinkNoteToEvent,
   undoUpdateCalendarEvent,
+  undoCreateGoal,
+  undoDeleteGoal,
+  undoLinkNoteToGoal,
+  undoUnlinkNoteFromGoal,
+  autoLinkNoteToGoal,
   type AppendToNoteInput,
   type InsertInNoteInput,
   type ReplaceInNoteInput,
@@ -40,6 +49,10 @@ import {
   type UpdateGoalInput,
   type LinkNoteToEventInput,
   type UpdateCalendarEventInput,
+  type CreateGoalInput,
+  type DeleteGoalInput,
+  type LinkNoteToGoalInput,
+  type UnlinkNoteFromGoalInput,
   type AppendToNoteUndoData,
   type InsertInNoteUndoData,
   type ReplaceInNoteUndoData,
@@ -51,6 +64,10 @@ import {
   type UpdateGoalUndoData,
   type LinkNoteToEventUndoData,
   type UpdateCalendarEventUndoData,
+  type CreateGoalUndoData,
+  type DeleteGoalUndoData,
+  type LinkNoteToGoalUndoData,
+  type UnlinkNoteFromGoalUndoData,
 } from "./writeTools";
 import type { CalendarConflict } from "./writeTools";
 
@@ -170,6 +187,35 @@ export const useConfirmationGate = create<ConfirmationGateState>((set, get) => (
         insertedViaFallback: result.insertedViaFallback ?? pw.insertedViaFallback,
         createdEvents:       (result as unknown as { createdEvents?: PendingWrite["createdEvents"] }).createdEvents,
       });
+
+      // Batch auto-link — a createGoal and createNote proposed in the same
+      // model turn (same batchId) get linked automatically once BOTH have
+      // executed. Order-independent: whichever of the pair finishes second
+      // triggers the link, checking siblings already marked "executed".
+      if (pw.toolName === "createGoal") {
+        const goalId = (result.undoData as CreateGoalUndoData)?.goalId;
+        if (goalId) {
+          const siblingNotes = [...get().pendingWrites.values()].filter(
+            (w) => w.batchId === pw.batchId && w.toolName === "createNote" && w.status === "executed"
+          );
+          for (const nw of siblingNotes) {
+            const noteId = (nw.undoData as CreateNoteUndoData)?.noteId;
+            if (noteId) await autoLinkNoteToGoal(goalId, noteId);
+          }
+        }
+      }
+      if (pw.toolName === "createNote") {
+        const noteId = (result.undoData as CreateNoteUndoData)?.noteId;
+        if (noteId) {
+          const siblingGoals = [...get().pendingWrites.values()].filter(
+            (w) => w.batchId === pw.batchId && w.toolName === "createGoal" && w.status === "executed"
+          );
+          for (const gw of siblingGoals) {
+            const goalId = (gw.undoData as CreateGoalUndoData)?.goalId;
+            if (goalId) await autoLinkNoteToGoal(goalId, noteId);
+          }
+        }
+      }
 
       _pendingResolvers.get(id)?.("confirmed");
       _pendingResolvers.delete(id);
@@ -485,6 +531,78 @@ export function buildWritePreview(
         isBatch:       false,
       };
     }
+
+    case "createGoal": {
+      const goalTitle  = toolInput.title as string;
+      const targetDate = toolInput.target_date as string;
+      let milestones: { title: string; date: string }[] = [];
+      const rawMilestones = toolInput.milestones;
+      if (Array.isArray(rawMilestones)) {
+        milestones = rawMilestones;
+      } else if (typeof rawMilestones === "string") {
+        try { milestones = JSON.parse(rawMilestones); } catch { /* malformed */ }
+      }
+      const milestoneLines = milestones.length > 0
+        ? milestones.map((m) => `- ${m.title} (${m.date})`).join("\n")
+        : "No milestones";
+      const preview = `**Target date:** ${targetDate}\n\n**Milestones:**\n${milestoneLines}`;
+      return {
+        title:         `Create goal "${goalTitle}"`,
+        description:   milestones.length > 0
+          ? `${milestones.length} milestone${milestones.length === 1 ? "" : "s"}`
+          : "No milestones",
+        ...truncateContent(preview),
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
+
+    case "deleteGoal": {
+      const goalId    = toolInput.goal_id as string;
+      const reason    = toolInput.reason as string | undefined;
+      const goalTitle = noteTitleMap.get(goalId) ?? goalId;
+      const milestoneCount = noteTitleMap.get(`${goalId}::milestoneCount`);
+      return {
+        title:         `Delete goal "${goalTitle}"`,
+        description:   reason ?? (milestoneCount ? `Includes ${milestoneCount} milestone(s)` : "No reason given"),
+        content:       milestoneCount
+          ? `Deleting "${goalTitle}"\n${milestoneCount} milestone(s) will also be removed`
+          : `Deleting "${goalTitle}"`,
+        wordCount:     4,
+        isDestructive: true,
+        isBatch:       false,
+      };
+    }
+
+    case "linkNoteToGoal": {
+      const goalId    = toolInput.goal_id as string;
+      const noteId    = toolInput.note_id as string;
+      const goalTitle = noteTitleMap.get(goalId) ?? goalId;
+      const noteTitle = noteTitleMap.get(noteId) ?? noteId;
+      return {
+        title:         `Link "${noteTitle}" to goal "${goalTitle}"`,
+        description:   "Attaching note to goal",
+        content:       `Note: "${noteTitle}"\nGoal: "${goalTitle}"`,
+        wordCount:     6,
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
+
+    case "unlinkNoteFromGoal": {
+      const goalId    = toolInput.goal_id as string;
+      const noteId    = toolInput.note_id as string;
+      const goalTitle = noteTitleMap.get(goalId) ?? goalId;
+      const noteTitle = noteTitleMap.get(noteId) ?? noteId;
+      return {
+        title:         `Unlink "${noteTitle}" from goal "${goalTitle}"`,
+        description:   "Removing note-goal link",
+        content:       `Note: "${noteTitle}"\nGoal: "${goalTitle}"`,
+        wordCount:     6,
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
     default:
       return {
         title:         toolName,
@@ -567,6 +685,18 @@ async function dispatch(
     case "moveNote":
       return executeMoveNote(toolInput as unknown as MoveNoteInput);
 
+    case "createGoal":
+      return executeCreateGoal(toolInput as unknown as CreateGoalInput);
+
+    case "deleteGoal":
+      return executeDeleteGoal(toolInput as unknown as DeleteGoalInput);
+
+    case "linkNoteToGoal":
+      return executeLinkNoteToGoal(toolInput as unknown as LinkNoteToGoalInput);
+
+    case "unlinkNoteFromGoal":
+      return executeUnlinkNoteFromGoal(toolInput as unknown as UnlinkNoteFromGoalInput);
+
     case "linkNoteToEvent":
       return executeLinkNoteToEvent(toolInput as unknown as LinkNoteToEventInput);
 
@@ -606,6 +736,14 @@ async function dispatchUndo(toolName: string, undoData: unknown): Promise<void> 
       return undoUpdateGoal(undoData as UpdateGoalUndoData);
     case "moveNote":
       return undoMoveNote(undoData as MoveNoteUndoData);
+    case "createGoal":
+      return undoCreateGoal(undoData as CreateGoalUndoData);
+    case "deleteGoal":
+      return undoDeleteGoal(undoData as DeleteGoalUndoData);
+    case "linkNoteToGoal":
+      return undoLinkNoteToGoal(undoData as LinkNoteToGoalUndoData);
+    case "unlinkNoteFromGoal":
+      return undoUnlinkNoteFromGoal(undoData as UnlinkNoteFromGoalUndoData);
     case "linkNoteToEvent":
       return undoLinkNoteToEvent(undoData as LinkNoteToEventUndoData);
     case "updateCalendarEvent":

@@ -1801,7 +1801,7 @@ getNote, searchNotes, getCalendarEvents, getGoals, getCurrentNote, getFileTree
 WRITE TOOLS — propose only, never assume execution:
 appendToNote, insertInNote, replaceInNote, createNote, moveNote,
 createCalendarEvents, deleteCalendarEvent, updateCalendarEvent,
-updateGoal, linkNoteToEvent
+updateGoal, createGoal, deleteGoal, linkNoteToEvent, linkNoteToGoal, unlinkNoteFromGoal
 
 RULES:
 - Always call a read tool before proposing a write.
@@ -1815,6 +1815,8 @@ RULES:
 - When using parent_id in createNote, you MUST use the exact id field returned by getFileTree, searchNotes, or getNote. Never construct or guess an id.
 - When the user's request naturally implies multiple related writes (e.g. creating several notes for one project, or several calendar events), call all of the corresponding write tools together in this SAME response/turn — do not propose one, wait for the result, then propose the next. Otherwise, propose one write operation at a time.
 - If the user says "just do it" or "don't ask": still use the write tool. The confirmation gate is handled by the app, not you.
+- When the user wants to track a deadline, exam, or project as a goal with milestones, and getGoals confirms no matching goal already exists, call createGoal — do not tell the user to create it manually. Pass milestones as part of the same createGoal call whenever the user describes phases or checkpoints, rather than creating the goal first and asking about milestones separately.
+- When the user asks to attach, link, or connect an existing note to an existing goal, call linkNoteToGoal — do not describe the link in text. If a note was just created earlier in this same turn as direct supporting material for a goal you're also creating in this turn, do NOT call linkNoteToGoal yourself — the app links them automatically once both writes are confirmed. Only call linkNoteToGoal explicitly for a note that already existed before this turn, or that the user names after the fact.
 - CRITICAL: You CANNOT make changes to notes, calendar, or goals by describing them in text.
   After reading with a read tool, you MUST call the appropriate write tool to make any change.
   Reading a goal with getGoals and then describing the update in text does NOT update anything.
@@ -2146,12 +2148,20 @@ async function buildNoteTitleMap(
     } catch { /* non-fatal */ }
   }
 
-  // For updateGoal — pre-fetch goal title so the confirmation card
-  // shows a human-readable name instead of the raw UUID.
+  // For updateGoal / deleteGoal — pre-fetch goal title so the confirmation
+  // card shows a human-readable name instead of the raw UUID.
   if (toolInput.goal_id && typeof toolInput.goal_id === "string") {
     try {
       const goal = await getGoal(toolInput.goal_id);
       if (goal) map.set(goal.id, goal.title);
+    } catch { /* non-fatal */ }
+
+    // deleteGoal specifically needs the milestone count so the confirmation
+    // card can warn the user how much is being removed, not just the title.
+    try {
+      const { getMilestonesForGoal } = await import("@/features/goals/db/goalQueries");
+      const milestones = await getMilestonesForGoal(toolInput.goal_id);
+      map.set(`${toolInput.goal_id}::milestoneCount`, String(milestones.length));
     } catch { /* non-fatal */ }
   }
 

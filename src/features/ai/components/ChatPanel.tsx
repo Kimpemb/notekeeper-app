@@ -15,7 +15,7 @@ import {
   type RelatedNote,
   type Tier1ResultCard,
 } from "@/features/ai/lib/chat";
-import { ConfirmationCard } from "@/features/ai/components/ConfirmationCard";
+ 
 import { BatchConfirmationModal, BatchSummaryChip } from "@/features/ai/components/BatchConfirmationModal";
 import {
   useConfirmationGate,
@@ -160,48 +160,7 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
   );
 }
 
-// ─── Delayed single-write reveal ───────────────────────────────────────────
-// A write proposed alone might just be the first of several landing across
-// separate tool-loop iterations (e.g. read → write → read → write). Showing
-// the bare card immediately, then swapping it for a modal moments later, is
-// jarring. Hold a brief skeleton instead — if the write is still alone once
-// the delay elapses, reveal the card. If a second write joins its batch
-// before then, this component unmounts (parent re-groups it into the modal
-// branch) and the skeleton never resolves into a flashing card.
-function PendingSingleWrite({
-  write, onConfirm, onCancel, onUndo,
-}: {
-  write:     PendingWrite
-  onConfirm: (id: string) => Promise<void>
-  onCancel:  (id: string) => void
-  onUndo:    (id: string) => Promise<void>
-}) {
-  const [ready, setReady] = useState(write.status !== "pending")
-
-  useEffect(() => {
-    if (write.status !== "pending") { setReady(true); return }
-    const t = setTimeout(() => setReady(true), 500)
-    return () => clearTimeout(t)
-  }, [write.id, write.status])
-
-  if (!ready) {
-    return (
-      <div className="mx-3 mt-1 mb-1 px-3 py-2.5 rounded-lg border border-idemora-border bg-idemora-bg-primary flex items-center gap-2">
-        <span className="w-3 h-3 rounded-full border-2 border-idemora-text-muted/30 border-t-violet-400 animate-spin shrink-0" />
-        <span className="text-[11px] text-idemora-text-muted">Preparing changes…</span>
-      </div>
-    )
-  }
-
-  return (
-    <ConfirmationCard
-      pendingWrite={write}
-      onConfirm={onConfirm}
-      onCancel={onCancel}
-      onUndo={onUndo}
-    />
-  )
-}
+ 
 
 // ─── Quota exhausted card ─────────────────────────────────────────────────────
 
@@ -382,7 +341,10 @@ export function ChatPanel({ noteId, paneId }: Props) {
     if (openBatchId) return; // don't steal focus from something the user is actively reviewing
     const groups = groupPendingWritesByBatch([...pendingWrites.values()]);
     const nextPendingBatch = groups
-      .filter((g) => g.length > 1 && g.some((w) => w.status === "pending"))
+      .filter((g) => {
+        const active = g.filter((w) => w.status !== "cancelled")
+        return active.length > 1 && active.some((w) => w.status === "pending")
+      })
       .sort((a, b) => a[0].createdAt - b[0].createdAt)[0];
     if (nextPendingBatch) setOpenBatchId(nextPendingBatch[0].batchId);
   }, [pendingWrites, openBatchId]);
@@ -1430,18 +1392,24 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
                   )}
 
                   {/* ── Pending writes triggered by this message ──
-                       Batches (N>1) render as a centered modal; single writes
-                       stay inline as a bare ConfirmationCard, unchanged. ── */}
+                       Every write — single or batched — renders through the
+                       modal/chip pair below. No inline card anymore. ── */}
                   {(() => {
                     const groups = groupPendingWritesByBatch(
                       [...pendingWrites.values()].filter((pw) => pw.assistantMessageId === msg.id)
                     )
-                    const batchGroups  = groups.filter((g) => g.length > 1)
-                    const singleWrites = groups.filter((g) => g.length === 1)
+                    // Stale-cancelled writes (auto-cancelled after 5min with no
+                    // decision — see clearStalePending in confirmationGate.ts)
+                    // must not count toward batch size, or a single card can
+                    // silently flip into a batch modal once a later write lands
+                    // under the same batchId after the original went stale.
+                    const activeGroups = groups
+                      .map((g) => g.filter((w) => w.status !== "cancelled"))
+                      .filter((g) => g.length > 0)
 
                     return (
                       <>
-                        {batchGroups.map((group) => {
+                        {activeGroups.map((group) => {
                           const batchId = group[0].batchId
                           const isOpen  = batchId === openBatchId
 
@@ -1459,6 +1427,7 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
                                 }}
                                 onApproveAll={(bId) => useConfirmationGate.getState().confirmBatch(bId)}
                                 onOpenNote={handleOpenNote}
+                                onUndo={(id) => useConfirmationGate.getState().undoWrite(id)}
                                 onClose={() => {
                                   // Collapse to a chip — do NOT delete from pendingWrites.
                                   // The batch (and its previews) stays reachable for the
@@ -1479,23 +1448,7 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
                             />
                           )
                         })}
-                        {singleWrites.map((group) => (
-                          <PendingSingleWrite
-                            key={group[0].id}
-                            write={group[0]}
-                            onConfirm={(id) => useConfirmationGate.getState().confirmWrite(id)}
-                            onCancel={(id) => {
-                              useConfirmationGate.getState().cancelWrite(id)
-                              setPendingWrites((prev) => {
-                                const next = new Map(prev)
-                                next.delete(id)
-                                return next
-                              })
-                            }}
-                            onUndo={(id) => useConfirmationGate.getState().undoWrite(id)}
-                          />
-                        ))}
-                      </>
+                        </>
                     )
                   })()}
 

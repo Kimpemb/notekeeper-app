@@ -13,10 +13,42 @@
 // tree, struck through, so the whole proposed plan remains visible even
 // after partial rejection (resolves the "visible-but-skipped" question).
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { PendingWrite } from "@/features/ai/lib/tools/confirmationGate";
 import { MessageRenderer } from "@/features/ai/components/MessageRenderer";
 import { BatchCalendarPreview } from "@/features/ai/components/ConfirmationCard";
+
+// ─── Undo countdown hook ──────────────────────────────────────────────────────
+// Mirrors ConfirmationCard's useUndoCountdown — same 60s window, same
+// undoExpiry field on PendingWrite. Kept as a separate copy rather than a
+// shared import since ConfirmationCard may be deleted entirely once the
+// modal-only migration is complete.
+
+function useUndoCountdown(undoExpiry: number | undefined): number | null {
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!undoExpiry) { setRemaining(null); return; }
+
+    function tick() {
+      const secs = Math.ceil((undoExpiry! - Date.now()) / 1000);
+      if (secs <= 0) {
+        setRemaining(null);
+        return;
+      }
+      setRemaining(secs);
+      rafRef.current = window.setTimeout(tick, 250);
+    }
+    tick();
+
+    return () => {
+      if (rafRef.current) clearTimeout(rafRef.current);
+    };
+  }, [undoExpiry]);
+
+  return remaining;
+}
 
 interface Props {
   writes:       PendingWrite[];
@@ -25,6 +57,7 @@ interface Props {
   onApproveAll: (batchId: string) => Promise<void>;
   onClose:      () => void;
   onOpenNote?:  (noteId: string) => void;
+  onUndo:       (id: string) => Promise<void>;
 }
 
 // Resolves the note id a write touched, so "Open note" can be shown after
@@ -111,7 +144,7 @@ export function BatchSummaryChip({ writes, onOpen }: { writes: PendingWrite[]; o
 
 // ─── BatchConfirmationModal ───────────────────────────────────────────────────
 
-export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveAll, onClose, onOpenNote }: Props) {
+export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveAll, onClose, onOpenNote, onUndo }: Props) {
   const sorted = useMemo(
     () => [...writes].sort((a, b) => a.createdAt - b.createdAt),
     [writes]
@@ -119,6 +152,7 @@ export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveA
   const [selectedId, setSelectedId] = useState(sorted[0]?.id);
   const [approvingAll, setApprovingAll] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [undoingId, setUndoingId] = useState<string | null>(null);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -130,6 +164,7 @@ export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveA
 
   const selected = sorted.find((w) => w.id === selectedId) ?? sorted[0];
   const batchId  = sorted[0]?.batchId;
+  const undoSecondsLeft = useUndoCountdown(selected?.undoExpiry);
 
   const resolvedCount = sorted.filter(
     (w) => w.status === "confirmed" || w.status === "executed" || w.status === "cancelled"
@@ -148,6 +183,13 @@ export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveA
     setConfirmingId(selected.id);
     await onConfirm(selected.id);
     setConfirmingId(null);
+  }
+
+  async function handleUndo() {
+    if (!selected || selected.status !== "executed") return;
+    setUndoingId(selected.id);
+    await onUndo(selected.id);
+    setUndoingId(null);
   }
 
   return (
@@ -262,17 +304,35 @@ export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveA
                     </div>
                   )}
 
-                  {(selected.status === "executed" || selected.status === "confirmed") &&
-                    onOpenNote && noteIdForWrite(selected) && (
-                    <button
-                      onClick={() => onOpenNote(noteIdForWrite(selected)!)}
-                      className="mt-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-violet-400 border border-violet-400/30 hover:bg-violet-500/10 transition-colors duration-100"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                        <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                      Open note
-                    </button>
+                  {(selected.status === "executed" || selected.status === "confirmed") && (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      {onOpenNote && noteIdForWrite(selected) && (
+                        <button
+                          onClick={() => onOpenNote(noteIdForWrite(selected)!)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-violet-400 border border-violet-400/30 hover:bg-violet-500/10 transition-colors duration-100"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                            <path d="M1.5 5.5L5.5 1.5M5.5 1.5H2.5M5.5 1.5V4.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          Open note
+                        </button>
+                      )}
+                      {selected.status === "executed" && undoSecondsLeft != null && (
+                        <button
+                          onClick={handleUndo}
+                          disabled={undoingId === selected.id}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-idemora-text-muted border border-idemora-border/60 hover:text-idemora-text-normal hover:border-idemora-border disabled:opacity-50 transition-colors duration-100"
+                        >
+                          <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                            <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1"
+                              stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M1 1v2.5h2.5"
+                              stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          {undoingId === selected.id ? "Undoing…" : `Undo — ${undoSecondsLeft}s`}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </>
               )}

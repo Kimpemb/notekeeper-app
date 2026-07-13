@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Goal, GoalInput, GoalStatusFilter, MilestoneInput } from "@/features/goals/db/goalQueries";
 import { useGoals } from "@/features/goals/hooks/useGoals";
 import { useGoalStore } from "@/features/goals/store/useGoalStore";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 import { GoalCard } from "./GoalCard";
 import { GoalDetail } from "./GoalDetail";
 import { GoalCreationForm } from "./GoalCreationForm";
@@ -51,6 +52,8 @@ export function GoalsPanel() {
   const activeFilter    = useGoalStore((s) => s.activeFilter);
   const setActiveFilter = useGoalStore((s) => s.setActiveFilter);
   const selectedTab: GoalStatusFilter = activeFilter ?? "active";
+
+  const openTab = useUIStore((s) => s.openTab);
 
   const [showCreateForm,  setShowCreateForm]  = useState(false);
   const [editingGoal,     setEditingGoal]     = useState<Goal | null>(null);
@@ -328,6 +331,7 @@ function goalsForFilter(filter: GoalStatusFilter): Goal[] {
           onAddMilestone={createMilestone}
           onUpdateMilestone={updateMilestone}
           onDeleteMilestone={deleteMilestone}
+          onOpenNote={openTab}
         />
       )}
 

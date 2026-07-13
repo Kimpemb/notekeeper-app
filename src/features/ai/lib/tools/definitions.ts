@@ -288,6 +288,37 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ["event_id", "note_id"],
     },
   },
+
+  {
+    name: "linkNoteToGoal",
+    description:
+      "Link a note to a goal. Call getNote and getGoals first to confirm both exist. " +
+      "Use this when the user says 'link X note to Y goal' or 'connect this note to that goal', " +
+      "or when attaching supporting material to an existing goal after the fact.",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal_id: { type: "string", description: "UUID of the goal to link." },
+        note_id: { type: "string", description: "UUID of the note to link to the goal." },
+      },
+      required: ["goal_id", "note_id"],
+    },
+  },
+
+  {
+    name: "unlinkNoteFromGoal",
+    description:
+      "Remove an existing link between a note and a goal. Call getGoals first if you need to " +
+      "confirm the link exists before proposing this.",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal_id: { type: "string", description: "UUID of the goal." },
+        note_id: { type: "string", description: "UUID of the note to unlink." },
+      },
+      required: ["goal_id", "note_id"],
+    },
+  },
 {
     name: "updateCalendarEvent",
     description:
@@ -337,6 +368,54 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ["goal_id", "updates"],
     },
   },
+
+  {
+    name: "createGoal",
+    description:
+      "Create a new goal, optionally with milestones. " +
+      "Always call getGoals first to check a goal with the same title doesn't already exist. " +
+      "Use this when the user wants to track a deadline, exam, project, or objective as a goal — " +
+      "not for one-off calendar events (use createCalendarEvents for those).",
+    input_schema: {
+      type: "object",
+      properties: {
+        title:        { type: "string", description: "Goal title." },
+        description:  { type: "string", description: "Optional goal description." },
+        start_date:   { type: "string", description: "ISO date string YYYY-MM-DD — when work on the goal begins." },
+        target_date:  { type: "string", description: "ISO date string YYYY-MM-DD — the goal's deadline." },
+        colour_state: {
+          type: "string",
+          description: "Initial status. Defaults to 'blue' (active) if omitted.",
+          enum: ["blue", "green", "yellow", "red"],
+        },
+        category: { type: "string", description: "Optional free-text category, e.g. 'academic', 'work'." },
+        milestones: {
+          type: "string",
+          description:
+            "Optional JSON array of milestone objects to create alongside the goal: " +
+            "{ title: string, date: string (YYYY-MM-DD), colour_state?: 'blue'|'green'|'yellow'|'red' }. " +
+            "Use this to break the goal into checkpoints (e.g. study phases before an exam).",
+        },
+      },
+      required: ["title", "start_date", "target_date"],
+    },
+  },
+
+  {
+    name: "deleteGoal",
+    description:
+      "Delete a goal and all of its milestones. This is destructive and only reversible within " +
+      "the 60-second undo window — call getGoals first to confirm the correct goal_id and show " +
+      "the user what will be removed (title, milestone count) before proposing this.",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal_id: { type: "string", description: "UUID of the goal to delete." },
+        reason:  { type: "string", description: "Optional reason shown in the confirmation card." },
+      },
+      required: ["goal_id"],
+    },
+  },
 ];
 
 // ─── Convenience sets for routing ────────────────────────────────────────────
@@ -362,4 +441,8 @@ export const WRITE_TOOL_NAMES = new Set([
   "updateCalendarEvent",
   "updateGoal",
   "linkNoteToEvent",
+  "createGoal",
+  "deleteGoal",
+  "linkNoteToGoal",
+  "unlinkNoteFromGoal",
 ]);
