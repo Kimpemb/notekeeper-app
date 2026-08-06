@@ -1776,9 +1776,10 @@ import {
   executeGetCalendarEvents,
   executeGetGoals,
   executeGetFileTree,
+  executeGetThoughtGraph,
+  executeGetThoughtNodes,
   classifyActionIntent,
-} from "@/features/ai/lib/tools/readTools";
-import {
+} from "@/features/ai/lib/tools/readTools";import {
   useConfirmationGate,
   awaitWriteDecision,
   buildWritePreview,
@@ -1793,6 +1794,43 @@ export { classifyActionIntent };
 
 const MAX_TOOL_ITERATIONS = 10;
 
+// ─── Thought Graph extraction gate ────────────────────────────────────────────
+//
+// Design doc §1.2 — extraction only ever runs when the user has opted in for
+// the session via useThoughtGraphStore (Step 11, not yet built). This helper
+// is intentionally NOT called anywhere yet: wiring it in before the opt-in
+// toggle exists would make extraction fire unconditionally, which defeats
+// the whole point of §1.2. Wire this into streamChatWithTools's per-turn
+// system prompt (e.g. appending THOUGHT_EXTRACTION_HINT) once the toggle
+// lands.
+const EXTRACTION_MIN_WORDS = 40;
+const CONTRASTIVE_MARKERS = /\b(but|however|although|on the other hand)\b/i;
+
+function shouldAttemptThoughtExtraction(
+  responseText: string,
+  detectedIntent: import("@/features/ai/lib/search/intentDetection").QueryIntent,
+): boolean {
+  if (detectedIntent === "edit" || detectedIntent === "lookup") return false;
+  const wordCount = responseText.trim().split(/\s+/).filter(Boolean).length;
+  if (wordCount < EXTRACTION_MIN_WORDS) return false;
+  const hasQuestion   = responseText.includes("?");
+  const hasContrast   = CONTRASTIVE_MARKERS.test(responseText);
+  const listLineCount = (responseText.match(/^[\s]*[-*\d]+[.)]\s/gm) ?? []).length;
+  const hasList       = listLineCount >= 2;
+  return hasQuestion || hasContrast || hasList;
+}
+
+// System prompt for the extraction pass itself (Step 7 wiring). Deliberately
+// separate from TOOLS_SYSTEM_PROMPT — this pass gets a narrow tool set
+// (thought tools only) and a focused instruction, not the full action-layer
+// rulebook, since it's reflecting on an answer already given rather than
+// deciding how to act.
+const THOUGHT_EXTRACTION_SYSTEM_PROMPT = `You just gave the assistant response shown above in this conversation. Decide whether it contains a distinct claim, open question, or counterargument worth tracking as reasoning structure — not a routine factual answer.
+
+If yes: call getThoughtGraph first to check for existing nodes and avoid near-duplicates, then call createThoughtNode for each genuinely new node (at most 2-3, pick the most significant). If a new node logically relates to one already in the graph (e.g. it answers an existing open question, or supports an existing claim), call getThoughtNodes to get real node ids, then createThoughtEdge to connect them — never guess an id.
+
+If there is nothing worth tracking, call no tools.`;
+
 const TOOLS_SYSTEM_PROMPT = `You are an AI assistant with the ability to read and write within Idemora.
 
 READ TOOLS — use freely, no confirmation needed:
@@ -1801,10 +1839,19 @@ getNote, searchNotes, getCalendarEvents, getGoals, getCurrentNote, getFileTree
 WRITE TOOLS — propose only, never assume execution:
 appendToNote, insertInNote, replaceInNote, createNote, moveNote,
 createCalendarEvents, deleteCalendarEvent, updateCalendarEvent,
-updateGoal, createGoal, deleteGoal, linkNoteToEvent, linkNoteToGoal, unlinkNoteFromGoal
+updateGoal, createGoal, deleteGoal, linkNoteToEvent, linkNoteToGoal, unlinkNoteFromGoal,
+createThoughtNode, createThoughtEdge, updateThoughtNodeState
 
 RULES:
-- Always call a read tool before proposing a write.
+- Thought nodes capture reasoning structure (claims, questions, counterarguments, evidence,
+  assumptions, conclusions) from THIS conversation — call createThoughtNode only when your own
+  response contains a genuine distinct claim, open question, or counterargument worth tracking,
+  not for routine factual answers. Call getThoughtGraph(note_id) first to check for existing
+  nodes before proposing one, to avoid near-duplicates. When you propose a node that logically
+  relates to one already in the graph (e.g. it answers an existing open question, or supports an
+  existing claim), call createThoughtEdge to connect them — call getThoughtNodes first to get
+  real node ids, never guess one. Do not propose more than 2-3 thought nodes in a single turn
+  even if more could technically be extracted — pick the most significant ones.- Always call a read tool before proposing a write.
   If the user says "look at X and do Y", call getNote(X) first.
 - Never invent note content or calendar data. Only work from what read tools return.
 - For timetables: call getCalendarEvents for the target date range before proposing events. Flag conflicts explicitly.
@@ -1850,6 +1897,7 @@ export async function streamChatWithTools(
 const systemPrompt = `Today's date is ${new Date().toISOString().slice(0, 10)}.\n\n${TOOLS_SYSTEM_PROMPT}`;
 
   let iterations = 0;
+  let assembledResponseText = "";
 
   // All write tools proposed anywhere during this streamChatWithTools call
   // (i.e. this whole user request, across every tool-loop iteration) share
@@ -1909,6 +1957,7 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
         if (block.type === "text" && block.text) {
           streaming.onChunk(block.text);
           streaming.onStatus?.(null);
+          assembledResponseText += block.text;
         }
 
         if (block.type === "tool_use" && block.name && block.input !== undefined) {
@@ -2068,8 +2117,135 @@ const pendingWrite: PendingWrite = {
 
     streaming.onDone?.();
 
+    // ── Thought Graph extraction (design doc §0.2) ─────────────────────────
+    // Runs after the main answer is fully generated, since the gate needs
+    // the finished response text. Fire-and-forget: any proposed nodes/edges
+    // register at the confirmation gate and surface as cards in the chat UI
+    // independently of the conversation turn that already completed above —
+    // this never blocks or delays streaming.onDone.
+    if (isAIReady()) {
+      try {
+        const { intent: extractionIntent } = await detectIntent(query);
+        if (shouldAttemptThoughtExtraction(assembledResponseText, extractionIntent)) {
+          await runThoughtExtractionPass({
+            noteId,
+            currentNote,
+            messages,
+            batchId,
+            assistantMessageId,
+            onPendingWrite,
+          });
+        }
+      } catch (err) {
+        console.warn("[thoughtExtraction] pass failed:", err);
+      }
+    }
+
   } catch (err) {
     streaming.onError?.(err as AICallError);
+  }
+}
+
+// ─── Thought Graph extraction pass ─────────────────────────────────────────
+//
+// Short, bounded tool loop (max 3 iterations) scoped to only the four
+// thought-graph tools. Lets the model call getThoughtGraph/getThoughtNodes
+// to check for duplicates before proposing createThoughtNode/createThoughtEdge,
+// same as the main loop's read-then-write pattern, but simplified: no
+// decision-await, since this pass doesn't need to continue the conversation
+// based on the user's eventual approve/reject — the cards just appear and
+// sit in the same confirmation-gate UI as everything else.
+export async function runThoughtExtractionPass(params: {
+  noteId:              string;
+  currentNote:         Note | undefined;
+  messages:            ProviderMessage[];
+  batchId:             string;
+  assistantMessageId:  string;
+  onPendingWrite:      (write: PendingWrite) => void;
+}): Promise<void> {
+  const { noteId, currentNote, messages, batchId, assistantMessageId, onPendingWrite } = params;
+
+  const thoughtToolDefs = TOOL_DEFINITIONS.filter((t) =>
+    ["getThoughtGraph", "getThoughtNodes", "createThoughtNode", "createThoughtEdge"].includes(t.name)
+  );
+
+  const extractionSystemPrompt =
+    `${THOUGHT_EXTRACTION_SYSTEM_PROMPT}\n\nThe note_id for this conversation is "${noteId}".`;
+
+  const extractionMessages: ProviderMessage[] = [
+    ...messages,
+    { role: "user", content: "Reflect on your last response above per the instructions." },
+  ];
+
+  const MAX_EXTRACTION_ITERATIONS = 3;
+
+  for (let i = 0; i < MAX_EXTRACTION_ITERATIONS; i++) {
+    let response;
+    try {
+      response = await callPrimaryWithTools(extractionMessages, thoughtToolDefs, extractionSystemPrompt);
+    } catch (err) {
+      console.warn("[thoughtExtraction] model call failed:", err);
+      return;
+    }
+
+    const toolCalls = response.content.filter(
+      (b) => b.type === "tool_use" && b.name && b.input !== undefined
+    );
+    if (toolCalls.length === 0) return; // model proposed nothing — done
+
+    const assistantToolCalls = toolCalls.map((b) => ({
+      id:       b.id ?? crypto.randomUUID(),
+      type:     "function" as const,
+      function: { name: b.name ?? "", arguments: JSON.stringify(b.input ?? {}) },
+    }));
+    extractionMessages.push({
+      role:       "assistant",
+      content:    null,
+      tool_calls: assistantToolCalls,
+    } as unknown as ProviderMessage);
+
+    let proposedWrite = false;
+
+    for (const block of toolCalls) {
+      const toolName  = block.name!;
+      const toolInput = block.input as Record<string, unknown>;
+      const toolId    = block.id ?? crypto.randomUUID();
+
+      if (toolName === "getThoughtGraph" || toolName === "getThoughtNodes") {
+        const result = await executeReadTool(toolName, toolInput, currentNote);
+        extractionMessages.push({
+          role:         "tool",
+          tool_call_id: toolId,
+          content:      JSON.stringify(result.success ? result.data : { error: result.error }),
+        } as unknown as ProviderMessage);
+        continue;
+      }
+
+      if (toolName === "createThoughtNode" || toolName === "createThoughtEdge") {
+        proposedWrite = true;
+        const preview = buildWritePreview(toolName, toolInput, new Map());
+        const pendingWrite: PendingWrite = {
+          id:                 crypto.randomUUID(),
+          batchId,
+          noteId,
+          toolName,
+          toolInput,
+          preview,
+          status:             "pending",
+          assistantMessageId,
+          createdAt:          Date.now(),
+        };
+        useConfirmationGate.getState().addPendingWrite(pendingWrite);
+        onPendingWrite(pendingWrite);
+        extractionMessages.push({
+          role:         "tool",
+          tool_call_id: toolId,
+          content:      JSON.stringify({ registered: true }),
+        } as unknown as ProviderMessage);
+      }
+    }
+
+    if (proposedWrite) return; // stop once something's been proposed this pass
   }
 }
 
@@ -2103,12 +2279,19 @@ async function executeReadTool(
     case "getFileTree":
       return executeGetFileTree();
 
+    case "getThoughtGraph":
+      return executeGetThoughtGraph(toolInput as { note_id: string });
+
+    case "getThoughtNodes":
+      return executeGetThoughtNodes(toolInput as { graph_id: string });
+
     default:
       return { success: false, error: `Unknown read tool: ${toolName}` };
   }
 }
 
 // ─── Note title pre-fetch for preview ────────────────────────────────────────
+
 
 async function buildNoteTitleMap(
   _toolName: string,

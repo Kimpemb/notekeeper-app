@@ -27,10 +27,13 @@ export interface RuntimeSession extends PersistedChatSession {
 
 interface ChatSessionStore {
   sessions:    Record<string, RuntimeSession>
-  paneNoteId:  Record<1 | 2, string | null>
+  // 3 is reserved for the embedded chat panel floating inside Thought Graph
+  // mode (GraphView) — a session slot distinct from the two real docked
+  // panes so it never overwrites either pane's noteId pointer.
+  paneNoteId:  Record<1 | 2 | 3, string | null>
 
   // ── Pane pointer ────────────────────────────────────────────────────────────
-  setPaneNote: (pane: 1 | 2, noteId: string) => Promise<void>
+  setPaneNote: (pane: 1 | 2 | 3, noteId: string) => Promise<void>
 
   // ── DB load / save ──────────────────────────────────────────────────────────
   loadSession: (noteId: string) => Promise<void>
@@ -57,10 +60,10 @@ interface ChatSessionStore {
   clearSession: (noteId: string) => Promise<void>
 
   // ── Selectors ───────────────────────────────────────────────────────────────
-  getSession:        (pane: 1 | 2) => RuntimeSession
+  getSession:        (pane: 1 | 2 | 3) => RuntimeSession
   getSessionByNoteId:(noteId: string) => RuntimeSession
-  isLinked:          (pane: 1 | 2) => boolean
-  getLinkedNoteId:   (pane: 1 | 2) => string | null
+  isLinked:          (pane: 1 | 2 | 3) => boolean
+  getLinkedNoteId:   (pane: 1 | 2 | 3) => string | null
 }
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
@@ -107,7 +110,7 @@ function debouncedSave(noteId: string, fn: () => void, ms = 500) {
 
 export const useChatSessionStore = create<ChatSessionStore>((set, get) => ({
   sessions:   {},
-  paneNoteId: { 1: null, 2: null },
+  paneNoteId: { 1: null, 2: null, 3: null },
 
   // ── setPaneNote ─────────────────────────────────────────────────────────────
   setPaneNote: async (pane, noteId) => {

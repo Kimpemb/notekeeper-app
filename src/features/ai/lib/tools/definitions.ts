@@ -109,6 +109,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       "ALWAYS call this (not searchNotes) when the user wants to create a note under " +
       "a specific parent, or uses words like 'under', 'inside', 'nested in', 'as a subpage of'. " +
       "Each entry includes id, title, and parent_id (null = root level).",
+    
     input_schema: {
       type:       "object",
       properties: {},
@@ -116,8 +117,37 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 
-  // ─── Write tools ───────────────────────────────────────────────────────────
-  // These are NEVER executed directly. The app holds them at the confirmation
+  {
+    name: "getThoughtGraph",
+    description:
+      "Retrieve the merged thought graph for a note — all reasoning nodes/edges " +
+      "across every conversation episode that note has had. Call this before " +
+      "proposing createThoughtNode to check for existing nodes and avoid duplicates.",
+    input_schema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note." },
+      },
+      required: ["note_id"],
+    },
+  },
+
+  {
+    name: "getThoughtNodes",
+    description:
+      "Retrieve nodes and edges for a single thought graph by its graph_id " +
+      "(obtained from getThoughtGraph). Use this to check existing nodes before " +
+      "proposing an edge between two of them.",
+    input_schema: {
+      type: "object",
+      properties: {
+        graph_id: { type: "string", description: "UUID of the thought graph." },
+      },
+      required: ["graph_id"],
+    },
+  },
+
+  // ─── Write tools ───────────────────────────────────────────────────────────  // These are NEVER executed directly. The app holds them at the confirmation
   // gate and awaits user approval before calling any executor.
 
   {
@@ -416,6 +446,76 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ["goal_id"],
     },
   },
+
+  {
+    name: "createThoughtNode",
+    description:
+      "Propose a new reasoning node (Claim, Idea, Question, Counterargument, Evidence, " +
+      "Assumption, or Conclusion) extracted from the current conversation. Only propose " +
+      "this for genuine reasoning structure in your own response — a distinct claim, " +
+      "open question, or counterargument worth tracking — not for routine answers. " +
+      "Call getThoughtGraph first to avoid proposing a near-duplicate of an existing node.",
+    input_schema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note whose conversation this reasoning belongs to." },
+        type: {
+          type: "string",
+          description: "The reasoning unit type.",
+          enum: ["claim", "idea", "question", "counterargument", "evidence", "assumption", "conclusion"],
+        },
+        summary:     { type: "string", description: "One-sentence summary of the node, shown in hover previews." },
+        body:        { type: "string", description: "Optional longer-form elaboration." },
+        source_ref:  { type: "string", description: "Optional note_id or external reference this node relates to." },
+        source_kind: {
+          type: "string",
+          description: "What source_ref points to, if provided.",
+          enum: ["conversation", "note", "external"],
+        },
+      },
+      required: ["note_id", "type", "summary"],
+    },
+  },
+
+  {
+    name: "createThoughtEdge",
+    description:
+      "Propose a logical relationship between two existing thought nodes. Call " +
+      "getThoughtNodes first to get valid node ids from the same graph — never guess an id.",
+    input_schema: {
+      type: "object",
+      properties: {
+        graph_id: { type: "string", description: "UUID of the thought graph both nodes belong to." },
+        from_id:  { type: "string", description: "UUID of the source node." },
+        to_id:    { type: "string", description: "UUID of the target node." },
+        relation: {
+          type: "string",
+          description: "The logical relationship from from_id to to_id.",
+          enum: ["supports", "challenges", "answers", "leads_to", "depends_on", "refines"],
+        },
+      },
+      required: ["graph_id", "from_id", "to_id", "relation"],
+    },
+  },
+
+  {
+    name: "updateThoughtNodeState",
+    description:
+      "Change a thought node's state — mark a question as Resolved once answered, " +
+      "or Parked if the discussion moves on without resolving it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        node_id: { type: "string", description: "UUID of the thought node." },
+        state: {
+          type: "string",
+          description: "New state.",
+          enum: ["open", "resolved", "parked"],
+        },
+      },
+      required: ["node_id", "state"],
+    },
+  },
 ];
 
 // ─── Convenience sets for routing ────────────────────────────────────────────
@@ -427,6 +527,8 @@ export const READ_TOOL_NAMES = new Set([
   "getGoals",
   "getCurrentNote",
   "getFileTree",
+  "getThoughtGraph",
+  "getThoughtNodes",
 ]);
 
 export const WRITE_TOOL_NAMES = new Set([
@@ -445,4 +547,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "deleteGoal",
   "linkNoteToGoal",
   "unlinkNoteFromGoal",
+  "createThoughtNode",
+  "createThoughtEdge",
+  "updateThoughtNodeState",
 ]);

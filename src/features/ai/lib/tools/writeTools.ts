@@ -39,7 +39,19 @@ import {
 } from "@/features/goals/db/goalQueries";
  
 import { markdownToDoc }             from "@/features/ai/lib/save/parseMarkdown";
-
+import {
+  createThoughtNodeRow,
+  deleteThoughtNodeRow,
+  updateThoughtNodeStateRow,
+  createThoughtEdgeRow,
+  deleteThoughtEdgeRow,
+  findThoughtNodeBySummary,
+  findThoughtEdge,
+  type ThoughtNodeType,
+  type ThoughtNodeState,
+  type ThoughtEdgeRelation,
+} from "@/features/graph/db/thoughtGraphQueries";
+import { resolveActiveThoughtGraphId } from "./readTools";
 // ─── Block-ID backfill for tool-generated nodes ──────────────────────────────
 //
 // Write-tool operations never pass through a mounted TipTap editor, so the
@@ -1482,9 +1494,161 @@ export async function executeUpdateCalendarEvent(
   }
 }
 
+
+
 export async function undoUpdateCalendarEvent(
   undoData: UpdateCalendarEventUndoData
 ): Promise<void> {
   await updateEvent(undoData.eventId, undoData.originalFields);
   window.dispatchEvent(new CustomEvent("idemora:calendar-updated"));
+}
+
+// ─── createThoughtNode ────────────────────────────────────────────────────────
+
+export interface CreateThoughtNodeInput {
+  note_id:      string;   // resolves to the active episode's graph
+  type:         ThoughtNodeType;
+  summary:      string;
+  body?:        string;
+  source_ref?:  string;
+  source_kind?: "conversation" | "note" | "external";
+}
+
+export interface CreateThoughtNodeUndoData {
+  nodeId: string;
+}
+
+export async function executeCreateThoughtNode(
+  input: CreateThoughtNodeInput
+): Promise<WriteToolResult> {
+  try {
+    const graphId = await resolveActiveThoughtGraphId(input.note_id);
+    if (!graphId) {
+      return { success: false, error: `No active conversation episode for note ${input.note_id}.` };
+    }
+
+    // Dedup guard — same-summary check within the graph (design doc §6).
+    const existing = await findThoughtNodeBySummary(graphId, input.summary);
+    if (existing) {
+      return { success: true, undoData: { nodeId: existing.id } satisfies CreateThoughtNodeUndoData };
+    }
+
+    const node = await createThoughtNodeRow({
+      graphId,
+      type:        input.type,
+      summary:     input.summary,
+      body:        input.body,
+      sourceRef:   input.source_ref,
+      sourceKind:  input.source_kind,
+    });
+
+    window.dispatchEvent(new CustomEvent("idemora:thought-graph-updated", { detail: { graphId } }));
+
+    return { success: true, undoData: { nodeId: node.id } satisfies CreateThoughtNodeUndoData };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoCreateThoughtNode(undoData: CreateThoughtNodeUndoData): Promise<void> {
+  await deleteThoughtNodeRow(undoData.nodeId);
+  window.dispatchEvent(new CustomEvent("idemora:thought-graph-updated"));
+}
+
+// ─── createThoughtEdge ────────────────────────────────────────────────────────
+
+export interface CreateThoughtEdgeInput {
+  graph_id: string;
+  from_id:  string;
+  to_id:    string;
+  relation: ThoughtEdgeRelation;
+}
+
+export interface CreateThoughtEdgeUndoData {
+  edgeId: string;
+}
+
+export async function executeCreateThoughtEdge(
+  input: CreateThoughtEdgeInput
+): Promise<WriteToolResult> {
+  try {
+    const existing = await findThoughtEdge(input.graph_id, input.from_id, input.to_id, input.relation);
+    if (existing) {
+      return { success: true, undoData: { edgeId: existing.id } satisfies CreateThoughtEdgeUndoData };
+    }
+
+    const edge = await createThoughtEdgeRow({
+      graphId:  input.graph_id,
+      fromId:   input.from_id,
+      toId:     input.to_id,
+      relation: input.relation,
+    });
+
+    window.dispatchEvent(new CustomEvent("idemora:thought-graph-updated", { detail: { graphId: input.graph_id } }));
+
+    return { success: true, undoData: { edgeId: edge.id } satisfies CreateThoughtEdgeUndoData };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoCreateThoughtEdge(undoData: CreateThoughtEdgeUndoData): Promise<void> {
+  await deleteThoughtEdgeRow(undoData.edgeId);
+  window.dispatchEvent(new CustomEvent("idemora:thought-graph-updated"));
+}
+
+// ─── updateThoughtNodeState ───────────────────────────────────────────────────
+
+export interface UpdateThoughtNodeStateInput {
+  node_id: string;
+  state:   ThoughtNodeState;
+}
+
+export interface UpdateThoughtNodeStateUndoData {
+  nodeId:         string;
+  previousState:  ThoughtNodeState;
+}
+
+export async function executeUpdateThoughtNodeState(
+  input: UpdateThoughtNodeStateInput
+): Promise<WriteToolResult> {
+  try {
+    const result = await updateThoughtNodeStateRow(input.node_id, input.state);
+    if (!result) {
+      return { success: false, error: `Thought node ${input.node_id} not found.` };
+    }
+    window.dispatchEvent(new CustomEvent("idemora:thought-graph-updated"));
+    return {
+      success:  true,
+      undoData: { nodeId: input.node_id, previousState: result.previousState } satisfies UpdateThoughtNodeStateUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoUpdateThoughtNodeState(undoData: UpdateThoughtNodeStateUndoData): Promise<void> {
+  await updateThoughtNodeStateRow(undoData.nodeId, undoData.previousState);
+  window.dispatchEvent(new CustomEvent("idemora:thought-graph-updated"));
+}
+
+// ─── Auto-link helper (same-turn reply adjacency) ─────────────────────────────
+//
+// Exported for future use but NOT wired into confirmationGate.ts's dispatch
+// path in v1 — see implementation doc Step 6 for why the createGoal/createNote
+// auto-link structural signal doesn't transfer to thought nodes.
+export async function autoLinkThoughtNodes(
+  graphId:  string,
+  fromId:   string,
+  toId:     string,
+  relation: ThoughtEdgeRelation
+): Promise<void> {
+  try {
+    const existing = await findThoughtEdge(graphId, fromId, toId, relation);
+    if (existing) return;
+    await createThoughtEdgeRow({ graphId, fromId, toId, relation });
+    window.dispatchEvent(new CustomEvent("idemora:thought-graph-updated", { detail: { graphId } }));
+  } catch (err) {
+    console.warn("[writeTools] autoLinkThoughtNodes failed:", err);
+  }
 }

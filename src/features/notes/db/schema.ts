@@ -480,4 +480,79 @@ export const ALL_MIGRATIONS: string[] = [
   `ALTER TABLE note_blocks ADD COLUMN query_embedding BLOB`,
 
   `ALTER TABLE note_blocks ADD COLUMN episode_embedding BLOB`,
+
+  // ── Thought Graph (feature/thought-graph) ────────────────────────────────
+
+  `CREATE TABLE IF NOT EXISTS thought_graphs (
+    id          TEXT    NOT NULL PRIMARY KEY,
+    title       TEXT    NOT NULL DEFAULT 'Untitled Thought Graph',
+    source_type TEXT    NOT NULL CHECK(source_type IN ('conversation','note')),
+    source_id   TEXT    NOT NULL,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_thought_graphs_source
+    ON thought_graphs(source_type, source_id)`,
+
+  `CREATE TABLE IF NOT EXISTS thought_nodes (
+    id          TEXT    NOT NULL PRIMARY KEY,
+    graph_id    TEXT    NOT NULL REFERENCES thought_graphs(id) ON DELETE CASCADE,
+    type        TEXT    NOT NULL CHECK(type IN ('claim','idea','question','counterargument','evidence','assumption','conclusion')),
+    summary     TEXT    NOT NULL,
+    body        TEXT,
+    state       TEXT    NOT NULL DEFAULT 'open' CHECK(state IN ('open','resolved','parked')),
+    source_ref  TEXT,
+    source_kind TEXT    CHECK(source_kind IN ('conversation','note','external')),
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_thought_nodes_graph ON thought_nodes(graph_id)`,
+
+  `CREATE TABLE IF NOT EXISTS thought_edges (
+    id          TEXT    NOT NULL PRIMARY KEY,
+    graph_id    TEXT    NOT NULL REFERENCES thought_graphs(id) ON DELETE CASCADE,
+    from_id     TEXT    NOT NULL REFERENCES thought_nodes(id) ON DELETE CASCADE,
+    to_id       TEXT    NOT NULL REFERENCES thought_nodes(id) ON DELETE CASCADE,
+    relation    TEXT    NOT NULL CHECK(relation IN ('supports','challenges','answers','leads_to','depends_on','refines')),
+    created_at  INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_thought_edges_graph ON thought_edges(graph_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_thought_edges_from   ON thought_edges(from_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_thought_edges_to     ON thought_edges(to_id)`,
+
+  `CREATE VIRTUAL TABLE IF NOT EXISTS thought_nodes_fts USING fts5(
+    id UNINDEXED,
+    graph_id UNINDEXED,
+    summary,
+    body,
+    content='thought_nodes',
+    content_rowid='rowid'
+  )`,
+
+  `CREATE TRIGGER IF NOT EXISTS thought_nodes_fts_insert
+    AFTER INSERT ON thought_nodes
+    BEGIN
+      INSERT INTO thought_nodes_fts(rowid, id, graph_id, summary, body)
+      VALUES (new.rowid, new.id, new.graph_id, new.summary, new.body);
+    END`,
+
+  `CREATE TRIGGER IF NOT EXISTS thought_nodes_fts_update
+    AFTER UPDATE ON thought_nodes
+    BEGIN
+      INSERT INTO thought_nodes_fts(thought_nodes_fts, rowid, id, graph_id, summary, body)
+      VALUES ('delete', old.rowid, old.id, old.graph_id, old.summary, old.body);
+      INSERT INTO thought_nodes_fts(rowid, id, graph_id, summary, body)
+      VALUES (new.rowid, new.id, new.graph_id, new.summary, new.body);
+    END`,
+
+  `CREATE TRIGGER IF NOT EXISTS thought_nodes_fts_delete
+    AFTER DELETE ON thought_nodes
+    BEGIN
+      INSERT INTO thought_nodes_fts(thought_nodes_fts, rowid, id, graph_id, summary, body)
+      VALUES ('delete', old.rowid, old.id, old.graph_id, old.summary, old.body);
+    END`,
 ];
+

@@ -13,7 +13,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getNoteById, getBacklinksForNote } from "@/features/notes/db/queries";
-import type { GraphNode } from "./graphTypes";
+import type { GraphNode, ThoughtNode, ThoughtEdge, ThoughtNodeState } from "./graphTypes";
+import { THOUGHT_TYPE_COLOR } from "./graphTypes";
 import type { Note } from "@/types";
 import { GraphNodeEditor } from "./GraphNodeEditor";
 
@@ -34,7 +35,7 @@ interface PreviewData {
   createdAt: number;
 }
 
-export type PanelMode = "idle" | "preview" | "detail" | "edit" | "edge";
+export type PanelMode = "idle" | "preview" | "detail" | "edit" | "edge" | "thought";
 
 export interface EdgeContext {
   sourceId:    string;
@@ -68,6 +69,17 @@ export interface GraphNotePanelProps {
   onGoForward?:      () => void;
   onNavigateToNode?: (nodeId: string) => void;
   onOpenInEditor?:   (nodeId: string) => void;
+  // Thought Graph mode (design doc §4.3) — parallel to detailNode/onOpen,
+  // but for reasoning nodes instead of notes.
+  thoughtDetail?:        ThoughtNode | null;
+  thoughtEdges?:         ThoughtEdge[];
+  onCloseThought?:       () => void;
+  onChangeThoughtState?: (nodeId: string, state: ThoughtNodeState) => void;
+  onOpenThoughtSource?:  (sourceRef: string, sourceKind: string | null) => void;
+  // Which side of the canvas this panel floats on. Thought Graph mode uses
+  // "left" (chat panel occupies the right, mirroring the normal editor
+  // layout); Note Graph mode stays "right" (default).
+  side?: "left" | "right";
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -207,20 +219,28 @@ export function GraphNotePanel({
   onGoForward,
   onNavigateToNode,
   onOpenInEditor,
+  thoughtDetail = null,
+  thoughtEdges = [],
+  onCloseThought,
+  onChangeThoughtState,
+  onOpenThoughtSource,
+  side = "right",
 }: GraphNotePanelProps) {
 
   // ── Mode resolution ────────────────────────────────────────────────────────
-  // Priority: edge > edit > detail > preview > idle
+  // Priority: edge > edit > thought > detail > preview > idle
   const mode: PanelMode =
-    edgeContext ? "edge"    :
-    editNodeId  ? "edit"    :
-    detailNode  ? "detail"  :
-    hoveredNode ? "preview" : "idle";
+    edgeContext   ? "edge"    :
+    editNodeId    ? "edit"    :
+    thoughtDetail ? "thought" :
+    detailNode    ? "detail"  :
+    hoveredNode   ? "preview" : "idle";
 
   const activeNodeId =
-    mode === "edit"    ? editNodeId      :
-    mode === "detail"  ? detailNode?.id  :
-    mode === "preview" ? hoveredNode?.id : null;
+    mode === "edit"    ? editNodeId        :
+    mode === "thought" ? thoughtDetail?.id :
+    mode === "detail"  ? detailNode?.id    :
+    mode === "preview" ? hoveredNode?.id   : null;
 
   // ── Panel width ────────────────────────────────────────────────────────────
   const [editPanelWidth, setEditPanelWidth] = useState(PANEL_WIDTH_DEFAULT);
@@ -270,8 +290,11 @@ export function GraphNotePanel({
 
     setVisible(true);
 
-    // Skip heavy fetch in edit mode — editor handles its own content
-    if (mode === "edit") return;
+    // Skip heavy fetch in edit mode — editor handles its own content.
+    // Skip in thought mode too — activeNodeId here is a thought_node id,
+    // not a note id; getNoteById(activeNodeId) would silently 404. Thought
+    // mode renders straight off thoughtDetail, no preview fetch needed.
+    if (mode === "edit" || mode === "thought") return;
 
     debounceRef.current = setTimeout(async () => {
       currentIdRef.current = activeNodeId;
@@ -341,7 +364,7 @@ export function GraphNotePanel({
         style={{
           position:      "absolute",
           top:           16,
-          right:         16,
+          ...(side === "right" ? { right: 16 } : { left: 16 }),
           width:         panelWidth,
           maxHeight:     "calc(100% - 32px)",
           height:        mode === "edit" ? "calc(100% - 32px)" : undefined,
@@ -350,7 +373,7 @@ export function GraphNotePanel({
           opacity:       show ? 1 : 0,
           transform:     show
             ? "translateX(0) scale(1)"
-            : "translateX(12px) scale(0.97)",
+            : `translateX(${side === "right" ? 12 : -12}px) scale(0.97)`,
           transition:    "opacity 200ms ease, transform 200ms ease, width 280ms cubic-bezier(0.32,0.72,0,1)",
           display:       "flex",
           flexDirection: "column",
@@ -427,6 +450,71 @@ export function GraphNotePanel({
                   </div>
                 </div>
               )}
+            </div>
+          </>
+        )}
+
+        {/* THOUGHT MODE */}
+        {mode === "thought" && thoughtDetail && (
+          <>
+            <div style={{
+              display: "flex", alignItems: "center",
+              padding: "10px 12px 8px",
+              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              gap: 8, flexShrink: 0,
+            }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
+                color: THOUGHT_TYPE_COLOR[thoughtDetail.type],
+                background: `${THOUGHT_TYPE_COLOR[thoughtDetail.type]}18`,
+                borderRadius: 4, padding: "2px 6px",
+              }}>
+                {thoughtDetail.type}
+              </span>
+              <span style={{ fontSize: 11, color: LABEL, opacity: 0.4, flex: 1 }}>{thoughtDetail.state}</span>
+              <CloseBtn onClick={() => onCloseThought?.()} />
+            </div>
+            <div style={{ padding: "10px 14px", flex: 1, overflowY: "auto" }}>
+              <p style={{ margin: "0 0 10px", fontSize: 13, color: LABEL, lineHeight: 1.5 }}>{thoughtDetail.summary}</p>
+              {thoughtDetail.body && (
+                <p style={{ margin: "0 0 10px", fontSize: 12, color: LABEL, opacity: 0.6, lineHeight: 1.6 }}>{thoughtDetail.body}</p>
+              )}
+              {thoughtEdges.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: LABEL, opacity: 0.3, textTransform: "uppercase", marginBottom: 4 }}>
+                    Relations
+                  </div>
+                  {thoughtEdges.map((e) => (
+                    <div key={`${e.sourceId}-${e.targetId}`} style={{ fontSize: 11, color: LABEL, opacity: 0.55, padding: "3px 0" }}>
+                      {e.relation.replace("_", " ")}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {thoughtDetail.sourceRef && (
+                <button
+                  onClick={() => onOpenThoughtSource?.(thoughtDetail.sourceRef!, thoughtDetail.sourceKind)}
+                  style={{ marginTop: 10, fontSize: 11, color: ACCENT, background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+                >
+                  Jump to source →
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 4, padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              {(["open", "resolved", "parked"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => onChangeThoughtState?.(thoughtDetail.id, s)}
+                  style={{
+                    flex: 1, padding: "5px 0", fontSize: 10, borderRadius: 5, cursor: "pointer",
+                    background: thoughtDetail.state === s ? `${ACCENT}28` : "rgba(255,255,255,0.04)",
+                    border: `1px solid ${thoughtDetail.state === s ? ACCENT + "55" : "rgba(255,255,255,0.08)"}`,
+                    color: LABEL, opacity: thoughtDetail.state === s ? 1 : 0.5,
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
             </div>
           </>
         )}

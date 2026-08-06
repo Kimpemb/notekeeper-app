@@ -25,11 +25,13 @@ interface GraphControlsProps {
   showTagColors: boolean;
   isFullscreen: boolean;
   timelineMode: boolean;
+  graphMode: "notes" | "thought";
   onSearchChange: (q: string) => void;
   onDepthChange: (d: number) => void;
   onToggleOrphans: () => void;
   onToggleTagColors: () => void;
   onToggleTimeline: () => void;
+  onToggleGraphMode: () => void;
   onRefresh: () => void;
   onFit: () => void;
   onToggleFullscreen: () => void;
@@ -129,6 +131,16 @@ function IconTimeline({ size = 14, color = LABEL_COLOR }: { size?: number; color
   );
 }
 
+function IconThoughtGraph({ size = 14, color = LABEL_COLOR }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: "block", flexShrink: 0 }}>
+      <circle cx="3" cy="3" r="1.8" stroke={color} strokeWidth="1.2"/>
+      <path d="M4.5 4.5L9 8" stroke={color} strokeWidth="1.2"/>
+      <rect x="8" y="7" width="3.5" height="3.5" stroke={color} strokeWidth="1.2"/>
+    </svg>
+  );
+}
+
 // ── Shared button style factory ───────────────────────────────────────────────
 
 function iconBtnStyle(active = false, activeColor?: string): React.CSSProperties {
@@ -159,9 +171,9 @@ function divider() {
 export function GraphControls({
   isLocalGraph, isLoading, stats, focusedNode, focusNodeId, initialFocusNoteId,
   searchQuery, matchIndex, matchCount, depth, showOrphans,
-  orphanCount, showTagColors, isFullscreen, timelineMode,
+  orphanCount, showTagColors, isFullscreen, timelineMode, graphMode,
   onSearchChange, onDepthChange, onToggleOrphans, onToggleTagColors,
-  onToggleTimeline, onRefresh, onFit, onToggleFullscreen, onExport, onClose,
+  onToggleTimeline, onToggleGraphMode, onRefresh, onFit, onToggleFullscreen, onExport, onClose,
 }: GraphControlsProps) {
   return (
     <div style={{
@@ -196,6 +208,12 @@ export function GraphControls({
         {timelineMode && (
           <span style={{ fontSize: 10, color: "#10b981", background: "rgba(16,185,129,0.12)", borderRadius: 4, padding: "2px 6px", whiteSpace: "nowrap" }}>
             Timeline
+          </span>
+        )}
+
+        {graphMode === "thought" && (
+          <span style={{ fontSize: 10, color: "#8b5cf6", background: "rgba(139,92,246,0.12)", borderRadius: 4, padding: "2px 6px", whiteSpace: "nowrap" }}>
+            Thought Graph
           </span>
         )}
       </div>
@@ -278,6 +296,10 @@ export function GraphControls({
 
         <button onClick={onToggleTimeline} title="Timeline mode — arrange notes by creation date" style={iconBtnStyle(timelineMode, "#10b981")}>
           <IconTimeline color={timelineMode ? "#10b981" : LABEL_COLOR} />
+        </button>
+
+        <button onClick={onToggleGraphMode} title="Toggle Thought Graph" style={iconBtnStyle(graphMode === "thought", "#8b5cf6")}>
+          <IconThoughtGraph color={graphMode === "thought" ? "#8b5cf6" : LABEL_COLOR} />
         </button>
 
         {divider()}

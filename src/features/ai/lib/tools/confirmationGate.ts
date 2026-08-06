@@ -38,6 +38,18 @@ import {
   undoLinkNoteToGoal,
   undoUnlinkNoteFromGoal,
   autoLinkNoteToGoal,
+  executeCreateThoughtNode,
+  executeCreateThoughtEdge,
+  executeUpdateThoughtNodeState,
+  undoCreateThoughtNode,
+  undoCreateThoughtEdge,
+  undoUpdateThoughtNodeState,
+  type CreateThoughtNodeInput,
+  type CreateThoughtEdgeInput,
+  type UpdateThoughtNodeStateInput,
+  type CreateThoughtNodeUndoData,
+  type CreateThoughtEdgeUndoData,
+  type UpdateThoughtNodeStateUndoData,
   type AppendToNoteInput,
   type InsertInNoteInput,
   type ReplaceInNoteInput,
@@ -603,6 +615,45 @@ export function buildWritePreview(
         isBatch:       false,
       };
     }
+
+    case "createThoughtNode": {
+      const type      = toolInput.type as string;
+      const summary    = toolInput.summary as string;
+      const typeLabel  = type.charAt(0).toUpperCase() + type.slice(1);
+      return {
+        title:         `Add thought node: ${typeLabel}`,
+        description:   summary,
+        content:       (toolInput.body as string) ?? summary,
+        wordCount:     summary.split(/\s+/).length,
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
+
+    case "createThoughtEdge": {
+      const relation = (toolInput.relation as string).replace("_", " ");
+      return {
+        title:         `Link thought nodes: ${relation}`,
+        description:   `Connecting two reasoning nodes`,
+        content:       `From: ${toolInput.from_id}\nTo: ${toolInput.to_id}\nRelation: ${relation}`,
+        wordCount:     6,
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
+
+    case "updateThoughtNodeState": {
+      const state = toolInput.state as string;
+      return {
+        title:         `Mark node as ${state}`,
+        description:   `Changing thought node state`,
+        content:       `New state: ${state}`,
+        wordCount:     4,
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
+
     default:
       return {
         title:         toolName,
@@ -709,6 +760,15 @@ async function dispatch(
       } as unknown as UpdateCalendarEventInput);
     }
 
+    case "createThoughtNode":
+      return executeCreateThoughtNode(toolInput as unknown as CreateThoughtNodeInput);
+
+    case "createThoughtEdge":
+      return executeCreateThoughtEdge(toolInput as unknown as CreateThoughtEdgeInput);
+
+    case "updateThoughtNodeState":
+      return executeUpdateThoughtNodeState(toolInput as unknown as UpdateThoughtNodeStateInput);
+
     default:
       return { success: false, error: `Unknown tool: ${toolName}` };
   }
@@ -748,6 +808,12 @@ async function dispatchUndo(toolName: string, undoData: unknown): Promise<void> 
       return undoLinkNoteToEvent(undoData as LinkNoteToEventUndoData);
     case "updateCalendarEvent":
       return undoUpdateCalendarEvent(undoData as UpdateCalendarEventUndoData);
+    case "createThoughtNode":
+      return undoCreateThoughtNode(undoData as CreateThoughtNodeUndoData);
+    case "createThoughtEdge":
+      return undoCreateThoughtEdge(undoData as CreateThoughtEdgeUndoData);
+    case "updateThoughtNodeState":
+      return undoUpdateThoughtNodeState(undoData as UpdateThoughtNodeStateUndoData);
   }
 }
 

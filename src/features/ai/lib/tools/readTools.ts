@@ -7,7 +7,7 @@
 // Also exports classifyActionIntent, which routes messages to the tool loop
 // vs the existing RAG pipeline.
 
-import { getNoteById, searchNotes, getNoteBlocksText } from "@/features/notes/db/queries";
+import { getNoteById, searchNotes, getNoteBlocksText, getOpenEpisode } from "@/features/notes/db/queries";
 import { getEventsForDateRange }                from "@/features/calendar/db/calendarQueries";
 import { listGoals }                            from "@/features/goals/db/goalQueries";
 import { hybridSearch }                         from "@/features/ai/lib/search/hybrid";
@@ -17,6 +17,12 @@ import type { Note }                            from "@/types";
 import type { GoalStatusFilter }                from "@/features/goals/db/goalQueries";
 import type { LayerKey }                        from "@/features/calendar/db/calendarQueries";
 import { prosemirrorBodyToMarkdown }            from "@/lib/exporters/markdown";
+import {
+  getOrCreateThoughtGraphForEpisode,
+  getThoughtGraphsForNote,
+  getThoughtNodesForGraphs,
+  getThoughtEdgesForGraphs,
+} from "@/features/graph/db/thoughtGraphQueries";
 
 // ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -471,6 +477,59 @@ export async function executeGetFileTree(): Promise<ReadToolResult> {
   }
 }
 
+// ─── Thought Graph read tools ─────────────────────────────────────────────────
+
+export async function executeGetThoughtGraph(input: {
+  note_id: string;
+}): Promise<ReadToolResult> {
+  try {
+    if (!input.note_id) {
+      return { success: false, error: "note_id is required." };
+    }
+    const graphs = await getThoughtGraphsForNote(input.note_id);
+    if (graphs.length === 0) {
+      return { success: true, data: { graphs: [], nodes: [], edges: [] } };
+    }
+    const graphIds = graphs.map((g) => g.id);
+    const [nodes, edges] = await Promise.all([
+      getThoughtNodesForGraphs(graphIds),
+      getThoughtEdgesForGraphs(graphIds),
+    ]);
+    return { success: true, data: { graphs, nodes, edges } };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function executeGetThoughtNodes(input: {
+  graph_id: string;
+}): Promise<ReadToolResult> {
+  try {
+    if (!input.graph_id) {
+      return { success: false, error: "graph_id is required." };
+    }
+    const [nodes, edges] = await Promise.all([
+      getThoughtNodesForGraphs([input.graph_id]),
+      getThoughtEdgesForGraphs([input.graph_id]),
+    ]);
+    return { success: true, data: { nodes, edges } };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Resolves (or creates) the thought graph for a note's currently open
+ * episode. Called by write-tool executors before inserting a node — a
+ * thought graph must exist before a node can belong to one.
+ */
+export async function resolveActiveThoughtGraphId(noteId: string): Promise<string | null> {
+  const episode = await getOpenEpisode(noteId);
+  if (!episode) return null;
+  const graph = await getOrCreateThoughtGraphForEpisode(episode.id);
+  return graph.id;
+}
+
 export async function executeReadTool(
   toolName:    string,
   toolInput:   Record<string, unknown>,
@@ -497,13 +556,18 @@ export async function executeReadTool(
     case "getFileTree":
       return executeGetFileTree();
 
+    case "getThoughtGraph":
+      return executeGetThoughtGraph(toolInput as { note_id: string });
+
+    case "getThoughtNodes":
+      return executeGetThoughtNodes(toolInput as { graph_id: string });
+
     default:
       return { success: false, error: `Unknown read tool: ${toolName}` };
   }
 }
 
-// ─── Action intent classifier ─────────────────────────────────────────────────
-//
+// ─── Action intent classifier ─────────────────────────────────────────────────//
 // Routes messages to the tool loop (action mode) vs the existing RAG pipeline.
 // Returns "chat" on any failure — never blocks the user-facing response.
 // Threshold: confidence >= 0.85 required to route as "action".

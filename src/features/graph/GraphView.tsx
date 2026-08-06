@@ -5,26 +5,43 @@ import * as d3 from "d3";
 import { useGraphData } from "./useGraphData";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
-import type { GraphNode, GraphEdge } from "./graphTypes";
+import type { GraphNode, GraphEdge, ThoughtNode, ThoughtEdge, ThoughtNodeState } from "./graphTypes";
 import { GraphNotePanel } from "./GraphNotePanel";
 import type { EdgeContext } from "./GraphNotePanel";
 import { GraphLegend } from "./GraphLegend";
 import { GraphControls } from "./GraphControls";
-import { useGraphSimulation } from "./useGraphSimulation";
 import type { EdgeClickData } from "./useGraphSimulation";
+import type { ThoughtEdgeClickData } from "./useThoughtGraphSimulation";
+import { GraphCanvas } from "./GraphCanvas";
+import type { GraphCanvasHandle } from "./GraphCanvas";
 import { useGraphSearch } from "./useGraphSearch";
 import { useGraphEdit } from "./useGraphEdit";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
+import { useThoughtGraphStore } from "./store/useThoughtGraphStore";
+import { useThoughtGraphData } from "./useThoughtGraphData";
+import { getThoughtGraphsForNote } from "./db/thoughtGraphQueries";
+import { executeUpdateThoughtNodeState } from "@/features/ai/lib/tools/writeTools";
+import { ChatPanel } from "@/features/ai/components/ChatPanel";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const LABEL_COLOR       = "var(--color-text, #e2e2e2)";
 const BG_COLOR          = "var(--color-bg-secondary, #141414)";
-const MINIMAP_W         = 160;
-const MINIMAP_H         = 100;
 const DEFAULT_WIDTH_PCT = 0.66;
 const MIN_WIDTH         = 320;
 const TRANSITION_MS     = 280;
+// Embedded ChatPanel width (380) + its offset (16) + a small gap (16),
+// used to shift the Thought Graph canvas's initial center so nodes don't
+// spawn under the floating chat panel.
+const THOUGHT_CHAT_INSET = 412;
+// Thought Graph needs room for a 380px chat panel plus margins on top of
+// the drawer's own resize handle — below this, the chat panel's right edge
+// gets clipped by the drawer's overflow:hidden. Note Graph keeps MIN_WIDTH.
+const THOUGHT_MIN_WIDTH  = 480;
+// Node preview panel width (256, GraphNotePanel's PANEL_WIDTH_DEFAULT) +
+// its left offset (16) + a small gap (16) — mirrors THOUGHT_CHAT_INSET's
+// shape, for the panel that floats on the left in Thought Graph mode.
+const THOUGHT_PREVIEW_INSET = 288;
 
 const TAG_PALETTE = [
   "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#3b82f6",
@@ -126,6 +143,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const zoomRef              = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const simNodesRef          = useRef<GraphNode[]>([]);
   const simEdgesRef          = useRef<GraphEdge[]>([]);
+  const thoughtSimNodesRef   = useRef<ThoughtNode[]>([]);
+  const thoughtSimEdgesRef   = useRef<ThoughtEdge[]>([]);
+  const canvasRef            = useRef<GraphCanvasHandle>(null);
   const toastCountRef        = useRef(0);
   const simSettledRef        = useRef(false);
   const hoverExitTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -224,11 +244,39 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   // ── Pending node IDs ──────────────────────────────────────────────────────
   const [pendingNodeIds, setPendingNodeIds] = useState<Set<string>>(new Set());
 
-  const isLocalGraph = !!initialFocusNoteId;
+  // Captured once at mount — immune to graphFocusNoteId being cleared in the
+  // store right after mount by the clearGraphFocusNoteId effect below. App.tsx
+  // subscribes to that store value live, so initialFocusNoteId (the raw prop)
+  // goes null shortly after mount; anything specific to "this GraphView was
+  // opened for note X" must read graphNoteId instead, never the raw prop.
+  const [graphNoteId] = useState<string | null>(initialFocusNoteId ?? null);
+
+  const isLocalGraph = !!graphNoteId;
+
+  // ── Thought Graph mode ────────────────────────────────────────────────────
+  const graphMode    = useThoughtGraphStore((s) => s.graphMode);
+  const setGraphMode = useThoughtGraphStore((s) => s.setGraphMode);
+
+  useEffect(() => {
+    setGraphMode("notes");
+    if (!graphNoteId) return;
+    getThoughtGraphsForNote(graphNoteId)
+      .then((graphs) => { if (graphs.length > 0) setGraphMode("thought"); })
+      .catch(() => {});
+  }, [graphNoteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (initialFocusNoteId) clearGraphFocusNoteId();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Guard against a narrow drawer (left over from Note Graph mode, or the
+  // window being small) clipping the embedded chat panel once Thought
+  // Graph mode activates.
+  useEffect(() => {
+    if (graphMode === "thought" && !isFullscreen && panelWidth < THOUGHT_MIN_WIDTH) {
+      setPanelWidth(THOUGHT_MIN_WIDTH);
+    }
+  }, [graphMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     saveGraphViewState({ searchQuery, showOrphans, showTagColors, depth, focusNodeId });
@@ -357,6 +405,92 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     showToast,
   });
 
+  // ── Thought Graph data + panel state ──────────────────────────────────────
+  const {
+    data: thoughtData,
+    isLoading: thoughtLoading,
+    error: thoughtError,
+    refresh: refreshThought,
+    activeGraphId: thoughtActiveGraphId,
+  } = useThoughtGraphData(graphMode === "thought" ? graphNoteId : null);
+
+  const [thoughtHoveredNode, setThoughtHoveredNode]         = useState<ThoughtNode | null>(null);
+  const [thoughtDetailNode,  setThoughtDetailNode]          = useState<ThoughtNode | null>(null);
+  const [thoughtFocusNodeId, setThoughtFocusNodeId]         = useState<string | null>(null);
+  const [thoughtSelectedNodeIds, setThoughtSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [thoughtStats, setThoughtStats]                     = useState({ nodes: 0, edges: 0 });
+
+  const thoughtVisibleNodes = thoughtData?.nodes ?? [];
+  const thoughtVisibleEdges = thoughtData?.edges ?? [];
+
+  const thoughtEdgesForDetail = thoughtDetailNode
+    ? thoughtVisibleEdges.filter((e) => e.sourceId === thoughtDetailNode.id || e.targetId === thoughtDetailNode.id)
+    : [];
+
+  // Pans the Thought Graph canvas so the clicked node lands in the middle
+  // of the free space between the preview panel (left) and the chat panel
+  // (right), instead of sitting under either. Click-only, not hover — panning
+  // the camera every time the mouse passes over a node would be disorienting.
+  const centerThoughtNodeInFreeSpace = useCallback((nodeId: string) => {
+    if (!svgRef.current || !containerRef.current || !zoomRef.current) return;
+    const node = thoughtSimNodesRef.current.find((n) => n.id === nodeId);
+    if (!node || node.x == null || node.y == null) return;
+
+    const width  = containerRef.current.clientWidth;
+    const height = containerRef.current.clientHeight;
+    const transform = d3.zoomTransform(svgRef.current);
+    const k = transform.k;
+
+    const freeLeft  = THOUGHT_PREVIEW_INSET;
+    const freeRight = width - THOUGHT_CHAT_INSET;
+    const targetX   = freeLeft + Math.max(0, freeRight - freeLeft) / 2;
+    const targetY   = height / 2;
+
+    const tx = targetX - node.x * k;
+    const ty = targetY - node.y * k;
+
+    d3.select(svgRef.current)
+      .transition().duration(350)
+      .call(zoomRef.current.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+  }, []);
+
+  const handleThoughtNodeClick = useCallback((node: ThoughtNode) => {
+    setThoughtDetailNode((prev) => {
+      const next = prev?.id === node.id ? null : node;
+      if (next) centerThoughtNodeInFreeSpace(next.id);
+      return next;
+    });
+  }, [centerThoughtNodeInFreeSpace]);
+
+  // v1 has no dedicated edge panel for thought edges (AI-only, read-only —
+  // design doc §4.2) — surface the relation as a toast instead of a
+  // separate context state until a real panel is built.
+  const handleThoughtEdgeClick = useCallback((data: ThoughtEdgeClickData) => {
+    showToast(`Relation: ${data.relation.replace("_", " ")}`);
+  }, [showToast]);
+
+  // UI-initiated write — executes immediately, no confirmation gate. The
+  // gate exists to protect against AI-proposed changes the user hasn't
+  // seen; a direct button click from the user is itself the confirmation
+  // (impl doc Step 12 recommendation).
+  const handleChangeThoughtState = useCallback(async (nodeId: string, state: ThoughtNodeState) => {
+    await executeUpdateThoughtNodeState({ node_id: nodeId, state });
+    setThoughtDetailNode((prev) => (prev && prev.id === nodeId ? { ...prev, state } : prev));
+    refreshThought();
+  }, [refreshThought]);
+
+  const handleOpenThoughtSource = useCallback((sourceRef: string, sourceKind: string | null) => {
+    if (sourceKind === "note") {
+      setActiveNote(sourceRef);
+      showToast("Opening note…");
+      setTimeout(() => handleClose(), 300);
+    } else if (sourceKind === "external") {
+      window.open(sourceRef, "_blank", "noreferrer");
+    } else {
+      showToast("Part of this conversation — no separate source to open.");
+    }
+  }, [setActiveNote, showToast, handleClose]);
+
   // ── Node single-click → lock panel in detail mode ────────────────────────
   const handleNodeClick = useCallback((node: GraphNode) => {
     if (editNodeId === node.id) return;
@@ -391,7 +525,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
   const handleDeleteLink = useCallback((sourceId: string, targetId: string) => {
     setEdgeContext(null);
     deleteLink(sourceId, targetId, (sid, tid) => {
-      deleteLinkInD3(sid, tid);
+      canvasRef.current?.deleteLinkInD3(sid, tid);
       patchData.removeEdge(sid, tid);
     });
   }, [deleteLink, patchData]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -510,6 +644,15 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       if (confirmDelete) return;
+      // Thought Graph is the "deepest" view — first Escape drops back to
+      // Local Graph (graphMode "notes", focusNodeId still scoped to this
+      // note), a second Escape (below) then clears focusNodeId to reach
+      // full graph, a third closes the panel entirely.
+      if (graphMode === "thought") {
+        if (thoughtDetailNode)        { setThoughtDetailNode(null); return; }
+        setGraphMode("notes");
+        return;
+      }
       if (edgeContext)              { setEdgeContext(null);  return; }
       if (editNodeId)               { handleExitEdit();      return; }
       if (detailNode)               { setDetailNode(null);   return; }
@@ -519,7 +662,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleClose, focusNodeId, confirmDelete, edgeContext, editNodeId, detailNode, selectedNodeIds, handleExitEdit]);
+  }, [handleClose, focusNodeId, confirmDelete, edgeContext, editNodeId, detailNode, selectedNodeIds, handleExitEdit, graphMode, thoughtDetailNode, setGraphMode]);
 
   const toggleFullscreen = useCallback(() => setFullscreen((f) => !f), []);
 
@@ -527,8 +670,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     e.preventDefault();
     const startX     = e.clientX;
     const startWidth = panelRef.current?.offsetWidth ?? window.innerWidth * DEFAULT_WIDTH_PCT;
+    const minWidth   = graphMode === "thought" ? THOUGHT_MIN_WIDTH : MIN_WIDTH;
     function onMove(ev: MouseEvent) {
-      const newWidth = Math.max(MIN_WIDTH, Math.min(window.innerWidth - 60, startWidth + (startX - ev.clientX)));
+      const newWidth = Math.max(minWidth, Math.min(window.innerWidth - 60, startWidth + (startX - ev.clientX)));
       setPanelWidth(newWidth); setFullscreen(false);
     }
     function onUp() {
@@ -537,7 +681,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, []);
+  }, [graphMode]);
 
   const handleFit = useCallback(() => {
     if (!svgRef.current || !containerRef.current || !zoomRef.current) return;
@@ -565,26 +709,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
       .transition().duration(400)
       .call(zoomRef.current.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }, []);
-
-  // ── D3 simulation ─────────────────────────────────────────────────────────
-  const { deleteNodeById, deleteLinkInD3 } = useGraphSimulation({
-    svgRef, minimapRef, containerRef, zoomRef,
-    simNodesRef, simEdgesRef,
-    simSettledRef, hoverExitTimerRef, isHoveringPreviewRef,
-    visibleNodes, visibleEdges, allNotes: notes, isLoading,
-    showTagColors, tagColorMap, focusNodeId, timelineMode,
-    selectedNodeIds,
-    setActiveNote, openTab, setStats, setHoveredNode,
-    setFocusNodeId, setSelectedNodeIds,
-    showToast, handleClose,
-    onCreateNode:        handleCreateNode,
-    onRenameNode:        handleRenameNode,
-    onCreateLink:        handleCreateLink,
-    onDeleteNode:        handleDeleteNode,
-    onRequestDeleteNode: requestDeleteNode,
-    onNodeClick:         handleNodeClick,
-    onEdgeClick:         handleEdgeClick,
-  });
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const lastUpdatedLabel = lastUpdated
@@ -633,10 +757,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         <GraphControls
           isLocalGraph={isLocalGraph}
           isLoading={isLoading}
-          stats={stats}
+          stats={graphMode === "thought" ? thoughtStats : stats}
           focusedNode={focusedNode ?? null}
           focusNodeId={focusNodeId}
-          initialFocusNoteId={initialFocusNoteId}
+          initialFocusNoteId={graphNoteId}
           lastUpdatedLabel={lastUpdatedLabel}
           searchQuery={searchQuery}
           matchIndex={matchIndex}
@@ -647,11 +771,13 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           showTagColors={showTagColors}
           isFullscreen={isFullscreen}
           timelineMode={timelineMode}
+          graphMode={graphMode}
           onSearchChange={setSearch}
           onDepthChange={setDepth}
           onToggleOrphans={() => setShowOrphans((v) => !v)}
           onToggleTagColors={() => setShowTagColors((v) => !v)}
           onToggleTimeline={() => setTimelineMode((v) => !v)}
+          onToggleGraphMode={() => setGraphMode(graphMode === "thought" ? "notes" : "thought")}
           onRefresh={refresh}
           onFit={handleFit}
           onToggleFullscreen={toggleFullscreen}
@@ -662,7 +788,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
         {/* Canvas */}
         <div ref={containerRef} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
 
-          {/* ── Unified note + edge panel ── */}
+          {/* ── Unified note + edge + thought panel ── */}
           <GraphNotePanel
             hoveredNode={hoveredNode}
             detailNode={detailNode}
@@ -702,9 +828,15 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
               showToast("Opening note…");
               setTimeout(() => handleClose(), 300);
             }}
+            thoughtDetail={graphMode === "thought" ? (thoughtDetailNode ?? thoughtHoveredNode) : null}
+            thoughtEdges={thoughtEdgesForDetail}
+            onCloseThought={() => { setThoughtDetailNode(null); setThoughtHoveredNode(null); }}
+            onChangeThoughtState={handleChangeThoughtState}
+            onOpenThoughtSource={handleOpenThoughtSource}
+            side={graphMode === "thought" ? "left" : "right"}
           />
 
-          {!isLoading && visibleNodes.length > 0 && (
+          {graphMode === "notes" && !isLoading && visibleNodes.length > 0 && (
             <div style={{
               position: "absolute", top: 12, left: 12,
               fontSize: 11, color: LABEL_COLOR, opacity: 0.3,
@@ -719,17 +851,27 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             </div>
           )}
 
-          {isLoading && (
+          {graphMode === "thought" && !thoughtLoading && thoughtVisibleNodes.length > 0 && (
+            <div style={{
+              position: "absolute", top: 12, left: 12,
+              fontSize: 11, color: LABEL_COLOR, opacity: 0.3,
+              pointerEvents: "none", lineHeight: 1.6,
+            }}>
+              Click node to inspect · Nodes are proposed by the AI as you chat
+            </div>
+          )}
+
+          {graphMode === "notes" && isLoading && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
               Loading graph…
             </div>
           )}
-          {error && (
+          {graphMode === "notes" && error && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 14 }}>
               {error}
             </div>
           )}
-          {!isLoading && visibleNodes.length === 0 && (
+          {graphMode === "notes" && !isLoading && visibleNodes.length === 0 && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
               {data?.nodes.length === 0
                 ? "No notes yet — double-click anywhere to create one"
@@ -737,10 +879,90 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             </div>
           )}
 
-          <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }} />
+          {graphMode === "thought" && thoughtLoading && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14 }}>
+              Loading thought graph…
+            </div>
+          )}
+          {graphMode === "thought" && thoughtError && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 13, textAlign: "center", maxWidth: 320, left: "50%", transform: "translate(-50%, -50%)", top: "50%" }}>
+              {thoughtError}
+            </div>
+          )}
+          {graphMode === "thought" && !thoughtLoading && !thoughtError && thoughtVisibleNodes.length === 0 && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: LABEL_COLOR, opacity: 0.4, fontSize: 14, textAlign: "center", maxWidth: 320, left: "50%", transform: "translate(-50%, -50%)", top: "50%" }}>
+              No reasoning nodes yet — chat about this note and the AI will propose nodes as it reasons.
+            </div>
+          )}
 
-          {!isLoading && visibleNodes.length > 0 && (
-            <svg ref={minimapRef} width={MINIMAP_W} height={MINIMAP_H} style={{ position: "absolute", bottom: 16, right: 16, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", cursor: "crosshair" }} />
+          {graphMode === "notes" ? (
+            <GraphCanvas
+              key="notes"
+              ref={canvasRef}
+              mode="notes"
+              svgRef={svgRef}
+              minimapRef={minimapRef}
+              containerRef={containerRef}
+              zoomRef={zoomRef}
+              simNodesRef={simNodesRef}
+              simEdgesRef={simEdgesRef}
+              simSettledRef={simSettledRef}
+              hoverExitTimerRef={hoverExitTimerRef}
+              isHoveringPreviewRef={isHoveringPreviewRef}
+              visibleNodes={visibleNodes}
+              visibleEdges={visibleEdges}
+              allNotes={notes}
+              isLoading={isLoading}
+              showTagColors={showTagColors}
+              tagColorMap={tagColorMap}
+              focusNodeId={focusNodeId}
+              timelineMode={timelineMode}
+              selectedNodeIds={selectedNodeIds}
+              setActiveNote={setActiveNote}
+              openTab={openTab}
+              setStats={setStats}
+              setHoveredNode={setHoveredNode}
+              setFocusNodeId={setFocusNodeId}
+              setSelectedNodeIds={setSelectedNodeIds}
+              showToast={showToast}
+              handleClose={handleClose}
+              onCreateNode={handleCreateNode}
+              onRenameNode={handleRenameNode}
+              onCreateLink={handleCreateLink}
+              onDeleteNode={handleDeleteNode}
+              onRequestDeleteNode={requestDeleteNode}
+              onNodeClick={handleNodeClick}
+              onEdgeClick={handleEdgeClick}
+            />
+          ) : (
+            <GraphCanvas
+              key="thought"
+              ref={canvasRef}
+              mode="thought"
+              svgRef={svgRef}
+              minimapRef={minimapRef}
+              containerRef={containerRef}
+              zoomRef={zoomRef}
+              simNodesRef={thoughtSimNodesRef}
+              simEdgesRef={thoughtSimEdgesRef}
+              simSettledRef={simSettledRef}
+              hoverExitTimerRef={hoverExitTimerRef}
+              isHoveringPreviewRef={isHoveringPreviewRef}
+              visibleNodes={thoughtVisibleNodes}
+              visibleEdges={thoughtVisibleEdges}
+              isLoading={thoughtLoading}
+              focusNodeId={thoughtFocusNodeId}
+              activeGraphId={thoughtActiveGraphId}
+              selectedNodeIds={thoughtSelectedNodeIds}
+              setStats={setThoughtStats}
+              setHoveredNode={setThoughtHoveredNode}
+              setFocusNodeId={setThoughtFocusNodeId}
+              setSelectedNodeIds={setThoughtSelectedNodeIds}
+              onNodeClick={handleThoughtNodeClick}
+              onEdgeClick={handleThoughtEdgeClick}
+              canvasRightInset={THOUGHT_CHAT_INSET}
+              canvasLeftInset={THOUGHT_PREVIEW_INSET}
+            />
           )}
 
           <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, pointerEvents: "none", zIndex: 20 }}>
@@ -751,11 +973,33 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             ))}
           </div>
 
-          <GraphLegend
-            showTagColors={showTagColors}
-            allTags={allTags}
-            tagColorMap={tagColorMap}
-          />
+          {graphMode === "notes" && (
+            <GraphLegend
+              showTagColors={showTagColors}
+              allTags={allTags}
+              tagColorMap={tagColorMap}
+            />
+          )}
+
+          {graphMode === "thought" && graphNoteId && (
+            <div style={{
+              position: "absolute", top: 16, right: 16, bottom: 16,
+              width: "min(380px, calc(100% - 32px))", zIndex: 20,
+              borderRadius: 10, overflow: "hidden",
+              background: "rgba(16,16,16,0.97)",
+              border: "1px solid rgba(255,255,255,0.09)",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.7)",
+              backdropFilter: "blur(12px)",
+              display: "flex",
+            }}>
+              <ChatPanel
+                noteId={graphNoteId}
+                paneId={3}
+                embedded
+                onCloseEmbedded={() => setGraphMode("notes")}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -771,7 +1015,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
             const { nodeId } = confirmDelete;
             setConfirmDelete(null);
             handleDeleteNode(nodeId, (_id) => {
-              deleteNodeById(nodeId);
+              canvasRef.current?.deleteNodeById(nodeId);
             });
           }}
           onCancel={() => setConfirmDelete(null)}

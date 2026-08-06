@@ -10,11 +10,13 @@ import {
   streamChatWithTools,
   classifyActionIntent,
   runPipeline,
+  runThoughtExtractionPass,
   type PipelineResult,
   type ChatMessage,
   type RelatedNote,
   type Tier1ResultCard,
 } from "@/features/ai/lib/chat";
+import type { ProviderMessage } from "@/features/ai/lib/client";
  
 import { BatchConfirmationModal, BatchSummaryChip } from "@/features/ai/components/BatchConfirmationModal";
 import {
@@ -103,7 +105,14 @@ function detectLongPaste(pasted: string): { label: string; lineCount: number; ch
 
 interface Props {
   noteId: string;
-  paneId: 1 | 2;
+  paneId: 1 | 2 | 3;
+  // embedded: true when rendered as the floating chat panel inside Thought
+  // Graph mode (GraphView) rather than a normal docked pane. Suppresses the
+  // outer width/border/background chrome (the parent already supplies its
+  // own) and swaps the header close button from closeChat(paneId) to
+  // onCloseEmbedded, since there is no real dockable pane being closed here.
+  embedded?: boolean;
+  onCloseEmbedded?: () => void;
 }
 
 interface MessageMeta {
@@ -283,7 +292,7 @@ function WebNudge({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ChatPanel({ noteId, paneId }: Props) {
+export function ChatPanel({ noteId, paneId, embedded = false, onCloseEmbedded }: Props) {
   // messages and persistedMeta live in the store — not local state
   const [runtimeMetaMap, setRuntimeMetaMap] = useState<Map<string, Partial<MessageMeta>>>(new Map());
   const [input, setInput]           = useState("");
@@ -608,6 +617,46 @@ useEffect(() => {
     return merged.length > 0 ? merged : undefined
   }, [noteId])
 
+  // ── Thought Graph extraction ─────────────────────────────────────────────
+  //
+  // Called after every streamChatWithNotes-based reply (handleSend, handleRetry,
+  // handleWebSearch, handleOneTimeInclusion) resolves — thought extraction is
+  // about the CONTENT of a chat answer, not about which pipeline produced it,
+  // so it stays orthogonal to the action-intent routing. streamChatWithTools
+  // already runs its own extraction pass internally for action-mode turns —
+  // this covers everything else.
+  const maybeRunThoughtExtraction = useCallback(async (
+    query:           string,
+    assistantId:     string,
+    historyMessages: ChatMessage[],
+  ) => {
+    try {
+      const { intent, isFollowUp } = await detectIntent(query)
+      if (intent === "edit" || intent === "inventory" || isFollowUp) return
+
+      const answerContent = useChatSessionStore.getState().getSessionByNoteId(noteId)
+        .messages.find((m) => m.id === assistantId)?.content ?? ""
+      if (!answerContent) return
+
+      const providerMessages: ProviderMessage[] = [
+        ...historyMessages.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user",      content: query },
+        { role: "assistant", content: answerContent },
+      ]
+
+      await runThoughtExtractionPass({
+        noteId,
+        currentNote,
+        messages:           providerMessages,
+        batchId:            crypto.randomUUID(),
+        assistantMessageId: assistantId,
+        onPendingWrite:     (pw) => setPendingWrites((prev) => new Map(prev).set(pw.id, pw)),
+      })
+    } catch (err) {
+      console.warn("[maybeRunThoughtExtraction] failed:", err)
+    }
+  }, [noteId, currentNote])
+
   // ── handleWebSearch ────────────────────────────────────────────────────────
   async function handleDirectWebSearch() {
     const typed = input.trim()
@@ -718,6 +767,12 @@ useEffect(() => {
       if (meta.webGrounded) {
         setSuppressedNudges((prev) => new Set(prev).add(assistantId))
       }
+
+      void maybeRunThoughtExtraction(
+        userQuery,
+        assistantId,
+        useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
+      )
     } catch { /* errors handled by onError above */ }
   }
 
@@ -901,6 +956,12 @@ useEffect(() => {
       if (meta.webGrounded) {
         setSuppressedNudges((prev) => new Set(prev).add(assistantId))
       }
+
+      void maybeRunThoughtExtraction(
+        q,
+        assistantId,
+        useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
+      )
     } catch (rawErr) {
       if (!errorHandled) {
         useChatSessionStore.setState((s) => {
@@ -919,7 +980,7 @@ useEffect(() => {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus, resolveScopeNoteIds, pendingAttachments, clearPendingAttachments]);
+  }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus, resolveScopeNoteIds, pendingAttachments, clearPendingAttachments, maybeRunThoughtExtraction]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -1147,10 +1208,16 @@ const handleRetry = useCallback(async (userMessageId?: string, userMessageConten
       titleMatchedNoteIds: meta.titleMatchedNoteIds,
       webNudge: meta.webNudge,
     }))
+
+    void maybeRunThoughtExtraction(
+      targetContent,
+      targetAssistantId,
+      currentMessages.slice(0, targetUserIndex),
+    )
   } catch { 
     /* handled by onError */ 
   }
-}, [notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession, addMessage])
+}, [notes, noteId, currentNote, resolveScopeNoteIds, setMessageContent, setPersistedMeta, saveSession, addMessage, maybeRunThoughtExtraction])
 function handleOpenNote(id: string) {
     if (paneId === 2) openTabInPane2(id);
     else openTab(id);
@@ -1220,8 +1287,10 @@ const meta = await streamChatWithNotes(
         titleMatchedNoteIds: meta.titleMatchedNoteIds,
         webNudge:            meta.webNudge,
       }))
+
+      void maybeRunThoughtExtraction(lastUserMsg.content, assistantId, messages.slice(0, -1))
     } catch { /* errors handled by onError above */ }
-  }, [messages, notes, noteId, currentNote, oneTimeInclusions]);
+  }, [messages, notes, noteId, currentNote, oneTimeInclusions, maybeRunThoughtExtraction]);
 
   function handleScopeToggle() {
     if (ragScope === "note") {
@@ -1240,7 +1309,9 @@ const meta = await streamChatWithNotes(
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full w-[480px] shrink-0 border-l border-idemora-border bg-idemora-bg-primary">
+    <div className={embedded
+      ? "flex flex-col h-full w-full"
+      : "flex flex-col h-full w-[480px] shrink-0 border-l border-idemora-border bg-idemora-bg-primary"}>
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-3 py-1.5 shrink-0 border-b border-idemora-border/60">
         <div className="flex items-center min-w-0">
@@ -1280,7 +1351,7 @@ const meta = await streamChatWithNotes(
             </>
           )}
           <button
-            onClick={() => closeChat(paneId)}
+            onClick={() => (embedded ? onCloseEmbedded?.() : closeChat(paneId as 1 | 2))}
             title="Close chat"
             className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-100"
           >
@@ -1695,7 +1766,7 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
       {/* ── Save dialog ── */}
       {saveDialogOpen && (
         <SaveNoteDialog
-          paneId={paneId}
+          paneId={paneId === 2 ? 2 : 1}
           messages={messages}
           selectedMessage={selectedMessage ?? undefined}
           onClose={() => { setSaveDialogOpen(false); setSelectedMessage(null); }}
