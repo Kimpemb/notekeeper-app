@@ -14,6 +14,7 @@
 // after partial rejection (resolves the "visible-but-skipped" question).
 
 import { useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { PendingWrite } from "@/features/ai/lib/tools/confirmationGate";
 import { MessageRenderer } from "@/features/ai/components/MessageRenderer";
 import { BatchCalendarPreview } from "@/features/ai/components/ConfirmationCard";
@@ -192,7 +193,7 @@ export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveA
     setUndoingId(null);
   }
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
       onClick={onClose}
@@ -387,6 +388,7 @@ export function BatchConfirmationModal({ writes, onConfirm, onCancel, onApproveA
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

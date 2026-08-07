@@ -2178,6 +2178,12 @@ export async function runThoughtExtractionPass(params: {
   ];
 
   const MAX_EXTRACTION_ITERATIONS = 3;
+  // Total createThoughtNode + createThoughtEdge proposals allowed across the
+  // whole pass (not per-iteration) — a safety cap so a model that keeps
+  // finding "one more" relation doesn't propose an unbounded number of
+  // pending writes in a single turn.
+  const MAX_EXTRACTION_PROPOSALS = 4;
+  let totalProposed = 0;
 
   for (let i = 0; i < MAX_EXTRACTION_ITERATIONS; i++) {
     let response;
@@ -2204,7 +2210,7 @@ export async function runThoughtExtractionPass(params: {
       tool_calls: assistantToolCalls,
     } as unknown as ProviderMessage);
 
-    let proposedWrite = false;
+    let proposedEdgeThisTurn = false;
 
     for (const block of toolCalls) {
       const toolName  = block.name!;
@@ -2222,7 +2228,8 @@ export async function runThoughtExtractionPass(params: {
       }
 
       if (toolName === "createThoughtNode" || toolName === "createThoughtEdge") {
-        proposedWrite = true;
+        totalProposed++;
+        if (toolName === "createThoughtEdge") proposedEdgeThisTurn = true;
         const preview = buildWritePreview(toolName, toolInput, new Map());
         const pendingWrite: PendingWrite = {
           id:                 crypto.randomUUID(),
@@ -2245,7 +2252,16 @@ export async function runThoughtExtractionPass(params: {
       }
     }
 
-    if (proposedWrite) return; // stop once something's been proposed this pass
+    // Stop once an edge has actually been proposed (the natural end state of
+    // the node-then-edge sequence), once the total proposal count this pass
+    // hits the cap, or — as before — once the model calls no tools at all.
+    // Do NOT stop just because a node was proposed: that's step one of the
+    // sequence, and the whole point of allowing multiple iterations here is
+    // to let the model come back and call getThoughtNodes + createThoughtEdge
+    // in a follow-up iteration. Returning early on any write was the bug —
+    // it cut every extraction pass off right after node creation, before
+    // the model ever reached the edge step.
+    if (proposedEdgeThisTurn || totalProposed >= MAX_EXTRACTION_PROPOSALS) return;
   }
 }
 
