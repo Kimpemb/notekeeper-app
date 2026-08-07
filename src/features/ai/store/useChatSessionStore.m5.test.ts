@@ -29,7 +29,7 @@ beforeEach(() => {
       "test-note-1": emptyTestSession(),
       "test-note-2": emptyTestSession(),
     },
-    paneNoteId: { 1: "test-note-1", 2: "test-note-2" },
+    paneNoteId: { 1: "test-note-1", 2: "test-note-2", 3: null },
   })
 })
 
