@@ -288,6 +288,50 @@ export async function executeGetNote(input: {
   }
 }
 
+// ─── openNote ─────────────────────────────────────────────────────────────────
+//
+// Read-only — resolves the note and returns { id, title } for the caller to
+// act on. Does NOT open anything itself: chat.ts's tool-loop dispatcher
+// fires the actual UI side effect (openTab/openTabInPane2) after a
+// successful resolve, since this file has no access to the UI store.
+
+export async function executeOpenNote(input: {
+  title?: string;
+  id?:    string;
+}): Promise<ReadToolResult> {
+  try {
+    if (input.id) {
+      const note = await getNoteById(input.id);
+      if (!note || note.deleted_at !== null) {
+        return { success: false, error: `Note with id "${input.id}" not found.` };
+      }
+      return { success: true, data: { id: note.id, title: note.title } };
+    }
+
+    if (input.title) {
+      const { getDb } = await import("@/features/notes/db/client");
+      const db = await getDb();
+      const exact = await db.select<{ id: string }[]>(
+        `SELECT id FROM notes WHERE LOWER(title) = LOWER($1) AND deleted_at IS NULL LIMIT 1`,
+        [input.title]
+      );
+      const topId = exact[0]?.id ?? (await searchNotes(input.title, 5))[0]?.id;
+      if (!topId) {
+        return { success: false, error: `No note found matching title "${input.title}".` };
+      }
+      const note = await getNoteById(topId);
+      if (!note || note.deleted_at !== null) {
+        return { success: false, error: `Note "${input.title}" found in search but could not be retrieved.` };
+      }
+      return { success: true, data: { id: note.id, title: note.title } };
+    }
+
+    return { success: false, error: "Provide either a note title or id." };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 // ─── searchNotes ──────────────────────────────────────────────────────────────
 
 export async function executeSearchNotes(input: {

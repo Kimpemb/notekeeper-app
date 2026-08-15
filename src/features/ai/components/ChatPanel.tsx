@@ -861,6 +861,7 @@ useEffect(() => {
           useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2),
           (pw) => setPendingWrites((prev) => new Map(prev).set(pw.id, pw)),
           assistantId,
+          handleOpenNote,
         );
 
         // Persist session and AI history after tool loop completes
@@ -1127,6 +1128,7 @@ const handleRetry = useCallback(async (userMessageId?: string, userMessageConten
         currentMessages.slice(0, targetUserIndex),
         (pw) => setPendingWrites((prev) => new Map(prev).set(pw.id, pw)),
         targetAssistantId,
+        handleOpenNote,
       );
 
       let finalContent = useChatSessionStore.getState().getSessionByNoteId(noteId)

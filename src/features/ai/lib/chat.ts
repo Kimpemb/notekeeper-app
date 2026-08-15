@@ -1782,6 +1782,7 @@ import {
   executeGetFileTree,
   executeGetThoughtGraph,
   executeGetThoughtNodes,
+  executeOpenNote,
   classifyActionIntent,
 } from "@/features/ai/lib/tools/readTools";import {
   useConfirmationGate,
@@ -1838,7 +1839,7 @@ If there is nothing worth tracking, call no tools.`;
 const TOOLS_SYSTEM_PROMPT = `You are an AI assistant with the ability to read and write within Idemora.
 
 READ TOOLS — use freely, no confirmation needed:
-getNote, searchNotes, getCalendarEvents, getGoals, getCurrentNote, getFileTree
+getNote, searchNotes, getCalendarEvents, getGoals, getCurrentNote, getFileTree, openNote
 
 WRITE TOOLS — propose only, never assume execution:
 appendToNote, insertInNote, replaceInNote, createNote, moveNote,
@@ -1885,6 +1886,7 @@ export async function streamChatWithTools(
   sessionMessages:  ChatMessage[],
   onPendingWrite:   (write: PendingWrite) => void,
   assistantMessageId: string,
+  onOpenNote?:      (noteId: string) => void,
 ): Promise<void> {
   // Build initial messages array
   const messages: ProviderMessage[] = [
@@ -1981,7 +1983,7 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
             streaming.onStatus?.(`Reading: ${toolName}…`);
             console.log(`[toolLoop] executing READ tool: ${toolName}`, JSON.stringify(toolInput));
 
-            const result = await executeReadTool(toolName, toolInput, currentNote);
+            const result = await executeReadTool(toolName, toolInput, currentNote, onOpenNote);
             console.log(`[toolLoop] READ tool result (${toolName}):`, JSON.stringify(result).slice(0, 1000));
 
             // Feed result back as tool role message (DeepSeek/OpenAI format)
@@ -2275,6 +2277,7 @@ async function executeReadTool(
   toolName:    string,
   toolInput:   Record<string, unknown>,
   currentNote: Note | undefined,
+  onOpenNote?: (noteId: string) => void,
 ): Promise<import("@/features/ai/lib/tools/readTools").ReadToolResult> {
   switch (toolName) {
     case "getNote":
@@ -2304,6 +2307,15 @@ async function executeReadTool(
 
     case "getThoughtNodes":
       return executeGetThoughtNodes(toolInput as { graph_id: string });
+
+    case "openNote": {
+      const result = await executeOpenNote(toolInput as { title?: string; id?: string });
+      if (result.success && result.data) {
+        const { id } = result.data as { id: string; title: string };
+        onOpenNote?.(id);
+      }
+      return result;
+    }
 
     default:
       return { success: false, error: `Unknown read tool: ${toolName}` };

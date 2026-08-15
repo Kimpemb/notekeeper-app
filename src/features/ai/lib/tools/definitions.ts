@@ -147,6 +147,23 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 
+  {
+    name: "openNote",
+    description:
+      "Open a note in the editor by title or ID, bringing it into view for the user. " +
+      "Use this when the user asks you to open, show, or switch to a specific note — " +
+      "e.g. 'open my automata notes', 'switch to the Forouzan chapter note', 'show me X'. " +
+      "This does not return note content for you to read — call getNote separately if you also need its content.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Note title to search for (case-insensitive prefix match)." },
+        id:    { type: "string", description: "Exact note UUID. Takes precedence over title if both supplied." },
+      },
+      required: [],
+    },
+  },
+
   // ─── Write tools ───────────────────────────────────────────────────────────  // These are NEVER executed directly. The app holds them at the confirmation
   // gate and awaits user approval before calling any executor.
 
@@ -529,6 +546,7 @@ export const READ_TOOL_NAMES = new Set([
   "getFileTree",
   "getThoughtGraph",
   "getThoughtNodes",
+  "openNote",
 ]);
 
 export const WRITE_TOOL_NAMES = new Set([
