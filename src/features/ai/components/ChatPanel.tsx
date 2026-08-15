@@ -103,6 +103,47 @@ function detectLongPaste(pasted: string): { label: string; lineCount: number; ch
   }
 }
 
+// Detects Shift+Enter pressed on an ordered ("1. ") or unordered ("- "/"* ")
+// list line and returns what to do about it — continue the list with the
+// next marker, or (if the current item is empty) strip the marker and drop
+// out of the list, mirroring Claude/Slack/GitHub's textarea list behavior.
+// Returns null when the current line isn't a list item, so the caller falls
+// through to a plain newline.
+function getListContinuation(
+  text: string,
+  cursorPos: number,
+): { insertText: string; removeLine: boolean; lineStart: number } | null {
+  const lineStart = text.lastIndexOf("\n", cursorPos - 1) + 1
+  const lineText  = text.slice(lineStart, cursorPos)
+
+  const ordered   = lineText.match(/^(\s*)(\d+)\.\s(.*)$/)
+  const unordered = lineText.match(/^(\s*)([-*])\s(.*)$/)
+  if (!ordered && !unordered) return null
+
+  const [, indent, marker, content] = ordered
+    ? [ordered[0], ordered[1], ordered[2] + ".", ordered[3]]
+    : (unordered as RegExpMatchArray)
+
+  if (content.trim() !== "") {
+    const nextMarker = ordered ? `${parseInt(ordered[2], 10) + 1}. ` : `${marker} `
+    return { insertText: `\n${indent}${nextMarker}`, removeLine: false, lineStart }
+  }
+
+  // Empty item — only exit (strip the marker) if the line above is ALSO an
+  // empty list item of the same kind (classic double-Enter-to-exit). Otherwise
+  // this is just the first item with no content typed yet — leave it alone
+  // and insert a plain newline instead of deleting anything.
+  const prevLineEnd   = lineStart - 1
+  const prevLineStart = prevLineEnd >= 0 ? text.lastIndexOf("\n", prevLineEnd - 1) + 1 : -1
+  const prevLineText  = prevLineStart >= 0 ? text.slice(prevLineStart, prevLineEnd) : ""
+  const prevWasEmptyListItem = /^(\s*)(\d+\.|[-*])\s*$/.test(prevLineText)
+
+  if (prevWasEmptyListItem) {
+    return { insertText: "", removeLine: true, lineStart }
+  }
+  return null
+}
+
 interface Props {
   noteId: string;
   paneId: 1 | 2 | 3;
@@ -991,7 +1032,28 @@ useEffect(() => {
   }, [input, loading, isFreeTier, notes, noteId, currentNote, primarySlot, setProviderStatus, resolveScopeNoteIds, pendingAttachments, clearPendingAttachments, maybeRunThoughtExtraction]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); return; }
+
+    if (e.key === "Enter" && e.shiftKey) {
+      const textarea   = e.currentTarget
+      const cursorPos   = textarea.selectionStart
+      const continuation = getListContinuation(input, cursorPos)
+      if (!continuation) return // not on a list line — let the default newline happen
+
+      e.preventDefault()
+      const { insertText, removeLine, lineStart } = continuation
+      const newValue     = removeLine
+        ? input.slice(0, lineStart) + input.slice(cursorPos)
+        : input.slice(0, cursorPos) + insertText + input.slice(cursorPos)
+      const newCursorPos = removeLine ? lineStart : cursorPos + insertText.length
+
+      setInput(newValue)
+      requestAnimationFrame(() => {
+        textarea.selectionStart = textarea.selectionEnd = newCursorPos
+        textarea.style.height = "auto"
+        textarea.style.height = textarea.scrollHeight + "px"
+      })
+    }
   }
 
   async function handleClear() {
