@@ -127,8 +127,14 @@ function stripScopePhrases(query: string): string {
   return cleaned.replace(/\s+/g, " ").trim()
 }
 
+const ACADEMIC_REFERENCE_PATTERN = /\b(exercise|problem|theorem|example|section|chapter|figure|table|corollary|lemma|definition|equation|proof)\s+\d+(\.\d+)*[a-z]?\b/i
+
 export function detectIntentFallback(query: string): DetectedIntent {
   const q = query.trim()
+
+  if (ACADEMIC_REFERENCE_PATTERN.test(q)) {
+    return { intent: "lookup", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: true, isFollowUp: false }
+  }
 
   if (INVENTORY_PATTERNS.some((p) => p.test(q))) {
     return { intent: "inventory", scope: {}, cleanQuery: q, isDeixis: false, isPersonal: true, isFollowUp: false }
@@ -219,6 +225,7 @@ Important:
 - "how many people did king leopold kill" is lookup + isPersonal:false — historical public figures are never personal
 - "heard jamie foxx almost died, what happened" is lookup + isPersonal:false — celebrity news is never personal
 - "how does climate change work" is lookup + isPersonal:false — no first-person pronoun means not personal
+- "exercise 3.1.5", "theorem 6", "problem 4.2" or any numbered exercise/theorem/problem reference is isPersonal:true even with no pronoun — these only make sense relative to a specific textbook edition in the vault, unlike general concept questions
 
 Query: ${JSON.stringify(query)}
 

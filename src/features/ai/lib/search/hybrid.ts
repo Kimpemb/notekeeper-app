@@ -149,6 +149,21 @@ const FTS_STOP_WORDS = new Set([
   'not','no','nor','yet','both','either','neither','each',
 ])
 
+// Detects a precise numbered reference like "3.1.5" or "4.2a" (exercise/theorem/
+// section numbers). FTS5's tokenizer splits these into separate digit tokens at
+// index time, and the OR-joined term filter below already drops bare digits as
+// noise — so without this, the only part of the query that actually identifies
+// WHICH exercise gets silently discarded, and retrieval falls back to matching
+// every exercise in the book. A quoted phrase query against the adjacent digit
+// tokens recovers exact matching.
+function extractNumericReferencePhrase(query: string): string | null {
+  const match = query.match(/\b\d+(?:\.\d+){1,3}[a-z]?\b/i)
+  if (!match) return null
+  const digits = match[0].replace(/[a-z]$/i, "").split(".")
+  if (digits.length < 2) return null
+  return `"${digits.join(" ")}"`
+}
+
 async function ftsPass(
   queries:               string[],
   scope:                 ScopeFilter,
@@ -213,9 +228,14 @@ async function ftsPass(
       }
     }
 
-    const sanitized = filteredTerms
+    const looseTerms = filteredTerms
       .map((word) => `${word}*`)
       .join(" OR ")
+
+    const numericPhrase = extractNumericReferencePhrase(query)
+    const sanitized = numericPhrase
+      ? (looseTerms ? `(${looseTerms}) AND ${numericPhrase}` : numericPhrase)
+      : looseTerms
 
     console.log('[fts] sanitized:', sanitized)
 
