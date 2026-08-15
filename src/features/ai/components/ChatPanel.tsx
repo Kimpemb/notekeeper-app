@@ -118,6 +118,7 @@ interface Props {
 interface MessageMeta {
   sourceTitles:        string[];
   sourceNoteIds:       string[];
+  citationNumbers?:    number[];
   usedEmbeddings:      boolean;
   confidence:          "high" | "medium" | "low";
   relatedNotes:        RelatedNote[];
@@ -410,6 +411,7 @@ export function ChatPanel({ noteId, paneId, embedded = false, onCloseEmbedded }:
         return [pm.messageId, {
           sourceTitles:        runtime.sourceTitles        ?? pm.citations?.map(c => c.title) ?? [],
           sourceNoteIds:       runtime.sourceNoteIds       ?? pm.citations?.map(c => c.noteId) ?? [],
+          citationNumbers:     runtime.citationNumbers     ?? pm.citations?.map(c => c.citationNumber ?? 0) ?? [],
           usedEmbeddings:      pm.usedEmbeddings           ?? false,
           confidence:          pm.confidence               ?? "medium",
           relatedNotes:        runtime.relatedNotes        ?? [],
@@ -426,6 +428,7 @@ export function ChatPanel({ noteId, paneId, embedded = false, onCloseEmbedded }:
         map.set(id, {
           sourceTitles:        runtime.sourceTitles        ?? [],
           sourceNoteIds:       runtime.sourceNoteIds       ?? [],
+          citationNumbers:     runtime.citationNumbers     ?? [],
           usedEmbeddings:      runtime.usedEmbeddings      ?? false,
           confidence:          runtime.confidence          ?? "medium",
           relatedNotes:        runtime.relatedNotes        ?? [],
@@ -742,9 +745,10 @@ useEffect(() => {
         messageId:      assistantId,
         confidence:     meta.confidence,
         citations:      meta.sourceTitles.map((title, i) => ({
-          noteId:       meta.sourceNoteIds[i],
+          noteId:         meta.sourceNoteIds[i],
           title,
-          isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+          isTitleMatch:   meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+          citationNumber: meta.citationNumbers?.[i],
         })),
         usedWeb:        meta.webNudge !== undefined,
         usedEmbeddings: meta.usedEmbeddings,
@@ -755,6 +759,7 @@ useEffect(() => {
       setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
         sourceTitles:        meta.sourceTitles,
         sourceNoteIds:       meta.sourceNoteIds,
+        citationNumbers:     meta.citationNumbers,
         relatedNotes:        meta.relatedNotes,
         tier1Results:        meta.tier1Results,
         excludedNoteNotices: meta.excludedNoteNotices,
@@ -932,9 +937,10 @@ useEffect(() => {
         messageId:      assistantId,
         confidence:     meta.confidence,
         citations:      meta.sourceTitles.map((title, i) => ({
-          noteId:       meta.sourceNoteIds[i],
+          noteId:         meta.sourceNoteIds[i],
           title,
-          isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+          isTitleMatch:   meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+          citationNumber: meta.citationNumbers?.[i],
         })),
         usedWeb:        meta.webNudge !== undefined,
         usedEmbeddings: meta.usedEmbeddings,
@@ -946,6 +952,7 @@ useEffect(() => {
       setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
         sourceTitles:        meta.sourceTitles,
         sourceNoteIds:       meta.sourceNoteIds,
+        citationNumbers:     meta.citationNumbers,
         relatedNotes:        meta.relatedNotes,
         tier1Results:        meta.tier1Results,
         excludedNoteNotices: meta.excludedNoteNotices,
@@ -1192,6 +1199,7 @@ const handleRetry = useCallback(async (userMessageId?: string, userMessageConten
         noteId: meta.sourceNoteIds[i],
         title,
         isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+        citationNumber: meta.citationNumbers?.[i],
       })),
       usedWeb: meta.webNudge !== undefined,
       usedEmbeddings: meta.usedEmbeddings,
@@ -1202,6 +1210,7 @@ const handleRetry = useCallback(async (userMessageId?: string, userMessageConten
     setRuntimeMetaMap((prev) => new Map(prev).set(targetAssistantId, {
       sourceTitles: meta.sourceTitles,
       sourceNoteIds: meta.sourceNoteIds,
+      citationNumbers: meta.citationNumbers,
       relatedNotes: meta.relatedNotes,
       tier1Results: meta.tier1Results,
       excludedNoteNotices: meta.excludedNoteNotices,
@@ -1268,9 +1277,10 @@ const meta = await streamChatWithNotes(
         messageId:      assistantId,
         confidence:     meta.confidence,
         citations:      meta.sourceTitles.map((title, i) => ({
-          noteId:       meta.sourceNoteIds[i],
+          noteId:         meta.sourceNoteIds[i],
           title,
-          isTitleMatch: meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+          isTitleMatch:   meta.titleMatchedNoteIds?.includes(meta.sourceNoteIds[i]),
+          citationNumber: meta.citationNumbers?.[i],
         })),
         usedWeb:        meta.webNudge !== undefined,
         usedEmbeddings: meta.usedEmbeddings,
@@ -1281,6 +1291,7 @@ const meta = await streamChatWithNotes(
       setRuntimeMetaMap((prev) => new Map(prev).set(assistantId, {
         sourceTitles:        meta.sourceTitles,
         sourceNoteIds:       meta.sourceNoteIds,
+        citationNumbers:     meta.citationNumbers,
         relatedNotes:        meta.relatedNotes,
         tier1Results:        meta.tier1Results,
         excludedNoteNotices: meta.excludedNoteNotices,
@@ -2054,10 +2065,11 @@ function WebSourceChips({ sources }: { sources: WebSearchResult[] }) {
 }
 
 function NoteSourceChips({
-  titles, noteIds, titleMatchedNoteIds, onOpenNote,
+  titles, noteIds, citationNumbers, titleMatchedNoteIds, onOpenNote,
 }: {
   titles:               string[];
   noteIds:              string[];
+  citationNumbers?:     number[];
   titleMatchedNoteIds?: string[];
   onOpenNote:           (id: string) => void;
 }) {
@@ -2068,6 +2080,9 @@ function NoteSourceChips({
     <div className="flex flex-wrap gap-1">
       {visible.map((title, i) => {
         const isTitleMatch = titleMatchedNoteIds?.includes(noteIds[i])
+        // Fall back to position+1 only for sessions persisted before this fix
+        // (where citationNumbers wasn't recorded) — new messages always have it.
+        const displayNumber = citationNumbers?.[i] ?? (i + 1)
         return (
           <button
             key={noteIds[i]}
@@ -2083,7 +2098,7 @@ function NoteSourceChips({
               <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1"/>
               <path d="M2.5 3h3M2.5 5h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round"/>
             </svg>
-            <span className="truncate">[{i + 1}] {title}</span>
+            <span className="truncate">[{displayNumber}] {title}</span>
           </button>
         )
       })}
@@ -2153,6 +2168,7 @@ function MessageFooter({
         <NoteSourceChips
           titles={meta.sourceTitles}
           noteIds={meta.sourceNoteIds}
+          citationNumbers={meta.citationNumbers}
           titleMatchedNoteIds={meta.titleMatchedNoteIds}
           onOpenNote={onOpenNote}
         />

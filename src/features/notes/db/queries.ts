@@ -2904,7 +2904,7 @@ export async function getRagExcludedNotes(): Promise<Note[]> {
 export interface PersistedMeta {
   messageId:       string
   confidence?:     "high" | "medium" | "low"
-  citations?:      { noteId: string; title: string; isTitleMatch?: boolean }[]
+  citations?:      { noteId: string; title: string; isTitleMatch?: boolean; citationNumber?: number }[]
   usedWeb?:        boolean
   usedEmbeddings?: boolean
 }

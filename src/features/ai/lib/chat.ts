@@ -84,6 +84,7 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
     answer:               string
     sourceTitles:         string[]
     sourceNoteIds:        string[]
+    citationNumbers?:     number[]
     usedEmbeddings:       boolean
     confidence:           "high" | "medium" | "low"
     relatedNotes:         RelatedNote[]
@@ -351,15 +352,16 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
     chunkTitles:  string[],   // parallel to results[], one entry per chunk
     chunkNoteIds: string[],   // parallel to results[], one entry per chunk
     cited:        Set<number>, // 1-based indices from model response
-  ): { titles: string[]; noteIds: string[] } {
+  ): { titles: string[]; noteIds: string[]; citationNumbers: number[] } {
     // If model cited nothing, return all unique sources as fallback
     if (cited.size === 0) {
-      return { titles: [], noteIds: [] }
+      return { titles: [], noteIds: [], citationNumbers: [] }
     }
 
     const seen = new Set<string>()
     const titles: string[] = []
     const noteIds: string[] = []
+    const citationNumbers: number[] = []
 
     for (const oneBased of cited) {
       const i = oneBased - 1 // convert to 0-based chunk index
@@ -369,10 +371,11 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
         seen.add(noteId)
         noteIds.push(noteId)
         titles.push(chunkTitles[i])
+        citationNumbers.push(oneBased) // the original [N] this source keeps, not its dedup position
       }
     }
 
-    return { titles, noteIds }
+    return { titles, noteIds, citationNumbers }
   }
 
   // ─── Cross-note connection pass ───────────────────────────────────────────────
@@ -1740,7 +1743,7 @@ Answer:`
 
     // Filter sources to only notes the model actually cited with [N] markers
     const cited = extractCitedIndices(assembled)
-    const { titles, noteIds } = filterSourcesByCitations(
+    const { titles, noteIds, citationNumbers } = filterSourcesByCitations(
       pipeline.sourceTitles,
       pipeline.sourceNoteIds,
       cited,
@@ -1749,6 +1752,7 @@ Answer:`
     return {
       sourceTitles:        injectVault ? titles  : [],
       sourceNoteIds:       injectVault ? noteIds : [],
+      citationNumbers:     injectVault ? citationNumbers : [],
       usedEmbeddings:      pipeline.usedEmbeddings,
       confidence:          pipeline.confidence,
       relatedNotes,
