@@ -55,14 +55,29 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.1.2
+            ## What's new in v2.1.3
 
-            **Chat History**
-            - New sidebar panel (clock icon) lists your recent AI chat sessions, with an auto-generated summary title and folder breadcrumb for each
-            - Click any entry to jump straight back into that note and its chat context
-
-            **AI Chat**
-            - Evaluation and critique questions (e.g. "review this idea", "score this plan") now close with an explicit recommendation instead of stopping at a list of risks and considerations
+            **Infrastructure**
+            - Release builds now also publish under stable, version-independent filenames, so the marketing site can link directly to the latest installer without pointing at GitHub
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload stable-named download alias
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            SRC=$(ls src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+            DEST="Idemora-Setup.exe"
+          elif [ "${{ matrix.args }}" = "--target aarch64-apple-darwin" ]; then
+            SRC=$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg)
+            DEST="Idemora-Mac-AppleSilicon.dmg"
+          else
+            SRC=$(ls src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg)
+            DEST="Idemora-Mac-Intel.dmg"
+          fi
+          echo "Matched source file: $SRC"
+          cp "$SRC" "$DEST"
+          gh release upload "${{ github.ref_name }}" "$DEST" --clobber
