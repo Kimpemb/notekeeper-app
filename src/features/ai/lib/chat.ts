@@ -1143,7 +1143,7 @@ const memoryBlock = relevantMemory && relevantMemory.length > 0
   - Use bullet points for lists of 3 or more items; use prose for shorter enumerations
   - Match response length to the question — a simple question gets a short answer, a complex one gets a thorough one; never pad
   - Place citations inline immediately after the claim they support
-  - Never restate the question, summarise what you just said, or add filler closing sentences
+  - Never restate the question, summarise what you just said, or add filler closing sentences — EXCEPT: when the question asks you to evaluate, critique, score, or give an opinion on an idea, plan, or proposal, a closing verdict is required, not filler. Synthesize the risks and strengths into one explicit recommendation. If the risks point toward a stronger or different version of the idea, name that reframing directly and commit to it. State your actual position, not just the considerations that inform it.
   ${!historyBeforeQuestion && historyBlock ? `[CONVERSATION HISTORY]\n${historyBlock}\n` : ""}
   ${memoryBlock}
   ${hasVault ? `[EXCERPTS FROM YOUR NOTES]\n${excerptSection}\n` : excerptSection ? `${excerptSection}\n` : ""}
