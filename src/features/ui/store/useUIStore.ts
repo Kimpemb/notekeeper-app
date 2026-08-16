@@ -12,7 +12,7 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 type Theme = "light" | "dark";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 type RefreshStatus = "idle" | "reloading" | "reloaded";
-export type SidebarPanel = "notes" | "search" | "tags" | "trash" | "bookmarks" | "env" | "goals" | null;
+export type SidebarPanel = "notes" | "search" | "tags" | "trash" | "bookmarks" | "env" | "goals" | "chatHistory" | null;
 export type SplitDirection = "horizontal" | "vertical";
 export type RightPanelType = "outline" | "backlinks" | "similar" | "chat" | "version" | null;
 
