@@ -55,13 +55,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.1.1
+            ## What's new in v2.1.2
+
+            **Chat History**
+            - New sidebar panel (clock icon) lists your recent AI chat sessions, with an auto-generated summary title and folder breadcrumb for each
+            - Click any entry to jump straight back into that note and its chat context
 
             **AI Chat**
-            - Numbered and bulleted lists now auto-continue when you press Shift+Enter in the chat input
-            - The AI action layer can now open notes directly as part of a conversation
-            - Fixed an issue where deduplicating sources in a response could scramble the original citation numbers
-            - Fixed an issue where numbered exercise/list queries could produce fabricated answers instead of pulling from your notes
+            - Evaluation and critique questions (e.g. "review this idea", "score this plan") now close with an explicit recommendation instead of stopping at a list of risks and considerations
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
