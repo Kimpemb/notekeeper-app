@@ -55,13 +55,13 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.1.0
+            ## What's new in v2.1.1
 
-            **Thought Graph**
-            - A new reasoning mode for the Graph Editor — visualize the claims, questions, ideas, and counterarguments that come up in an AI conversation as their own graph, separate from your permanent Note Graph
-            - The AI proposes reasoning nodes as a conversation unfolds and asks for confirmation before adding them, same as every other AI action
-            - Related nodes can be connected to show how one idea supports, challenges, answers, or leads to another
-            - Opening a note with an existing Thought Graph switches into that mode automatically; toggle back to your regular Note Graph anytime
+            **AI Chat**
+            - Numbered and bulleted lists now auto-continue when you press Shift+Enter in the chat input
+            - The AI action layer can now open notes directly as part of a conversation
+            - Fixed an issue where deduplicating sources in a response could scramble the original citation numbers
+            - Fixed an issue where numbered exercise/list queries could produce fabricated answers instead of pulling from your notes
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
