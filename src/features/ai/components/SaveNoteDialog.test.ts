@@ -10,17 +10,19 @@ import type { ChatMessage } from "@/features/ai/lib/chat"
 // Helper to create a valid empty session
 function emptyTestSession() {
   return {
-    messages:          [] as ChatMessage[],
-    persistedMeta:     [],
-    linkedNoteId:      null as string | null,
-    linkedNoteTitle:   null as string | null,
-    lastSavedAt:       null as number | null,
-    ragScope:          "all" as "all" | "note",
-    webSearchEnabled:  false,
-    updatedAt:         Date.now(),
-    linkedNoteTrashed: false,
-    linkedNoteDeleted: false,
-    isLoading:         false,
+    messages:               [] as ChatMessage[],
+    persistedMeta:          [],
+    linkedNoteId:           null as string | null,
+    linkedNoteTitle:        null as string | null,
+    lastSavedAt:            null as number | null,
+    ragScope:               "all" as "all" | "note",
+    webSearchEnabled:       false,
+    updatedAt:              Date.now(),
+    linkedNoteTrashed:      false,
+    linkedNoteDeleted:      false,
+    isLoading:              false,
+    summaryTitle:           null as string | null,
+    summaryTitleGenerated:  false,
   }
 }
 

@@ -2910,14 +2910,16 @@ export interface PersistedMeta {
 }
 
 export interface PersistedChatSession {
-  messages:         import("@/features/ai/lib/chat").ChatMessage[]
-  persistedMeta:    PersistedMeta[]
-  linkedNoteId:     string | null
-  linkedNoteTitle:  string | null
-  lastSavedAt:      number | null
-  ragScope:         "all" | "note"
-  webSearchEnabled: boolean
-  updatedAt:        number
+  messages:               import("@/features/ai/lib/chat").ChatMessage[]
+  persistedMeta:          PersistedMeta[]
+  linkedNoteId:           string | null
+  linkedNoteTitle:        string | null
+  lastSavedAt:            number | null
+  ragScope:               "all" | "note"
+  webSearchEnabled:       boolean
+  updatedAt:              number
+  summaryTitle:           string | null
+  summaryTitleGenerated:  boolean
 }
 
 function trimToMessageCap(
@@ -2933,18 +2935,21 @@ export async function getChatSession(
 ): Promise<PersistedChatSession | null> {
   const db = await getDb()
   const rows = await db.select<{
-    note_id:            string
-    messages:           string
-    persisted_meta:     string
-    linked_note_id:     string | null
-    linked_note_title:  string | null
-    last_saved_at:      number | null
-    rag_scope:          string
-    web_search_enabled: number
-    updated_at:         number
+    note_id:                  string
+    messages:                 string
+    persisted_meta:           string
+    linked_note_id:           string | null
+    linked_note_title:        string | null
+    last_saved_at:            number | null
+    rag_scope:                string
+    web_search_enabled:       number
+    updated_at:               number
+    summary_title:            string | null
+    summary_title_generated:  number
   }[]>(
     `SELECT note_id, messages, persisted_meta, linked_note_id, linked_note_title,
-            last_saved_at, rag_scope, web_search_enabled, updated_at
+            last_saved_at, rag_scope, web_search_enabled, updated_at,
+            summary_title, summary_title_generated
      FROM chat_sessions WHERE note_id = $1`,
     [noteId]
   )
@@ -2952,14 +2957,16 @@ export async function getChatSession(
   const row = rows[0]
   try {
     return {
-      messages:         JSON.parse(row.messages)         ?? [],
-      persistedMeta:    JSON.parse(row.persisted_meta)   ?? [],
-      linkedNoteId:     row.linked_note_id,
-      linkedNoteTitle:  row.linked_note_title,
-      lastSavedAt:      row.last_saved_at,
-      ragScope:         (row.rag_scope as "all" | "note") ?? "all",
-      webSearchEnabled: row.web_search_enabled === 1,
-      updatedAt:        row.updated_at,
+      messages:               JSON.parse(row.messages)         ?? [],
+      persistedMeta:          JSON.parse(row.persisted_meta)   ?? [],
+      linkedNoteId:           row.linked_note_id,
+      linkedNoteTitle:        row.linked_note_title,
+      lastSavedAt:            row.last_saved_at,
+      ragScope:               (row.rag_scope as "all" | "note") ?? "all",
+      webSearchEnabled:       row.web_search_enabled === 1,
+      updatedAt:              row.updated_at,
+      summaryTitle:           row.summary_title,
+      summaryTitleGenerated:  row.summary_title_generated === 1,
     }
   } catch {
     return null
@@ -2975,8 +2982,9 @@ export async function saveChatSession(
   await db.execute(
     `INSERT INTO chat_sessions
        (note_id, messages, persisted_meta, linked_note_id, linked_note_title,
-        last_saved_at, rag_scope, web_search_enabled, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        last_saved_at, rag_scope, web_search_enabled, updated_at,
+        summary_title, summary_title_generated)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT(note_id) DO UPDATE SET
        messages           = excluded.messages,
        persisted_meta     = excluded.persisted_meta,
@@ -2996,13 +3004,65 @@ export async function saveChatSession(
       data.ragScope,
       data.webSearchEnabled ? 1 : 0,
       data.updatedAt,
+      data.summaryTitle,
+      data.summaryTitleGenerated ? 1 : 0,
     ]
+  )
+}
+
+export async function setChatSessionSummaryTitle(
+  noteId: string,
+  title:  string
+): Promise<void> {
+  const db = await getDb()
+  await db.execute(
+    `UPDATE chat_sessions
+     SET summary_title = $2, summary_title_generated = 1
+     WHERE note_id = $1`,
+    [noteId, title]
   )
 }
 
 export async function deleteChatSession(noteId: string): Promise<void> {
   const db = await getDb()
   await db.execute(`DELETE FROM chat_sessions WHERE note_id = $1`, [noteId])
+}
+
+export interface RecentChatSession {
+  noteId:       string
+  title:        string   // summary_title if generated, else the note's own title
+  breadcrumb:   string   // full " / "-joined breadcrumb, truncation happens in the UI
+  updatedAt:    number
+}
+
+export async function getRecentChatSessions(limit = 10): Promise<RecentChatSession[]> {
+  const db = await getDb()
+  const rows = await db.select<{
+    note_id:       string
+    summary_title: string | null
+    note_title:    string
+    updated_at:    number
+  }[]>(
+    `SELECT cs.note_id, cs.summary_title, n.title AS note_title, cs.updated_at
+     FROM chat_sessions cs
+     JOIN notes n ON n.id = cs.note_id
+     WHERE n.deleted_at IS NULL AND cs.messages != '[]'
+     ORDER BY cs.updated_at DESC
+     LIMIT $1`,
+    [limit]
+  )
+
+  const results: RecentChatSession[] = []
+  for (const row of rows) {
+    const breadcrumb = await computeBreadcrumb(row.note_id)
+    results.push({
+      noteId:     row.note_id,
+      title:      row.summary_title ?? row.note_title,
+      breadcrumb,
+      updatedAt:  row.updated_at,
+    })
+  }
+  return results
 }
 
 // ─── Episodes ─────────────────────────────────────────────────────────────────

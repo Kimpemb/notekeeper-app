@@ -9,10 +9,12 @@ import {
   getChatSession,
   saveChatSession,
   deleteChatSession,
+  setChatSessionSummaryTitle,
   type PersistedMeta,
   type PersistedChatSession,
 } from "@/features/notes/db/queries"
 import type { ChatMessage } from "@/features/ai/lib/chat"
+import { promptProcessing, ProcessingExhaustedError } from "@/features/ai/lib/client"
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -70,30 +72,34 @@ interface ChatSessionStore {
 
 export function emptySession(): RuntimeSession {
   return {
-    messages:          [],
-    persistedMeta:     [],
-    linkedNoteId:      null,
-    linkedNoteTitle:   null,
-    lastSavedAt:       null,
-    ragScope:          "all",
-    webSearchEnabled:  false,
-    updatedAt:         Date.now(),
-    linkedNoteTrashed: false,
-    linkedNoteDeleted: false,
-    isLoading:         false,
+    messages:               [],
+    persistedMeta:          [],
+    linkedNoteId:           null,
+    linkedNoteTitle:        null,
+    lastSavedAt:            null,
+    ragScope:               "all",
+    webSearchEnabled:       false,
+    updatedAt:              Date.now(),
+    linkedNoteTrashed:      false,
+    linkedNoteDeleted:      false,
+    isLoading:              false,
+    summaryTitle:           null,
+    summaryTitleGenerated:  false,
   }
 }
 
 function toPersistedSession(s: RuntimeSession): PersistedChatSession {
   return {
-    messages:         s.messages,
-    persistedMeta:    s.persistedMeta,
-    linkedNoteId:     s.linkedNoteId,
-    linkedNoteTitle:  s.linkedNoteTitle,
-    lastSavedAt:      s.lastSavedAt,
-    ragScope:         s.ragScope,
-    webSearchEnabled: s.webSearchEnabled,
-    updatedAt:        s.updatedAt,
+    messages:               s.messages,
+    persistedMeta:          s.persistedMeta,
+    linkedNoteId:           s.linkedNoteId,
+    linkedNoteTitle:        s.linkedNoteTitle,
+    lastSavedAt:            s.lastSavedAt,
+    ragScope:               s.ragScope,
+    webSearchEnabled:       s.webSearchEnabled,
+    updatedAt:              s.updatedAt,
+    summaryTitle:           s.summaryTitle,
+    summaryTitleGenerated:  s.summaryTitleGenerated,
   }
 }
 
@@ -104,6 +110,49 @@ const _saveTimers: Record<string, ReturnType<typeof setTimeout>> = {}
 function debouncedSave(noteId: string, fn: () => void, ms = 500) {
   clearTimeout(_saveTimers[noteId])
   _saveTimers[noteId] = setTimeout(fn, ms)
+}
+
+// ─── Summary title generation ──────────────────────────────────────────────────
+// Fire-and-forget, called from saveSession. Self-guarding: no-ops if already
+// generated or if there isn't at least one full exchange yet.
+async function maybeGenerateSummaryTitle(noteId: string): Promise<void> {
+  const session = useChatSessionStore.getState().sessions[noteId]
+  if (!session) return
+  if (session.summaryTitleGenerated) return
+  if (session.messages.length < 2) return
+
+  const firstUser      = session.messages.find((m) => m.role === "user")
+  const firstAssistant = session.messages.find((m) => m.role === "assistant" && m.content.trim().length > 0)
+  if (!firstUser || !firstAssistant) return
+
+  try {
+    const prompt = `Summarize the topic of this conversation in 4-8 words, as a short scannable title. No punctuation at the end, no quotes around it.
+
+User: ${firstUser.content.slice(0, 500)}
+Assistant: ${firstAssistant.content.slice(0, 500)}
+
+Title:`
+    const title = (await promptProcessing(prompt)).trim().replace(/^["']|["']$/g, "")
+    if (!title) return
+
+    await setChatSessionSummaryTitle(noteId, title)
+    useChatSessionStore.setState((s) => {
+      const current = s.sessions[noteId]
+      if (!current) return s
+      return {
+        sessions: {
+          ...s.sessions,
+          [noteId]: { ...current, summaryTitle: title, summaryTitleGenerated: true },
+        },
+      }
+    })
+  } catch (err) {
+    if (err instanceof ProcessingExhaustedError) {
+      console.info("[maybeGenerateSummaryTitle] processing exhausted — skipping")
+    } else {
+      console.warn("[maybeGenerateSummaryTitle] failed:", err)
+    }
+  }
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -135,17 +184,19 @@ export const useChatSessionStore = create<ChatSessionStore>((set, get) => ({
           ...s.sessions,
           [noteId]: {
             ...(persisted ?? {}),
-            messages:          persisted?.messages         ?? [],
-            persistedMeta:     persisted?.persistedMeta    ?? [],
-            linkedNoteId:      persisted?.linkedNoteId     ?? null,
-            linkedNoteTitle:   persisted?.linkedNoteTitle  ?? null,
-            lastSavedAt:       persisted?.lastSavedAt      ?? null,
-            ragScope:          persisted?.ragScope         ?? "all",
-            webSearchEnabled:  persisted?.webSearchEnabled ?? false,
-            updatedAt:         persisted?.updatedAt        ?? Date.now(),
-            linkedNoteTrashed: false,
-            linkedNoteDeleted: false,
-            isLoading:         false,
+            messages:               persisted?.messages               ?? [],
+            persistedMeta:          persisted?.persistedMeta          ?? [],
+            linkedNoteId:           persisted?.linkedNoteId           ?? null,
+            linkedNoteTitle:        persisted?.linkedNoteTitle        ?? null,
+            lastSavedAt:            persisted?.lastSavedAt            ?? null,
+            ragScope:               persisted?.ragScope               ?? "all",
+            webSearchEnabled:       persisted?.webSearchEnabled       ?? false,
+            updatedAt:              persisted?.updatedAt              ?? Date.now(),
+            linkedNoteTrashed:      false,
+            linkedNoteDeleted:      false,
+            isLoading:              false,
+            summaryTitle:           persisted?.summaryTitle           ?? null,
+            summaryTitleGenerated:  persisted?.summaryTitleGenerated  ?? false,
           },
         },
       }))
@@ -163,7 +214,10 @@ export const useChatSessionStore = create<ChatSessionStore>((set, get) => ({
   saveSession: async (noteId) => {
     const session = get().sessions[noteId]
     if (!session) return
-    await saveChatSession(noteId, toPersistedSession(session))
+    const stamped = { ...session, updatedAt: Date.now() }
+    set((s) => ({ sessions: { ...s.sessions, [noteId]: stamped } }))
+    await saveChatSession(noteId, toPersistedSession(stamped))
+    void maybeGenerateSummaryTitle(noteId)
   },
 
   // ── addMessage ──────────────────────────────────────────────────────────────
@@ -334,4 +388,6 @@ export const useChatSessionStore = create<ChatSessionStore>((set, get) => ({
   getLinkedNoteId: (pane) => {
     return get().getSession(pane).linkedNoteId
   },
+
+  
 }))

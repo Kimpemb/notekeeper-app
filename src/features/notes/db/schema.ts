@@ -317,6 +317,11 @@ export const ALL_MIGRATIONS: string[] = [
     updated_at         INTEGER  NOT NULL
   )`,
 
+  // ── Chat session Recents titles (feature/chat-session-recents) ───────────
+  `ALTER TABLE chat_sessions ADD COLUMN summary_title TEXT`,
+
+  `ALTER TABLE chat_sessions ADD COLUMN summary_title_generated INTEGER NOT NULL DEFAULT 0`,
+
   // ── File Import (feature/file-import) ────────────────────────────────────
   `ALTER TABLE notes ADD COLUMN source_type TEXT NOT NULL DEFAULT 'note'`,
 
