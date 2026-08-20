@@ -176,6 +176,7 @@ export const useConfirmationGate = create<ConfirmationGateState>((set, get) => (
     _setPendingWrite({ ...pw, status: "confirmed" });
 
     try {
+      console.log("[confirmWrite] FULL toolInput:", pw.toolInput);
       console.log("[confirmWrite] dispatching:", pw.toolName, JSON.stringify(pw.toolInput).slice(0, 300));
       const result = await dispatch(pw.toolName, pw.toolInput);
       console.log("[confirmWrite] result:", JSON.stringify(result).slice(0, 300));

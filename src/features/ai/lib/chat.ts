@@ -1784,6 +1784,7 @@ import {
   executeGetThoughtNodes,
   executeOpenNote,
   classifyActionIntent,
+  resolveActiveThoughtGraphId,
 } from "@/features/ai/lib/tools/readTools";import {
   useConfirmationGate,
   awaitWriteDecision,
@@ -1811,18 +1812,31 @@ const MAX_TOOL_ITERATIONS = 10;
 const EXTRACTION_MIN_WORDS = 40;
 const CONTRASTIVE_MARKERS = /\b(but|however|although|on the other hand)\b/i;
 
+// Temporary firing-rate counter — tells us how often extraction actually
+// fires per eligible response, to size the token-cost impact of decomposition
+// before committing to the v1 design. Remove once that number is in hand.
+let extractionEligibleCount = 0;
+let extractionFiredCount    = 0;
+
 function shouldAttemptThoughtExtraction(
   responseText: string,
   detectedIntent: import("@/features/ai/lib/search/intentDetection").QueryIntent,
 ): boolean {
   if (detectedIntent === "edit" || detectedIntent === "lookup") return false;
+  extractionEligibleCount++;
   const wordCount = responseText.trim().split(/\s+/).filter(Boolean).length;
-  if (wordCount < EXTRACTION_MIN_WORDS) return false;
+  if (wordCount < EXTRACTION_MIN_WORDS) {
+    console.log(`[thoughtExtraction] fire rate: ${extractionFiredCount}/${extractionEligibleCount}`);
+    return false;
+  }
   const hasQuestion   = responseText.includes("?");
   const hasContrast   = CONTRASTIVE_MARKERS.test(responseText);
   const listLineCount = (responseText.match(/^[\s]*[-*\d]+[.)]\s/gm) ?? []).length;
   const hasList       = listLineCount >= 2;
-  return hasQuestion || hasContrast || hasList;
+  const result = hasQuestion || hasContrast || hasList;
+  if (result) extractionFiredCount++;
+  console.log(`[thoughtExtraction] fire rate: ${extractionFiredCount}/${extractionEligibleCount}`);
+  return result;
 }
 
 // System prompt for the extraction pass itself (Step 7 wiring). Deliberately
@@ -1830,9 +1844,19 @@ function shouldAttemptThoughtExtraction(
 // (thought tools only) and a focused instruction, not the full action-layer
 // rulebook, since it's reflecting on an answer already given rather than
 // deciding how to act.
-const THOUGHT_EXTRACTION_SYSTEM_PROMPT = `You just gave the assistant response shown above in this conversation. Decide whether it contains a distinct claim, open question, or counterargument worth tracking as reasoning structure — not a routine factual answer.
+const THOUGHT_EXTRACTION_SYSTEM_PROMPT = `You just gave the assistant response shown above in this conversation. Break it into distinct reasoning units — claims, open questions, counterarguments, evidence, assumptions, or conclusions — worth tracking as separate nodes. Do not collapse multiple independent points into one summary node. A routine factual answer with no such units needs no nodes at all.
 
-If yes: call getThoughtGraph first to check for existing nodes and avoid near-duplicates, then call createThoughtNode for each genuinely new node (at most 2-3, pick the most significant). If a new node logically relates to one already in the graph (e.g. it answers an existing open question, or supports an existing claim), call getThoughtNodes to get real node ids, then createThoughtEdge to connect them — never guess an id.
+A unit stands alone (a sibling) if it could be quoted by itself and still make sense to someone with no other context. A unit is dependent (a child) if it only makes sense given a specific unit that came before it — in that case, connect it to THAT unit, not to the response's overall topic, using relation leads_to, depends_on, or refines as fits.
+
+Every unit you create must end up connected to something — never leave a node with no edge at all. First, decide which single unit is this response's anchor: its conclusion if it has one, otherwise its single strongest or most encompassing claim. Every other sibling unit must connect to that anchor with whichever relation actually fits — supports if it backs the anchor up, challenges if it complicates or cuts against it, refines if it narrows or qualifies it. Do not invent a generic "sibling" relation — pick the real one that matches how the unit actually relates to the anchor.
+
+Before creating anything, call getThoughtGraph to see existing nodes in this graph. For each unit, ALSO check whether it directly supports or challenges a SPECIFIC existing node from a prior response — not just "relates to the same general topic." If it does, call getThoughtNodes to get real node ids, then use that exact node's id as from_id/to_id for that edge, in addition to (not instead of) its edge to this response's own anchor. Never default to the most recently created node when a more specific target exists.
+
+Every createThoughtNode call returns a node_id in its result — use that node_id directly for any edge's from_id/to_id connecting to that node within this same pass (e.g. connecting a sibling to this response's anchor). Only call getThoughtNodes when the edge target is a node from an earlier response, already in the graph before this pass started. Never guess a from_id or to_id — every one must come from a node_id returned by createThoughtNode this pass, or a node id retrieved via getThoughtGraph or getThoughtNodes, never one you construct or infer.
+
+createThoughtEdge's graph_id parameter is a DIFFERENT kind of id from any node_id — it identifies the thought graph itself. The correct value is given to you directly above as "The graph_id for this conversation" — use exactly that value for every edge in this pass. Never substitute a node_id, and never invent one.
+
+Propose at most 5 nodes total in this pass. If the response has more distinct units than that, keep only the most significant ones.
 
 If there is nothing worth tracking, call no tools.`;
 
@@ -1855,8 +1879,11 @@ RULES:
   nodes before proposing one, to avoid near-duplicates. When you propose a node that logically
   relates to one already in the graph (e.g. it answers an existing open question, or supports an
   existing claim), call createThoughtEdge to connect them — call getThoughtNodes first to get
-  real node ids, never guess one. Do not propose more than 2-3 thought nodes in a single turn
-  even if more could technically be extracted — pick the most significant ones.- Always call a read tool before proposing a write.
+  real node ids, never guess one. A createThoughtNode you propose in THIS turn is not yet
+  confirmed, so its id is not yet available to you — do not attempt to link it via
+  createThoughtEdge in the same turn. Wait until a later turn, after it has been confirmed and
+  getThoughtNodes can return its real id. Do not propose more than 2-3 thought nodes in a single
+  turn even if more could technically be extracted — pick the most significant ones.- Always call a read tool before proposing a write.
   If the user says "look at X and do Y", call getNote(X) first.
 - Never invent note content or calendar data. Only work from what read tools return.
 - For timetables: call getCalendarEvents for the target date range before proposing events. Flag conflicts explicitly.
@@ -1997,6 +2024,18 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
             // ── Write tool — register at confirmation gate, decision deferred to pass 2 ──
             streaming.onStatus?.("Preparing write…");
 
+            // For createThoughtNode, pre-generate the row's real id and stamp it
+            // into toolInput before registering — mirrors the same fix in
+            // runThoughtExtractionPass. Without this, a model that proposes
+            // createThoughtNode + createThoughtEdge in the same turn here has
+            // no real id to reference and either fabricates one (FK failure)
+            // or silently drops the edge.
+            let predictedThoughtNodeId: string | undefined;
+            if (toolName === "createThoughtNode") {
+              predictedThoughtNodeId = crypto.randomUUID();
+              (toolInput as Record<string, unknown>).id = predictedThoughtNodeId;
+            }
+
             // Pre-fetch note title for the preview (if applicable)
             const noteTitleMap = await buildNoteTitleMap(toolName, toolInput);
 
@@ -2071,6 +2110,7 @@ const pendingWrite: PendingWrite = {
           if (decision === "confirmed") {
             // Gate executed the write — feed success back
             const executed = useConfirmationGate.getState().pendingWrites.get(writeId);
+            const executedInput = executed?.toolInput as Record<string, unknown> | undefined;
             messages.push({
               role:         "tool",
               tool_call_id: toolId,
@@ -2078,6 +2118,10 @@ const pendingWrite: PendingWrite = {
                 executed: true,
                 insertedViaFallback: executed?.insertedViaFallback ?? false,
                 createdEvents: executed?.createdEvents ?? undefined,
+                // Surfaces the predicted id back to the model on confirm too —
+                // covers the case where the model wants to reference this node
+                // in a LATER turn of the same conversation, not just same-pass.
+                id: executed?.toolName === "createThoughtNode" ? executedInput?.id : undefined,
               }),
             } as unknown as ProviderMessage);
           } else {
@@ -2175,8 +2219,21 @@ export async function runThoughtExtractionPass(params: {
     ["getThoughtGraph", "getThoughtNodes", "createThoughtNode", "createThoughtEdge"].includes(t.name)
   );
 
+  // Resolve (and create, if this is the episode's first extraction pass) the
+  // real graph_id BEFORE the model runs. Without this, a brand-new note has
+  // no thought_graphs row yet — it's only created lazily inside
+  // executeCreateThoughtNode, at confirm time — so getThoughtGraph would
+  // return an empty graphs array and the model has nothing legitimate to use
+  // for graph_id, leading it to substitute a node's id instead (the bug this
+  // fixes). Handing the model a real, already-persisted graph_id up front
+  // removes the guess entirely.
+  const graphId = await resolveActiveThoughtGraphId(noteId);
+  const graphIdLine = graphId
+    ? `The graph_id for this conversation is "${graphId}". Use this EXACT value for every createThoughtEdge call's graph_id parameter — never substitute a node_id, and never call getThoughtGraph to look for a different one.`
+    : "";
+
   const extractionSystemPrompt =
-    `${THOUGHT_EXTRACTION_SYSTEM_PROMPT}\n\nThe note_id for this conversation is "${noteId}".`;
+    `${THOUGHT_EXTRACTION_SYSTEM_PROMPT}\n\nThe note_id for this conversation is "${noteId}".\n${graphIdLine}`;
 
   const extractionMessages: ProviderMessage[] = [
     ...messages,
@@ -2187,8 +2244,10 @@ export async function runThoughtExtractionPass(params: {
   // Total createThoughtNode + createThoughtEdge proposals allowed across the
   // whole pass (not per-iteration) — a safety cap so a model that keeps
   // finding "one more" relation doesn't propose an unbounded number of
-  // pending writes in a single turn.
-  const MAX_EXTRACTION_PROPOSALS = 4;
+  // pending writes in a single turn. Raised from 4 to 8 to allow multi-point
+  // decomposition (e.g. 3 sibling nodes + 3 attribution/chain edges) instead
+  // of capping out after a single node-edge pair.
+  const MAX_EXTRACTION_PROPOSALS = 8;
   let totalProposed = 0;
 
   for (let i = 0; i < MAX_EXTRACTION_ITERATIONS; i++) {
@@ -2216,8 +2275,6 @@ export async function runThoughtExtractionPass(params: {
       tool_calls: assistantToolCalls,
     } as unknown as ProviderMessage);
 
-    let proposedEdgeThisTurn = false;
-
     for (const block of toolCalls) {
       const toolName  = block.name!;
       const toolInput = block.input as Record<string, unknown>;
@@ -2235,7 +2292,20 @@ export async function runThoughtExtractionPass(params: {
 
       if (toolName === "createThoughtNode" || toolName === "createThoughtEdge") {
         totalProposed++;
-        if (toolName === "createThoughtEdge") proposedEdgeThisTurn = true;
+
+        // For createThoughtNode, pre-generate the row's real id and stamp it
+        // into toolInput before registering the pending write. The confirm-time
+        // executor (executeCreateThoughtNode) reads this same id and uses it
+        // for the actual INSERT, so the id returned to the model below is
+        // guaranteed to match what eventually lands in the database — letting
+        // the model reference this node in a same-pass createThoughtEdge call
+        // without waiting for confirmation or guessing an id.
+        let predictedNodeId: string | undefined;
+        if (toolName === "createThoughtNode") {
+          predictedNodeId = crypto.randomUUID();
+          (toolInput as Record<string, unknown>).id = predictedNodeId;
+        }
+
         const preview = buildWritePreview(toolName, toolInput, new Map());
         const pendingWrite: PendingWrite = {
           id:                 crypto.randomUUID(),
@@ -2253,21 +2323,22 @@ export async function runThoughtExtractionPass(params: {
         extractionMessages.push({
           role:         "tool",
           tool_call_id: toolId,
-          content:      JSON.stringify({ registered: true }),
+          content:      JSON.stringify(
+            predictedNodeId ? { registered: true, node_id: predictedNodeId } : { registered: true }
+          ),
         } as unknown as ProviderMessage);
       }
     }
 
-    // Stop once an edge has actually been proposed (the natural end state of
-    // the node-then-edge sequence), once the total proposal count this pass
-    // hits the cap, or — as before — once the model calls no tools at all.
-    // Do NOT stop just because a node was proposed: that's step one of the
-    // sequence, and the whole point of allowing multiple iterations here is
-    // to let the model come back and call getThoughtNodes + createThoughtEdge
-    // in a follow-up iteration. Returning early on any write was the bug —
-    // it cut every extraction pass off right after node creation, before
-    // the model ever reached the edge step.
-    if (proposedEdgeThisTurn || totalProposed >= MAX_EXTRACTION_PROPOSALS) return;
+    // Stop once the total proposal count this pass hits the cap, or once the
+    // model calls no tools at all (the loop's top-of-iteration check already
+    // returns in that case). Do NOT stop just because an edge was proposed —
+    // that was correct for the old "one node, one edge" shape, but a multi-
+    // point response needs several node+edge pairs in the same pass (one
+    // sibling group, or a sibling plus a dependent chain under it), and
+    // returning after the first edge cut those passes off before later
+    // siblings or chain links were ever proposed.
+    if (totalProposed >= MAX_EXTRACTION_PROPOSALS) return;
   }
 }
 

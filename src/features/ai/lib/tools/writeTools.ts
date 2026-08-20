@@ -1512,6 +1512,10 @@ export interface CreateThoughtNodeInput {
   body?:        string;
   source_ref?:  string;
   source_kind?: "conversation" | "note" | "external";
+  // Optional pre-generated id, set by the extraction pass before the tool
+  // result is sent back to the model — see runThoughtExtractionPass in
+  // chat.ts. Absent for writes proposed via the main tool loop.
+  id?:          string;
 }
 
 export interface CreateThoughtNodeUndoData {
@@ -1534,6 +1538,7 @@ export async function executeCreateThoughtNode(
     }
 
     const node = await createThoughtNodeRow({
+      id:          input.id,
       graphId,
       type:        input.type,
       summary:     input.summary,

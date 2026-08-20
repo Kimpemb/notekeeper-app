@@ -136,9 +136,14 @@ export async function createThoughtNodeRow(input: {
   body?:       string | null;
   sourceRef?:  string | null;
   sourceKind?: "conversation" | "note" | "external" | null;
+  // Optional pre-generated id — used by the extraction pass (chat.ts) so the
+  // model can reference this node's real id in same-pass edges immediately,
+  // instead of waiting for confirmation. Falls back to generating a fresh
+  // one when not supplied, preserving existing callers unchanged.
+  id?:         string;
 }): Promise<ThoughtNodeRow> {
   const db = await getDb();
-  const id = uuid();
+  const id = input.id ?? uuid();
   const ts = now();
   await db.execute(
     `INSERT INTO thought_nodes
