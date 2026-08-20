@@ -1688,7 +1688,16 @@ Answer:`
       // Vault didn't help, and the query isn't shaped for auto web search
       // (pasted content, quotes, long lists) — resolve it now with general
       // knowledge rather than leaving the user at a dead-end nudge.
-      if (selfReportedRelevant === false && !isAutoSearchableQuery(query)) {
+      // GATE: only fire the follow-up call if the first answer actually looks
+      // like a non-answer (short, or an explicit "not found" hedge). Without
+      // this, a model that self-reports RELEVANT: no but still wrote a full,
+      // complete answer anyway gets a SECOND unrelated answer bolted onto it —
+      // two independent responses to the same question glued together.
+      const looksLikeNonAnswer =
+        assembled.trim().split(/\s+/).filter(Boolean).length < 60 ||
+        /\b(i don'?t have|not found in|cannot find|no information|nothing in your notes)\b/i.test(assembled)
+
+      if (selfReportedRelevant === false && !isAutoSearchableQuery(query) && looksLikeNonAnswer) {
         try {
           streaming.onStatus?.("Notes didn't help — answering from general knowledge…")
           const generalPrompt = `You are a knowledgeable assistant. The user's personal notes did not contain information relevant to this request. Answer directly from your general knowledge, as helpfully and completely as you can.
