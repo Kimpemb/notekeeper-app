@@ -289,16 +289,30 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const REQUEST_TIMEOUT_MS = 30_000
+// The `processing` slot (intent classification, title detection) sends a tiny
+// prompt and should fail fast so the pipeline can fall back cleanly. The
+// `primary` slot generates full answers against potentially large contexts
+// (long history blocks, big pasted content) over a non-streaming DeepSeek
+// call — 30s was tuned for the former and was killing legitimate large-context
+// answers on the latter. Split per-slot until real streaming lands.
+const REQUEST_TIMEOUT_MS: Record<"primary" | "processing", number> = {
+  processing: 15_000,
+  primary:    90_000,
+}
 
-function withTimeout<T>(promise: Promise<T>, provider: string, model: string): Promise<T> {
+function withTimeout<T>(
+  promise:  Promise<T>,
+  provider: string,
+  model:    string,
+  slot:     "primary" | "processing",
+): Promise<T> {
   return Promise.race([
     promise,
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(
         new AICallError("NETWORK_ERROR", provider, model,
           `Request to ${provider} timed out. Check your connection.`)
-      ), REQUEST_TIMEOUT_MS)
+      ), REQUEST_TIMEOUT_MS[slot])
     ),
   ])
 }
@@ -614,6 +628,7 @@ async function dispatchChat(
         callProviderChat(provider, apiKey, model, messages, system),
         provider,
         model,
+        slot,
       );
 
       logCallOk({
