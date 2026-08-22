@@ -498,6 +498,20 @@ useEffect(() => {
   if (dismissedNudges.has(lastMsg.id)) return
   if (webResultsMap.has(lastMsg.id)) return
 
+  // webNudge is derived from retrieval signals (pipeline confidence/chunk
+  // count) in deriveWebNudge, not from whether the resulting answer was
+  // actually thin — low retrieval confidence can still produce a full,
+  // substantive answer (e.g. synthesized from adjacent vault content).
+  // Without this guard, autoSearch fired unconditionally whenever webNudge
+  // was set, silently appending an entire second full-pipeline answer as a
+  // new assistant bubble underneath a first answer that was already
+  // complete. Mirrors the looksLikeNonAnswer heuristic already used to gate
+  // the equivalent case inside chat.ts's RELEVANT:no fallback.
+  const looksLikeNonAnswer =
+    lastMsg.content.trim().split(/\s+/).filter(Boolean).length < 60 ||
+    /\b(i don'?t have|not found in|cannot find|no information|nothing in your notes)\b/i.test(lastMsg.content)
+  if (!looksLikeNonAnswer) return
+
   const prevMsg = messages[messages.length - 2]
   const userQuery = prevMsg?.role === "user" ? prevMsg.content : ""
   if (!userQuery) return
