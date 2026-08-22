@@ -357,3 +357,65 @@ describe("runPipeline precomputedIntent", () => {
   })
 })
 
+// ─── isLikelyDirectReplyToAssistant (cross-session memory search gate) ───────
+//
+// searchMemoryBlocks ran unconditionally on the raw query with no awareness of
+// the current conversation. A short reply directly answering a question the
+// assistant itself just asked ("what do you recommend? how about doing both")
+// has almost no standalone semantic signal, and searching it against the
+// cross-session index risked surfacing unrelated past sessions — which then
+// got woven into the answer with no attribution. This gate skips that search
+// for the common case: a short reply immediately after an assistant
+// question/offer.
+
+describe("isLikelyDirectReplyToAssistant", () => {
+  it("returns false when there are no session messages", async () => {
+    const { isLikelyDirectReplyToAssistant } = await import("@/features/ai/lib/chat")
+    expect(isLikelyDirectReplyToAssistant("how about doing both", undefined)).toBe(false)
+    expect(isLikelyDirectReplyToAssistant("how about doing both", [])).toBe(false)
+  })
+
+  it("returns false when the last message was from the user, not the assistant", async () => {
+    const { isLikelyDirectReplyToAssistant } = await import("@/features/ai/lib/chat")
+    const sessionMessages = [
+      { id: "1", role: "user" as const, content: "what is X?", createdAt: 1 },
+    ]
+    expect(isLikelyDirectReplyToAssistant("how about doing both", sessionMessages)).toBe(false)
+  })
+
+  it("returns false when the last assistant message doesn't ask or offer anything", async () => {
+    const { isLikelyDirectReplyToAssistant } = await import("@/features/ai/lib/chat")
+    const sessionMessages = [
+      { id: "1", role: "assistant" as const, content: "Here is the answer to your question.", createdAt: 1 },
+    ]
+    expect(isLikelyDirectReplyToAssistant("how about doing both", sessionMessages)).toBe(false)
+  })
+
+  it("returns true for the exact reported scenario — short reply to an assistant question", async () => {
+    const { isLikelyDirectReplyToAssistant } = await import("@/features/ai/lib/chat")
+    const sessionMessages = [
+      {
+        id: "1", role: "assistant" as const, createdAt: 1,
+        content: "Want me to capture this as a dedicated section in the note, or fold it into the existing analysis?",
+      },
+    ]
+    expect(isLikelyDirectReplyToAssistant("what do you recommend? how about doing both", sessionMessages)).toBe(true)
+  })
+
+  it("returns true for an offer phrase without a trailing question mark", async () => {
+    const { isLikelyDirectReplyToAssistant } = await import("@/features/ai/lib/chat")
+    const sessionMessages = [
+      { id: "1", role: "assistant" as const, content: "Let me know which approach you'd prefer.", createdAt: 1 },
+    ]
+    expect(isLikelyDirectReplyToAssistant("the second one", sessionMessages)).toBe(true)
+  })
+
+  it("returns false when the reply is long, even after an assistant question", async () => {
+    const { isLikelyDirectReplyToAssistant } = await import("@/features/ai/lib/chat")
+    const sessionMessages = [
+      { id: "1", role: "assistant" as const, content: "Which approach do you want to take?", createdAt: 1 },
+    ]
+    const longReply = "Well I think we should actually consider a completely different third approach that neither of us has discussed yet, because the tradeoffs of the first two don't account for the deadline"
+    expect(isLikelyDirectReplyToAssistant(longReply, sessionMessages)).toBe(false)
+  })
+})

@@ -1123,7 +1123,7 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
           : ""
 
 const memoryBlock = relevantMemory && relevantMemory.length > 0
-  ? `[RELEVANT PAST SESSIONS]\nThe following are summaries of relevant past conversations. Weave this context into your answer naturally — do not open with "based on the past session summary" or narrate the sources. Just answer.\n${formatMemoryResults(relevantMemory)}\n`
+  ? `[RELEVANT PAST SESSIONS]\nThe following are summaries of relevant past conversations. Only use this if it is clearly and specifically relevant to the current question — if the current conversation already contains the answer, or this message is directly answering something you just asked, ignore this section entirely. When you do use it, weave it in naturally: do not open with "based on the past session summary" or narrate the sources.\n${formatMemoryResults(relevantMemory)}\n`
   : ""
 
     return `You are an assistant with access to the user's personal notes vault.
@@ -1165,6 +1165,28 @@ const memoryBlock = relevantMemory && relevantMemory.length > 0
   Answer:`
   }
 
+
+  // Cross-session memory search (searchMemoryBlocks) runs on the raw query text
+  // with no awareness of the current conversation. A short reply that's actually
+  // answering a question the assistant itself just asked ("what do you recommend?
+  // how about doing both") has almost no standalone semantic signal — searching
+  // it against the cross-session index risks surfacing unrelated past sessions,
+  // which then get woven into the answer with no attribution (see memoryBlock
+  // prompt below). Heuristic only: catches the common case (short reply directly
+  // after an assistant question/offer), not every elliptical reference.
+  export function isLikelyDirectReplyToAssistant(query: string, sessionMessages?: ChatMessage[]): boolean {
+    if (!sessionMessages || sessionMessages.length === 0) return false
+    const last = sessionMessages[sessionMessages.length - 1]
+    if (!last || last.role !== "assistant") return false
+
+    const lastAssistantAsksOrOffers =
+      /\?\s*$/.test(last.content.trim()) ||
+      /\b(let me know|which would you prefer|want me to|should i|do you want)\b/i.test(last.content)
+    if (!lastAssistantAsksOrOffers) return false
+
+    const wordCount = query.trim().split(/\s+/).filter(Boolean).length
+    return wordCount <= 15
+  }
 
   // ─── Streaming chat (primary path) ───────────────────────────────────────────
 
@@ -1228,7 +1250,9 @@ const memoryBlock = relevantMemory && relevantMemory.length > 0
       prebuiltPipeline
         ? Promise.resolve(prebuiltPipeline)
         : runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds, streaming.onStatus, earlyIntentResult),
-      searchMemoryBlocks(query, currentNote?.id, 3).catch(() => []),
+      isLikelyDirectReplyToAssistant(query, sessionMessages)
+        ? Promise.resolve([])
+        : searchMemoryBlocks(query, currentNote?.id, 3).catch(() => []),
     ])
     const intent = pipeline.detectedIntent
 
