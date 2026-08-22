@@ -361,13 +361,25 @@ export const useChatSessionStore = create<ChatSessionStore>((set, get) => ({
   },
 
   // ── clearSession ─────────────────────────────────────────────────────────────
+  // Local state resets unconditionally, decoupled from the DB delete's outcome.
+  // Previously the `set` reset only ran after `await deleteChatSession(noteId)`
+  // resolved — if that DB call rejected (which it always does outside a real
+  // Tauri runtime, and could in production too: disk I/O issue, DB busy,
+  // corruption), the in-memory pane state was never cleared, leaving the UI
+  // silently stuck half-cleared with an unhandled promise rejection and no
+  // user-facing error. The DB delete now runs independently and its failure
+  // is logged rather than allowed to block the state reset.
   clearSession: async (noteId) => {
-    await deleteChatSession(noteId)
     set((s) => {
       const next = { ...s.sessions }
       delete next[noteId]
       return { sessions: next }
     })
+    try {
+      await deleteChatSession(noteId)
+    } catch (err) {
+      console.warn("[clearSession] deleteChatSession failed — local state already reset:", err)
+    }
   },
 
   // ── Selectors ────────────────────────────────────────────────────────────────
