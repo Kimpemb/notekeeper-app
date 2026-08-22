@@ -32,6 +32,7 @@
   } from "@/features/ai/lib/search/hybrid"
   import { getDb } from "@/features/notes/db/client"
   import { detectIntent }    from "@/features/ai/lib/search/intentDetection"
+  import type { DetectedIntent } from "@/features/ai/lib/search/intentDetection"
   import {
     callPrimary,
     promptPrimary,
@@ -762,11 +763,17 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
 
 
   export async function runPipeline(
-    query:            string,
-    currentNote?:     Note,
-    scopeNoteIds?:    string[],
-    overrideNoteIds?: string[],
-    onStatus?:        (msg: string) => void,
+    query:              string,
+    currentNote?:       Note,
+    scopeNoteIds?:      string[],
+    overrideNoteIds?:   string[],
+    onStatus?:          (msg: string) => void,
+    // Callers that already ran detectIntent(query) for this same query this
+    // turn (e.g. streamChatWithNotes, for budget allocation) can pass the
+    // result through here instead of making the pipeline redundantly call
+    // the classifier a second time for identical input. Falls back to
+    // calling it directly for callers that don't have one on hand yet.
+    precomputedIntent?: DetectedIntent,
   ): Promise<PipelineResult> {
     console.log('[pipeline] ========== STARTING PIPELINE ==========')
     console.log('[pipeline] Input query:', query)
@@ -774,7 +781,7 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
     console.log('[pipeline] scopeNoteIds:', scopeNoteIds || 'none')
     console.log('[pipeline] overrideNoteIds:', overrideNoteIds || 'none')
 
-    const { intent, scope, cleanQuery, isDeixis } = await detectIntent(query)
+    const { intent, scope, cleanQuery, isDeixis } = precomputedIntent ?? await detectIntent(query)
     const t0 = performance.now()
     console.log('[pipeline] Intent detection:', { intent, scope, cleanQuery })
 
@@ -1213,13 +1220,14 @@ const memoryBlock = relevantMemory && relevantMemory.length > 0
     streaming.onStatus?.("Searching your notes…")
 
     // Detect intent for budget allocation
-    const { intent: earlyIntent, isPersonal, isFollowUp, isDeixis } = await detectIntent(query)
+    const earlyIntentResult = await detectIntent(query)
+    const { intent: earlyIntent, isPersonal, isFollowUp, isDeixis } = earlyIntentResult
     const budget     = allocateBudget(earlyIntent)
     const [historyBlock, pipeline, relevantMemory] = await Promise.all([
       buildHistoryBlock(noteId, budget.historyChars, sessionMessages),
       prebuiltPipeline
         ? Promise.resolve(prebuiltPipeline)
-        : runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds, streaming.onStatus),
+        : runPipeline(query, currentNote, scopeNoteIds, overrideNoteIds, streaming.onStatus, earlyIntentResult),
       searchMemoryBlocks(query, currentNote?.id, 3).catch(() => []),
     ])
     const intent = pipeline.detectedIntent

@@ -26,7 +26,36 @@ vi.mock("@/features/ai/lib/search/intentDetection", () => ({
     intent:     "lookup",
     scope:      {},
     cleanQuery: "what is in Bentancur",
+    isDeixis:   false,
+    isPersonal: false,
+    isFollowUp: false,
   }),
+}))
+
+// Pulled in by chat.ts for the web-search-nudge feature. Without this mock,
+// importing chat.ts transitively drags in useAppSettings -> SettingsModal.tsx
+// -> useUIStore, which touches `window` at module-eval time and crashes any
+// test environment without a DOM (this repo's vitest config uses "node").
+vi.mock("@/features/ai/lib/search/webSearchProvider", () => ({
+  WEB_SEARCH_SCORE_THRESHOLD: 0.5,
+  WEB_SEARCH_MIN_CHUNKS:      1,
+  getWebSearchProvider:       vi.fn(),
+}))
+
+// Pulled in by chat.ts for AI write-tool confirmation UX. Without this mock,
+// importing chat.ts transitively drags in writeTools.ts -> parseMarkdown.ts ->
+// editor/NoteLink.ts -> editor/NoteLinkView.tsx -> useUIStore, a second,
+// independent static import chain into the same window-at-module-eval-time
+// crash that webSearchProvider.ts causes via a different route.
+vi.mock("@/features/ai/lib/tools/confirmationGate", () => ({
+  useConfirmationGate: {
+    getState: () => ({
+      pendingWrites:   new Map(),
+      addPendingWrite: vi.fn(),
+    }),
+  },
+  awaitWriteDecision: vi.fn(),
+  buildWritePreview:  vi.fn(),
 }))
 
 vi.mock("@/features/notes/db/queries", () => ({
@@ -41,9 +70,11 @@ vi.mock("@/features/notes/db/queries", () => ({
 import { streamChatWithNotes } from "@/features/ai/lib/chat"
 import { hybridSearch }        from "@/features/ai/lib/search/hybrid"
 import { getDb }               from "@/features/notes/db/client"
+import { detectIntent }        from "@/features/ai/lib/search/intentDetection"
 
 const mockGetDb        = vi.mocked(getDb)
 const mockHybridSearch = vi.mocked(hybridSearch)
+const mockDetectIntent = vi.mocked(detectIntent)
 
 let mockSelect:  any
 let mockExecute: any
@@ -248,3 +279,81 @@ describe("titleMatchedNoteIds", () => {
     expect(result.titleMatchedNoteIds).toContain("note-bentancur")
   })
 })
+
+// ─── detectIntent dedup (runPipeline precomputedIntent) ───────────────────────
+//
+// streamChatWithNotes used to call detectIntent(query) once directly (for
+// budget allocation) and runPipeline called detectIntent(query) again
+// internally with the identical query, concurrently, in the same Promise.all —
+// two calls to the processing-slot classifier per message for the same input.
+// runPipeline now accepts an optional precomputedIntent and only falls back
+// to calling detectIntent itself when the caller doesn't already have one.
+
+describe("runPipeline precomputedIntent", () => {
+  it("calls detectIntent when no precomputedIntent is provided", async () => {
+    mockSelect.mockResolvedValue([])
+    const { runPipeline } = await import("@/features/ai/lib/chat")
+
+    await runPipeline("what is in Bentancur", MOCK_NOTE as any)
+
+    expect(mockDetectIntent).toHaveBeenCalledTimes(1)
+    expect(mockDetectIntent).toHaveBeenCalledWith("what is in Bentancur")
+  })
+
+  it("skips its own detectIntent call when a precomputedIntent is passed in", async () => {
+    mockSelect.mockResolvedValue([])
+    const { runPipeline } = await import("@/features/ai/lib/chat")
+
+    const precomputed = {
+      intent:     "lookup" as const,
+      scope:      {},
+      cleanQuery: "already classified query",
+      isDeixis:   false,
+      isPersonal: false,
+      isFollowUp: false,
+    }
+
+    const result = await runPipeline(
+      "what is in Bentancur",
+      MOCK_NOTE as any,
+      undefined,
+      undefined,
+      undefined,
+      precomputed,
+    )
+
+    expect(mockDetectIntent).not.toHaveBeenCalled()
+    expect(result.detectedIntent).toBe("lookup")
+  })
+
+  it("uses the precomputed intent's cleanQuery for retrieval, not the raw query", async () => {
+    mockSelect.mockResolvedValue([])
+    mockHybridSearch.mockResolvedValue({ results: [], excludedTitleMatches: [], lowTermCoverage: false })
+    const { runPipeline } = await import("@/features/ai/lib/chat")
+
+    const precomputed = {
+      intent:     "lookup" as const,
+      scope:      {},
+      cleanQuery: "cleaned version of the query",
+      isDeixis:   false,
+      isPersonal: false,
+      isFollowUp: false,
+    }
+
+    await runPipeline(
+      "what is in Bentancur, raw and unclean",
+      MOCK_NOTE as any,
+      undefined,
+      undefined,
+      undefined,
+      precomputed,
+    )
+
+    expect(mockHybridSearch).toHaveBeenCalledWith(
+      "cleaned version of the query",
+      expect.any(Number),
+      expect.anything(),
+    )
+  })
+})
+
