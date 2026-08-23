@@ -355,6 +355,9 @@ export function ChatPanel({ noteId, paneId, embedded = false, onCloseEmbedded }:
     assistant: { role: "user" | "assistant"; content: string };
   } | null>(null);
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
+  // Message ids currently running a manually-triggered thought extraction pass —
+  // drives the button's loading state so a double-click can't fire it twice.
+  const [extractingThoughtIds, setExtractingThoughtIds] = useState<Set<string>>(new Set());
   const [pendingAttachments, setPendingAttachments] = useState<
     { id: string; label: string; lineCount: number; charCount: number; content: string }[]
   >([]);
@@ -714,6 +717,63 @@ useEffect(() => {
       console.warn("[maybeRunThoughtExtraction] failed:", err)
     }
   }, [noteId, currentNote])
+
+  // ── Manual thought-graph trigger ──────────────────────────────────────────
+  //
+  // Unlike maybeRunThoughtExtraction (fired automatically after every RAG
+  // answer), this is invoked explicitly via the message footer button and
+  // deliberately skips the intent/isFollowUp guard — those guards exist to
+  // stop AUTOMATIC extraction from firing on routine exchanges, but a user
+  // who explicitly clicks "add to thought graph" has already made that
+  // judgment call themselves. This covers two real gaps: (1) messages where
+  // automatic extraction was skipped (edit/inventory/follow-up intent, or the
+  // model simply proposed nothing), and (2) letting the user override the
+  // model's own "nothing worth tracking" judgment.
+  const handleManualThoughtExtraction = useCallback(async (assistantId: string) => {
+    if (extractingThoughtIds.has(assistantId)) return
+
+    const currentMessages = useChatSessionStore.getState().getSessionByNoteId(noteId).messages
+    const assistantIndex  = currentMessages.findIndex((m) => m.id === assistantId)
+    if (assistantIndex <= 0) return
+
+    const assistantMsg = currentMessages[assistantIndex]
+    if (!assistantMsg.content) return
+
+    // Standard alternation assumption (user directly precedes its assistant
+    // reply) — holds for every message-adding path in this file.
+    const userMsg = currentMessages[assistantIndex - 1]
+    if (userMsg.role !== "user") return
+
+    const historyMessages = currentMessages.slice(0, assistantIndex - 1)
+
+    setExtractingThoughtIds((prev) => new Set(prev).add(assistantId))
+    try {
+      const providerMessages: ProviderMessage[] = [
+        ...historyMessages.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user",      content: userMsg.content },
+        { role: "assistant", content: assistantMsg.content },
+      ]
+
+      await runThoughtExtractionPass({
+        noteId,
+        currentNote,
+        messages:           providerMessages,
+        batchId:            crypto.randomUUID(),
+        assistantMessageId: assistantId,
+        onPendingWrite:     (pw) => setPendingWrites((prev) => new Map(prev).set(pw.id, pw)),
+      })
+      addToast("Checked for thought nodes")
+    } catch (err) {
+      console.warn("[handleManualThoughtExtraction] failed:", err)
+      addToast("Couldn't extract thought nodes — try again")
+    } finally {
+      setExtractingThoughtIds((prev) => {
+        const next = new Set(prev)
+        next.delete(assistantId)
+        return next
+      })
+    }
+  }, [noteId, currentNote, extractingThoughtIds, addToast])
 
   // ── handleWebSearch ────────────────────────────────────────────────────────
   async function handleDirectWebSearch() {
@@ -1634,6 +1694,8 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
                         setSaveDialogOpen(true)
                       }) : undefined}
                       onRetry={isLatest && msg.content === "" ? handleRetry : undefined}
+                      onAddToThoughtGraph={!isFreeTier ? () => handleManualThoughtExtraction(msg.id) : undefined}
+                      addingToThoughtGraph={extractingThoughtIds.has(msg.id)}
                       isLatest={isLatest}
                       createdAt={msg.createdAt}
                     />
@@ -2193,17 +2255,20 @@ function NoteSourceChips({
 }
 
 function MessageFooter({
-  meta, onOpenNote, onOneTimeInclusion, webSources, onCopy, onSave, onRetry, isLatest, createdAt,
+  meta, onOpenNote, onOneTimeInclusion, webSources, onCopy, onSave, onRetry,
+  onAddToThoughtGraph, addingToThoughtGraph, isLatest, createdAt,
 }: {
-  meta:                MessageMeta;
-  onOpenNote:          (id: string) => void;
-  onOneTimeInclusion:  (noteId: string) => void;
-  webSources?:         WebSearchResult[];
-  onCopy:              () => void;
-  onSave?:             () => void;
-  onRetry?:            () => void;
-  isLatest:            boolean;
-  createdAt:           number;
+  meta:                  MessageMeta;
+  onOpenNote:            (id: string) => void;
+  onOneTimeInclusion:    (noteId: string) => void;
+  webSources?:           WebSearchResult[];
+  onCopy:                () => void;
+  onSave?:               () => void;
+  onRetry?:              () => void;
+  onAddToThoughtGraph?:  () => void;
+  addingToThoughtGraph?: boolean;
+  isLatest:              boolean;
+  createdAt:             number;
 }) {
   const [relatedExpanded, setRelatedExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -2346,6 +2411,27 @@ function MessageFooter({
               <path d="M1.5 5a3.5 3.5 0 103.5-3.5c-1 0-1.9.4-2.5 1L1 1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M1 1v2.5h2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
+          </button>
+        )}
+        {onAddToThoughtGraph && (
+          <button
+            onClick={onAddToThoughtGraph}
+            disabled={addingToThoughtGraph}
+            title={addingToThoughtGraph ? "Checking for thought nodes…" : "Add to thought graph"}
+            className="w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted hover:text-violet-400 hover:bg-violet-500/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100"
+          >
+            {addingToThoughtGraph ? (
+              <svg width="13" height="13" viewBox="0 0 12 12" className="animate-spin" fill="none">
+                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3" strokeDasharray="12 6" strokeLinecap="round"/>
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 10 10" fill="none">
+                <circle cx="2" cy="2" r="1.3" stroke="currentColor" strokeWidth="1"/>
+                <circle cx="8" cy="2" r="1.3" stroke="currentColor" strokeWidth="1"/>
+                <circle cx="5" cy="8" r="1.3" stroke="currentColor" strokeWidth="1"/>
+                <path d="M3.1 2.8L4.2 6.8M6.9 2.8L5.8 6.8M3.3 2h3.4" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round"/>
+              </svg>
+            )}
           </button>
         )}
       </div>
