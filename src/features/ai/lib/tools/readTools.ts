@@ -23,6 +23,8 @@ import {
   getThoughtNodesForGraphs,
   getThoughtEdgesForGraphs,
 } from "@/features/graph/db/thoughtGraphQueries";
+import type { ConversationMessage }             from "@/features/ai/lib/search/intentDetection";
+import { buildIntentContextBlock }              from "@/features/ai/lib/search/intentDetection";
 
 // ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -615,9 +617,20 @@ export async function executeReadTool(
 // Routes messages to the tool loop (action mode) vs the existing RAG pipeline.
 // Returns "chat" on any failure — never blocks the user-facing response.
 // Threshold: confidence >= 0.85 required to route as "action".
+//
+// Context-aware as of the isDirectReply redesign — previously this classifier
+// received ONLY the raw query, with no visibility into the conversation that
+// preceded it. That blindness is what caused short replies answering an
+// assistant's own question (e.g. "both please", "1, deep work blocks") to be
+// misclassified as "action": with no context, they're structurally
+// indistinguishable from a follow-up correction to an incomplete write (e.g.
+// "do the other one too"), which INTENT_SYSTEM explicitly instructs the model
+// to treat as high-confidence action. Reuses buildIntentContextBlock from
+// intentDetection.ts rather than duplicating the truncation/formatting logic —
+// one context-builder, not two copies that can drift.
 
-const INTENT_SYSTEM = `You classify user messages as either "action" or "chat".
-
+const INTENT_SYSTEM = (contextBlock: string) => `You classify user messages as either "action" or "chat".
+${contextBlock}
 "action" = the user wants the AI to read or modify their notes, calendar, or goals.
 Examples:
 - "write the solution beneath question 2"
@@ -647,18 +660,34 @@ without writing, general conversation. Pure questions with no write intent.
 IMPORTANT: If the message is a follow-up that implies a previous write was
 incomplete or needs correction, classify as "action" with high confidence.
 
+IMPORTANT — disambiguating short replies: a short reply only counts as a
+"follow-up correction to a previous write" if [RECENT CONTEXT] above shows the
+assistant actually performed or proposed a WRITE (e.g. it called a write tool,
+described creating/editing/deleting something, or asked which of several
+pending changes to apply). If [RECENT CONTEXT] instead shows the assistant
+asking a plain question or offering choices in ordinary conversation (no write
+involved), a short reply answering that question — e.g. "both please", "1,
+the second one", "yeah that one" — is "chat", not "action", even though it is
+equally short and equally dependent on context. The dependency on context is
+not itself evidence of write-intent; what matters is what the context shows
+the assistant was doing. If there is no [RECENT CONTEXT] block at all, judge
+the message on its own — it cannot be a follow-up to anything.
+
 Respond ONLY with a JSON object: { "intent": "action" | "chat", "confidence": 0.0–1.0 }
 No other text. No markdown.`;
 
 export async function classifyActionIntent(
-  query: string,
+  query:            string,
+  sessionMessages?: ConversationMessage[],
 ): Promise<{ intent: "action" | "chat"; confidence: number }> {
   const fallback = { intent: "chat" as const, confidence: 1.0 };
 
   try {
+    const contextBlock = buildIntentContextBlock(sessionMessages);
+
     const raw = await promptProcessing(
       `Classify this message: "${query.slice(0, 500)}"`,
-      INTENT_SYSTEM,
+      INTENT_SYSTEM(contextBlock),
     );
 
     const cleaned = raw.replace(/```json|```/g, "").trim();

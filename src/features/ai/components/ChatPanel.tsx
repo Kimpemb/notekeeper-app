@@ -937,7 +937,11 @@ useEffect(() => {
       const scopeNoteIds = await resolveScopeNoteIds();
 
       // ── Action intent routing (Phase 15 Milestone 5) ───────────────────────
-      const { intent, confidence } = await classifyActionIntent(q);
+      // Same slice used below for streamChatWithNotes/streamChatWithTools —
+      // excludes the user message + assistant placeholder just added above,
+      // so the classifier sees exactly the history those calls will see.
+      const classifierSessionMessages = useChatSessionStore.getState().getSessionByNoteId(noteId).messages.slice(0, -2);
+      const { intent, confidence } = await classifyActionIntent(q, classifierSessionMessages);
       console.log("[classifyActionIntent]", { intent, confidence, isActionMode: intent === "action" && confidence >= 0.85 });
       const isActionMode = intent === "action" && confidence >= 0.85;
 
@@ -1224,7 +1228,9 @@ const handleRetry = useCallback(async (userMessageId?: string, userMessageConten
     // Re-classify intent so retry re-attempts an action the same way the
     // original send would have, instead of silently downgrading every
     // retry to plain RAG chat regardless of what was originally asked.
-    const { intent, confidence } = await classifyActionIntent(targetContent);
+    // Pass the same history slice used below for streamChatWithTools/
+    // streamChatWithNotes — everything before the retried user message.
+    const { intent, confidence } = await classifyActionIntent(targetContent, currentMessages.slice(0, targetUserIndex));
     const isActionMode = intent === "action" && confidence >= 0.85;
 
     if (isActionMode) {

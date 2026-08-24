@@ -31,7 +31,7 @@
     type ExcludedTitleMatch,
   } from "@/features/ai/lib/search/hybrid"
   import { getDb } from "@/features/notes/db/client"
-  import { detectIntent }    from "@/features/ai/lib/search/intentDetection"
+  import { detectIntent, isLikelyDirectReplyToAssistant } from "@/features/ai/lib/search/intentDetection"
   import type { DetectedIntent } from "@/features/ai/lib/search/intentDetection"
   import {
     callPrimary,
@@ -1166,27 +1166,10 @@ const memoryBlock = relevantMemory && relevantMemory.length > 0
   }
 
 
-  // Cross-session memory search (searchMemoryBlocks) runs on the raw query text
-  // with no awareness of the current conversation. A short reply that's actually
-  // answering a question the assistant itself just asked ("what do you recommend?
-  // how about doing both") has almost no standalone semantic signal — searching
-  // it against the cross-session index risks surfacing unrelated past sessions,
-  // which then get woven into the answer with no attribution (see memoryBlock
-  // prompt below). Heuristic only: catches the common case (short reply directly
-  // after an assistant question/offer), not every elliptical reference.
-  export function isLikelyDirectReplyToAssistant(query: string, sessionMessages?: ChatMessage[]): boolean {
-    if (!sessionMessages || sessionMessages.length === 0) return false
-    const last = sessionMessages[sessionMessages.length - 1]
-    if (!last || last.role !== "assistant") return false
-
-    const lastAssistantAsksOrOffers =
-      /\?\s*$/.test(last.content.trim()) ||
-      /\b(let me know|which would you prefer|want me to|should i|do you want)\b/i.test(last.content)
-    if (!lastAssistantAsksOrOffers) return false
-
-    const wordCount = query.trim().split(/\s+/).filter(Boolean).length
-    return wordCount <= 15
-  }
+  // isLikelyDirectReplyToAssistant moved to intentDetection.ts — detectIntent
+  // now computes isDirectReply internally using this same heuristic. Re-exported
+  // here so any existing imports of it from chat.ts keep working unchanged.
+  export { isLikelyDirectReplyToAssistant } from "@/features/ai/lib/search/intentDetection"
 
   // ─── Streaming chat (primary path) ───────────────────────────────────────────
 
@@ -1242,8 +1225,8 @@ const memoryBlock = relevantMemory && relevantMemory.length > 0
     streaming.onStatus?.("Searching your notes…")
 
     // Detect intent for budget allocation
-    const earlyIntentResult = await detectIntent(query)
-    const { intent: earlyIntent, isPersonal, isFollowUp, isDeixis } = earlyIntentResult
+    const earlyIntentResult = await detectIntent(query, sessionMessages)
+    const { intent: earlyIntent, isPersonal, isFollowUp, isDeixis, isDirectReply, directReplySource } = earlyIntentResult
     const budget     = allocateBudget(earlyIntent)
     const [historyBlock, pipeline, relevantMemory] = await Promise.all([
       buildHistoryBlock(noteId, budget.historyChars, sessionMessages),
@@ -1507,6 +1490,117 @@ Answer:`
         titleMatchedNoteIds: [],
         webNudge:            undefined,
         webGrounded:         followUpWebGrounded,
+      }
+    }
+
+    // Direct-reply gate — short reply directly answering something already in
+    // the conversation. Distinct from isFollowUp (handled above, which already
+    // returned by this point if true): isFollowUp routes through claim-extraction
+    // + web verification, which is wrong here — this is answering a question,
+    // not verifying a claim.
+    //
+    // directReplySource distinguishes what the dependency actually is (see
+    // design-spec-context-aware-intent-classifier.md §2.4):
+    //   - "assistant_question" — replying to something the assistant itself just
+    //     asked/offered (e.g. "both please"). Resolve from conversation history only.
+    //   - "user_posed_choice" — resolving a choice the USER themselves posed in an
+    //     earlier turn (e.g. "1, renaissance" answering their own earlier
+    //     "Renaissance or Baroque?"). A pure history-only answer can't reliably
+    //     resolve which vault content the choice was about — re-run retrieval
+    //     using the user's earlier message as the effective query instead of
+    //     guessing from history text alone. Closes the "1, renaissance"
+    //     regression (v6 handoff §3.4).
+    if (isDirectReply) {
+      console.log('[streamChat] DIRECT REPLY —', directReplySource)
+
+      if (directReplySource === "user_posed_choice") {
+        const priorUserQuery = sessionMessages
+          ?.filter((m) => m.role === "user")
+          .pop()?.content
+
+        if (priorUserQuery) {
+          console.log('[streamChat] user_posed_choice — re-pipelining with prior user query:', priorUserQuery)
+
+          const reboundPipeline    = await runPipeline(priorUserQuery, currentNote, scopeNoteIds, overrideNoteIds)
+          const reboundInjectVault = reboundPipeline.chunkCount > 0 && reboundPipeline.confidence !== "low"
+          const reboundPrompt      = buildPrompt(query, reboundPipeline, effectiveHistoryBlock, currentNote, undefined, reboundInjectVault)
+          const messages: ProviderMessage[] = [{ role: "user", content: reboundPrompt }]
+          streaming.onStatus?.("Generating answer…")
+
+          try {
+            const result = await callPrimary(messages)
+            assembled    = result.text
+
+            // buildPrompt appends the trailing "RELEVANT: yes/no" self-report line
+            // whenever reboundInjectVault is true (same instruction the main flow
+            // uses) — strip it before display/history the same way the main flow
+            // does via extractRelevanceTag. Without this, the tag leaks straight
+            // into the visible answer, since this branch never stripped it.
+            if (reboundInjectVault) {
+              const parsedRelevance = extractRelevanceTag(assembled)
+              assembled              = parsedRelevance.text
+            }
+
+            streaming.onChunk(assembled)
+            await appendAIHistory(noteId, "user",      query)
+            await appendAIHistory(noteId, "assistant", assembled)
+            streaming.onDone?.()
+          } catch (err: unknown) {
+            streaming.onError?.(err as AICallError)
+          }
+
+          return {
+            sourceTitles:        reboundInjectVault ? reboundPipeline.sourceTitles  : [],
+            sourceNoteIds:       reboundInjectVault ? reboundPipeline.sourceNoteIds : [],
+            usedEmbeddings:      reboundPipeline.usedEmbeddings,
+            confidence:          reboundPipeline.confidence,
+            relatedNotes:        [],
+            excludedNoteNotices: reboundPipeline.excludedNoteNotices,
+            titleMatchedNoteIds: reboundPipeline.titleMatchedNoteIds,
+            webNudge:            undefined,
+            webGrounded:         false,
+          }
+        }
+
+        console.log('[streamChat] user_posed_choice but no prior user message found — falling back to history-only')
+      }
+
+      console.log('[streamChat] DIRECT REPLY — answering from conversation history only, suppressing vault')
+
+      const directReplyPrompt = `You are a helpful assistant engaged in an ongoing conversation.
+${effectiveHistoryBlock ? `[CONVERSATION HISTORY]\n${effectiveHistoryBlock}\n` : ""}
+The user's message below is directly answering or responding to something you just said in the conversation above. Resolve it from that context.
+Do not mention notes, vaults, or any note-taking system unless the user specifically asks.
+
+[QUESTION]
+${query}
+
+Answer:`
+
+      const messages: ProviderMessage[] = [{ role: "user", content: directReplyPrompt }]
+      streaming.onStatus?.("Generating answer…")
+
+      try {
+        const result = await callPrimary(messages)
+        assembled    = result.text
+        streaming.onChunk(assembled)
+        await appendAIHistory(noteId, "user",      query)
+        await appendAIHistory(noteId, "assistant", assembled)
+        streaming.onDone?.()
+      } catch (err: unknown) {
+        streaming.onError?.(err as AICallError)
+      }
+
+      return {
+        sourceTitles:        [],
+        sourceNoteIds:       [],
+        usedEmbeddings:      false,
+        confidence:          "high",
+        relatedNotes:        [],
+        excludedNoteNotices: [],
+        titleMatchedNoteIds: [],
+        webNudge:            undefined,
+        webGrounded:         false,
       }
     }
 
