@@ -321,6 +321,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 
   {
+    name: "renameNote",
+    description:
+      "Rename a note by replacing its title entirely. " +
+      "Use this when the user says 'rename X to Y' or 'call X Y instead'. " +
+      "new_title REPLACES the existing title — it is not appended or prepended. " +
+      "If the user wants to add a prefix/suffix (e.g. 'add [draft] to the title'), " +
+      "read the current title first and pass the full combined string as new_title.",
+    input_schema: {
+      type: "object",
+      properties: {
+        note_id:   { type: "string", description: "UUID of the note to rename." },
+        new_title: { type: "string", description: "The note's new title, in full." },
+      },
+      required: ["note_id", "new_title"],
+    },
+  },
+
+  {
     name: "linkNoteToEvent",
     description:
       "Link a note to a calendar event by setting linked_note_id on the event. " +
@@ -556,6 +574,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "deleteBlocksInNote",
   "createNote",
   "moveNote",
+  "renameNote",
   "createCalendarEvents",
   "deleteCalendarEvent",
   "updateCalendarEvent",

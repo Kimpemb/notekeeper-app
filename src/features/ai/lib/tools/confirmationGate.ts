@@ -13,6 +13,7 @@ import {
   executeDeleteBlocksInNote,
   executeCreateNote,
   executeMoveNote,
+  executeRenameNote,
   executeCreateCalendarEvents,
   executeDeleteCalendarEvent,
   executeUpdateGoal,
@@ -28,6 +29,7 @@ import {
   undoDeleteBlocksInNote,
   undoCreateNote,
   undoMoveNote,
+  undoRenameNote,
   undoCreateCalendarEvents,
   undoDeleteCalendarEvent,
   undoUpdateGoal,
@@ -56,6 +58,7 @@ import {
   type DeleteBlocksInNoteInput,
   type CreateNoteInput,
   type MoveNoteInput,
+  type RenameNoteInput,
   type CreateCalendarEventsInput,
   type DeleteCalendarEventInput,
   type UpdateGoalInput,
@@ -71,6 +74,7 @@ import {
   type DeleteBlocksInNoteUndoData,
   type CreateNoteUndoData,
   type MoveNoteUndoData,
+  type RenameNoteUndoData,
   type CreateCalendarEventsUndoData,
   type DeleteCalendarEventUndoData,
   type UpdateGoalUndoData,
@@ -545,6 +549,20 @@ export function buildWritePreview(
       };
     }
 
+    case "renameNote": {
+      const noteId    = toolInput.note_id as string;
+      const newTitle  = toolInput.new_title as string;
+      const oldTitle  = noteTitleMap.get(noteId) ?? noteId;
+      return {
+        title:         `Rename "${oldTitle}" to "${newTitle}"`,
+        description:   "Updating note title",
+        content:       `From: "${oldTitle}"\nTo: "${newTitle}"`,
+        wordCount:     6,
+        isDestructive: false,
+        isBatch:       false,
+      };
+    }
+
     case "createGoal": {
       const goalTitle  = toolInput.title as string;
       const targetDate = toolInput.target_date as string;
@@ -737,6 +755,9 @@ async function dispatch(
     case "moveNote":
       return executeMoveNote(toolInput as unknown as MoveNoteInput);
 
+    case "renameNote":
+      return executeRenameNote(toolInput as unknown as RenameNoteInput);
+
     case "createGoal":
       return executeCreateGoal(toolInput as unknown as CreateGoalInput);
 
@@ -797,6 +818,8 @@ async function dispatchUndo(toolName: string, undoData: unknown): Promise<void> 
       return undoUpdateGoal(undoData as UpdateGoalUndoData);
     case "moveNote":
       return undoMoveNote(undoData as MoveNoteUndoData);
+    case "renameNote":
+      return undoRenameNote(undoData as RenameNoteUndoData);
     case "createGoal":
       return undoCreateGoal(undoData as CreateGoalUndoData);
     case "deleteGoal":

@@ -1389,6 +1389,63 @@ export async function undoMoveNote(
   await useNoteStore.getState().moveNote(undoData.noteId, undoData.originalParentId);
 }
 
+// ─── renameNote ───────────────────────────────────────────────────────────────
+
+export interface RenameNoteInput {
+  note_id:   string;
+  new_title: string;
+}
+
+export interface RenameNoteUndoData {
+  noteId:        string;
+  originalTitle: string;
+}
+
+export async function executeRenameNote(
+  input: RenameNoteInput
+): Promise<WriteToolResult> {
+  try {
+    const note = await getNoteById(input.note_id);
+    if (!note) {
+      return { success: false, error: `Note ${input.note_id} not found.` };
+    }
+
+    const newTitle = input.new_title.trim();
+    if (!newTitle) {
+      return { success: false, error: "new_title cannot be empty." };
+    }
+
+    const originalTitle = note.title;
+
+    await updateNote(note.id, { title: newTitle });
+
+    // Refresh the store and notify editor — same pattern as append/insert/replace.
+    await refreshNoteInStore(note.id);
+    window.dispatchEvent(
+      new CustomEvent("idemora:note-updated", { detail: { noteId: note.id } })
+    );
+
+    return {
+      success:   true,
+      noteId:    note.id,
+      noteTitle: newTitle,
+      undoData:  { noteId: note.id, originalTitle } satisfies RenameNoteUndoData,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoRenameNote(
+  undoData: RenameNoteUndoData
+): Promise<void> {
+  await updateNote(undoData.noteId, { title: undoData.originalTitle });
+  await refreshNoteInStore(undoData.noteId);
+  window.dispatchEvent(
+    new CustomEvent("idemora:note-updated", { detail: { noteId: undoData.noteId } })
+  );
+}
+
 // ─── linkNoteToEvent ──────────────────────────────────────────────────────────
 
 export interface LinkNoteToEventInput {
