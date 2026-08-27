@@ -1,6 +1,6 @@
 [package]
 name = "idemora"
-version = "2.1.4"
+version = "2.1.5"
 description = "Idemora - A quiet place for your notes, ideas, and the connections between them"
 authors = ["joshua"]
 edition = "2021"

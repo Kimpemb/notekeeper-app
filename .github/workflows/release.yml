@@ -55,19 +55,10 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.1.4
-
-            **Fixes**
-            - Fixed follow-up messages being misclassified as standalone queries, causing wrong or unrelated answers to short replies
-            - Fixed AI responses occasionally mixing in unrelated content from past chat sessions
-            - Fixed a bug where clearing a session could leave stale state visible if the underlying delete failed
-            - Fixed duplicate/overlapping answers appearing for the same question
-            - Fixed redundant network calls that were adding unnecessary delay to responses
-            - Improved request timeout handling so slower requests fail more predictably
-            - Improved reliability of the thought-graph decomposition pipeline
+            ## What's new in v2.1.5
 
             **New**
-            - Added a manual trigger to force thought-graph extraction on a specific message
+            - Added a note rename tool to AI chat, so notes can be renamed directly through conversation
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
