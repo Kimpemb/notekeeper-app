@@ -37,6 +37,16 @@ import {
   type GoalLink,
   type GoalLinkSourceType,
 } from "@/features/goals/db/goalQueries";
+import {
+  createCoverableUnits as dbCreateCoverableUnits,
+  deleteCoverableUnitsByIds as dbDeleteCoverableUnitsByIds,
+  type CoverableUnitCreateInput,
+} from "@/features/scheduler/db/coverageQueries";
+import {
+  packUnitsIntoSessionsSorted,
+  type CoverableUnitInput as PackerUnitInput,
+  type SessionCapacityInput as PackerSessionInput,
+} from "@/features/scheduler/lib/coveragePacker";
  
 import { markdownToDoc }             from "@/features/ai/lib/save/parseMarkdown";
 import {
@@ -122,6 +132,8 @@ export interface WriteToolResult {
   insertedViaFallback?: boolean;        // true when insertInNote fell back to append
   conflicts?:           CalendarConflict[];
   createdEvents?:       { id: string; title: string; date: string; time: string | null }[];
+  coverageAssignments?: { eventId: string; unitTitles: string[] }[];
+  unassignedUnitTitles?: string[];  // units the packer couldn't fit anywhere — surfaced, not dropped (§8.2)
 }
 
 export interface CalendarConflict {
@@ -711,23 +723,7 @@ export async function executeCreateCalendarEvents(
     }
 
     // Conflict detection — check each event's date for existing events
-    const conflicts: CalendarConflict[] = [];
-    for (const ev of events) {
-      const existing = await getEventsForDateRange({
-        startDate: ev.date,
-        endDate:   ev.date,
-        layers:    ["personal", "notes", "tasks", "goals", "cde"],
-      });
-      for (const ex of existing) {
-        if (ev.time && ex.time && timesOverlap(ev, ex)) {
-          conflicts.push({
-            date:          ev.date,
-            time:          ev.time,
-            existingTitle: ex.title,
-          });
-        }
-      }
-    }
+    const conflicts = await findCalendarConflicts(events);
 
     // Create all events — conflicts are flagged but don't block creation
     const createdIds: string[] = [];
@@ -766,9 +762,46 @@ export async function executeCreateCalendarEvents(
   }
 }
 
+/** Shape shared by anything we conflict-check against existing calendar events —
+ *  satisfied structurally by both CreateCalendarEventsEventInput and
+ *  CreateGoalMilestoneInput, no cast needed at either call site. */
+interface TimedCandidate {
+  date:           string;
+  time?:          string | null;
+  duration_mins?: number | null;
+}
+
+/** Checks a list of timed candidates (calendar events or hour-bound milestones)
+ *  against existing calendar events on their respective dates. Shared by
+ *  executeCreateCalendarEvents and executeCreateGoal so the two paths can't
+ *  drift out of sync on what "conflict" means. */
+async function findCalendarConflicts(
+  candidates: TimedCandidate[]
+): Promise<CalendarConflict[]> {
+  const conflicts: CalendarConflict[] = [];
+  for (const c of candidates) {
+    if (!c.time) continue;
+    const existing = await getEventsForDateRange({
+      startDate: c.date,
+      endDate:   c.date,
+      layers:    ["personal", "notes", "tasks", "goals", "cde"],
+    });
+    for (const ex of existing) {
+      if (ex.time && timesOverlap(c, ex)) {
+        conflicts.push({
+          date:          c.date,
+          time:          c.time,
+          existingTitle: ex.title,
+        });
+      }
+    }
+  }
+  return conflicts;
+}
+
 /** Rough overlap check: two events on the same date overlap if their time windows intersect. */
 function timesOverlap(
-  a: CreateCalendarEventsEventInput,
+  a: TimedCandidate,
   b: CalendarEvent
 ): boolean {
   if (!a.time || !b.time) return false;
@@ -919,6 +952,8 @@ export async function executeUpdateGoal(
     const allowedKeys: (keyof GoalInput)[] = [
       "title", "description", "start_date", "target_date",
       "colour_state", "progress", "category",
+      // Scheduler v1 fields — see Coverage Engine Handoff #1 §5.
+      "goal_class", "significance", "estimated_duration_minutes", "deep_work_protected",
     ];
     for (const key of allowedKeys) {
       if (key in updates) {
@@ -952,6 +987,8 @@ export async function undoUpdateGoal(
 export interface CreateGoalMilestoneInput {
   title:         string;
   date:          string;
+  time?:          string | null;  // "HH:MM" — omit/null for a date-only milestone
+  duration_mins?: number | null;
   colour_state?: GoalInput["colour_state"];
 }
 
@@ -963,6 +1000,11 @@ export interface CreateGoalInput {
   colour_state?: GoalInput["colour_state"];
   category?:    string | null;
   milestones?:  string | CreateGoalMilestoneInput[];   // JSON string from model, or parsed array
+  // Scheduler v1 fields — see Coverage Engine Handoff #1 §5.
+  goal_class?:                  GoalInput["goal_class"];
+  significance?:                GoalInput["significance"];
+  estimated_duration_minutes?:  GoalInput["estimated_duration_minutes"];
+  deep_work_protected?:         GoalInput["deep_work_protected"];
 }
 
 export interface CreateGoalUndoData {
@@ -996,6 +1038,12 @@ export async function executeCreateGoal(
       colour_state: input.colour_state ?? "blue",
       progress:     0,
       category:     input.category ?? null,
+      // Scheduler v1 fields — dbCreateGoal falls back to schema defaults
+      // (flexible/5/null/protected) when these are omitted.
+      goal_class:                 input.goal_class,
+      significance:               input.significance,
+      estimated_duration_minutes: input.estimated_duration_minutes,
+      deep_work_protected:        input.deep_work_protected,
     });
 
     for (const m of milestones) {
@@ -1004,14 +1052,26 @@ export async function executeCreateGoal(
         goal_id: goalId,
         title:   m.title,
         date:    m.date,
+        time:          m.time ?? null,
+        duration_mins: m.duration_mins ?? null,
         colour_state: m.colour_state ?? "blue",
       } satisfies MilestoneInput);
     }
+
+    // Conflict detection — hour-bound milestones (exam times, hard deadlines)
+    // checked the same way createCalendarEvents checks its events. Detected
+    // after creation (goal/milestones already committed above) so a conflict
+    // never blocks the write — matches createCalendarEvents' "flagged, not
+    // blocking" behavior.
+    const conflicts = await findCalendarConflicts(
+      milestones.filter((m) => m.title && m.date && m.time)
+    );
 
     window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
 
     return {
       success:  true,
+      conflicts,
       undoData: { goalId } satisfies CreateGoalUndoData,
     };
   } catch (err) {
@@ -1024,6 +1084,149 @@ export async function undoCreateGoal(
 ): Promise<void> {
   // deleteGoal cascades to goal_milestones and goal_links — see goalQueries.ts
   await dbDeleteGoal(undoData.goalId);
+  window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+}
+
+// ─── createCoverableUnits ───────────────────────────────────────────────────────
+//
+// See "Scheduler — Coverage Engine: Design & Handoff #1" §7 (new-tool
+// decision), §8.1 (schema/tool sketch), §8.2 (packer contract). Separate
+// from createGoal's `milestones` field on purpose — see §7 write-up: this
+// creates coverable_units rows (content-aware, hour-precise, position-
+// ordered), not goal_milestones rows (date-only checkpoints).
+
+export interface CreateCoverableUnitsUnitInput {
+  title:                    string;
+  effort_estimate_minutes:  number;
+}
+
+export interface CreateCoverableUnitsSessionInput {
+  event_id:          string;
+  capacity_minutes:  number;
+}
+
+export interface CreateCoverableUnitsInput {
+  goal_id:  string;
+  units:    string | CreateCoverableUnitsUnitInput[];     // JSON string from model, or parsed array
+  sessions: string | CreateCoverableUnitsSessionInput[];  // JSON string from model, or parsed array
+}
+
+export interface CreateCoverableUnitsUndoData {
+  unitIds: string[];
+}
+
+export async function executeCreateCoverableUnits(
+  input: CreateCoverableUnitsInput
+): Promise<WriteToolResult> {
+  try {
+    const goal = await getGoal(input.goal_id);
+    if (!goal) {
+      return { success: false, error: `Goal ${input.goal_id} not found.` };
+    }
+
+    // Parse units — the model sends this as a JSON string per the tool schema
+    let units: CreateCoverableUnitsUnitInput[];
+    if (typeof input.units === "string") {
+      try {
+        const parsed = JSON.parse(input.units);
+        if (!Array.isArray(parsed)) {
+          return { success: false, error: "units must be a JSON array." };
+        }
+        units = parsed;
+      } catch {
+        return { success: false, error: "units field is not valid JSON." };
+      }
+    } else {
+      units = input.units;
+    }
+    if (units.length === 0) {
+      return { success: false, error: "units must be a non-empty array." };
+    }
+
+    // Parse sessions — same convention
+    let sessions: CreateCoverableUnitsSessionInput[];
+    if (typeof input.sessions === "string") {
+      try {
+        const parsed = JSON.parse(input.sessions);
+        if (!Array.isArray(parsed)) {
+          return { success: false, error: "sessions must be a JSON array." };
+        }
+        sessions = parsed;
+      } catch {
+        return { success: false, error: "sessions field is not valid JSON." };
+      }
+    } else {
+      sessions = input.sessions;
+    }
+
+    // Verify every referenced session is a real calendar_events row rather
+    // than trusting an event_id the model may have invented or misremembered
+    // — §8.1's sketch takes *existing* calendar_events as input; nothing
+    // here should silently create or assume one.
+    for (const s of sessions) {
+      const ev = await getEvent(s.event_id);
+      if (!ev) {
+        return { success: false, error: `Calendar event ${s.event_id} not found.` };
+      }
+    }
+
+    // Pack — pure function, no DB access. Position is derived from array
+    // index (caller-supplied order = position, per §8.1's sketch), so the
+    // model's given order is exactly what gets stored.
+    const packerUnits: PackerUnitInput[] = units.map((u, i) => ({
+      id:                     `pending-${i}`, // placeholder; real ids come from the DB insert below
+      position:               i,
+      title:                  u.title,
+      effortEstimateMinutes:  u.effort_estimate_minutes,
+    }));
+    const packerSessions: PackerSessionInput[] = sessions.map((s) => ({
+      eventId:          s.event_id,
+      capacityMinutes:  s.capacity_minutes,
+    }));
+
+    const packed = packUnitsIntoSessionsSorted(packerUnits, packerSessions);
+
+    const assignedEventIdByPosition = new Map<number, string>();
+    for (const session of packed.sessions) {
+      for (const u of session.units) {
+        assignedEventIdByPosition.set(u.position, session.eventId);
+      }
+    }
+
+    const createInputs: CoverableUnitCreateInput[] = units.map((u, i) => ({
+      title:                    u.title,
+      effort_estimate_minutes:  u.effort_estimate_minutes,
+      // Insufficient committed session time surfaces as assigned_event_id =
+      // null, not as a dropped unit — see §8.2 and unassignedUnitTitles below.
+      assigned_event_id:        assignedEventIdByPosition.get(i) ?? null,
+    }));
+
+    const created = await dbCreateCoverableUnits(input.goal_id, createInputs);
+
+    window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
+
+    const unassignedUnitTitles = packed.unassignedUnits.map((u) => u.title);
+
+    return {
+      success:  true,
+      undoData: { unitIds: created.map((c) => c.id) } satisfies CreateCoverableUnitsUndoData,
+      coverageAssignments: packed.sessions.map((s) => ({
+        eventId:    s.eventId,
+        unitTitles: s.units.map((u) => u.title),
+      })),
+      unassignedUnitTitles: unassignedUnitTitles.length > 0 ? unassignedUnitTitles : undefined,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function undoCreateCoverableUnits(
+  undoData: CreateCoverableUnitsUndoData
+): Promise<void> {
+  // Deletes exactly this batch's ids — never the whole goal's units, since
+  // an earlier batch (a different call to this tool) may already exist.
+  await dbDeleteCoverableUnitsByIds(undoData.unitIds);
   window.dispatchEvent(new CustomEvent("idemora:goals-updated"));
 }
 
@@ -1068,6 +1271,8 @@ export async function executeDeleteGoal(
       milestones: milestones.map((m) => ({
         title:        m.title,
         date:         m.date,
+        time:          m.time,
+        duration_mins: m.duration_mins,
         colour_state: m.colour_state,
       })),
       links: links.map((l) => ({
