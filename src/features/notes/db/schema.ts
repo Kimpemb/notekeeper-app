@@ -559,5 +559,77 @@ export const ALL_MIGRATIONS: string[] = [
       INSERT INTO thought_nodes_fts(thought_nodes_fts, rowid, id, graph_id, summary, body)
       VALUES ('delete', old.rowid, old.id, old.graph_id, old.summary, old.body);
     END`,
-];
 
+  // ── Scheduler v1 (feature/scheduler) ──────────────────────────────────────
+  // See docs: "OS-Style Scheduling for Goals & Schedules — Design v5" §5.1, §13
+  // and "Scheduler Data Model — Implementation Doc v1" §3.
+  //
+  // All additive/nullable so existing rows and existing UI keep working
+  // unmodified. goalQueries.ts and schedulerStateQueries.ts already assume
+  // these exist; without this migration those queries fail at runtime
+  // against a real DB.
+
+  `ALTER TABLE goals ADD COLUMN goal_class TEXT
+    CHECK(goal_class IN ('deep_work','quick_task','deadline_driven','maintenance','finish_this','flexible'))
+    DEFAULT 'flexible'`,
+
+  `ALTER TABLE goals ADD COLUMN significance INTEGER
+    CHECK(significance BETWEEN 1 AND 10)
+    DEFAULT 5`,
+
+  `ALTER TABLE goals ADD COLUMN estimated_duration_minutes INTEGER`,
+
+  `ALTER TABLE goals ADD COLUMN last_progress_at INTEGER`,
+
+  `ALTER TABLE goals ADD COLUMN deep_work_protected INTEGER NOT NULL DEFAULT 1`,
+
+  // Single fixed-row state table for cross-call scheduler state (currently
+  // just the Tier 4 aging-recovery daily cap — see sequencer.ts,
+  // AgingRecommendationState, and schedulerStateQueries.ts).
+  // The CHECK(id = 1) enforces the single-row invariant at the schema level,
+  // matching the ROW_ID = 1 constant already hardcoded in
+  // schedulerStateQueries.ts.
+  `CREATE TABLE IF NOT EXISTS scheduler_state (
+    id                              INTEGER NOT NULL PRIMARY KEY CHECK(id = 1),
+    last_aging_recommendation_at    INTEGER,
+    last_aging_recommended_goal_id  TEXT
+  )`,
+
+  `INSERT OR IGNORE INTO scheduler_state (id, last_aging_recommendation_at, last_aging_recommended_goal_id)
+    VALUES (1, NULL, NULL)`,
+
+  // ── Coverage Engine v1 (feature/scheduler — Handoff #1 §8.1) ──────────────
+  // Additive; no existing table is modified. goal_milestones stays as-is for
+  // goals that don't need decomposition — coverable_units is a parallel path
+  // for content-aware, hour-precise milestone packing, not a replacement.
+
+  `CREATE TABLE IF NOT EXISTS coverable_units (
+    id                      TEXT    NOT NULL PRIMARY KEY,
+    goal_id                 TEXT    NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    position                INTEGER NOT NULL,     -- strict outline order; packing and
+                                                    -- coverage reporting both walk this order
+    title                   TEXT    NOT NULL,
+    effort_estimate_minutes INTEGER NOT NULL,      -- cold-start default: TBD, see Handoff #1 §7
+    status                  TEXT    NOT NULL DEFAULT 'pending'
+                              CHECK(status IN ('pending','covered','skipped')),
+    assigned_event_id       TEXT    REFERENCES calendar_events(id) ON DELETE SET NULL,
+    actual_minutes_spent    INTEGER,               -- null until a coverage report touches it
+    created_at              INTEGER NOT NULL,
+    updated_at              INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_coverable_units_goal
+    ON coverable_units(goal_id, position)`,
+
+  // ── Hour-bound milestones (feature/scheduler follow-up) ───────────────────
+  // goal_milestones was date-only (see Implementation Doc v1 §2). A milestone
+  // like an exam or a deadline is a real point in time, not just a day —
+  // mirrors calendar_events' time/duration_mins pattern exactly (both
+  // nullable) so eventTime.ts's getEndTime/eventsOverlap can be reused here
+  // later without new helper code. NULL means "date-only, as before" —
+  // existing milestones keep working unmodified.
+
+  `ALTER TABLE goal_milestones ADD COLUMN time TEXT`,
+
+  `ALTER TABLE goal_milestones ADD COLUMN duration_mins INTEGER`,
+];
