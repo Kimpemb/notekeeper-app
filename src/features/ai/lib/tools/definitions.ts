@@ -427,7 +427,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             "JSON object with fields to update: " +
             "{ title?: string, description?: string, start_date?: string, " +
             "target_date?: string, colour_state?: 'blue'|'green'|'yellow'|'red', " +
-            "progress?: number (0-100), category?: string }",
+            "progress?: number (0-100), category?: string, " +
+            "goal_class?: 'deep_work'|'quick_task'|'deadline_driven'|'maintenance'|'finish_this'|'flexible', " +
+            "significance?: number (1-10), estimated_duration_minutes?: number, " +
+            "deep_work_protected?: boolean }. " +
+            "goal_class/significance/deep_work_protected feed the scheduler's Priority, " +
+            "Sequencing, and Preemption layers — only set these when the user is explicitly " +
+            "reclassifying scheduling behavior, not as a side effect of an unrelated edit.",
         },
       },
       required: ["goal_id", "updates"],
@@ -458,11 +464,86 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: "string",
           description:
             "Optional JSON array of milestone objects to create alongside the goal: " +
-            "{ title: string, date: string (YYYY-MM-DD), colour_state?: 'blue'|'green'|'yellow'|'red' }. " +
-            "Use this to break the goal into checkpoints (e.g. study phases before an exam).",
+            "{ title: string, date: string (YYYY-MM-DD), time?: string (HH:MM), " +
+            "duration_mins?: number, colour_state?: 'blue'|'green'|'yellow'|'red' }. " +
+            "Use this to break the goal into checkpoints (e.g. study phases before an exam). " +
+            "Include time when the milestone is genuinely hour-bound (an exam start time, a " +
+            "hard submission deadline) — omit it for a milestone that's only meaningful at the " +
+            "day level (e.g. 'first draft done'). Do not invent a time just to fill the field.",
+        },
+        goal_class: {
+          type: "string",
+          description:
+            "Scheduling behavior for this goal — feeds the Priority/Sequencing/Preemption " +
+            "engine. Defaults to 'flexible' (uses the default scheduler) if omitted. " +
+            "Suggest a class based on the goal's nature rather than always defaulting: " +
+            "an exam or hard due date is usually 'deadline_driven', a protected study/writing " +
+            "block is 'deep_work', a short errand is 'quick_task', a recurring chore is " +
+            "'maintenance', a nearly-finished item is 'finish_this'.",
+          enum: ["deep_work", "quick_task", "deadline_driven", "maintenance", "finish_this", "flexible"],
+        },
+        significance: {
+          type: "integer",
+          description:
+            "User-perceived importance, 1-10. Defaults to 5 if omitted. Not urgency — " +
+            "a career-defining project might be 9, a routine task 4.",
+        },
+        estimated_duration_minutes: {
+          type: "integer",
+          description:
+            "Estimated total effort in minutes to complete the goal. Leave unset if unknown " +
+            "rather than guessing — an unset estimate is excluded from Priority scoring instead " +
+            "of silently skewing it.",
+        },
+        deep_work_protected: {
+          type: "boolean",
+          description:
+            "Whether this goal is protected from automatic interruption/preemption when active. " +
+            "Defaults to true (protected) if omitted, matching Design v5 §13's stated default.",
         },
       },
       required: ["title", "start_date", "target_date"],
+    },
+  },
+
+  {
+    name: "createCoverableUnits",
+    description:
+      "Break a goal's content into effort-estimated, position-ordered units and pack them into " +
+      "existing calendar sessions — for pace-aware decomposition of syllabus/outline content " +
+      "(e.g. exam chapters, book sections), NOT for simple date-only checkpoints (use createGoal's " +
+      "milestones field for those instead). " +
+      "Call getGoals first to get the goal_id, and getCalendarEvents to get the event_id + " +
+      "duration_mins of the sessions the user has already committed to this goal. " +
+      "Units are packed greedily in the order given, earliest session first — a session's units " +
+      "stop filling once the next unit would exceed its remaining time (units are never split). " +
+      "If total committed session time is less than total estimated effort, some units will be " +
+      "created unassigned rather than silently dropped — say so explicitly to the user rather than " +
+      "letting it pass unmentioned.",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal_id: { type: "string", description: "UUID of the goal these units belong to." },
+        units: {
+          type: "string",
+          description:
+            "JSON array of content units, in outline order (this order becomes their stored " +
+            "position — do not reorder): " +
+            "[{ title: string, effort_estimate_minutes: number }, ...]. " +
+            "Estimate effort per unit as realistically as possible; these feed the pace-check " +
+            "module's throughput math later, so a title-only guess with no thought given to " +
+            "duration will produce a bad pack.",
+        },
+        sessions: {
+          type: "string",
+          description:
+            "JSON array of existing calendar sessions to pack into, in chronological order: " +
+            "[{ event_id: string, capacity_minutes: number }, ...]. " +
+            "Use each session's actual duration_mins from getCalendarEvents as capacity_minutes — " +
+            "do not invent a session or a capacity that doesn't match a real calendar_events row.",
+        },
+      },
+      required: ["goal_id", "units", "sessions"],
     },
   },
 
@@ -581,6 +662,7 @@ export const WRITE_TOOL_NAMES = new Set([
   "updateGoal",
   "linkNoteToEvent",
   "createGoal",
+  "createCoverableUnits",
   "deleteGoal",
   "linkNoteToGoal",
   "unlinkNoteFromGoal",

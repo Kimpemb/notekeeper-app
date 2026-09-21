@@ -8,6 +8,10 @@ export type GoalColourState = "blue" | "green" | "yellow" | "red";
 export type GoalStatusFilter = "active" | "upcoming" | "completed" | "missed" | "unresolved";
 export type GoalLinkSourceType = "note" | "task" | "cde_project";
 
+export type GoalClass =
+  | "deep_work" | "quick_task" | "deadline_driven"
+  | "maintenance" | "finish_this" | "flexible";
+
 export interface Goal {
   id:           string;
   title:        string;
@@ -19,6 +23,18 @@ export interface Goal {
   category:     string | null;
   created_at:   number;
   updated_at:   number;
+  // Scheduler v1 fields — see scheduler-data-model-v1.md
+  goal_class:                  GoalClass;
+  significance:                number;        // 1–10
+  estimated_duration_minutes:  number | null;
+  last_progress_at:            number | null; // epoch ms, null = never progressed
+  deep_work_protected:         0 | 1;         // SQLite has no native boolean;
+                                               // use isDeepWorkProtected() below
+                                               // to read this as a real boolean
+}
+
+export function isDeepWorkProtected(goal: Goal): boolean {
+  return goal.deep_work_protected === 1;
 }
 
 export interface GoalInput {
@@ -29,6 +45,14 @@ export interface GoalInput {
   colour_state?: GoalColourState;
   progress?:    number;
   category?:    string | null;
+  // Scheduler v1 fields — columns already exist on `goals` (see schema.ts
+  // Scheduler v1 migration) but were previously write-only-by-SQL-console:
+  // nothing in createGoal/updateGoal populated them. See Coverage Engine
+  // Handoff #1 §5, first bullet.
+  goal_class?:                  GoalClass;
+  significance?:                number;        // 1–10
+  estimated_duration_minutes?:  number | null;
+  deep_work_protected?:         boolean;       // stored as 0/1, see isDeepWorkProtected()
 }
 
 export interface GoalMilestone {
@@ -36,6 +60,8 @@ export interface GoalMilestone {
   goal_id:      string;
   title:        string;
   date:         string;        // ISO: 2026-05-01
+  time:         string | null; // "HH:MM", null = date-only (unchanged legacy behavior)
+  duration_mins: number | null;
   colour_state: GoalColourState;
   created_at:   number;
   updated_at:   number;
@@ -45,6 +71,8 @@ export interface MilestoneInput {
   goal_id: string;
   title:   string;
   date:    string;
+  time?:          string | null;
+  duration_mins?: number | null;
   colour_state?: GoalColourState;
 }
 
@@ -81,8 +109,9 @@ export async function createGoal(input: GoalInput): Promise<string> {
   await db.execute(
     `INSERT INTO goals
        (id, title, description, start_date, target_date, colour_state,
-        progress, category, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        progress, category, created_at, updated_at,
+        goal_class, significance, estimated_duration_minutes, deep_work_protected)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
     [
       id,
       input.title,
@@ -94,6 +123,14 @@ export async function createGoal(input: GoalInput): Promise<string> {
       input.category ?? null,
       ts,
       ts,
+      // Scheduler v1 fields — defaults mirror the column defaults in schema.ts
+      // (goal_class='flexible', significance=5, deep_work_protected=1) so an
+      // AI-created goal without these fields behaves identically to one
+      // inserted before this change.
+      input.goal_class ?? "flexible",
+      input.significance ?? 5,
+      input.estimated_duration_minutes ?? null,
+      input.deep_work_protected === undefined ? 1 : (input.deep_work_protected ? 1 : 0),
     ]
   );
 
@@ -123,8 +160,28 @@ export async function updateGoal(
   if (updates.start_date  !== undefined) { fields.push(`start_date = $${idx++}`);  values.push(updates.start_date); }
   if (updates.target_date !== undefined) { fields.push(`target_date = $${idx++}`); values.push(updates.target_date); }
   if (updates.colour_state !== undefined){ fields.push(`colour_state = $${idx++}`);values.push(updates.colour_state); }
-  if (updates.progress    !== undefined) { fields.push(`progress = $${idx++}`);    values.push(updates.progress); }
   if (updates.category    !== undefined) { fields.push(`category = $${idx++}`);    values.push(updates.category); }
+
+  // Scheduler v1 fields — see Coverage Engine Handoff #1 §5.
+  if (updates.goal_class !== undefined) { fields.push(`goal_class = $${idx++}`); values.push(updates.goal_class); }
+  if (updates.significance !== undefined) { fields.push(`significance = $${idx++}`); values.push(updates.significance); }
+  if (updates.estimated_duration_minutes !== undefined) {
+    fields.push(`estimated_duration_minutes = $${idx++}`);
+    values.push(updates.estimated_duration_minutes);
+  }
+  if (updates.deep_work_protected !== undefined) {
+    fields.push(`deep_work_protected = $${idx++}`);
+    values.push(updates.deep_work_protected ? 1 : 0);
+  }
+
+  // progress is deliberately routed through updateGoalProgress() below,
+  // not handled inline here, so there is exactly one place that decides
+  // whether last_progress_at advances (see scheduler-data-model-v1.md §3).
+  // Handling it inline here too would let a caller bump progress without
+  // ever touching the Aging Engine's signal.
+  if (updates.progress !== undefined) {
+    await updateGoalProgress(id, updates.progress);
+  }
 
   if (fields.length === 0) return;
 
@@ -154,9 +211,20 @@ export async function updateGoalProgress(
   progress: number
 ): Promise<void> {
   const db = await getDb();
+  const clamped = Math.min(100, Math.max(0, Math.round(progress)));
+  const ts = now();
+
+  // last_progress_at only advances when progress actually increases
+  // ($1 > progress, evaluated against the pre-update row), so a no-op or
+  // decreasing edit can't be used to fake "meaningful progress" for the
+  // Aging Engine (see scheduler-data-model-v1.md §3, §9).
   await db.execute(
-    `UPDATE goals SET progress = $1, updated_at = $2 WHERE id = $3`,
-    [Math.min(100, Math.max(0, Math.round(progress))), now(), id]
+    `UPDATE goals
+     SET progress = $1,
+         updated_at = $2,
+         last_progress_at = CASE WHEN $1 > progress THEN $2 ELSE last_progress_at END
+     WHERE id = $3`,
+    [clamped, ts, id]
   );
 }
 
@@ -244,13 +312,15 @@ export async function createMilestone(
 
   await db.execute(
     `INSERT INTO goal_milestones
-       (id, goal_id, title, date, colour_state, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+       (id, goal_id, title, date, time, duration_mins, colour_state, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [
       id,
       input.goal_id,
       input.title,
       input.date,
+      input.time ?? null,
+      input.duration_mins ?? null,
       input.colour_state ?? "blue",
       ts,
       ts,
@@ -292,9 +362,11 @@ export async function updateMilestone(
   const values: unknown[] = [];
   let idx = 1;
 
-  if (updates.title        !== undefined) { fields.push(`title = $${idx++}`);        values.push(updates.title); }
-  if (updates.date         !== undefined) { fields.push(`date = $${idx++}`);         values.push(updates.date); }
-  if (updates.colour_state !== undefined) { fields.push(`colour_state = $${idx++}`); values.push(updates.colour_state); }
+  if (updates.title         !== undefined) { fields.push(`title = $${idx++}`);         values.push(updates.title); }
+  if (updates.date          !== undefined) { fields.push(`date = $${idx++}`);          values.push(updates.date); }
+  if (updates.time          !== undefined) { fields.push(`time = $${idx++}`);          values.push(updates.time); }
+  if (updates.duration_mins !== undefined) { fields.push(`duration_mins = $${idx++}`); values.push(updates.duration_mins); }
+  if (updates.colour_state  !== undefined) { fields.push(`colour_state = $${idx++}`);  values.push(updates.colour_state); }
 
   if (fields.length === 0) return;
 
@@ -306,6 +378,20 @@ export async function updateMilestone(
     `UPDATE goal_milestones SET ${fields.join(", ")} WHERE id = $${idx}`,
     values
   );
+
+  // A milestone reaching 'green' counts as "meaningful progress" on its
+  // parent goal for aging purposes (scheduler-data-model-v1.md §3, spec §9).
+  // Look up the goal_id fresh rather than trusting a caller-supplied one,
+  // since MilestoneInput's goal_id is omitted from `updates` by design.
+  if (updates.colour_state === "green") {
+    const milestone = await getMilestoneById(id);
+    if (milestone) {
+      await db.execute(
+        `UPDATE goals SET last_progress_at = $1 WHERE id = $2`,
+        [now(), milestone.goal_id]
+      );
+    }
+  }
 }
 
 export async function deleteMilestone(id: string): Promise<void> {

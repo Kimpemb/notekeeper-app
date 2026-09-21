@@ -21,16 +21,21 @@ vi.mock("@/features/ai/lib/search/hybrid", () => ({
   expandContext: vi.fn().mockImplementation((r: any[]) => Promise.resolve(r)),
 }))
 
-vi.mock("@/features/ai/lib/search/intentDetection", () => ({
-  detectIntent: vi.fn().mockReturnValue({
-    intent:     "lookup",
-    scope:      {},
-    cleanQuery: "what is in Bentancur",
-    isDeixis:   false,
-    isPersonal: false,
-    isFollowUp: false,
-  }),
-}))
+vi.mock("@/features/ai/lib/search/intentDetection", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/ai/lib/search/intentDetection")>()
+  return {
+    ...actual, // keep isLikelyDirectReplyToAssistant (and anything else) real —
+               // only detectIntent needs stubbing for the rest of this file's tests
+    detectIntent: vi.fn().mockReturnValue({
+      intent:     "lookup",
+      scope:      {},
+      cleanQuery: "what is in Bentancur",
+      isDeixis:   false,
+      isPersonal: false,
+      isFollowUp: false,
+    }),
+  }
+})
 
 // Pulled in by chat.ts for the web-search-nudge feature. Without this mock,
 // importing chat.ts transitively drags in useAppSettings -> SettingsModal.tsx

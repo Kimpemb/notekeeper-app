@@ -2022,6 +2022,7 @@ RULES:
   If the user says "look at X and do Y", call getNote(X) first.
 - Never invent note content or calendar data. Only work from what read tools return.
 - For timetables: call getCalendarEvents for the target date range before proposing events. Flag conflicts explicitly.
+- When placing session start/end times across multiple days, only use a time boundary the user explicitly stated for THAT specific day (e.g. "free until 11am Monday" applies to Monday only). Do not reuse a time mentioned for one day (including a stated wake-up time) as the start time for a different day the user didn't give a boundary for. For days with no stated boundary, default to a neutral daytime start (e.g. 9:00) rather than copying a nearby day's time, and say explicitly in your response which days used an assumed default so the user can correct it.
 - For assignment solving: call getCurrentNote or getNote first. Work only from actual note content.
 - If write position cannot be resolved with confidence, use appendToNote and state this in your response.
 - If the user refers to a calendar event's "body", "description", or "details", this means the event's notes field — call getCalendarEvents to find the event, then updateCalendarEvent to write it. This is NOT a note in the notes app. Only search notes if the user explicitly says "note".
@@ -2062,7 +2063,15 @@ export async function streamChatWithTools(
 
   // System prompt injected as first user turn if provider doesn't support system param
   // (callPrimaryWithTools passes it via the tools-capable provider)
-const systemPrompt = `Today's date is ${new Date().toISOString().slice(0, 10)}.\n\n${TOOLS_SYSTEM_PROMPT}`;
+  // Local date/time + weekday + tz — not UTC-only. The scheduler needs to know
+  // whether "today" still has usable hours left (e.g. it's 11pm vs 9am), and
+  // getting the weekday right matters for anything phrased relative to "today"/"tomorrow".
+  const now = new Date();
+  const localDate = now.toLocaleDateString("en-CA"); // YYYY-MM-DD, local
+  const localTime = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const systemPrompt = `Today is ${weekday}, ${localDate}, current local time ${localTime} (${tz}).\n\n${TOOLS_SYSTEM_PROMPT}`;
 
   let iterations = 0;
   let assembledResponseText = "";
@@ -2174,10 +2183,12 @@ console.log("[toolLoop] tool_use blocks found:", response.content.filter((b) => 
             // Pre-fetch note title for the preview (if applicable)
             const noteTitleMap = await buildNoteTitleMap(toolName, toolInput);
 
-            // Pre-fetch conflicts for createCalendarEvents
+            // Pre-fetch conflicts for createCalendarEvents / createGoal (hour-bound milestones)
             let conflicts: import("@/features/ai/lib/tools/writeTools").CalendarConflict[] | undefined;
             if (toolName === "createCalendarEvents") {
               conflicts = await detectCalendarConflicts(toolInput);
+            } else if (toolName === "createGoal") {
+              conflicts = await detectMilestoneConflicts(toolInput);
             }
 
             // Pre-fetch real content for deleteBlocksInNote's preview
@@ -2591,38 +2602,45 @@ async function buildNoteTitleMap(
 
 // ─── Calendar conflict pre-detection (for preview card) ──────────────────────
 
-async function detectCalendarConflicts(
+type TimedItem = { title: string; date: string; time?: string | null; duration_mins?: number | null };
+
+/** Parses toolInput[field] (array or JSON-string form) into a list of timed
+ *  items, then checks each against existing calendar events on its date.
+ *  Shared core for both createCalendarEvents and createGoal (milestones)
+ *  preview-time conflict pre-fetch — same overlap math either way. */
+async function findConflictsForField(
   toolInput: Record<string, unknown>,
+  field: "events" | "milestones",
 ): Promise<import("@/features/ai/lib/tools/writeTools").CalendarConflict[]> {
   try {
-    let events: { title: string; date: string; time?: string | null; duration_mins?: number | null }[] = [];
-    const rawEvents = toolInput.events;
-    if (Array.isArray(rawEvents)) {
-      events = rawEvents as typeof events;
-    } else if (typeof rawEvents === "string") {
-      try { events = JSON.parse(rawEvents); } catch { return []; }
+    let items: TimedItem[] = [];
+    const raw = toolInput[field];
+    if (Array.isArray(raw)) {
+      items = raw as TimedItem[];
+    } else if (typeof raw === "string") {
+      try { items = JSON.parse(raw); } catch { return []; }
     } else {
       return [];
     }
 
     const conflicts: import("@/features/ai/lib/tools/writeTools").CalendarConflict[] = [];
 
-    for (const ev of events) {
+    for (const item of items) {
+      if (!item.time) continue;
       const existing = await getEventsForDateRange({
-        startDate: ev.date,
-        endDate:   ev.date,
+        startDate: item.date,
+        endDate:   item.date,
         layers:    ["personal", "notes", "tasks", "goals", "cde"],
       });
 
       for (const ex of existing) {
-        if (ev.time && ex.time) {
-          // Simple overlap check
-          const aStart = timeToMinutes(ev.time);
-          const aEnd   = aStart + (ev.duration_mins ?? 60);
+        if (ex.time) {
+          const aStart = timeToMinutes(item.time);
+          const aEnd   = aStart + (item.duration_mins ?? 60);
           const bStart = timeToMinutes(ex.time);
           const bEnd   = bStart + (ex.duration_mins ?? 60);
           if (aStart < bEnd && bStart < aEnd) {
-            conflicts.push({ date: ev.date, time: ev.time, existingTitle: ex.title });
+            conflicts.push({ date: item.date, time: item.time, existingTitle: ex.title });
           }
         }
       }
@@ -2632,6 +2650,18 @@ async function detectCalendarConflicts(
   } catch {
     return [];
   }
+}
+
+async function detectCalendarConflicts(
+  toolInput: Record<string, unknown>,
+): Promise<import("@/features/ai/lib/tools/writeTools").CalendarConflict[]> {
+  return findConflictsForField(toolInput, "events");
+}
+
+async function detectMilestoneConflicts(
+  toolInput: Record<string, unknown>,
+): Promise<import("@/features/ai/lib/tools/writeTools").CalendarConflict[]> {
+  return findConflictsForField(toolInput, "milestones");
 }
 
 function timeToMinutes(t: string): number {

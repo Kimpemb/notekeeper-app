@@ -21,6 +21,7 @@ import {
   executeUpdateCalendarEvent,
   executeCreateGoal,
   executeDeleteGoal,
+  executeCreateCoverableUnits,
   executeLinkNoteToGoal,
   executeUnlinkNoteFromGoal,
   undoAppendToNote,
@@ -37,6 +38,7 @@ import {
   undoUpdateCalendarEvent,
   undoCreateGoal,
   undoDeleteGoal,
+  undoCreateCoverableUnits,
   undoLinkNoteToGoal,
   undoUnlinkNoteFromGoal,
   autoLinkNoteToGoal,
@@ -66,6 +68,7 @@ import {
   type UpdateCalendarEventInput,
   type CreateGoalInput,
   type DeleteGoalInput,
+  type CreateCoverableUnitsInput,
   type LinkNoteToGoalInput,
   type UnlinkNoteFromGoalInput,
   type AppendToNoteUndoData,
@@ -82,10 +85,12 @@ import {
   type UpdateCalendarEventUndoData,
   type CreateGoalUndoData,
   type DeleteGoalUndoData,
+  type CreateCoverableUnitsUndoData,
   type LinkNoteToGoalUndoData,
   type UnlinkNoteFromGoalUndoData,
 } from "./writeTools";
 import type { CalendarConflict } from "./writeTools";
+import { packUnitsIntoSessionsSorted } from "@/features/scheduler/lib/coveragePacker";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,6 +128,8 @@ export interface PendingWrite {
   insertedViaFallback?: boolean;      // set when insertInNote fell back to append
   errorMessage?:       string;
   createdEvents?:      { id: string; title: string; date: string; time: string | null }[];
+  coverageAssignments?: { eventId: string; unitTitles: string[] }[];
+  unassignedUnitTitles?: string[];
 }
 
 // ─── Resolver callbacks ───────────────────────────────────────────────────────
@@ -203,6 +210,8 @@ export const useConfirmationGate = create<ConfirmationGateState>((set, get) => (
         undoExpiry:          Date.now() + 60_000,
         insertedViaFallback: result.insertedViaFallback ?? pw.insertedViaFallback,
         createdEvents:       (result as unknown as { createdEvents?: PendingWrite["createdEvents"] }).createdEvents,
+        coverageAssignments: (result as unknown as { coverageAssignments?: PendingWrite["coverageAssignments"] }).coverageAssignments,
+        unassignedUnitTitles: (result as unknown as { unassignedUnitTitles?: PendingWrite["unassignedUnitTitles"] }).unassignedUnitTitles,
       });
 
       // Batch auto-link — a createGoal and createNote proposed in the same
@@ -577,12 +586,70 @@ export function buildWritePreview(
         ? milestones.map((m) => `- ${m.title} (${m.date})`).join("\n")
         : "No milestones";
       const preview = `**Target date:** ${targetDate}\n\n**Milestones:**\n${milestoneLines}`;
+      const milestoneCountText = milestones.length > 0
+        ? `${milestones.length} milestone${milestones.length === 1 ? "" : "s"}`
+        : "No milestones";
+      const conflictText = conflicts && conflicts.length > 0
+        ? ` — ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"} detected`
+        : "";
       return {
         title:         `Create goal "${goalTitle}"`,
-        description:   milestones.length > 0
-          ? `${milestones.length} milestone${milestones.length === 1 ? "" : "s"}`
-          : "No milestones",
+        description:   milestoneCountText + conflictText,
         ...truncateContent(preview),
+        isDestructive: false,
+        isBatch:       false,
+        conflicts,
+      };
+    }
+
+    case "createCoverableUnits": {
+      const goalId = toolInput.goal_id as string;
+      const goalTitle = noteTitleMap.get(goalId) ?? goalId;
+
+      let units: { title: string; effort_estimate_minutes: number }[] = [];
+      const rawUnits = toolInput.units;
+      if (Array.isArray(rawUnits)) {
+        units = rawUnits;
+      } else if (typeof rawUnits === "string") {
+        try { units = JSON.parse(rawUnits); } catch { /* malformed */ }
+      }
+
+      let sessions: { event_id: string; capacity_minutes: number }[] = [];
+      const rawSessions = toolInput.sessions;
+      if (Array.isArray(rawSessions)) {
+        sessions = rawSessions;
+      } else if (typeof rawSessions === "string") {
+        try { sessions = JSON.parse(rawSessions); } catch { /* malformed */ }
+      }
+
+      // Run the pure packer here too, purely for an accurate preview —
+      // no DB writes happen until executeCreateCoverableUnits runs after
+      // confirmation. Lets the user see the actual pack (including any
+      // unassigned units) before approving, not just the raw unit list.
+      const packed = packUnitsIntoSessionsSorted(
+        units.map((u, i) => ({
+          id: `preview-${i}`,
+          position: i,
+          title: u.title,
+          effortEstimateMinutes: u.effort_estimate_minutes,
+        })),
+        sessions.map((s) => ({ eventId: s.event_id, capacityMinutes: s.capacity_minutes }))
+      );
+
+      const sessionLines = packed.sessions
+        .map((s, i) => `Session ${i + 1} (${sessions[i]?.event_id ?? s.eventId}):\n` +
+          (s.units.length > 0 ? s.units.map((u) => `  - ${u.title}`).join("\n") : "  (empty)"))
+        .join("\n");
+      const unassignedLines = packed.unassignedUnits.length > 0
+        ? `\n\nUnassigned (insufficient session time):\n${packed.unassignedUnits.map((u) => `  - ${u.title}`).join("\n")}`
+        : "";
+
+      return {
+        title:       `Break "${goalTitle}" into ${units.length} unit${units.length === 1 ? "" : "s"}`,
+        description: packed.unassignedUnits.length > 0
+          ? `${units.length} units across ${sessions.length} session(s) — ${packed.unassignedUnits.length} unassigned`
+          : `${units.length} units across ${sessions.length} session(s)`,
+        ...truncateContent(`${sessionLines}${unassignedLines}`),
         isDestructive: false,
         isBatch:       false,
       };
@@ -761,6 +828,9 @@ async function dispatch(
     case "createGoal":
       return executeCreateGoal(toolInput as unknown as CreateGoalInput);
 
+    case "createCoverableUnits":
+      return executeCreateCoverableUnits(toolInput as unknown as CreateCoverableUnitsInput);
+
     case "deleteGoal":
       return executeDeleteGoal(toolInput as unknown as DeleteGoalInput);
 
@@ -822,6 +892,8 @@ async function dispatchUndo(toolName: string, undoData: unknown): Promise<void> 
       return undoRenameNote(undoData as RenameNoteUndoData);
     case "createGoal":
       return undoCreateGoal(undoData as CreateGoalUndoData);
+    case "createCoverableUnits":
+      return undoCreateCoverableUnits(undoData as CreateCoverableUnitsUndoData);
     case "deleteGoal":
       return undoDeleteGoal(undoData as DeleteGoalUndoData);
     case "linkNoteToGoal":
