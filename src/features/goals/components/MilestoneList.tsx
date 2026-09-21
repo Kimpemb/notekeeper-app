@@ -28,11 +28,22 @@ export function MilestoneList({
   const [addingNew,    setAddingNew]    = useState(false);
   const [newTitle,     setNewTitle]     = useState("");
   const [newDate,      setNewDate]      = useState("");
+  const [newTime,      setNewTime]      = useState("");
+  const [newDuration,  setNewDuration]  = useState("");
   const [editingId,    setEditingId]    = useState<string | null>(null);
   const [editTitle,    setEditTitle]    = useState("");
   const [editDate,     setEditDate]     = useState("");
+  const [editTime,     setEditTime]     = useState("");
+  const [editDuration, setEditDuration] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [saving,       setSaving]       = useState(false);
+
+  function resetAddFields() {
+    setNewTitle("");
+    setNewDate("");
+    setNewTime("");
+    setNewDuration("");
+  }
 
   // ── Add ───────────────────────────────────────────────────────────────────
 
@@ -40,9 +51,14 @@ export function MilestoneList({
     if (!newTitle.trim() || !newDate) return;
     setSaving(true);
     try {
-      await onAdd({ goal_id: goalId, title: newTitle.trim(), date: newDate });
-      setNewTitle("");
-      setNewDate("");
+      await onAdd({
+        goal_id: goalId,
+        title:   newTitle.trim(),
+        date:    newDate,
+        time:          newTime || null,
+        duration_mins: newTime && newDuration ? parseInt(newDuration, 10) : null,
+      });
+      resetAddFields();
       setAddingNew(false);
     } finally {
       setSaving(false);
@@ -55,13 +71,20 @@ export function MilestoneList({
     setEditingId(m.id);
     setEditTitle(m.title);
     setEditDate(m.date);
+    setEditTime(m.time ?? "");
+    setEditDuration(m.duration_mins != null ? String(m.duration_mins) : "");
   }
 
   async function handleSaveEdit(id: string) {
     if (!editTitle.trim() || !editDate) return;
     setSaving(true);
     try {
-      await onUpdate(id, goalId, { title: editTitle.trim(), date: editDate });
+      await onUpdate(id, goalId, {
+        title: editTitle.trim(),
+        date:  editDate,
+        time:          editTime || null,
+        duration_mins: editTime && editDuration ? parseInt(editDuration, 10) : null,
+      });
       setEditingId(null);
     } finally {
       setSaving(false);
@@ -118,6 +141,29 @@ export function MilestoneList({
                            rounded px-2 py-1 text-idemora-text-normal
                            focus:outline-none focus:border-blue-500"
               />
+              <input
+                type="time"
+                value={editTime}
+                onChange={(e) => setEditTime(e.target.value)}
+                title="Time (optional)"
+                className="text-xs bg-idemora-bg-secondary border border-idemora-border
+                           rounded px-2 py-1 text-idemora-text-normal w-[5.5rem]
+                           focus:outline-none focus:border-blue-500"
+              />
+              {editTime && (
+                <input
+                  type="number"
+                  min="5"
+                  step="5"
+                  value={editDuration}
+                  onChange={(e) => setEditDuration(e.target.value)}
+                  placeholder="mins"
+                  title="Duration (minutes, optional)"
+                  className="text-xs bg-idemora-bg-secondary border border-idemora-border
+                             rounded px-2 py-1 text-idemora-text-normal w-16
+                             focus:outline-none focus:border-blue-500"
+                />
+              )}
               <button
                 onClick={() => handleSaveEdit(m.id)}
                 disabled={saving || !editTitle.trim() || !editDate}
@@ -167,6 +213,7 @@ export function MilestoneList({
                 {new Date(m.date + "T00:00:00").toLocaleDateString("en-GB", {
                   day: "numeric", month: "short", year: "numeric",
                 })}
+                {m.time && ` · ${m.time}`}
               </span>
               {/* Actions — visible on hover */}
               <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
@@ -233,7 +280,7 @@ export function MilestoneList({
             onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleAdd();
-              if (e.key === "Escape") { setAddingNew(false); setNewTitle(""); setNewDate(""); }
+              if (e.key === "Escape") { setAddingNew(false); resetAddFields(); }
             }}
             placeholder="Milestone title"
             className="flex-1 text-xs bg-idemora-bg-secondary border border-idemora-border
@@ -248,6 +295,29 @@ export function MilestoneList({
                        rounded px-2 py-1 text-idemora-text-normal
                        focus:outline-none focus:border-blue-500"
           />
+          <input
+            type="time"
+            value={newTime}
+            onChange={(e) => setNewTime(e.target.value)}
+            title="Time (optional)"
+            className="text-xs bg-idemora-bg-secondary border border-idemora-border
+                       rounded px-2 py-1 text-idemora-text-normal w-[5.5rem]
+                       focus:outline-none focus:border-blue-500"
+          />
+          {newTime && (
+            <input
+              type="number"
+              min="5"
+              step="5"
+              value={newDuration}
+              onChange={(e) => setNewDuration(e.target.value)}
+              placeholder="mins"
+              title="Duration (minutes, optional)"
+              className="text-xs bg-idemora-bg-secondary border border-idemora-border
+                         rounded px-2 py-1 text-idemora-text-normal w-16
+                         focus:outline-none focus:border-blue-500"
+            />
+          )}
           <button
             onClick={handleAdd}
             disabled={saving || !newTitle.trim() || !newDate}
@@ -257,7 +327,7 @@ export function MilestoneList({
             Add
           </button>
           <button
-            onClick={() => { setAddingNew(false); setNewTitle(""); setNewDate(""); }}
+            onClick={() => { setAddingNew(false); resetAddFields(); }}
             className="text-xs px-2 py-1 rounded text-idemora-text-muted
                        hover:text-idemora-text-normal transition-colors"
           >

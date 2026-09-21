@@ -18,24 +18,30 @@ export async function syncMilestonesToCalendar(
     const existing = await getEventBySource(m.id, "goal");
     if (existing) {
       if (
-        existing.title        !== m.title ||
-        existing.date         !== m.date  ||
-        existing.colour_state !== m.colour_state
+        existing.title         !== m.title         ||
+        existing.date          !== m.date          ||
+        existing.time          !== m.time          ||
+        existing.duration_mins !== m.duration_mins ||
+        existing.colour_state  !== m.colour_state
       ) {
         await updateEvent(existing.id, {
-          title:        m.title,
-          date:         m.date,
-          colour_state: m.colour_state,
+          title:         m.title,
+          date:          m.date,
+          time:          m.time,
+          duration_mins: m.duration_mins,
+          colour_state:  m.colour_state,
         });
       }
     } else {
       await createEvent({
-        title:        m.title,
-        date:         m.date,
-        category:     "goal",
-        source_id:    m.id,
-        source_type:  "goal",
-        colour_state: m.colour_state,
+        title:         m.title,
+        date:          m.date,
+        time:          m.time,
+        duration_mins: m.duration_mins,
+        category:      "goal",
+        source_id:     m.id,
+        source_type:   "goal",
+        colour_state:  m.colour_state,
       });
     }
   }

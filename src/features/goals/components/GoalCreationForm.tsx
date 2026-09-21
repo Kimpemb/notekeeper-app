@@ -15,9 +15,11 @@ function todayISO(): string {
 }
 
 interface MilestoneRow {
-  key:   number;
-  title: string;
-  date:  string;
+  key:      number;
+  title:    string;
+  date:     string;
+  time:     string;
+  duration: string;
 }
 
 export function GoalCreationForm({
@@ -58,11 +60,11 @@ export function GoalCreationForm({
   // ── Milestone helpers ─────────────────────────────────────────────────────
 
   function addMilestoneRow() {
-    setMilestones((prev) => [...prev, { key: milestoneKey, title: "", date: "" }]);
+    setMilestones((prev) => [...prev, { key: milestoneKey, title: "", date: "", time: "", duration: "" }]);
     setMilestoneKey((k) => k + 1);
   }
 
-  function updateMilestoneRow(key: number, field: "title" | "date", value: string) {
+  function updateMilestoneRow(key: number, field: "title" | "date" | "time" | "duration", value: string) {
     setMilestones((prev) =>
       prev.map((m) => m.key === key ? { ...m, [field]: value } : m)
     );
@@ -108,7 +110,12 @@ export function GoalCreationForm({
 
       const validMilestones = milestones
         .filter((m) => m.title.trim() && m.date)
-        .map((m) => ({ title: m.title.trim(), date: m.date }));
+        .map((m) => ({
+          title: m.title.trim(),
+          date:  m.date,
+          time:          m.time || null,
+          duration_mins: m.time && m.duration ? parseInt(m.duration, 10) : null,
+        }));
 
       await onSubmit(input, validMilestones);
       onClose();
@@ -283,6 +290,29 @@ export function GoalCreationForm({
                              focus:outline-none focus:border-blue-500 transition-colors
                              ${errors[`milestone_${m.key}`] ? "border-red-500" : "border-idemora-border"}`}
                 />
+                <input
+                  type="time"
+                  value={m.time}
+                  onChange={(e) => updateMilestoneRow(m.key, "time", e.target.value)}
+                  title="Time (optional)"
+                  className="text-xs bg-idemora-bg-secondary border border-idemora-border rounded
+                             px-2 py-1.5 text-idemora-text-normal w-[5.5rem]
+                             focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                {m.time && (
+                  <input
+                    type="number"
+                    min="5"
+                    step="5"
+                    value={m.duration}
+                    onChange={(e) => updateMilestoneRow(m.key, "duration", e.target.value)}
+                    placeholder="mins"
+                    title="Duration (minutes, optional)"
+                    className="text-xs bg-idemora-bg-secondary border border-idemora-border rounded
+                               px-2 py-1.5 text-idemora-text-normal w-16
+                               focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                )}
                 <button
                   onClick={() => removeMilestoneRow(m.key)}
                   className="w-6 h-6 flex items-center justify-center rounded
