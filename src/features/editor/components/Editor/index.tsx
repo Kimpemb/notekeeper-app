@@ -13,7 +13,7 @@
 // stale in-memory content. suppressSave is set for the reload window so the
 // debounce doesn't fire during the transition.
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Extension } from "@tiptap/core";
@@ -179,6 +179,7 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const notes         = useNoteStore((s) => s.notes);
   const updateNote    = useNoteStore((s) => s.updateNote);
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
+  const dbSettled      = useNoteStore((s) => s.dbSettled);
 
   // Nav — pane 1
   const goBack            = useNoteStore((s) => s.goBack);
@@ -646,10 +647,32 @@ useEffect(() => {
     return () => window.removeEventListener("idemora:content-updated", handleContentUpdated);
   }, [noteId, editor]);
 
+  // Signature of this note's own children only — id/title/source_type — so the
+  // reconciler effect below only re-fires when THIS note's children actually
+  // change, not on every note mutation anywhere in the app (the old dependency
+  // was the whole `notes` array reference, which changes on unrelated edits
+  // too). useMemo still recomputes on every `notes` change, but the resulting
+  // string is referentially stable when nothing relevant changed, and React's
+  // effect-dependency comparison is value equality for primitives.
+  const subPageChildrenKey = useMemo(() => {
+    return notes
+      .filter((n) => n.parent_id === noteId && !n.deleted_at)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((c) => `${c.id}:${c.title}:${c.source_type ?? ""}`)
+      .join("|");
+  }, [notes, noteId]);
+
   useEffect(() => {
     if (!editor || !note) return;
     if (!contentReady) return;
     if (subPageCreatingRef.current) return;
+    // Guard against the same class of stale-data race useAutoSave.ts already
+    // guards against: if `notes` is momentarily incomplete relative to what's
+    // already persisted in this note's content (e.g. right after opening a
+    // note, or right after a subpage was just created and the store hasn't
+    // fully settled), the reconciler would see a "phantom deletion" and strip
+    // a block that was correctly there a moment ago — the flash-then-disappear.
+    if (!dbSettled) return;
 
     const children = notes
       .filter((n) => n.parent_id === noteId && !n.deleted_at)
@@ -671,7 +694,7 @@ useEffect(() => {
 
     const t = setTimeout(apply, 80);
     return () => clearTimeout(t);
-  }, [noteId, notes]);
+  }, [noteId, subPageChildrenKey, dbSettled]);
 
  
 
