@@ -295,6 +295,15 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     const note = await dbCreateNote({ ...input, title });
     set((state) => ({ notes: [...state.notes, note] }));
     get().setActiveNote(note.id);
+
+    const { useUIStore } = await import("@/features/ui/store/useUIStore");
+    const ui = useUIStore.getState();
+    if (ui.activePaneId === 2) {
+      ui.replacePane2Tab(note.id);
+    } else {
+      ui.replaceTab(note.id);
+    }
+
     return note;
   },
 
@@ -345,6 +354,15 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     const note = await dbCreateNote({ parent_id: parentId, title: resolvedTitle });
     set((state) => ({ notes: [...state.notes, note] }));
     get().setActiveNote(note.id);
+
+    const { useUIStore } = await import("@/features/ui/store/useUIStore");
+    const ui = useUIStore.getState();
+    if (ui.activePaneId === 2) {
+      ui.replacePane2Tab(note.id);
+    } else {
+      ui.replaceTab(note.id);
+    }
+
     return note;
   },
 
@@ -356,6 +374,15 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     });
     set((state) => ({ notes: [...state.notes, note] }));
     get().setActiveNote(note.id);
+
+    const { useUIStore } = await import("@/features/ui/store/useUIStore");
+    const ui = useUIStore.getState();
+    if (ui.activePaneId === 2) {
+      ui.replacePane2Tab(note.id);
+    } else {
+      ui.replaceTab(note.id);
+    }
+
     return note;
   },
 
