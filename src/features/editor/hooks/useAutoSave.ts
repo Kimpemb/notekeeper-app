@@ -30,7 +30,25 @@ import { useAIStore } from "@/features/ai/store/useAIStore";
 
 const HARD_CAP_MS = 30_000;
 
-
+// WKWebView (Tauri on macOS) has no native requestIdleCallback — only
+// WebView2/Chromium (Tauri on Windows) does. Falling back to a bare
+// setTimeout(fn, 0) can still fire before the browser paints the "typing
+// stopped" visual, letting the heavy save work race the pause moment on
+// Mac the same way it did before this fix, just less predictably. Waiting
+// on requestAnimationFrame first guarantees a paint has happened, so the
+// deferred work — with or without native idle support — never lands
+// before the pause is visually settled.
+function scheduleIdle(callback: () => void): void {
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    window.requestIdleCallback(callback, { timeout: 300 });
+    return;
+  }
+  if (typeof window !== "undefined" && "requestAnimationFrame" in window) {
+    requestAnimationFrame(() => { setTimeout(callback, 0); });
+    return;
+  }
+  setTimeout(callback, 0);
+}
 
 interface UseAutoSaveOptions {
   editor:          Editor | null;
@@ -108,19 +126,31 @@ const save = useCallback(() => {
   clearTimers();
   isDirty.current = false;
   setSaveStatus("saving");
-  const content = JSON.stringify(editor.getJSON());
-  if (content === '{"type":"doc","content":[]}') return;
-  const plaintext = editor.getText();
-  onSaveComplete?.(content, noteId);
-  updateNote(noteId, { content, plaintext }, true).then(() => {
-    setSaveStatus("saved");
-    setTimeout(() => setSaveStatus("idle"), 2_000);
-    runEmbeddingPipeline(noteId, content);
-    runScheduledBackupIfDue();
-  }).catch((err) => {
-    console.error("[AutoSave] failed:", err);
-    setSaveStatus("error");
-  });
+
+  // The actual getJSON()/getText() serialization is deferred off this
+  // tick — this callback fires exactly when the debounce timer elapses,
+  // i.e. exactly when the user pauses, so running the (synchronous,
+  // full-document) serialization inline here is what reads as "lag on
+  // pause". requestIdleCallback lets the browser run it once the main
+  // thread is actually free instead of blocking the pause moment itself.
+  const performSave = () => {
+    if (!editor || editor.isDestroyed) return;
+    const content = JSON.stringify(editor.getJSON());
+    if (content === '{"type":"doc","content":[]}') return;
+    const plaintext = editor.getText();
+    onSaveComplete?.(content, noteId);
+    updateNote(noteId, { content, plaintext }, true).then(() => {
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2_000);
+      runEmbeddingPipeline(noteId, content);
+      runScheduledBackupIfDue();
+    }).catch((err) => {
+      console.error("[AutoSave] failed:", err);
+      setSaveStatus("error");
+    });
+  };
+
+  scheduleIdle(performSave);
 }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runScheduledBackupIfDue, suppressSave, contentLoading]);
 
 // ── scheduleSave ──────────────────────────────────────────────────────────
