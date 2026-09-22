@@ -632,4 +632,81 @@ export const ALL_MIGRATIONS: string[] = [
   `ALTER TABLE goal_milestones ADD COLUMN time TEXT`,
 
   `ALTER TABLE goal_milestones ADD COLUMN duration_mins INTEGER`,
+
+  // ── Sync Engine v1 — Revisioning Primitive (feature/sync-engine) ─────────
+  // Identity: notes.id is already a stable, globally-unique UUID (see
+  // uuid() usage in queries.ts) — it's reused as the sync engine's entity
+  // identity directly. sync_id was investigated and found dormant: it's
+  // regenerated in lockstep with id on every note-copy/import (never
+  // survives independently of id), and nothing reads or compares it
+  // anywhere in the codebase. No migration removes it yet — existing rows
+  // keep it populated harmlessly — but no new code should depend on it.
+
+  `ALTER TABLE notes ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`,
+
+  // Bumped via trigger (not app code) so it fires regardless of which write
+  // path touches content — editor autosave, AI write tools, or import —
+  // same reasoning as notes_version_on_update below it. The nested UPDATE
+  // only touches `revision`, never `content`, so it can't re-trigger
+  // notes_version_on_update or itself (recursive_triggers is OFF by
+  // default in SQLite — a trigger's own action never re-fires itself).
+  `CREATE TRIGGER IF NOT EXISTS notes_revision_bump
+    AFTER UPDATE OF content ON notes
+    WHEN new.content != old.content
+    BEGIN
+      UPDATE notes SET revision = revision + 1 WHERE id = new.id;
+    END`,
+
+  // Block-level snapshots for the three-way diff (Core Design doc §4).
+  // Deliberately separate from note_versions above — that table is a
+  // whole-document undo/history feature (different purpose, different
+  // retention count, different grain) and stays untouched. This one stores
+  // actual per-block content (not just plaintext, unlike note_blocks) at a
+  // given revision, so a fork's base_revision and the source's current
+  // revision can be diffed block-by-block.
+  `CREATE TABLE IF NOT EXISTS block_revision_snapshots (
+    note_id     TEXT    NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    revision    INTEGER NOT NULL,
+    block_id    TEXT    NOT NULL,
+    content     TEXT    NOT NULL,
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (note_id, revision, block_id)
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_block_snapshots_note_revision
+    ON block_revision_snapshots(note_id, revision DESC)`,
+
+  // Stage 0 decision: keep last 20 revisions per note. If a diff is ever
+  // requested against a revision pruned here, application code must fall
+  // back to treating every block as potentially conflicting — never guess.
+  `CREATE TRIGGER IF NOT EXISTS block_snapshots_prune
+    AFTER INSERT ON block_revision_snapshots
+    BEGIN
+      DELETE FROM block_revision_snapshots
+      WHERE note_id = NEW.note_id
+        AND revision NOT IN (
+          SELECT DISTINCT revision FROM block_revision_snapshots
+          WHERE note_id = NEW.note_id
+          ORDER BY revision DESC
+          LIMIT 20
+        );
+    END`,
+
+  // ── Local publish/fork state cache (feature/sync-engine) ─────────────────
+  // Canonical visibility + team membership lives server-side (Supabase,
+  // Stage 1a) — these columns are a local cache so the UI can reflect
+  // share state offline, and so fork reconciliation has a base_revision to
+  // diff against without a network round trip.
+  `ALTER TABLE notes ADD COLUMN is_published INTEGER NOT NULL DEFAULT 0`,
+
+  `ALTER TABLE notes ADD COLUMN publish_visibility TEXT
+    CHECK(publish_visibility IN ('team','public'))`,
+
+  `ALTER TABLE notes ADD COLUMN publish_token TEXT`,
+
+  `ALTER TABLE notes ADD COLUMN forked_from_note_id TEXT`,
+
+  `ALTER TABLE notes ADD COLUMN forked_from_owner_id TEXT`,
+
+  `ALTER TABLE notes ADD COLUMN fork_base_revision INTEGER`,
 ];
