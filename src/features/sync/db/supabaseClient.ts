@@ -19,12 +19,25 @@ if (!isSyncConfigured) {
   );
 }
 
+// A dead network can leave fetch hanging forever, which would wedge the push
+// path (inFlight / draining never clear). Fail fast so it lands in the queue.
+const FETCH_TIMEOUT_MS = 15_000;
+const fetchWithTimeout: typeof fetch = (input, init) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  init?.signal?.addEventListener("abort", () => controller.abort());
+  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer)
+  );
+};
+
 // Placeholders only exist so createClient() doesn't throw when unconfigured.
 // Nothing calls the network while isSyncConfigured is false (see useSyncStore).
 export const supabase = createClient(
   envUrl || "https://placeholder.invalid",
   envKey || "placeholder-key",
   {
+    global: { fetch: fetchWithTimeout },
     auth: {
       persistSession: isSyncConfigured,
       autoRefreshToken: isSyncConfigured,
