@@ -737,4 +737,40 @@ export const ALL_MIGRATIONS: string[] = [
 
   `CREATE INDEX IF NOT EXISTS idx_sync_push_queue_due
     ON sync_push_queue(state, next_retry_at)`,
+
+  // ── Stage 4d.1: per-note sync base pointer (feature/sync-engine) ──────────
+  // The local revision / updated_at and the hosted (server-assigned) revision
+  // at which this device and the cloud were last known to be identical. This
+  // is the "base" of every three-way diff. Separate from `notes` so recording
+  // sync state never touches the notes row or its triggers.
+  `CREATE TABLE IF NOT EXISTS note_sync_state (
+    note_id                  TEXT    PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    synced_local_revision    INTEGER NOT NULL,
+    synced_local_updated_at  INTEGER NOT NULL,
+    synced_server_revision   INTEGER NOT NULL,
+    synced_at                INTEGER NOT NULL
+  )`,
+
+  // Replace the snapshot prune trigger so it never deletes the snapshot at a
+  // note's synced local revision (the diff base), in addition to keeping the
+  // last 20 revisions. IF NOT EXISTS can't replace an existing trigger, hence
+  // the DROP; both statements are idempotent on every launch.
+  `DROP TRIGGER IF EXISTS block_snapshots_prune`,
+
+  `CREATE TRIGGER block_snapshots_prune
+    AFTER INSERT ON block_revision_snapshots
+    BEGIN
+      DELETE FROM block_revision_snapshots
+      WHERE note_id = NEW.note_id
+        AND revision NOT IN (
+          SELECT DISTINCT revision FROM block_revision_snapshots
+          WHERE note_id = NEW.note_id
+          ORDER BY revision DESC
+          LIMIT 20
+        )
+        AND revision IS NOT (
+          SELECT synced_local_revision FROM note_sync_state
+          WHERE note_id = NEW.note_id
+        );
+    END`,
 ];

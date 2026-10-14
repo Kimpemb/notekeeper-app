@@ -1,20 +1,33 @@
 // src/features/sync/lib/pushToHostedSync.ts
 //
-// Stage 4b — push-up write path. Pushes one note's current local state
-// (row + block snapshots at its current revision) to hosted Supabase.
+// Push-up write path. Pushes one note's current local state to hosted Supabase.
 //
-// Local SQLite is the sole revision authority: the hosted bump trigger was
-// dropped in 4a, so revision and updated_at are sent exactly as stored locally.
-// Never throws to callers — failures go to the durable retry queue (4c), and
-// remote-ahead skips go to its remote_ahead state for Stage 4d. Returns a
-// PushResult so callers (backfill, queue drain) can tell outcomes apart.
+// Stage 4d.1: the push is compare-and-swap against the note's recorded sync
+// state (see syncDecision.ts / noteSyncState.ts). The hosted `revision` is
+// SERVER-ASSIGNED: each accepted push sets it to (expected + 1), so it forms one
+// linear history across devices. Local `revision` stays a per-device counter.
+//
+//   - not on the server yet      → INSERT at server revision 1
+//   - only local changed         → UPDATE ... WHERE revision = <synced server revision>
+//   - only the server changed    → recorded as remote_ahead (pull is Stage 4d.2)
+//   - both changed / no base     → recorded as remote_ahead (reconcile is Stage 4d.3)
+//
+// Row first, then snapshots: winning the compare-and-swap reserves the server
+// revision; block snapshots (best-effort, nothing reads them yet) follow.
+// Never throws to callers — failures go to the durable retry queue (4c).
 
 import { getDb } from "@/features/notes/db/client";
 import { supabase, isSyncConfigured } from "@/features/sync/db/supabaseClient";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { enqueueFailedPush, markRemoteAhead, clearQueued } from "@/features/sync/lib/pushQueue";
+import { getSyncState, recordSynced } from "@/features/sync/lib/noteSyncState";
+import {
+  decideSyncAction,
+  describeDecision,
+  type RemoteNoteInfo,
+} from "@/features/sync/lib/syncDecision";
 
-export type PushResult = "pushed" | "skipped" | "remote_ahead" | "failed" | "busy";
+export type PushResult = "pushed" | "in_sync" | "skipped" | "remote_ahead" | "failed" | "busy";
 
 export interface PushOptions {
   // true when called by the queue drain: a failure then counts as another attempt
@@ -62,10 +75,9 @@ async function loadLocalNote(id: string): Promise<LocalNoteRow | null> {
   return rows[0] ?? null;
 }
 
-function toRemoteRow(row: LocalNoteRow, ownerId: string) {
+// Everything except id / owner_id; `revision` here is the SERVER revision.
+function toRemoteFields(row: LocalNoteRow, serverRevision: number) {
   return {
-    id: row.id,
-    owner_id: ownerId,
     title: row.title,
     content: row.content,
     plaintext: row.plaintext,
@@ -76,7 +88,7 @@ function toRemoteRow(row: LocalNoteRow, ownerId: string) {
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
     deleted_at: row.deleted_at == null ? null : toIso(row.deleted_at),
-    revision: row.revision,
+    revision: serverRevision,
     is_published: row.is_published === 1,
     publish_visibility: row.publish_visibility,
     publish_token: row.publish_token,
@@ -86,16 +98,26 @@ function toRemoteRow(row: LocalNoteRow, ownerId: string) {
   };
 }
 
-async function upsertNoteRow(row: LocalNoteRow, ownerId: string): Promise<void> {
-  const { error } = await supabase
+function toRemoteRow(row: LocalNoteRow, ownerId: string, serverRevision: number) {
+  return { id: row.id, owner_id: ownerId, ...toRemoteFields(row, serverRevision) };
+}
+
+async function fetchRemote(noteId: string): Promise<RemoteNoteInfo | null> {
+  const { data, error } = await supabase
     .from("notes")
-    .upsert(toRemoteRow(row, ownerId), { onConflict: "id" });
+    .select("revision, updated_at")
+    .eq("id", noteId)
+    .maybeSingle();
   if (error) {
-    throw new Error(`notes upsert failed (${error.code ?? "?"}): ${error.message}`);
+    throw new Error(`remote revision check failed (${error.code ?? "?"}): ${error.message}`);
   }
+  if (!data) return null;
+  return { revision: data.revision, updatedAt: Date.parse(data.updated_at) };
 }
 
 // hosted notes.parent_id is a real FK — a child can't land before its parent.
+// Missing ancestors are inserted insert-only (never overwriting a copy that
+// appeared meanwhile) at server revision 1, and recorded as synced.
 async function ensureAncestors(row: LocalNoteRow, ownerId: string): Promise<void> {
   const chain: LocalNoteRow[] = [];
   const seen = new Set<string>([row.id]);
@@ -121,11 +143,53 @@ async function ensureAncestors(row: LocalNoteRow, ownerId: string): Promise<void
   const present = new Set((data ?? []).map((r: { id: string }) => r.id));
 
   for (const ancestor of chain.reverse()) {
-    if (!present.has(ancestor.id)) await upsertNoteRow(ancestor, ownerId);
+    if (present.has(ancestor.id)) continue;
+    const { data: inserted, error: insErr } = await supabase
+      .from("notes")
+      .upsert(toRemoteRow(ancestor, ownerId, 1), { onConflict: "id", ignoreDuplicates: true })
+      .select("id");
+    if (insErr) {
+      throw new Error(`ancestor insert failed (${insErr.code ?? "?"}): ${insErr.message}`);
+    }
+    if (inserted && inserted.length > 0) {
+      await recordSynced(ancestor.id, {
+        localRevision: ancestor.revision,
+        localUpdatedAt: ancestor.updated_at,
+        serverRevision: 1,
+      });
+    }
   }
 }
 
-async function pushSnapshots(noteId: string, revision: number): Promise<void> {
+// true = inserted; false = a row with this id already exists (lost a race).
+async function insertNote(row: LocalNoteRow, ownerId: string): Promise<boolean> {
+  const { error } = await supabase.from("notes").insert(toRemoteRow(row, ownerId, 1));
+  if (!error) return true;
+  if (error.code === "23505") return false; // unique_violation
+  throw new Error(`notes insert failed (${error.code ?? "?"}): ${error.message}`);
+}
+
+// Compare-and-swap: only updates if the hosted revision is still `expected`.
+// true = won (hosted revision is now expected + 1); false = someone else pushed.
+async function casUpdateNote(row: LocalNoteRow, expected: number): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("notes")
+    .update(toRemoteFields(row, expected + 1))
+    .eq("id", row.id)
+    .eq("revision", expected)
+    .select("id");
+  if (error) {
+    throw new Error(`notes update failed (${error.code ?? "?"}): ${error.message}`);
+  }
+  return (data?.length ?? 0) > 0;
+}
+
+// Local snapshots at the pushed LOCAL revision, stored under the SERVER revision.
+async function pushSnapshots(
+  noteId: string,
+  localRevision: number,
+  serverRevision: number
+): Promise<void> {
   const db = await getDb();
   const rows = await db.select<
     { block_id: string; content: string; content_hash: string | null; created_at: number }[]
@@ -133,13 +197,13 @@ async function pushSnapshots(noteId: string, revision: number): Promise<void> {
     `SELECT block_id, content, content_hash, created_at
      FROM block_revision_snapshots
      WHERE note_id = $1 AND revision = $2`,
-    [noteId, revision]
+    [noteId, localRevision]
   );
   if (rows.length === 0) return; // no blockId'd blocks, or snapshot not written yet
 
   const payload = rows.map((r) => ({
     note_id: noteId,
-    revision,
+    revision: serverRevision,
     block_id: r.block_id,
     content: r.content,
     content_hash: r.content_hash,
@@ -159,7 +223,25 @@ async function pushSnapshots(noteId: string, revision: number): Promise<void> {
   }
 }
 
-async function pushOnce(noteId: string): Promise<"pushed" | "skipped" | "remote_ahead"> {
+// After a won push: record the agreement point FIRST (this is what makes the
+// next check correct), then upload snapshots best-effort.
+async function finishPush(row: LocalNoteRow, serverRevision: number): Promise<void> {
+  await recordSynced(row.id, {
+    localRevision: row.revision,
+    localUpdatedAt: row.updated_at,
+    serverRevision,
+  });
+  await clearQueued(row.id);
+  try {
+    await pushSnapshots(row.id, row.revision, serverRevision);
+  } catch (err) {
+    console.warn("[sync] snapshot upload failed (best-effort, not retried):", row.id, err);
+  }
+}
+
+type PushOnceResult = "pushed" | "in_sync" | "skipped" | "remote_ahead";
+
+async function pushOnce(noteId: string): Promise<PushOnceResult> {
   const session = useSyncStore.getState().session;
   if (!session) return "skipped";
   const ownerId = session.user.id;
@@ -170,30 +252,65 @@ async function pushOnce(noteId: string): Promise<"pushed" | "skipped" | "remote_
     return "skipped";
   }
 
-  // Remote-ahead guard: never overwrite a newer remote revision from a stale
-  // local copy. Recorded in the queue's remote_ahead state (not retried);
-  // Stage 4d's reconnect conflict resolution consumes it.
-  const { data: remote, error: remoteErr } = await supabase
-    .from("notes")
-    .select("revision")
-    .eq("id", noteId)
-    .maybeSingle();
-  if (remoteErr) {
-    throw new Error(`remote revision check failed (${remoteErr.code ?? "?"}): ${remoteErr.message}`);
-  }
-  if (remote && remote.revision > row.revision) {
-    console.warn(
-      `[sync] remote is ahead for ${noteId} (remote r${remote.revision} > local r${row.revision}) — skipping push, needs 4d reconcile`
+  let lastRemote: RemoteNoteInfo | null = null;
+
+  // Two passes: a lost compare-and-swap (or insert race) re-reads state once.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const [state, remote] = await Promise.all([getSyncState(noteId), fetchRemote(noteId)]);
+    lastRemote = remote;
+    const decision = decideSyncAction(
+      { revision: row.revision, updatedAt: row.updated_at },
+      state,
+      remote
     );
-    await markRemoteAhead(noteId, remote.revision, row.revision);
-    return "remote_ahead";
+
+    switch (decision.action) {
+      case "in_sync":
+        await clearQueued(noteId);
+        return "in_sync";
+
+      case "adopt":
+        if (!remote) throw new Error("adopt decision without a remote row");
+        await recordSynced(noteId, {
+          localRevision: row.revision,
+          localUpdatedAt: row.updated_at,
+          serverRevision: remote.revision,
+        });
+        await clearQueued(noteId);
+        return "in_sync";
+
+      case "behind":
+      case "diverged": {
+        const reason = describeDecision(decision);
+        console.warn(`[sync] ${noteId}: ${reason} — not pushing`);
+        await markRemoteAhead(noteId, remote?.revision ?? 0, row.revision, reason);
+        return "remote_ahead";
+      }
+
+      case "insert": {
+        await ensureAncestors(row, ownerId);
+        if (!(await insertNote(row, ownerId))) continue;
+        await finishPush(row, 1);
+        return "pushed";
+      }
+
+      case "push": {
+        await ensureAncestors(row, ownerId);
+        const expected = decision.expectedServerRevision;
+        if (!(await casUpdateNote(row, expected))) continue;
+        await finishPush(row, expected + 1);
+        return "pushed";
+      }
+    }
   }
 
-  await ensureAncestors(row, ownerId);
-  await upsertNoteRow(row, ownerId);
-  await pushSnapshots(row.id, row.revision);
-  await clearQueued(noteId);
-  return "pushed";
+  await markRemoteAhead(
+    noteId,
+    lastRemote?.revision ?? 0,
+    row.revision,
+    "server changed during push (compare-and-swap lost twice)"
+  );
+  return "remote_ahead";
 }
 
 // Coalesce overlapping saves of the same note: one push at a time per note,

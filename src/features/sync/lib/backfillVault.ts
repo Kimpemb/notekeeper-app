@@ -1,28 +1,31 @@
 // src/features/sync/lib/backfillVault.ts
 //
-// One-time (re-runnable) upload of the existing local vault to hosted
-// Supabase. Reuses pushToHostedSync() per note, so row mapping, ancestor
-// ordering, the remote-ahead guard and snapshot upload are the same path
-// autosave already uses. Idempotent: re-running only does work for notes that
-// are missing remotely, behind, or have local snapshots to (re)confirm.
+// Upload of the local vault to hosted Supabase (re-runnable). Reuses
+// pushToHostedSync() per note, so row mapping, ancestor ordering and the
+// compare-and-swap rules are the same path autosave uses. Classification uses
+// the same pure decideSyncAction() as the push path, against the recorded
+// sync state and the hosted revision/updated_at map.
 
 import { getDb } from "@/features/notes/db/client";
-import { supabase, isSyncConfigured } from "@/features/sync/db/supabaseClient";
+import { isSyncConfigured } from "@/features/sync/db/supabaseClient";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { pushToHostedSync } from "@/features/sync/lib/pushToHostedSync";
+import { fetchRemoteNoteMap } from "@/features/sync/lib/remoteNotes";
+import { loadAllSyncStates } from "@/features/sync/lib/noteSyncState";
+import { decideSyncAction } from "@/features/sync/lib/syncDecision";
 
 interface LocalRow {
   id: string;
   parent_id: string | null;
   revision: number;
-  has_snapshots: number; // 0 | 1 from SQLite EXISTS
+  updated_at: number;
 }
 
 export interface BackfillSummary {
   total: number;       // live, non-canvas local notes considered
-  uploaded: number;    // pushed this run
-  upToDate: number;    // already on hosted at the same revision, nothing to confirm
-  remoteAhead: number; // hosted has a newer revision — left alone (4d reconcile)
+  uploaded: number;    // pushed (or recorded) this run
+  upToDate: number;    // already in sync, nothing to do
+  remoteAhead: number; // server has changes this device hasn't merged — left for pull/reconcile
   failed: number;      // pushes that errored (queued for retry by the 4c queue)
   stopped: null | "cancelled" | "too_many_failures";
 }
@@ -32,31 +35,8 @@ export interface BackfillOptions {
   onProgress?: (done: number, total: number) => void;
 }
 
-const REMOTE_PAGE = 1000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 const MAX_DEPTH = 50;
-
-async function fetchRemoteRevisions(ownerId: string): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
-  let from = 0;
-  for (;;) {
-    const { data, error } = await supabase
-      .from("notes")
-      .select("id, revision")
-      .eq("owner_id", ownerId)
-      .order("id")
-      .range(from, from + REMOTE_PAGE - 1);
-    if (error) {
-      throw new Error(`remote revision fetch failed (${error.code ?? "?"}): ${error.message}`);
-    }
-    for (const r of (data ?? []) as Array<{ id: string; revision: number }>) {
-      map.set(r.id, r.revision);
-    }
-    if (!data || data.length < REMOTE_PAGE) break;
-    from += REMOTE_PAGE;
-  }
-  return map;
-}
 
 // Shallowest notes first, so parents land before children.
 function depthOf(id: string, byId: Map<string, LocalRow>): number {
@@ -78,15 +58,12 @@ export async function backfillVault(opts: BackfillOptions = {}): Promise<Backfil
 
   const db = await getDb();
   const local = await db.select<LocalRow[]>(
-    `SELECT n.id, n.parent_id, n.revision,
-            EXISTS (
-              SELECT 1 FROM block_revision_snapshots s
-              WHERE s.note_id = n.id AND s.revision = n.revision
-            ) AS has_snapshots
-     FROM notes n
-     WHERE n.deleted_at IS NULL AND n.is_canvas = 0`
+    `SELECT id, parent_id, revision, updated_at
+     FROM notes
+     WHERE deleted_at IS NULL AND is_canvas = 0`
   );
-  const remote = await fetchRemoteRevisions(session.user.id);
+  const remote = await fetchRemoteNoteMap(session.user.id);
+  const states = await loadAllSyncStates();
 
   const summary: BackfillSummary = {
     total: local.length,
@@ -100,10 +77,22 @@ export async function backfillVault(opts: BackfillOptions = {}): Promise<Backfil
   const byId = new Map(local.map((r) => [r.id, r]));
   const work: LocalRow[] = [];
   for (const row of local) {
-    const remoteRev = remote.get(row.id);
-    if (remoteRev !== undefined && remoteRev > row.revision) summary.remoteAhead++;
-    else if (remoteRev !== undefined && remoteRev === row.revision && !row.has_snapshots) summary.upToDate++;
-    else work.push(row);
+    const decision = decideSyncAction(
+      { revision: row.revision, updatedAt: row.updated_at },
+      states.get(row.id) ?? null,
+      remote.get(row.id) ?? null
+    );
+    switch (decision.action) {
+      case "in_sync":
+        summary.upToDate++;
+        break;
+      case "behind":
+      case "diverged":
+        summary.remoteAhead++;
+        break;
+      default: // insert | push | adopt
+        work.push(row);
+    }
   }
   work.sort((a, b) => depthOf(a.id, byId) - depthOf(b.id, byId));
 
@@ -121,8 +110,11 @@ export async function backfillVault(opts: BackfillOptions = {}): Promise<Backfil
       summary.failed++;
       consecutiveFailures++;
     } else if (result === "remote_ahead") {
-      // Server moved on after we fetched the remote map — left for 4d.
+      // Server moved on after the remote map was fetched — left for pull/reconcile.
       summary.remoteAhead++;
+      consecutiveFailures = 0;
+    } else if (result === "in_sync") {
+      summary.upToDate++;
       consecutiveFailures = 0;
     } else {
       summary.uploaded++;
