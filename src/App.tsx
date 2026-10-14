@@ -60,6 +60,9 @@ import {
 } from "@/features/score/lib/scoreComputer";
 import { getAllMilestones } from "@/features/goals/db/goalQueries";
 import { syncMilestonesToCalendar } from "@/features/calendar/lib/layerSync";
+import { useSyncStore } from "@/features/sync/store/useSyncStore";
+import { SignInPanel } from "@/features/sync/components/SignInPanel";
+import { startPushQueueDrain } from "@/features/sync/lib/drainPushQueue";
 
 
 document.addEventListener("keydown", (e) => {
@@ -237,11 +240,16 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   let cancelled = false;
   console.log("[boot] effect start", performance.now());
 
+  // Fire-and-forget, deliberately outside the local-first boot chain below —
+  // sync session restoration must never block or gate dbReady/notesLoaded.
+  useSyncStore.getState().restoreSession();
+
   initDb()
     .then(async () => {
       console.log("[boot] initDb resolved", performance.now());
       if (cancelled) return;
       setDbReady(true);
+      startPushQueueDrain(); // 4c: retry queued hosted pushes (needs the queue table from initDb)
       return Promise.all([
         useUIStore.getState().loadSettings(),
         useAppSettings.getState().load(),
@@ -890,6 +898,11 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
         <TipsPanel />
         <ResurfaceBar />
         <DeadlineResurfaceBar />
+
+        {/* TEMP scaffolding for Stage 4b testing — remove once wired into SettingsModal */}
+        <div className="fixed top-14 right-4 z-50 bg-idemora-bg-secondary border border-idemora-border rounded-lg shadow-lg">
+          <SignInPanel />
+        </div>
 
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />

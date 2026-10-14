@@ -709,4 +709,32 @@ export const ALL_MIGRATIONS: string[] = [
   `ALTER TABLE notes ADD COLUMN forked_from_owner_id TEXT`,
 
   `ALTER TABLE notes ADD COLUMN fork_base_revision INTEGER`,
+
+    // ── Block Revisioning: content-hash column (feature/sync-engine) ─────────
+  // Populated from day one so a later migration to content-addressable
+  // storage (Option C) needs no backfill — just add block_content_store
+  // and switch the write path inside writeBlockRevisionSnapshot().
+  `ALTER TABLE block_revision_snapshots ADD COLUMN content_hash TEXT`,
+
+  // ── Stage 4c: durable hosted-push retry queue (feature/sync-engine) ───────
+  // One row per note that failed to push (or is behind the server). Stores
+  // only the note id + bookkeeping — pushToHostedSync reads current local
+  // state at push time. state: 'pending' (retry w/ backoff),
+  // 'parked_max_attempts' (needs manual retry / fresh save), 'remote_ahead'
+  // (hosted is newer; not retried — Stage 4d reconciles these).
+  `CREATE TABLE IF NOT EXISTS sync_push_queue (
+    note_id          TEXT    PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    state            TEXT    NOT NULL
+                     CHECK(state IN ('pending','parked_max_attempts','remote_ahead')),
+    reason           TEXT,
+    attempts         INTEGER NOT NULL DEFAULT 0,
+    next_retry_at    INTEGER,
+    local_revision   INTEGER,
+    remote_revision  INTEGER,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_sync_push_queue_due
+    ON sync_push_queue(state, next_retry_at)`,
 ];

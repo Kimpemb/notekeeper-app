@@ -77,16 +77,36 @@ export const BlockIdExtension = Extension.create({
   const { doc, tr, schema } = newState;
   let modified = false;
 
+  // Tracks blockIds already claimed during this walk. Needed because a
+  // missing blockId isn't the only way a node can need a fresh one: stock
+  // ProseMirror commands that clone a node (e.g. splitListItem on Enter
+  // inside a non-empty list item) copy the original node's full attrs —
+  // blockId included — into the new node. That new node arrives with a
+  // blockId that's already correctly present, so the old "if (blockId)
+  // return" guard let it straight through, silently duplicating an ID and
+  // making the two nodes indistinguishable to anything keyed on blockId
+  // (block_revision_snapshots, note_blocks, embeddings). Walking the doc
+  // in order and reassigning every ID after the first claim fixes it
+  // regardless of which command did the cloning.
+  const seenBlockIds = new Set<string>();
+
   doc.descendants((node, pos) => {
     if (!TARGET_TYPES.has(node.type.name)) return;
-    if (node.attrs.blockId) return;
 
     const nodeType = schema.nodes[node.type.name];
     if (!nodeType?.spec.attrs?.blockId) return;
 
-    const id = crypto.randomUUID();
-    tr.setNodeMarkup(pos, undefined, { ...node.attrs, blockId: id });
-    modified = true;
+    const existingId = node.attrs.blockId as string | null;
+    const needsNewId = !existingId || seenBlockIds.has(existingId);
+
+    if (needsNewId) {
+      const id = crypto.randomUUID();
+      tr.setNodeMarkup(pos, undefined, { ...node.attrs, blockId: id });
+      seenBlockIds.add(id);
+      modified = true;
+    } else {
+      seenBlockIds.add(existingId);
+    }
   });
 
   if (!modified) return null;

@@ -126,7 +126,11 @@ function reconcileSubPageBlocks(
   contentJson: string,
   children: { id: string; title: string; source_type?: string }[]
 ): string | null {
-  let doc: { type: string; content: unknown[] };
+  // Optional, not required — this is what JSON.parse can actually
+  // guarantee. The earlier annotation claimed both always exist, which is
+  // exactly why the crash and this warning both happened: TS trusted a
+  // shape the runtime data didn't honor.
+  let doc: { type?: string; content?: unknown[] };
   try { doc = JSON.parse(contentJson); } catch { return null; }
 
   const existingIds = new Set<string>();
@@ -137,9 +141,15 @@ function reconcileSubPageBlocks(
     }
   }
 
+  // Normalize once — doc.content is undefined for any note whose content
+  // is still the schema default '{}' (new notes, or notes never opened in
+  // the editor yet). Everything below reads `content`, never doc.content
+  // directly, so this is the single place that needs the fallback.
+  const content = Array.isArray(doc.content) ? doc.content : [];
+
   // Remove blocks for notes no longer children
   const validIds = new Set(children.map((c) => c.id));
-  const filtered = doc.content.filter((node) => {
+  const filtered = content.filter((node) => {
     const n = node as { type: string; attrs?: { noteId?: string | null } };
     if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
       return validIds.has(n.attrs.noteId);
@@ -155,7 +165,7 @@ function reconcileSubPageBlocks(
       : { type: "subPage", attrs: { noteId: c.id, title: c.title, mode: "display" } }
   );
 
-  if (filtered.length === doc.content.length && newBlocks.length === 0) return null;
+  if (filtered.length === content.length && newBlocks.length === 0) return null;
 
   const finalContent = [...filtered];
   if (newBlocks.length > 0) {
@@ -168,8 +178,10 @@ function reconcileSubPageBlocks(
     }
   }
 
-  return JSON.stringify({ ...doc, content: finalContent });
-}
+  // doc may have no `type` at all when the source content was the schema
+// default '{}' — always guarantee a valid ProseMirror root, only
+// defaulting `type`, never overriding a real one that's already there.
+return JSON.stringify({ type: "doc", ...doc, content: finalContent });}
  
 
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {

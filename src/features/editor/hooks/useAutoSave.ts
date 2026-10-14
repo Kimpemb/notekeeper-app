@@ -25,6 +25,8 @@ import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { syncNoteBlocks } from "@/features/notes/db/queries";
+import { writeBlockRevisionSnapshot } from "@/features/notes/lib/blockRevisioning";
+import { pushToHostedSync } from "@/features/sync/lib/pushToHostedSync";
 import { nudgeIndexer } from "@/features/ai/lib/indexer";
 import { useAIStore } from "@/features/ai/store/useAIStore";
 
@@ -115,6 +117,32 @@ export function useAutoSave({
     }, 2000);
   }, []);
 
+  // ── runBlockRevisionSnapshot ─────────────────────────────────────────────
+  // Decoupled the same way as the embedding pipeline — not needed for the
+  // save itself to succeed, only for later sync/reconciliation.
+  const runBlockRevisionSnapshot = useCallback((savedNoteId: string, content: string) => {
+    setTimeout(async () => {
+      try {
+        await writeBlockRevisionSnapshot(savedNoteId, content);
+      } catch (err) {
+        console.warn("[AutoSave] block revision snapshot failed:", err);
+      }
+    }, 500);
+  }, []);
+
+  // ── runHostedPush ────────────────────────────────────────────────────────
+  // Third fire-and-forget step, same pattern as above. Delayed past the
+  // 500ms block-snapshot write so this revision's snapshot rows exist locally
+  // by the time pushToHostedSync reads them. Never blocks or fails the save:
+  // failures go to the 4c retry queue, not back to the editor.
+  const runHostedPush = useCallback((savedNoteId: string) => {
+    setTimeout(() => {
+      pushToHostedSync(savedNoteId).catch((err) => {
+        console.warn("[AutoSave] hosted push failed:", err);
+      });
+    }, 1500);
+  }, []);
+
   // ── save ──────────────────────────────────────────────────────────────────
 
 const save = useCallback(() => {
@@ -143,6 +171,8 @@ const save = useCallback(() => {
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
       runEmbeddingPipeline(noteId, content);
+      runBlockRevisionSnapshot(noteId, content);
+      runHostedPush(noteId);
       runScheduledBackupIfDue();
     }).catch((err) => {
       console.error("[AutoSave] failed:", err);
@@ -151,7 +181,7 @@ const save = useCallback(() => {
   };
 
   scheduleIdle(performSave);
-}, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runScheduledBackupIfDue, suppressSave, contentLoading]);
+}, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runBlockRevisionSnapshot, runHostedPush, runScheduledBackupIfDue, suppressSave, contentLoading]);
 
 // ── scheduleSave ──────────────────────────────────────────────────────────
 
@@ -231,9 +261,18 @@ const save = useCallback(() => {
         // Never flush empty stub
         if (content === '{"type":"doc","content":[]}') return;
         const plaintext = editor.getText();
-        updateNote(noteId, { content, plaintext }, true).catch(console.error)  // in unmount flush
+        // Same snapshot → push chain as performSave. The push reads snapshots at
+        // the note's current revision, so the snapshot must be written first.
+        // Both helpers are timer-based and don't depend on this component
+        // staying mounted. (Embedding is still skipped here — pre-existing gap.)
+        updateNote(noteId, { content, plaintext }, true)
+          .then(() => {
+            runBlockRevisionSnapshot(noteId, content);
+            runHostedPush(noteId);
+          })
+          .catch(console.error);
         runScheduledBackupIfDue();
       }
     };
-  }, [editor, noteId, updateNote, clearTimers, suppressSave, contentLoading, runScheduledBackupIfDue]);
+  }, [editor, noteId, updateNote, clearTimers, suppressSave, contentLoading, runScheduledBackupIfDue, runBlockRevisionSnapshot, runHostedPush]);
 }
