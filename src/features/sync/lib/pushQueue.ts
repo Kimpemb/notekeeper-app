@@ -9,9 +9,9 @@
 //   pending              failed; will be retried with backoff
 //   parked_max_attempts  gave up after MAX_ATTEMPTS; needs manual retry or a
 //                        fresh save of the note
-//   remote_ahead         hosted revision is newer than local. NOT retried —
-//                        retrying can't resolve a conflict. Stage 4d consumes
-//                        these rows (see listRemoteAhead) as its to-reconcile list.
+//   remote_ahead         the server has changes this device hasn't merged (behind
+//                        or diverged). NOT retried — retrying can't resolve it.
+//                        Stage 4d consumes these rows (see listRemoteAhead).
 //
 // Write helpers never throw: a broken queue must not break saving or pushing.
 // Read helpers (counts / lists) propagate errors to their caller.
@@ -95,11 +95,13 @@ export async function enqueueFailedPush(
   }
 }
 
-// Hosted revision is newer than local — skipped, and handed to Stage 4d.
+// Server has changes this device hasn't merged — skipped, and handed to Stage 4d.
+// (Revision numbers are per-device, so `reason` is the meaningful explanation.)
 export async function markRemoteAhead(
   noteId: string,
   remoteRevision: number,
-  localRevision: number
+  localRevision: number,
+  reason?: string
 ): Promise<void> {
   try {
     const db = await getDb();
@@ -119,7 +121,7 @@ export async function markRemoteAhead(
          updated_at      = excluded.updated_at`,
       [
         noteId,
-        `remote r${remoteRevision} is ahead of local r${localRevision}`,
+        reason ?? `server r${remoteRevision} vs local r${localRevision}`,
         localRevision,
         remoteRevision,
         now,
