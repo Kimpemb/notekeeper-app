@@ -21,6 +21,7 @@ import { supabase, isSyncConfigured } from "@/features/sync/db/supabaseClient";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { enqueueFailedPush, markRemoteAhead, clearQueued } from "@/features/sync/lib/pushQueue";
 import { getSyncState, recordSynced } from "@/features/sync/lib/noteSyncState";
+import { tryLockNote, noteLockHolder } from "@/features/sync/lib/noteLock";
 import {
   decideSyncAction,
   describeDecision,
@@ -317,9 +318,9 @@ async function pushOnce(noteId: string): Promise<PushOnceResult> {
   return "remote_ahead";
 }
 
-// Coalesce overlapping saves of the same note: one push at a time per note,
-// and one re-run if another save landed while it was in flight.
-const inFlight = new Set<string>();
+// Coalesce overlapping saves of the same note: one push at a time per note
+// (the lock is shared with pull, see noteLock.ts), and one re-run if another
+// save landed while a push was in flight.
 const rerun = new Set<string>();
 
 export async function pushToHostedSync(
@@ -329,13 +330,16 @@ export async function pushToHostedSync(
   if (!isSyncConfigured) return "skipped";
   if (!useSyncStore.getState().session) return "skipped";
 
-  if (inFlight.has(noteId)) {
-    rerun.add(noteId);
-    return "busy"; // the in-flight push will run once more for this save
+  const release = tryLockNote(noteId, "push");
+  if (!release) {
+    // Another push is running: it will go round once more for this save.
+    // A pull is running: this save is already in the local DB, and the dirty
+    // scan will push it afterwards, so no rerun is scheduled.
+    if (noteLockHolder(noteId) === "push") rerun.add(noteId);
+    return "busy";
   }
 
   let result: PushResult = "skipped";
-  inFlight.add(noteId);
   try {
     do {
       rerun.delete(noteId);
@@ -348,7 +352,7 @@ export async function pushToHostedSync(
       }
     } while (rerun.has(noteId));
   } finally {
-    inFlight.delete(noteId);
+    release();
   }
   return result;
 }
