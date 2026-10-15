@@ -22,8 +22,10 @@ export async function seedSyncStateFromRemote(): Promise<SeedSummary> {
   if (!session) return { checked: 0, seeded: 0 };
 
   const db = await getDb();
-  const unseeded = await db.select<{ id: string; revision: number; updated_at: number }[]>(
-    `SELECT n.id, n.revision, n.updated_at
+  const unseeded = await db.select<
+    { id: string; revision: number; meta_rev: number; updated_at: number }[]
+  >(
+    `SELECT n.id, n.revision, n.meta_rev, n.updated_at
      FROM notes n
      LEFT JOIN note_sync_state s ON s.note_id = n.id
      WHERE s.note_id IS NULL AND n.is_canvas = 0`
@@ -40,6 +42,7 @@ export async function seedSyncStateFromRemote(): Promise<SeedSummary> {
         localRevision: row.revision,
         localUpdatedAt: row.updated_at,
         serverRevision: r.revision,
+        metaRev: row.meta_rev,
       });
     }
   }

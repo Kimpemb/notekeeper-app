@@ -47,6 +47,7 @@ interface LocalNoteRow {
   updated_at: number;
   deleted_at: number | null;
   revision: number;
+  meta_rev: number;
   is_canvas: number;
   is_published: number;
   publish_visibility: "team" | "public" | null;
@@ -57,7 +58,7 @@ interface LocalNoteRow {
 }
 
 const NOTE_COLUMNS = `id, title, content, plaintext, tags, parent_id, sort_order,
-  frontmatter, created_at, updated_at, deleted_at, revision, is_canvas,
+  frontmatter, created_at, updated_at, deleted_at, revision, meta_rev, is_canvas,
   is_published, publish_visibility, publish_token, forked_from_note_id,
   forked_from_owner_id, fork_base_revision`;
 
@@ -156,6 +157,7 @@ async function ensureAncestors(row: LocalNoteRow, ownerId: string): Promise<void
         localRevision: ancestor.revision,
         localUpdatedAt: ancestor.updated_at,
         serverRevision: 1,
+        metaRev: ancestor.meta_rev,
       });
     }
   }
@@ -230,6 +232,7 @@ async function finishPush(row: LocalNoteRow, serverRevision: number): Promise<vo
     localRevision: row.revision,
     localUpdatedAt: row.updated_at,
     serverRevision,
+    metaRev: row.meta_rev,
   });
   await clearQueued(row.id);
   try {
@@ -259,7 +262,7 @@ async function pushOnce(noteId: string): Promise<PushOnceResult> {
     const [state, remote] = await Promise.all([getSyncState(noteId), fetchRemote(noteId)]);
     lastRemote = remote;
     const decision = decideSyncAction(
-      { revision: row.revision, updatedAt: row.updated_at },
+      { revision: row.revision, updatedAt: row.updated_at, metaRev: row.meta_rev },
       state,
       remote
     );
@@ -275,6 +278,7 @@ async function pushOnce(noteId: string): Promise<PushOnceResult> {
           localRevision: row.revision,
           localUpdatedAt: row.updated_at,
           serverRevision: remote.revision,
+          metaRev: row.meta_rev,
         });
         await clearQueued(noteId);
         return "in_sync";

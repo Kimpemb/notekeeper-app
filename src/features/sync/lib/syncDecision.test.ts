@@ -3,12 +3,18 @@ import { describe, it, expect } from "vitest";
 import { decideSyncAction, describeDecision } from "./syncDecision";
 
 const T = 1_700_000_000_000;
-const local = (revision: number, updatedAt = T) => ({ revision, updatedAt });
+const local = (revision: number, updatedAt = T, metaRev = 0) => ({ revision, updatedAt, metaRev });
 const remote = (revision: number, updatedAt = T) => ({ revision, updatedAt });
-const state = (localRevision: number, serverRevision: number, localUpdatedAt = T) => ({
+const state = (
+  localRevision: number,
+  serverRevision: number,
+  localUpdatedAt = T,
+  metaRev = 0
+) => ({
   localRevision,
   localUpdatedAt,
   serverRevision,
+  metaRev,
 });
 
 describe("decideSyncAction — not on the server", () => {
@@ -112,5 +118,31 @@ describe("describeDecision", () => {
     expect(describeDecision({ action: "behind" })).toMatch(/newer changes/);
     expect(describeDecision({ action: "diverged", reason: "both_changed" })).toMatch(/both/);
     expect(describeDecision({ action: "diverged", reason: "no_base" })).toMatch(/no sync base/);
+  });
+});
+
+describe("decideSyncAction — metadata edits (meta_rev)", () => {
+  it("pushes on a meta_rev change alone (revision and updated_at unchanged)", () => {
+    expect(decideSyncAction(local(5, T, 2), state(5, 3, T, 1), remote(3))).toEqual({
+      action: "push",
+      expectedServerRevision: 3,
+    });
+  });
+
+  it("diverged when meta_rev changed locally and the server moved", () => {
+    expect(decideSyncAction(local(5, T, 2), state(5, 3, T, 1), remote(4))).toEqual({
+      action: "diverged",
+      reason: "both_changed",
+    });
+  });
+
+  it("still behind (safe to pull) when meta_rev matches and only the server moved", () => {
+    expect(decideSyncAction(local(5, T, 1), state(5, 3, T, 1), remote(4))).toEqual({
+      action: "behind",
+    });
+  });
+
+  it("ignores meta_rev for an unseeded note (legacy rules)", () => {
+    expect(decideSyncAction(local(4, T, 9), null, remote(4))).toEqual({ action: "adopt" });
   });
 });

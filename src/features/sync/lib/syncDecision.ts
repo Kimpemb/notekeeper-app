@@ -9,19 +9,22 @@
 //   local counter   vs. the local revision at the last agreement
 //   server counter  vs. the server revision at the last agreement
 //
-// "Local changed" = local revision OR updated_at differs from the sync state.
-// updated_at is included because title / parent / sort-order edits don't bump
-// the content-driven revision.
+// "Local changed" = local revision, updated_at OR meta_rev differs from the
+// sync state. meta_rev (4d.2, fix B) is bumped by a trigger on title / parent /
+// sort-order / tags / frontmatter / deleted_at, which don't bump `revision` and
+// don't touch `updated_at`.
 
 export interface LocalNoteInfo {
   revision: number;
   updatedAt: number; // ms
+  metaRev: number;
 }
 
 export interface SyncStateInfo {
   localRevision: number;
   localUpdatedAt: number; // ms, local updated_at at the last agreement
   serverRevision: number;
+  metaRev: number; // local meta_rev at the last agreement
 }
 
 export interface RemoteNoteInfo {
@@ -73,7 +76,9 @@ export function decideSyncAction(
   }
 
   const localChanged =
-    local.revision !== state.localRevision || local.updatedAt !== state.localUpdatedAt;
+    local.revision !== state.localRevision ||
+    local.updatedAt !== state.localUpdatedAt ||
+    local.metaRev !== state.metaRev;
 
   if (remote.revision === state.serverRevision) {
     return localChanged

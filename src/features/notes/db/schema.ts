@@ -773,4 +773,24 @@ export const ALL_MIGRATIONS: string[] = [
           WHERE note_id = NEW.note_id
         );
     END`,
+
+  // Stage 4d.2 prerequisite (fix B): metadata edits (rename / move / reorder /
+  // tags / frontmatter / trash) don't bump `revision` or `updated_at`, so sync
+  // can't see them. meta_rev is a local counter bumped by a trigger; the sync
+  // state records the value at the last agreement. WHEN guards against
+  // UPDATE OF firing on same-value writes (autosave, bulk reorder).
+  `ALTER TABLE notes ADD COLUMN meta_rev INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE note_sync_state ADD COLUMN synced_meta_rev INTEGER NOT NULL DEFAULT 0`,
+  `DROP TRIGGER IF EXISTS notes_meta_rev_bump`,
+  `CREATE TRIGGER notes_meta_rev_bump
+    AFTER UPDATE OF title, parent_id, sort_order, tags, frontmatter, deleted_at ON notes
+    WHEN new.title IS NOT old.title
+      OR new.parent_id IS NOT old.parent_id
+      OR new.sort_order IS NOT old.sort_order
+      OR new.tags IS NOT old.tags
+      OR new.frontmatter IS NOT old.frontmatter
+      OR new.deleted_at IS NOT old.deleted_at
+    BEGIN
+      UPDATE notes SET meta_rev = meta_rev + 1 WHERE id = new.id;
+    END`,
 ];

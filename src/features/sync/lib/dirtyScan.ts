@@ -2,7 +2,8 @@
 //
 // Finds notes whose local state differs from the last recorded sync point (or that
 // have none) and that aren't already queued. Covers edits made while signed out,
-// while the session couldn't be restored offline, and metadata-only edits.
+// while the session couldn't be restored offline, and metadata-only edits
+// (meta_rev, 4d.2 fix B).
 
 import { getDb } from "@/features/notes/db/client";
 
@@ -17,7 +18,8 @@ export async function findDirtyNoteIds(limit = 50): Promise<string[]> {
        AND q.note_id IS NULL
        AND (s.note_id IS NULL
             OR n.revision   != s.synced_local_revision
-            OR n.updated_at != s.synced_local_updated_at)
+            OR n.updated_at != s.synced_local_updated_at
+            OR n.meta_rev   != s.synced_meta_rev)
      ORDER BY n.updated_at DESC
      LIMIT $1`,
     [limit]

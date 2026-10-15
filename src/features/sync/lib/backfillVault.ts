@@ -18,6 +18,7 @@ interface LocalRow {
   id: string;
   parent_id: string | null;
   revision: number;
+  meta_rev: number;
   updated_at: number;
 }
 
@@ -58,7 +59,7 @@ export async function backfillVault(opts: BackfillOptions = {}): Promise<Backfil
 
   const db = await getDb();
   const local = await db.select<LocalRow[]>(
-    `SELECT id, parent_id, revision, updated_at
+    `SELECT id, parent_id, revision, meta_rev, updated_at
      FROM notes
      WHERE deleted_at IS NULL AND is_canvas = 0`
   );
@@ -78,7 +79,7 @@ export async function backfillVault(opts: BackfillOptions = {}): Promise<Backfil
   const work: LocalRow[] = [];
   for (const row of local) {
     const decision = decideSyncAction(
-      { revision: row.revision, updatedAt: row.updated_at },
+      { revision: row.revision, updatedAt: row.updated_at, metaRev: row.meta_rev },
       states.get(row.id) ?? null,
       remote.get(row.id) ?? null
     );
