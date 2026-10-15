@@ -1,11 +1,11 @@
 // src/features/sync/lib/drainPushQueue.ts
 //
-// Stage 4c — retries queued pushes, plus (4d) a dirty scan so edits made while
-// offline/signed out are never lost just because they never reached the queue.
+// Stage 4c/4d — one sequential pass per drain: (1) retry queued pushes and push
+// dirty notes the queue never saw, then (2) pull notes the server has moved on
+// (4d.2). Skips the pull phase when the push phase looks offline.
 //
 // Drain triggers: app start (after initDb), sign-in / session restore, the
-// window "online" event, and a 60s timer. Each drain is one sequential pass;
-// it bails out after a few consecutive failures (likely offline).
+// window "online" event, and a 60s timer.
 
 import { isSyncConfigured } from "@/features/sync/db/supabaseClient";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
@@ -13,6 +13,7 @@ import { pushToHostedSync } from "@/features/sync/lib/pushToHostedSync";
 import { getDueRetries } from "@/features/sync/lib/pushQueue";
 import { seedSyncStateFromRemote } from "@/features/sync/lib/seedSyncState";
 import { findDirtyNoteIds } from "@/features/sync/lib/dirtyScan";
+import { pullBehindNotes } from "@/features/sync/lib/pullFromHostedSync";
 
 const DRAIN_INTERVAL_MS = 60_000;
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -21,6 +22,7 @@ export interface DrainSummary {
   attempted: number;
   pushed: number;
   failed: number;
+  pulled: number;
 }
 
 let draining = false;
@@ -39,7 +41,7 @@ async function ensureSeeded(): Promise<void> {
 }
 
 export async function drainPushQueue(): Promise<DrainSummary> {
-  const summary: DrainSummary = { attempted: 0, pushed: 0, failed: 0 };
+  const summary: DrainSummary = { attempted: 0, pushed: 0, failed: 0, pulled: 0 };
   if (!isSyncConfigured || draining) return summary;
   if (!useSyncStore.getState().session) return summary;
 
@@ -47,7 +49,7 @@ export async function drainPushQueue(): Promise<DrainSummary> {
   try {
     await ensureSeeded();
 
-    // Queued retries first, then notes that are dirty but were never queued.
+    // Phase 1: queued retries, then notes that are dirty but were never queued.
     const due = await getDueRetries(Date.now());
     const dirty = await findDirtyNoteIds();
     const work: Array<{ id: string; isRetry: boolean }> = [
@@ -59,6 +61,7 @@ export async function drainPushQueue(): Promise<DrainSummary> {
     }
 
     let consecutiveFailures = 0;
+    let looksOffline = false;
     for (const { id, isRetry } of work) {
       if (!useSyncStore.getState().session) break; // signed out mid-drain
       const result = await pushToHostedSync(id, { isRetry });
@@ -66,10 +69,23 @@ export async function drainPushQueue(): Promise<DrainSummary> {
       if (result === "failed") {
         summary.failed++;
         consecutiveFailures++;
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          looksOffline = true;
+          break;
+        }
       } else {
         summary.pushed++;
         consecutiveFailures = 0;
+      }
+    }
+
+    // Phase 2: pull-down, unless the pushes just failed repeatedly.
+    if (!looksOffline && useSyncStore.getState().session) {
+      try {
+        const pull = await pullBehindNotes();
+        summary.pulled = pull.pulled;
+      } catch (err) {
+        console.warn("[sync] pull phase failed:", err);
       }
     }
   } finally {
