@@ -43,7 +43,8 @@ export function useSampleNotes() {
     // KEY CHANGE 1: directFlag === false — wait for SQLite to resolve
     const shouldRun =
       settingsLoaded &&
-      directFlag === false &&  // ← must be explicitly false, not null
+      !settings.hasInsertedSampleNotes &&
+      directFlag === false &&
       !hasSampleNotes &&
       !hasStarted &&
       notes.length > 0;

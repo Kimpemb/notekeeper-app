@@ -1354,7 +1354,7 @@ function topoSort(notes: Note[]): Note[] {
   return result;
 }
 
-function extractNoteLinkIdsFromJson(contentJson: string): string[] {
+export function extractNoteLinkIdsFromJson(contentJson: string): string[] {
   const ids: string[] = [];
   try {
     const doc = JSON.parse(contentJson);

@@ -14,6 +14,7 @@ import { getDueRetries } from "@/features/sync/lib/pushQueue";
 import { seedSyncStateFromRemote } from "@/features/sync/lib/seedSyncState";
 import { findDirtyNoteIds } from "@/features/sync/lib/dirtyScan";
 import { pullBehindNotes } from "@/features/sync/lib/pullFromHostedSync";
+import { isDownloadInProgress, isVaultGateOpen } from "@/features/sync/lib/vaultGate";
 
 const DRAIN_INTERVAL_MS = 60_000;
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -28,6 +29,7 @@ export interface DrainSummary {
 let draining = false;
 let started = false;
 let seeded = false;
+let gateLogged = false;
 
 async function ensureSeeded(): Promise<void> {
   if (seeded) return;
@@ -44,9 +46,18 @@ export async function drainPushQueue(): Promise<DrainSummary> {
   const summary: DrainSummary = { attempted: 0, pushed: 0, failed: 0, pulled: 0 };
   if (!isSyncConfigured || draining) return summary;
   if (!useSyncStore.getState().session) return summary;
+  if (isDownloadInProgress()) return summary; // 4d.5: the download owns the vault
 
   draining = true;
   try {
+    // 4d.5: a fresh device must not push while hosted already holds a vault.
+    if (!(await isVaultGateOpen())) {
+      if (!gateLogged) {
+        gateLogged = true;
+        console.info("[sync] drain paused: hosted already has notes; download the vault or start fresh");
+      }
+      return summary;
+    }
     await ensureSeeded();
 
     // Phase 1: queued retries, then notes that are dirty but were never queued.
