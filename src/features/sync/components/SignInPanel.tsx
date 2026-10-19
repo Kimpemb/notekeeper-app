@@ -4,6 +4,8 @@ import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { backfillVault, type BackfillSummary } from "@/features/sync/lib/backfillVault";
 import { getQueueCounts, requeueParked, type PushQueueCounts } from "@/features/sync/lib/pushQueue";
 import { drainPushQueue } from "@/features/sync/lib/drainPushQueue";
+import { useVaultSync } from "@/features/sync/hooks/useVaultSync";
+import { VaultSyncPrompt } from "@/features/sync/components/VaultSyncPrompt";
 
 function formatSummary(s: BackfillSummary): string {
   const parts = [`${s.uploaded} uploaded`, `${s.upToDate} already up to date`];
@@ -24,6 +26,10 @@ export function SignInPanel() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // 4d.5: new-device download. Owned here so Upload vault can be locked while the gate is closed.
+  const vault = useVaultSync();
+  const vaultBusy = vault.phase !== "hidden" || vault.running;
 
   const [backfilling, setBackfilling] = useState(false);
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
@@ -73,10 +79,12 @@ export function SignInPanel() {
     return (
       <div className="p-3 text-sm">
         <p>Signed in as {session.user.email}</p>
+        <VaultSyncPrompt vault={vault} />
         <div className="mt-2 flex items-center gap-3">
           <button
             onClick={handleBackfill}
-            disabled={backfilling}
+            disabled={backfilling || vaultBusy}
+            title={vaultBusy ? "Resolve the vault download first" : undefined}
             className="px-2 py-1 rounded bg-blue-500 text-white disabled:opacity-50"
           >
             {backfilling ? "Uploading…" : "Upload vault"}
