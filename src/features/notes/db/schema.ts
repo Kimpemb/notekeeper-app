@@ -793,4 +793,26 @@ export const ALL_MIGRATIONS: string[] = [
     BEGIN
       UPDATE notes SET meta_rev = meta_rev + 1 WHERE id = new.id;
     END`,
+
+  // Stage 4d tombstones: remember a permanently deleted note's synced server
+  // revision. note_sync_state cascade-deletes with the note, so without this a
+  // permanent delete leaves no trace that the note ever synced. Rows exist only
+  // for notes that had sync state; starter and never-synced notes get none.
+  `CREATE TABLE IF NOT EXISTS note_tombstones (
+    note_id                 TEXT    PRIMARY KEY,
+    synced_server_revision  INTEGER NOT NULL,
+    deleted_at              INTEGER NOT NULL,
+    state                   TEXT    NOT NULL DEFAULT 'pending'
+  )`,
+
+  // BEFORE DELETE so it reads note_sync_state before the ON DELETE CASCADE
+  // removes it (verified by noteTombstones.test.ts).
+  `CREATE TRIGGER IF NOT EXISTS notes_tombstone_capture
+    BEFORE DELETE ON notes
+    BEGIN
+      INSERT OR REPLACE INTO note_tombstones (note_id, synced_server_revision, deleted_at)
+      SELECT note_id, synced_server_revision, CAST(strftime('%s','now') AS INTEGER) * 1000
+      FROM note_sync_state
+      WHERE note_id = old.id;
+    END`,
 ];
