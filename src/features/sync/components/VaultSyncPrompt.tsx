@@ -9,7 +9,7 @@ import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
 import { formatDownloadSummary } from "@/features/sync/lib/formatDownloadSummary";
 import type { VaultSync } from "@/features/sync/hooks/useVaultSync";
 
-const LIMITATIONS = "Attachments and images aren't included. Notes in the server trash are skipped.";
+const LIMITATIONS = "Attachments, images, settings, pins and bookmarks aren't included. Notes in the server trash are skipped.";
 
 export function VaultSyncPrompt({ vault }: { vault: VaultSync }) {
   const { phase, running, progress, result, error, download, cancel, startFresh, dismissResult } = vault;
