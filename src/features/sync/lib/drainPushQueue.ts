@@ -14,6 +14,7 @@ import { getDueRetries } from "@/features/sync/lib/pushQueue";
 import { seedSyncStateFromRemote } from "@/features/sync/lib/seedSyncState";
 import { findDirtyNoteIds } from "@/features/sync/lib/dirtyScan";
 import { pullBehindNotes } from "@/features/sync/lib/pullFromHostedSync";
+import { pushTombstones } from "@/features/sync/lib/pushTombstones";
 import { isDownloadInProgress, isVaultGateOpen } from "@/features/sync/lib/vaultGate";
 
 const DRAIN_INTERVAL_MS = 60_000;
@@ -87,6 +88,15 @@ export async function drainPushQueue(): Promise<DrainSummary> {
       } else {
         summary.pushed++;
         consecutiveFailures = 0;
+      }
+    }
+
+    // Phase 1b: purge notes permanently deleted on this device (4d tombstones).
+    if (!looksOffline && useSyncStore.getState().session) {
+      try {
+        await pushTombstones();
+      } catch (err) {
+        console.warn("[sync] tombstone phase failed:", err);
       }
     }
 
