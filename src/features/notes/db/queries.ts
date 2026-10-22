@@ -740,6 +740,16 @@ export async function permanentlyDeleteNote(id: string): Promise<void> {
   await deleteNote(id);
 }
 
+// Deletes one note only (no subtree). Used when the server purged a note.
+// Children are reparented to root by the foreign key, as with emptyTrash.
+export async function deleteNoteOnly(id: string): Promise<void> {
+  const db = await getDb();
+  const note = await getNoteById(id);
+  if (note) await deleteNoteAssets(note.content ?? "");
+  await db.execute(`DELETE FROM notes WHERE id = $1`, [id]);
+  await deleteChatSession(id);
+}
+
 export async function getTrashedNotes(): Promise<Note[]> {
   const db = await getDb();
   return db.select<Note[]>(

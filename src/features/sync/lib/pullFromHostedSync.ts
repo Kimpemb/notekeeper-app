@@ -22,7 +22,13 @@ import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useAIStore } from "@/features/ai/store/useAIStore";
 import { nudgeIndexer } from "@/features/ai/lib/indexer";
-import { updateNote as dbUpdateNote, syncNoteBlocks } from "@/features/notes/db/queries";
+import {
+  updateNote as dbUpdateNote,
+  syncNoteBlocks,
+  deleteNoteOnly,
+  getAllNotes,
+  getTrashedNotes,
+} from "@/features/notes/db/queries";import { decideDeleteAction } from "@/features/sync/lib/deleteDecision";
 import { writeBlockRevisionSnapshot } from "@/features/notes/lib/blockRevisioning";
 import { getSyncState, loadAllSyncStates, recordSynced } from "@/features/sync/lib/noteSyncState";
 import { clearQueued } from "@/features/sync/lib/pushQueue";
@@ -37,6 +43,8 @@ export type PullResult =
   | "skipped_busy"
   | "skipped_deleted"   // deleted state differs between local and hosted
   | "skipped_parent"    // hosted parent doesn't exist locally yet
+  | "purged_local"      // server purged it and it was unchanged here: deleted locally
+  | "skipped_purge_parked" // server purged it but it changed here: kept, left to 4d.3
   | "not_behind"        // no state, no remote row, or the decision isn't "behind"
   | "raced"             // local note changed during the pull; nothing was written
   | "skipped"           // sync off / signed out
@@ -76,10 +84,15 @@ interface RemoteFullRow {
   frontmatter: string | null;
   updated_at: string;
   deleted_at: string | null;
+  purged_at: string | null;
   revision: number;
 }
 
 const MAX_CONSECUTIVE_FAILURES = 3;
+
+// Set when a pull deleted or trashed/restored a note; the store lists are
+// refreshed once at the end of the pass.
+let listsDirty = false;
 
 // Pure: notes with a recorded sync state whose hosted revision has moved past it.
 export function selectPullCandidates(
@@ -115,7 +128,7 @@ async function fetchRemoteFull(noteId: string): Promise<RemoteFullRow | null> {
   const { data, error } = await supabase
     .from("notes")
     .select(
-      "id, title, content, plaintext, tags, parent_id, sort_order, frontmatter, updated_at, deleted_at, revision"
+      "id, title, content, plaintext, tags, parent_id, sort_order, frontmatter, updated_at, deleted_at, purged_at, revision"
     )
     .eq("id", noteId)
     .maybeSingle();
@@ -143,9 +156,28 @@ async function pullLocked(noteId: string): Promise<PullResult> {
     state,
     { revision: remote.revision, updatedAt: newUpdatedAt }
   );
+  // 4d tombstones (rows F and G): the server purged this note. Never write the
+  // blanked hosted content over it.
+  if (remote.purged_at != null) {
+    if (decision.action !== "behind" && decision.action !== "diverged") return "not_behind";
+    const del = decideDeleteAction({
+      localPresent: true,
+      tombstone: null,
+      hasSyncState: true,
+      localChanged: decision.action === "diverged",
+      hosted: { state: "purged", revision: remote.revision },
+    });
+    if (del.action !== "apply_purge_local") return "skipped_purge_parked";
+    await deleteNoteOnly(noteId);
+    listsDirty = true;
+    return "purged_local";
+  }
+
   if (decision.action !== "behind") return "not_behind";
 
-  if ((local.deleted_at != null) !== (remote.deleted_at != null)) return "skipped_deleted";
+  // T5: trash and restore are metadata. A behind note takes the hosted deleted_at.
+  const remoteDeletedAt = remote.deleted_at == null ? null : Date.parse(remote.deleted_at);
+  const trashChanged = (local.deleted_at ?? null) !== remoteDeletedAt;
 
   const db = await getDb();
   if (remote.parent_id && remote.parent_id !== local.parent_id) {
@@ -159,7 +191,7 @@ async function pullLocked(noteId: string): Promise<PullResult> {
   const res = await db.execute(
     `UPDATE notes
      SET title = $1, content = $2, plaintext = $3, tags = $4, parent_id = $5,
-         sort_order = $6, frontmatter = $7, updated_at = $8
+         sort_order = $6, frontmatter = $7, updated_at = $8, deleted_at = $13
      WHERE id = $9 AND revision = $10 AND meta_rev = $11 AND updated_at = $12`,
     [
       remote.title,
@@ -174,9 +206,11 @@ async function pullLocked(noteId: string): Promise<PullResult> {
       local.revision,
       local.meta_rev,
       local.updated_at,
+      remoteDeletedAt,
     ]
   );
   if (res.rowsAffected === 0) return "raced";
+  if (trashChanged) listsDirty = true;
 
   // The triggers bump revision on a content change and meta_rev on a metadata
   // change; compute what they must have produced, then verify by reading back.
@@ -186,7 +220,8 @@ async function pullLocked(noteId: string): Promise<PullResult> {
     !same(local.parent_id, remote.parent_id) ||
     local.sort_order !== remote.sort_order ||
     !same(local.tags, remote.tags) ||
-    !same(local.frontmatter, remote.frontmatter);
+    !same(local.frontmatter, remote.frontmatter) ||
+    trashChanged;
   const expectedRevision = local.revision + (local.content !== remote.content ? 1 : 0);
   const expectedMeta = local.meta_rev + (metaChanged ? 1 : 0);
 
@@ -197,6 +232,15 @@ async function pullLocked(noteId: string): Promise<PullResult> {
       await dbUpdateNote(noteId, { title: remote.title });
     } catch (err) {
       console.warn("[sync] pull: title side effects failed:", noteId, err);
+    }
+  }
+
+  // Same side effect as trashNote: a trashed note has no title chunk.
+  if (trashChanged && remote.deleted_at != null) {
+    try {
+      await db.execute(`DELETE FROM note_title_chunks WHERE note_id = $1`, [noteId]);
+    } catch (err) {
+      console.warn("[sync] pull: title chunk cleanup failed:", noteId, err);
     }
   }
 
@@ -236,7 +280,12 @@ async function pullLocked(noteId: string): Promise<PullResult> {
 
   if (useAIStore.getState().enabled) {
     try {
-      await syncNoteBlocks(noteId, remote.content);
+      await syncNoteBlocks(
+        noteId,
+        remote.content,
+        "note",
+        trashChanged && remote.deleted_at == null ? remote.title : undefined // restored: rewrite title chunk
+      );
       nudgeIndexer();
     } catch (err) {
       console.warn("[sync] pull: embedding enqueue failed:", noteId, err);
@@ -281,7 +330,7 @@ export async function pullBehindNotes(limit = 25): Promise<PullSummary> {
   for (const id of ids) {
     if (!useSyncStore.getState().session) break;
     const result = await pullNoteFromHosted(id);
-    if (result === "pulled" || result === "pulled_unrecorded") {
+    if (result === "pulled" || result === "pulled_unrecorded" || result === "purged_local") {
       summary.pulled++;
       consecutiveFailures = 0;
     } else if (result === "failed") {
@@ -289,6 +338,16 @@ export async function pullBehindNotes(limit = 25): Promise<PullSummary> {
       if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
     } else {
       summary.skipped++;
+    }
+  }
+  if (listsDirty) {
+    listsDirty = false;
+    try {
+      // Includes content, so open editors are not blanked (restoreNote does the same).
+      const [notes, trashedNotes] = await Promise.all([getAllNotes(), getTrashedNotes()]);
+      useNoteStore.setState({ notes, trashedNotes });
+    } catch (err) {
+      console.warn("[sync] pull: list refresh failed:", err);
     }
   }
   if (ids.length > 0) {

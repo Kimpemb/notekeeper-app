@@ -13,7 +13,9 @@
 
 alter table public.notes add column if not exists purged_at timestamptz;
 
-create or replace function public.purge_note(p_id uuid, p_expected_revision integer)
+drop function if exists public.purge_note(uuid, integer);
+
+create or replace function public.purge_note(p_id text, p_expected_revision integer)
 returns integer
 language plpgsql
 security definer
@@ -51,5 +53,5 @@ begin
 end;
 $$;
 
-revoke all on function public.purge_note(uuid, integer) from public, anon;
-grant execute on function public.purge_note(uuid, integer) to authenticated;
+revoke all on function public.purge_note(text, integer) from public, anon;
+grant execute on function public.purge_note(text, integer) to authenticated;
