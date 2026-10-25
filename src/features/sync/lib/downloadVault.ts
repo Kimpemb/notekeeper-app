@@ -124,7 +124,7 @@ interface LocalAfter {
 
 // Everything after the local row exists: sync state, base snapshot, AI blocks.
 // Returns the note's outgoing link targets for the backlinks pass.
-async function finishNote(
+export async function finishNote(
   noteId: string,
   title: string,
   content: string,
@@ -277,7 +277,7 @@ async function recoverInterrupted(
 
 // Second pass: every note now exists, so targets can be checked in memory and
 // written in one go (syncBacklinks per note would fire a UI event per note).
-async function writeBacklinks(links: Map<string, string[]>): Promise<void> {
+export async function writeBacklinks(links: Map<string, string[]>): Promise<void> {
   const db = await getDb();
   const known = new Set(
     (await db.select<{ id: string }[]>(`SELECT id FROM notes WHERE deleted_at IS NULL`)).map((r) => r.id)

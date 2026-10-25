@@ -56,6 +56,7 @@ export interface PullSummary {
   pulled: number;
   skipped: number;
   failed: number;
+  remoteIds?: string[]; // every hosted note id seen in this listing (for the new-note pull)
 }
 
 interface LocalRow {
@@ -321,6 +322,7 @@ export async function pullBehindNotes(limit = 25): Promise<PullSummary> {
   const remote = await fetchRemoteNoteMap(session.user.id);
   const states = await loadAllSyncStates();
   summary.listed = remote.size;
+  summary.remoteIds = [...remote.keys()];
   console.info(`[sync] listed ${remote.size} notes in ${Math.round(performance.now() - t0)} ms`);
 
   const ids = selectPullCandidates(states.values(), remote).slice(0, limit);
