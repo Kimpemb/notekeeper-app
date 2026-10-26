@@ -15,7 +15,7 @@ import { seedSyncStateFromRemote } from "@/features/sync/lib/seedSyncState";
 import { findDirtyNoteIds } from "@/features/sync/lib/dirtyScan";
 import { pullBehindNotes } from "@/features/sync/lib/pullFromHostedSync";
 import { pushTombstones } from "@/features/sync/lib/pushTombstones";
-import { logNewNotesDryRun } from "@/features/sync/lib/newNotesDryRun";
+ 
 import { pullNewNotes } from "@/features/sync/lib/pullNewNotes";
 import { isDownloadInProgress, isVaultGateOpen } from "@/features/sync/lib/vaultGate";
 
@@ -102,10 +102,7 @@ export async function drainPushQueue(): Promise<DrainSummary> {
       }
     }
 
-    // Phase 1c: read-only count of hosted notes missing here (step 6a, safety gate).
-    if (!looksOffline && useSyncStore.getState().session) {
-      await logNewNotesDryRun();
-    }
+ 
 
     // Phase 2: pull-down, unless the pushes just failed repeatedly.
     if (!looksOffline && useSyncStore.getState().session) {

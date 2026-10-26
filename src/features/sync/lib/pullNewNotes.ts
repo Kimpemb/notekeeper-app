@@ -1,8 +1,8 @@
 // src/features/sync/lib/pullNewNotes.ts
 //
 // Stage 4d tombstones, step 6b — create local notes for hosted notes this device
-// has never had (row A of the decision table). OFF unless the setting
-// sync_new_note_pull is "true".
+// has never had (row A of the decision table). ON by default; the emergency
+// switch is the setting sync_new_note_pull = "false".
 //
 // Safety:
 //   - candidates come from the listing the pull already fetched (no extra full
@@ -55,7 +55,7 @@ export async function pullNewNotes(remoteIds: string[]): Promise<NewNotesSummary
   const out: NewNotesSummary = { inserted: 0, skipped: 0, failed: 0 };
   const session = useSyncStore.getState().session;
   if (!session || remoteIds.length === 0) return out;
-  if ((await getSetting(NEW_NOTE_PULL_KEY)) !== "true") return out;
+  if ((await getSetting(NEW_NOTE_PULL_KEY)) === "false") return out; // on unless explicitly switched off
 
   const db = await getDb();
   const local = new Set((await db.select<Array<{ id: string }>>(`SELECT id FROM notes`)).map((r) => r.id));
