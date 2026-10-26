@@ -7,7 +7,7 @@
 // In-memory and non-blocking on purpose: callers that find the note busy skip it
 // and rely on the next drain / dirty scan rather than waiting.
 
-export type LockKind = "push" | "pull";
+export type LockKind = "push" | "pull" | "reconcile";
 
 const held = new Map<string, { kind: LockKind; token: symbol }>();
 

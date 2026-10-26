@@ -815,4 +815,32 @@ export const ALL_MIGRATIONS: string[] = [
       FROM note_sync_state
       WHERE note_id = old.id;
     END`,
+
+  // Stage 4d.3: local-only review data. No foreign key to notes on purpose: a
+  // backup of a purged note must survive the note being deleted. Never synced.
+  `CREATE TABLE IF NOT EXISTS reconcile_backups (
+    id              TEXT    PRIMARY KEY,
+    note_id         TEXT    NOT NULL,
+    kind            TEXT    NOT NULL,
+    created_at      INTEGER NOT NULL,
+    hosted_revision INTEGER,
+    mine_title      TEXT,
+    mine_content    TEXT,
+    theirs_title    TEXT,
+    theirs_content  TEXT
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_reconcile_backups_note
+    ON reconcile_backups (note_id, created_at)`,
+
+  `CREATE TABLE IF NOT EXISTS reconcile_choices (
+    user_id     TEXT    NOT NULL,
+    note_id     TEXT    NOT NULL,
+    block_id    TEXT    NOT NULL,
+    mine_hash   TEXT    NOT NULL DEFAULT '',
+    theirs_hash TEXT    NOT NULL DEFAULT '',
+    action      TEXT    NOT NULL,
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (user_id, note_id, block_id)
+  )`,
 ];
