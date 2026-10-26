@@ -415,6 +415,7 @@ export async function downloadVault(opts: DownloadOptions = {}): Promise<Downloa
     await writeBacklinks(links);
     if (useAIStore.getState().enabled) nudgeIndexer(); // embeddings run in the background (D3)
     await useNoteStore.getState().loadNotes(); // no editors are open (precondition)
+    await useNoteStore.getState().loadTrashedNotes(); // downloaded trashed notes (T6)
 
     // ── Completion: only a clean run opens the gate ────────────────────────
     if (summary.stopped === null && summary.failed === 0) {
