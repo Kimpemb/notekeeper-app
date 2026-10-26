@@ -51,8 +51,11 @@ describe("remoteRowToInsertParams", () => {
     expect(params).not.toContain(row.revision);
   });
 
-  it("never carries a deleted_at", () => {
+  it("carries a live note as live and a hosted-trashed note as trashed (T6)", () => {
     expect(params[10]).toBeNull();
+    expect(remoteRowToInsertParams({ ...row, deleted_at: "2026-10-14T12:30:00.500Z" }, null, "s")[10]).toBe(
+      Date.parse("2026-10-14T12:30:00.500Z")
+    );
   });
 
   it("uses the planned parent, not the hosted one", () => {

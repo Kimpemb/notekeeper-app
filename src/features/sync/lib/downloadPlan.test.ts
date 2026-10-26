@@ -64,10 +64,10 @@ describe("planDownload — ordering", () => {
 });
 
 describe("planDownload — skips and reparenting", () => {
-  it("skips hosted rows with deleted_at set and counts them", () => {
+  it("plans hosted-trashed rows too and counts them (T6)", () => {
     const plan = planDownload([row("a"), row("gone", null, T)], new Set());
-    expect(ids(plan)).toEqual(["a"]);
-    expect(plan.skippedDeleted).toBe(1);
+    expect(ids(plan)).toEqual(["a", "gone"]);
+    expect(plan.trashed).toBe(1);
   });
 
   it("skips ids that already exist locally (rerun after an interruption)", () => {
@@ -81,8 +81,14 @@ describe("planDownload — skips and reparenting", () => {
     expect(plan.notes[0]).toMatchObject({ parentId: null, reparented: true, depth: 0 });
   });
 
-  it("reparents to root when the hosted parent is deleted on hosted", () => {
+  it("keeps a trashed parent: the child still downloads under it (T6)", () => {
     const plan = planDownload([row("p", null, T), row("b", "p")], new Set());
+    expect(ids(plan)).toEqual(["p", "b"]);
+    expect(plan.notes[1]).toMatchObject({ id: "b", parentId: "p", reparented: false });
+  });
+
+  it("reparents to root when the hosted parent is not in the list (for example purged)", () => {
+    const plan = planDownload([row("b", "missing")], new Set());
     expect(plan.notes[0]).toMatchObject({ id: "b", parentId: null, reparented: true });
   });
 

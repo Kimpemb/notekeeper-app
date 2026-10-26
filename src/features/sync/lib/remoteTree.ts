@@ -17,6 +17,7 @@ export async function fetchRemoteTree(ownerId: string): Promise<RemoteTreeRow[]>
       .from("notes")
       .select("id, parent_id, revision, updated_at, deleted_at")
       .eq("owner_id", ownerId)
+      .is("purged_at", null)
       .order("id")
       .range(from, from + PAGE - 1);
     if (error) {

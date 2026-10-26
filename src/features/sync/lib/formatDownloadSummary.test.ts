@@ -8,7 +8,7 @@ const base: DownloadSummary = {
   planned: 0,
   inserted: 0,
   alreadyLocal: 0,
-  skippedDeleted: 0,
+  trashed: 0,
   reparented: 0,
   recovered: 0,
   starterRemoved: 0,
@@ -31,11 +31,11 @@ describe("downloadNeedsResume", () => {
 
 describe("formatDownloadSummary", () => {
   it("reports a clean run with the indexing note", () => {
-    const f = formatDownloadSummary(s({ inserted: 1974, skippedDeleted: 3 }));
+    const f = formatDownloadSummary(s({ inserted: 1974, trashed: 3 }));
     expect(f.ok).toBe(true);
     expect(f.needsResume).toBe(false);
     expect(f.headline).toBe("Downloaded 1974 notes.");
-    expect(f.details).toContain("3 in the server trash (skipped)");
+    expect(f.details).toContain("3 placed in the Trash");
     expect(f.details.some((d) => d.includes("indexing"))).toBe(true);
   });
 

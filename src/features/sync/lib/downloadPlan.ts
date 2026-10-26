@@ -31,7 +31,7 @@ export interface PlannedNote {
 export interface DownloadPlan {
   /** Shallowest first, ties broken by id, so parents always precede children. */
   notes: PlannedNote[];
-  skippedDeleted: number; // hosted rows with deleted_at set (D5: no tombstones yet)
+  trashed: number;        // planned notes that are in the server trash (inserted as trashed, T6)
   alreadyLocal: number;   // hosted ids that already have a local row
 }
 
@@ -40,16 +40,15 @@ export interface DownloadPlan {
  * (including trashed), so a rerun after an interrupted download skips what's in.
  */
 export function planDownload(rows: RemoteTreeRow[], localIds: Set<string>): DownloadPlan {
-  let skippedDeleted = 0;
+  let trashed = 0;
   let alreadyLocal = 0;
   const wanted = new Map<string, RemoteTreeRow>();
   for (const r of rows) {
-    if (r.deletedAt != null) {
-      skippedDeleted++;
-    } else if (localIds.has(r.id)) {
+    if (localIds.has(r.id)) {
       alreadyLocal++;
     } else {
       wanted.set(r.id, r);
+      if (r.deletedAt != null) trashed++; // T6: arrives trashed, not skipped
     }
   }
 
@@ -119,7 +118,7 @@ export function planDownload(rows: RemoteTreeRow[], localIds: Set<string>): Down
   }
   notes.sort((a, b) => a.depth - b.depth || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
-  return { notes, skippedDeleted, alreadyLocal };
+  return { notes, trashed, alreadyLocal };
 }
 
 // ── Preconditions ───────────────────────────────────────────────────────────

@@ -117,7 +117,7 @@ export async function pullNewNotes(remoteIds: string[]): Promise<NewNotesSummary
     }
     try {
       const params = remoteRowToInsertParams(r, p.parentId, crypto.randomUUID());
-      params[10] = r.deleted_at == null ? null : Date.parse(r.deleted_at); // deleted_at (T6)
+ 
       const res = await db.execute(INSERT_DOWNLOADED_NOTE_SQL, params);
       if (res.rowsAffected === 0) {
         console.warn(`[sync] new notes: ${p.id} was not inserted (already exists or a unique clash)`);
@@ -141,7 +141,7 @@ export async function pullNewNotes(remoteIds: string[]): Promise<NewNotesSummary
         continue;
       }
       present.add(p.id);
-      links.set(p.id, await finishNote(p.id, r.title, r.content, r.revision, a));
+      links.set(p.id, await finishNote(p.id, r.title, r.content, r.revision, a, r.deleted_at != null));
       out.inserted++;
     } catch (err) {
       console.warn(`[sync] new notes: ${p.id} failed:`, err);

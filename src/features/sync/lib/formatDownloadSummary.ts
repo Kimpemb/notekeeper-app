@@ -45,7 +45,7 @@ export function formatDownloadSummary(s: DownloadSummary): FormattedDownload {
   const details: string[] = [];
   if (s.alreadyLocal > 0) details.push(`${s.alreadyLocal} already on this device`);
   if (s.recovered > 0) details.push(`${s.recovered} finished from an interrupted run`);
-  if (s.skippedDeleted > 0) details.push(`${s.skippedDeleted} in the server trash (skipped)`);
+  if (s.trashed > 0) details.push(`${s.trashed} placed in the Trash`);
   if (s.reparented > 0) {
     details.push(`${s.reparented} placed at the top level (their parent wasn't available)`);
   }

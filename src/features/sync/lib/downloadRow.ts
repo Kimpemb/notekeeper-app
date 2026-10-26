@@ -64,7 +64,7 @@ export function remoteRowToInsertParams(
     syncId,
     Date.parse(r.created_at),
     Date.parse(r.updated_at),
-    null, // deleted_at: hosted-deleted rows are never downloaded (D5)
+    r.deleted_at == null ? null : Date.parse(r.deleted_at), // T6: hosted-trashed notes arrive trashed
     r.sort_order,
     DOWNLOAD_LOCAL_REVISION,
     DOWNLOAD_LOCAL_META_REV,

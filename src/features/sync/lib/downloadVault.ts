@@ -65,7 +65,7 @@ export interface DownloadSummary {
   planned: number;         // notes this run tried to download
   inserted: number;
   alreadyLocal: number;    // present before this run, or raced in
-  skippedDeleted: number;  // hosted rows with deleted_at set (no tombstones yet)
+  trashed: number;         // downloaded notes that arrived in the Trash (T6)
   reparented: number;      // hosted parent missing/deleted/cyclic, inserted as root
   recovered: number;       // interrupted downloads adopted by the recovery pass
   starterRemoved: number;
@@ -85,7 +85,7 @@ function emptySummary(): DownloadSummary {
     planned: 0,
     inserted: 0,
     alreadyLocal: 0,
-    skippedDeleted: 0,
+    trashed: 0,
     reparented: 0,
     recovered: 0,
     starterRemoved: 0,
@@ -129,7 +129,8 @@ export async function finishNote(
   title: string,
   content: string,
   serverRevision: number,
-  local: LocalAfter
+  local: LocalAfter,
+  trashed = false
 ): Promise<string[]> {
   await recordSynced(noteId, {
     localRevision: local.revision,
@@ -146,7 +147,8 @@ export async function finishNote(
 
   if (useAIStore.getState().enabled) {
     try {
-      await syncNoteBlocks(noteId, content, "note", title); // title chunk + blocks + embedding jobs
+      // Title chunk + blocks + embedding jobs. A trashed note gets no title chunk, as with trashNote.
+      await syncNoteBlocks(noteId, content, "note", trashed ? undefined : title);
     } catch (err) {
       console.warn("[sync] download: block sync failed:", noteId, err);
     }
@@ -202,7 +204,7 @@ async function insertOne(
     }
 
     present.add(p.id);
-    links.set(p.id, await finishNote(p.id, r.title, r.content, r.revision, a));
+    links.set(p.id, await finishNote(p.id, r.title, r.content, r.revision, a, r.deleted_at != null));
     return "inserted";
   } finally {
     release();
@@ -228,7 +230,7 @@ async function recoverInterrupted(
   // Cheap prefilter on the already-fetched tree before fetching any content.
   const candidates = stateless.filter((n) => {
     const t = tree.get(n.id);
-    return t != null && t.deletedAt == null && t.updatedAt === n.updated_at;
+    return t != null && t.updatedAt === n.updated_at;
   });
 
   let recovered = 0;
@@ -359,7 +361,7 @@ export async function downloadVault(opts: DownloadOptions = {}): Promise<Downloa
     const plan = planDownload(tree, localIds);
     summary.planned = plan.notes.length;
     summary.alreadyLocal = plan.alreadyLocal;
-    summary.skippedDeleted = plan.skippedDeleted;
+    summary.trashed = plan.trashed;
     summary.reparented = plan.notes.filter((n) => n.reparented).length;
 
     // ── Download, shallowest first, in adaptive batches ────────────────────
