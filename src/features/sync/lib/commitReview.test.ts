@@ -545,3 +545,97 @@ describe("hostedMatchesPlan", () => {
     expect(hostedMatchesPlan(hostedRow({ title: "Other" }), { updated_at: "2026-10-26T00:00:00.000Z" })).toBe(true);
   });
 });
+
+// ─── Keep both ────────────────────────────────────────────────────────────
+
+describe("commitReview — whole_keep_both", () => {
+  const review = () => mkReview(mineDoc, theirsDoc, "whole_note");
+  const idGen = () => {
+    let n = 0;
+    return () => `n-${++n}`;
+  };
+  const setup = (extra: Partial<CommitDeps> = {}) => {
+    const calls: string[] = [];
+    const created: string[] = [];
+    const h = harness({
+      calls,
+      fresh: review(),
+      deps: {
+        newId: idGen(),
+        createCopy: async (c) => {
+          calls.push("createCopy");
+          created.push(c.noteId);
+        },
+        removeCopy: async () => {
+          calls.push("removeCopy");
+        },
+        ...extra,
+      },
+    });
+    return { h, calls, created };
+  };
+  const req = () => request({ variant: "whole_keep_both", review: review(), items: [] });
+
+  it("backup, copy lock, copy, server, record; both locks released", async () => {
+    const { h, calls, created } = setup();
+    const out = await commitReview(h.deps, req());
+    expect(out).toMatchObject({ status: "committed", serverWritten: true, localWritten: false, copyNoteId: "n-1" });
+    expect(created).toEqual(["n-1"]);
+    expect(calls).toEqual([...HEAD, "backup", "lock", "createCopy", "push", "record", "release", "release"]);
+    expect(h.log.pushes[0].fields.content).toBe(JSON.stringify(mineDoc));
+    expect(h.balanced()).toBe(true);
+  });
+
+  it("a copy that cannot be created is refused before any server write", async () => {
+    const calls: string[] = [];
+    const { h } = setup({
+      createCopy: async () => {
+        calls.push("createCopy");
+        throw new Error("disk full");
+      },
+    });
+    const out = await commitReview(h.deps, req());
+    expect(out).toEqual({ status: "refused", reason: "copy_failed", detail: ["disk full"] });
+    expect(h.calls).not.toContain("push");
+    expect(h.calls).toContain("removeCopy");
+    expect(h.balanced()).toBe(true);
+  });
+
+  it("no createCopy dependency: refused at the plan, nothing written, no backup", async () => {
+    const { h } = setup({ createCopy: undefined });
+    const out = await commitReview(h.deps, req());
+    expect(out).toEqual({ status: "refused", reason: "plan_failed", detail: ["copy_unavailable"] });
+    expect(h.calls).toEqual([...HEAD, "release"]);
+  });
+
+  it("the server write is lost (someone moved it): the copy is removed", async () => {
+    const calls: string[] = [];
+    const { h } = setup({
+      pushMerged: async () => {
+        calls.push("push");
+        return { kind: "zero_rows" };
+      },
+      fetchHosted: async () => hostedRow({ revision: 7 }),
+    });
+    const out = await commitReview(h.deps, req());
+    expect(out).toEqual({ status: "push_lost", hosted: "moved" });
+    expect(h.calls).toContain("removeCopy");
+    expect(h.calls).not.toContain("record");
+    expect(h.balanced()).toBe(true);
+  });
+
+  it("the answer is unknowable (push and check both fail): the copy is kept", async () => {
+    const { h } = setup({
+      pushMerged: async () => {
+        throw new Error("offline");
+      },
+      fetchHosted: async () => {
+        throw new Error("still offline");
+      },
+    });
+    const out = await commitReview(h.deps, req());
+    expect(out).toEqual({ status: "network_error", maybeApplied: true });
+    expect(h.calls).not.toContain("removeCopy");
+    expect(h.balanced()).toBe(true);
+  });
+});

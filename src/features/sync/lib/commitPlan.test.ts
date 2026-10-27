@@ -402,10 +402,11 @@ describe("planCommit — variant guards", () => {
     expect(planCommit(input(r, [], { variant: "whole_take_theirs" })).ok).toBe(false);
   });
 
-  it("keep both is not built yet", () => {
-    const r = review(d, d, { mode: "whole_note" });
-    const result = planCommit(input(r, [], { variant: "whole_keep_both" }));
-    expect(result).toEqual({ ok: false, reason: "variant_not_allowed", detail: ["whole_keep_both is not built yet"] });
+  it("keep both needs a whole-note review", () => {
+    const r = review(d, d, { mode: "block" });
+    const result = planCommit(input(r, [], { variant: "whole_keep_both", newId: idGen() }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("variant_not_allowed");
   });
 
   it("does not change the review it was given", () => {
@@ -416,5 +417,61 @@ describe("planCommit — variant guards", () => {
     const copy = JSON.parse(JSON.stringify(r)) as CommitReviewInput;
     planCommit(input(r, itemsFor(base, th, mi)));
     expect(r).toEqual(copy);
+  });
+});
+
+// ─── Keep both ────────────────────────────────────────────────────────────
+
+const idGen = () => {
+  let n = 0;
+  return () => `n-${++n}`;
+};
+
+describe("planCommit — whole_keep_both", () => {
+  const mineDoc = doc(para("A", "mine"));
+  const theirsDoc = doc(para("A", "theirs"));
+  const r = () => review(mineDoc, theirsDoc, { mode: "whole_note" });
+  const run = (over: Partial<PlanInput> = {}) =>
+    planCommit(input(r(), [], { variant: "whole_keep_both", newId: idGen(), ...over }));
+
+  it("writes mine to the server, nothing to this device, and plans the copy", () => {
+    const plan = ok(run());
+    expect(plan.serverFields?.content).toBe(JSON.stringify(mineDoc));
+    expect(plan.localFields).toBeNull();
+    expect(plan.serverRevisionAfter).toBe(6);
+    expect(plan.expectedLocalAfter).toEqual({ revision: 3, metaRev: 1, updatedAt: 1000 });
+    expect(plan.backupKind).toBe("whole_note");
+    expect(plan.reindex).toBe(false);
+    expect(plan.copy).not.toBeNull();
+  });
+
+  it("builds the copy from theirs with fresh ids and a conflict title", () => {
+    const copy = ok(run()).copy;
+    expect(copy?.noteId).toBe("n-1");
+    expect(copy?.title).toBe("Title (conflict copy)");
+    expect(copy?.parentId).toBeNull();
+    expect(copy?.plaintext).toBe("theirs text");
+    expect(copy?.createdAt).toBe(2000);
+    const parsed = JSON.parse(copy?.content as string);
+    expect(parsed.content[0].attrs.blockId).toBe("n-2");
+    expect(parsed.content[0].content[0].text).toBe("theirs");
+  });
+
+  it("fails without an id generator", () => {
+    const result = planCommit(input(r(), [], { variant: "whole_keep_both" }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("copy_failed");
+  });
+
+  it("fails when theirs' content is not valid JSON", () => {
+    const bad = review(mineDoc, theirsDoc, { mode: "whole_note", theirsContent: "{nope" });
+    const result = planCommit(input(bad, [], { variant: "whole_keep_both", newId: idGen() }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("copy_failed");
+  });
+
+  it("other variants plan no copy", () => {
+    const keep = planCommit(input(r(), [], { variant: "whole_keep_mine" }));
+    expect(ok(keep).copy).toBeNull();
   });
 });

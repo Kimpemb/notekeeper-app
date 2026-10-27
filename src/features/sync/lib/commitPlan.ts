@@ -23,6 +23,7 @@
 
 import { applyReconcileJson, type ApplyFailure, type ApplyItem } from "@/features/notes/lib/applyReconcile";
 import type { ReviewMode } from "@/features/sync/lib/reviewAssemble";
+import { conflictCopyTitle, remapBlockIds } from "@/features/sync/lib/conflictCopy";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ export type CommitVariant =
   | "block_merge" // the gate passed: merged content
   | "whole_keep_mine" // the gate tripped: this device's version goes to the server
   | "whole_take_theirs" // the gate tripped: the server's version comes here
-  | "whole_keep_both"; // NOT BUILT YET (keep mine, save theirs as a new note)
+  | "whole_keep_both"; // keep mine, save theirs as a new note
 
 export type MetaField = "title" | "parentId" | "sortOrder" | "tags" | "frontmatter" | "deletedAt";
 export type MetaValue = string | number | null;
@@ -125,10 +126,26 @@ export interface CommitPlan {
   trashChange: "trashed" | "restored" | null;
   /** The local content changes: queue re-indexing (blocks, embeddings, backlinks). */
   reindex: boolean;
+  /** whole_keep_both only: theirs' version as a new local note (pushed later by the drain). */
+  copy: ConflictCopyPlan | null;
   notes: string[];
 }
 
-export type PlanFailure = ApplyFailure | "variant_not_allowed";
+/** A new note built from theirs. Never trashed, block ids are fresh, no sync state. */
+export interface ConflictCopyPlan {
+  noteId: string;
+  title: string;
+  content: string;
+  plaintext: string;
+  tags: string | null;
+  frontmatter: string | null;
+  parentId: string | null;
+  sortOrder: number;
+  createdAt: number; // ms
+  updatedAt: number; // ms
+}
+
+export type PlanFailure = ApplyFailure | "variant_not_allowed" | "copy_failed";
 
 export interface PlanInput {
   review: CommitReviewInput;
@@ -142,6 +159,8 @@ export interface PlanInput {
   /** true when this note's stored plaintext already equalled generateText of its content before the merge. */
   storedMatchedGeneratedBefore: boolean;
   now: number;
+  /** Fresh ids for the conflict copy (note id first, then block ids). Required for whole_keep_both. */
+  newId?: () => string;
 }
 
 export type PlanResult =
@@ -279,7 +298,7 @@ const REQUIRED_MODE: Record<CommitVariant, ReviewMode | null> = {
   block_merge: "block",
   whole_keep_mine: "whole_note",
   whole_take_theirs: "whole_note",
-  whole_keep_both: null,
+  whole_keep_both: "whole_note",
 };
 
 const fail = (reason: PlanFailure, detail: string[]): PlanResult => ({ ok: false, reason, detail });
@@ -304,7 +323,7 @@ export function planCommit(input: PlanInput): PlanResult {
   } else if (variant === "whole_take_theirs") {
     content = review.theirsContent;
   } else {
-    content = review.mineContent; // identical, whole_keep_mine
+    content = review.mineContent; // identical, whole_keep_mine, whole_keep_both
   }
 
   // 2. Metadata.
@@ -329,6 +348,30 @@ export function planCommit(input: PlanInput): PlanResult {
     storedMatched: input.storedMatchedGeneratedBefore,
   });
   if (pt.note) notes.push(pt.note);
+
+  // 3b. Keep both: theirs' version becomes a new note beside this one.
+  let copy: ConflictCopyPlan | null = null;
+  if (variant === "whole_keep_both") {
+    if (!input.newId) return fail("copy_failed", ["no id generator supplied"]);
+    try {
+      const noteId = input.newId();
+      const remapped = remapBlockIds(review.theirsContent, input.newId);
+      copy = {
+        noteId,
+        title: conflictCopyTitle(meta.final.title),
+        content: remapped.content,
+        plaintext: review.remote.plaintext ?? "",
+        tags: review.remote.tags,
+        frontmatter: review.remote.frontmatter,
+        parentId: meta.final.parentId,
+        sortOrder: meta.final.sortOrder ?? 0,
+        createdAt: input.now,
+        updatedAt: input.now,
+      };
+    } catch (err) {
+      return fail("copy_failed", [err instanceof Error ? err.message : String(err)]);
+    }
+  }
 
   // 4. Local write: only what differs from this device. "identical" never
   //    touches content (the blocks already agree).
@@ -393,6 +436,7 @@ export function planCommit(input: PlanInput): PlanResult {
       titleChanged: !same(meta.final.title, review.mine.title),
       trashChange,
       reindex: contentChangedLocal,
+      copy,
       notes,
     },
   };

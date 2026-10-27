@@ -27,6 +27,7 @@ import type {
   CommitPlan,
   CommitReviewInput,
   CommitVariant,
+  ConflictCopyPlan,
   LocalFields,
   MetaField,
   ServerFields,
@@ -92,6 +93,12 @@ export interface CommitDeps {
   /** Must throw ONLY if the sync state could not be recorded; best-effort steps swallow their own errors. */
   record(args: RecordArgs): Promise<void>;
   now(): number;
+  /** Fresh ids for a conflict copy (whole_keep_both). */
+  newId?(): string;
+  /** whole_keep_both: insert theirs' version as a new local note with no sync state. Throws on failure. */
+  createCopy?(copy: ConflictCopyPlan): Promise<void>;
+  /** Undo createCopy when the server was not written. Best-effort. */
+  removeCopy?(copy: ConflictCopyPlan): Promise<void>;
 }
 
 export interface CommitRequest {
@@ -111,11 +118,12 @@ export type CommitOutcome =
       serverWritten: boolean;
       localWritten: boolean;
       notes: string[];
+      copyNoteId?: string;
     }
   | { status: "stale"; reason: "hosted_moved" | "local_changed" }
   | {
       status: "refused";
-      reason: "note_open" | "busy" | "rebuild_failed" | "plan_failed" | "backup_failed";
+      reason: "note_open" | "busy" | "rebuild_failed" | "plan_failed" | "backup_failed" | "copy_failed";
       detail: string[];
     }
   | { status: "push_lost"; hosted: "moved" | "purged" | "missing" | "unchanged" }
@@ -127,6 +135,15 @@ export type CommitOutcome =
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+async function removeCopyQuietly(deps: CommitDeps, copy: ConflictCopyPlan): Promise<void> {
+  if (!deps.removeCopy) return;
+  try {
+    await deps.removeCopy(copy);
+  } catch {
+    // best-effort: a stray copy is harmless, a failed cleanup must not mask the real outcome
+  }
+}
 
 const sameStamp = (a: Stamp, b: Stamp): boolean =>
   a.revision === b.revision && a.metaRev === b.metaRev && a.updatedAt === b.updatedAt;
@@ -190,14 +207,16 @@ export async function commitReview(deps: CommitDeps, req: CommitRequest): Promis
   const release = deps.lock(req.noteId);
   if (!release) return { status: "refused", reason: "busy", detail: [] };
 
+  const held: Array<() => void> = [];
   try {
-    return await run(deps, req);
+    return await run(deps, req, held);
   } finally {
+    for (const r of held) r();
     release();
   }
 }
 
-async function run(deps: CommitDeps, req: CommitRequest): Promise<CommitOutcome> {
+async function run(deps: CommitDeps, req: CommitRequest, held: Array<() => void>): Promise<CommitOutcome> {
   // 1. Rebuild fresh and compare with what the user decided on.
   let fresh: CommitReviewInput;
   try {
@@ -229,12 +248,17 @@ async function run(deps: CommitDeps, req: CommitRequest): Promise<CommitOutcome>
     parentExistsLocally: ctx.parentExistsLocally,
     storedMatchedGeneratedBefore: ctx.storedMatchedGeneratedBefore,
     now: deps.now(),
+    ...(deps.newId ? { newId: deps.newId } : {}),
     ...(ctx.generatePlaintext ? { generatePlaintext: ctx.generatePlaintext } : {}),
   });
   if (!planned.ok) {
     return { status: "refused", reason: "plan_failed", detail: [planned.reason, ...planned.detail] };
   }
   const plan = planned.plan;
+  const copy = plan.copy;
+  if (copy !== null && !deps.createCopy) {
+    return { status: "refused", reason: "plan_failed", detail: ["copy_unavailable"] };
+  }
 
   // 3. Backup before any write; a failed backup means no write.
   if (plan.backupKind !== null) {
@@ -253,11 +277,32 @@ async function run(deps: CommitDeps, req: CommitRequest): Promise<CommitOutcome>
     }
   }
 
+  // 3b. Keep both: make the copy BEFORE the server is written, so a crash leaves
+  //     an extra note rather than lost content. Its own lock stops the drain
+  //     pushing it half-way through the commit.
+  if (copy !== null && deps.createCopy) {
+    const copyRelease = deps.lock(copy.noteId);
+    if (!copyRelease) return { status: "refused", reason: "busy", detail: [] };
+    held.push(copyRelease);
+    try {
+      await deps.createCopy(copy);
+    } catch (err) {
+      await removeCopyQuietly(deps, copy);
+      return { status: "refused", reason: "copy_failed", detail: [msg(err)] };
+    }
+  }
+
   // 4. Server first.
   let serverWritten = false;
   if (plan.serverFields !== null) {
     const verdict = await pushWithVerification(deps, req.noteId, plan);
-    if (verdict.kind === "stop") return verdict.outcome;
+    if (verdict.kind === "stop") {
+      // Keep the copy only when we cannot tell whether the server applied our write:
+      // theirs' text must not be lost.
+      const unknown = verdict.outcome.status === "network_error" && verdict.outcome.maybeApplied;
+      if (copy !== null && !unknown) await removeCopyQuietly(deps, copy);
+      return verdict.outcome;
+    }
     serverWritten = true;
   }
   const newServerRevision = plan.serverRevisionAfter;
@@ -294,5 +339,6 @@ async function run(deps: CommitDeps, req: CommitRequest): Promise<CommitOutcome>
     serverWritten,
     localWritten,
     notes: plan.notes,
+    ...(copy !== null ? { copyNoteId: copy.noteId } : {}),
   };
 }

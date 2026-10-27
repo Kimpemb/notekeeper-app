@@ -43,8 +43,14 @@ import type {
   RecordArgs,
   Stamp,
 } from "@/features/sync/lib/commitReview";
-import type { LocalFields, ServerFields } from "@/features/sync/lib/commitPlan";
+import type { ConflictCopyPlan, LocalFields, ServerFields } from "@/features/sync/lib/commitPlan";
 import { buildLocalUpdate } from "@/features/sync/lib/localWriteSql";
+import {
+  DOWNLOAD_LOCAL_META_REV,
+  DOWNLOAD_LOCAL_REVISION,
+  INSERT_DOWNLOADED_NOTE_SQL,
+  remoteRowToInsertParams,
+} from "@/features/sync/lib/downloadRow";
 
 const HOSTED_COLUMNS =
   "revision, title, content, plaintext, tags, parent_id, sort_order, frontmatter, deleted_at, purged_at";
@@ -190,6 +196,8 @@ async function record({ noteId, plan, newServerRevision }: RecordArgs): Promise<
     console.warn("[sync] commit: store refresh failed:", noteId, err);
   }
 
+  if (plan.copy) await finishCopy(plan.copy);
+
   if (plan.reindex) {
     try {
       await syncBacklinks(noteId, extractNoteLinkIdsFromJson(row.content));
@@ -205,6 +213,90 @@ async function record({ noteId, plan, newServerRevision }: RecordArgs): Promise<
     } catch (err) {
       console.warn("[sync] commit: embedding enqueue failed:", noteId, err);
     }
+  }
+}
+
+// ─── Conflict copy (whole_keep_both) ──────────────────────────────────────
+
+/**
+ * Inserts theirs' version as a new local note with NO sync state, so the next
+ * drain's dirty scan pushes it as a new note. Same insert the pull uses.
+ */
+async function createCopy(copy: ConflictCopyPlan): Promise<void> {
+  const db = await getDb();
+  const iso = (ms: number): string => new Date(ms).toISOString();
+  const params = remoteRowToInsertParams(
+    {
+      id: copy.noteId,
+      title: copy.title,
+      content: copy.content,
+      plaintext: copy.plaintext,
+      tags: copy.tags,
+      parent_id: copy.parentId,
+      sort_order: copy.sortOrder,
+      frontmatter: copy.frontmatter,
+      created_at: iso(copy.createdAt),
+      updated_at: iso(copy.updatedAt),
+      deleted_at: null,
+      revision: DOWNLOAD_LOCAL_REVISION,
+      is_published: false,
+      publish_visibility: null,
+      publish_token: null,
+      forked_from_note_id: null,
+      forked_from_owner_id: null,
+      fork_base_revision: null,
+    },
+    copy.parentId,
+    crypto.randomUUID()
+  );
+  const res = await db.execute(INSERT_DOWNLOADED_NOTE_SQL, params);
+  if (res.rowsAffected === 0) throw new Error("copy was not inserted (id clash)");
+  const after = await db.select<Array<{ revision: number; meta_rev: number; updated_at: number }>>(
+    `SELECT revision, meta_rev, updated_at FROM notes WHERE id = $1`,
+    [copy.noteId]
+  );
+  const a = after[0];
+  if (
+    !a ||
+    a.revision !== DOWNLOAD_LOCAL_REVISION ||
+    a.meta_rev !== DOWNLOAD_LOCAL_META_REV ||
+    a.updated_at !== copy.updatedAt
+  ) {
+    throw new Error("copy read-back mismatch");
+  }
+}
+
+/** Only called before indexing and before any sync state exists, so nothing else refers to it yet. */
+async function removeCopy(copy: ConflictCopyPlan): Promise<void> {
+  const db = await getDb();
+  await db.execute(`DELETE FROM notes WHERE id = $1`, [copy.noteId]);
+}
+
+/** Best-effort follow-up once the commit has succeeded. Never throws. */
+async function finishCopy(copy: ConflictCopyPlan): Promise<void> {
+  try {
+    await writeBlockRevisionSnapshot(copy.noteId, copy.content);
+  } catch (err) {
+    console.warn("[sync] commit: copy snapshot failed:", copy.noteId, err);
+  }
+  try {
+    await syncBacklinks(copy.noteId, extractNoteLinkIdsFromJson(copy.content));
+  } catch (err) {
+    console.warn("[sync] commit: copy backlinks failed:", copy.noteId, err);
+  }
+  if (useAIStore.getState().enabled) {
+    try {
+      await syncNoteBlocks(copy.noteId, copy.content, "note", copy.title);
+      nudgeIndexer();
+    } catch (err) {
+      console.warn("[sync] commit: copy embedding enqueue failed:", copy.noteId, err);
+    }
+  }
+  try {
+    const [notes, trashedNotes] = await Promise.all([getAllNotes(), getTrashedNotes()]);
+    useNoteStore.setState({ notes, trashedNotes });
+  } catch (err) {
+    console.warn("[sync] commit: copy list refresh failed:", copy.noteId, err);
   }
 }
 
@@ -227,6 +319,9 @@ export function liveCommitDeps(): CommitDeps {
     writeLocal,
     record,
     now: () => Date.now(),
+    newId: () => crypto.randomUUID(),
+    createCopy,
+    removeCopy,
   };
 }
 
