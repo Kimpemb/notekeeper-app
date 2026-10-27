@@ -142,6 +142,14 @@ const LIVE_SCHEMA = [
   Mathematics.configure({ katexOptions: { throwOnError: false } }),
 ];
 
+/** Plaintext as the live editor would generate it; null when the content cannot be parsed or generated. */
+export function generatePlaintextLive(content: string): string | null {
+  const doc = parse(content);
+  if (!doc) return null;
+  const g = tryGenerate(doc, LIVE_SCHEMA as unknown as typeof PARSE_EXTENSIONS);
+  return typeof g === "string" ? g : null;
+}
+
 function tryGenerate(doc: DocNode, exts: typeof PARSE_EXTENSIONS = PARSE_EXTENSIONS): string | { error: string } {
   try {
     return generateText(doc as Parameters<typeof generateText>[0], exts, { blockSeparator: "\n\n" });

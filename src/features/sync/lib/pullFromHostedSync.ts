@@ -108,7 +108,7 @@ export function selectPullCandidates(
   return out;
 }
 
-function isNoteOpen(noteId: string): boolean {
+export function isNoteOpen(noteId: string): boolean {
   const ui = useUIStore.getState();
   const inTabs = [...ui.tabs, ...ui.pane2Tabs].some((t) => t.noteId === noteId);
   return inTabs || useNoteStore.getState().activeNoteId === noteId;

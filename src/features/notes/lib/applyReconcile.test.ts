@@ -270,6 +270,16 @@ describe("applyReconcile — refuses unsafe input", () => {
     expect(applied).toEqual({ ok: false, reason: "missing_blocks", detail: ["N"] });
   });
 
+  it("pulled_theirs with no node on one side keeps mine", () => {
+    const items: ApplyItem[] = [{ blockId: "A", classification: "pulled_theirs", status: "auto" }];
+    const applied = applyReconcile(doc(para("A", "a")), doc(), items);
+    expect(applied.ok).toBe(true);
+    if (applied.ok) {
+      expect(applied.doc).toEqual(doc(para("A", "a")));
+      expect(applied.counts).toEqual({ replaced: 0, inserted: 0, removed: 0 });
+    }
+  });
+
   it("an item that points at a block mine does not have", () => {
     const items: ApplyItem[] = [{ blockId: "ZZ", classification: "pulled_theirs", status: "auto", theirs: snap(para("ZZ", "x")) }];
     const applied = applyReconcile(doc(para("A", "a")), doc(para("A", "a")), items);

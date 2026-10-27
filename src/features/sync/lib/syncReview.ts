@@ -30,6 +30,8 @@ export interface SyncReview extends ReviewCore {
   theirsServerRevision: number;
   /** Local state this review was built against; the commit must find it unchanged. */
   mineStamp: { revision: number; metaRev: number; updatedAt: number };
+  /** meta_rev recorded at the last agreement; null when there is no sync state. */
+  syncedMetaRev: number | null;
   mineContent: string;
   theirsContent: string;
   remote: {
@@ -40,6 +42,7 @@ export interface SyncReview extends ReviewCore {
     tags: string | null;
     frontmatter: string | null;
     trashed: boolean;
+    deletedAt: number | null;
   };
   mine: {
     title: string;
@@ -49,6 +52,7 @@ export interface SyncReview extends ReviewCore {
     tags: string | null;
     frontmatter: string | null;
     trashed: boolean;
+    deletedAt: number | null;
   };
 }
 
@@ -145,6 +149,7 @@ export async function buildSyncReview(
       builtAt: Date.now(),
       theirsServerRevision: remote.revision,
       mineStamp: { revision: local.revision, metaRev: local.meta_rev, updatedAt: local.updated_at },
+      syncedMetaRev: state ? state.metaRev : null,
       mineContent,
       theirsContent: remote.content,
       remote: {
@@ -155,6 +160,7 @@ export async function buildSyncReview(
         tags: remote.tags,
         frontmatter: remote.frontmatter,
         trashed: remote.deleted_at != null,
+        deletedAt: remote.deleted_at == null ? null : Date.parse(remote.deleted_at),
       },
       mine: {
         title: local.title,
@@ -164,6 +170,7 @@ export async function buildSyncReview(
         tags: local.tags,
         frontmatter: local.frontmatter,
         trashed: local.deleted_at != null,
+        deletedAt: local.deleted_at,
       },
     },
   };

@@ -97,7 +97,8 @@ function operationFor(item: ApplyItem): Op {
     case "kept_mine":
       return "none";
     case "pulled_theirs":
-      return "replace";
+      // Theirs has no node for this block (theirs deleted it, mine left it unchanged): keep mine.
+      return item.theirs ? "replace" : "none";
     case "added":
       return item.theirs && !item.mine ? "insert" : "none";
     case "conflict":

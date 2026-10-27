@@ -63,6 +63,8 @@ import { syncMilestonesToCalendar } from "@/features/calendar/lib/layerSync";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { SignInPanel } from "@/features/sync/components/SignInPanel";
 import { startPushQueueDrain } from "@/features/sync/lib/drainPushQueue";
+import { getDb } from "@/features/notes/db/client";
+import { pruneReconcileData } from "@/features/sync/lib/reconcileStore";
 
 
 document.addEventListener("keydown", (e) => {
@@ -250,6 +252,11 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       if (cancelled) return;
       setDbReady(true);
       startPushQueueDrain(); // 4c: retry queued hosted pushes (needs the queue table from initDb)
+      // 4d.3: drop reconcile backups and saved choices past the retention window.
+      // Fire-and-forget so it can never block boot.
+      getDb()
+        .then((db) => pruneReconcileData(db))
+        .catch((err) => console.warn("[sync] reconcile prune failed:", err));
       return Promise.all([
         useUIStore.getState().loadSettings(),
         useAppSettings.getState().load(),

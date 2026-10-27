@@ -35,7 +35,7 @@ export interface PushOptions {
   isRetry?: boolean;
 }
 
-interface LocalNoteRow {
+export interface LocalNoteRow {
   id: string;
   title: string;
   content: string;
@@ -68,7 +68,7 @@ const SNAPSHOT_CHUNK = 200;
 
 const toIso = (ms: number): string => new Date(ms).toISOString();
 
-async function loadLocalNote(id: string): Promise<LocalNoteRow | null> {
+export async function loadLocalNote(id: string): Promise<LocalNoteRow | null> {
   const db = await getDb();
   const rows = await db.select<LocalNoteRow[]>(
     `SELECT ${NOTE_COLUMNS} FROM notes WHERE id = $1`,
@@ -228,7 +228,7 @@ async function pushSnapshots(
 
 // After a won push: record the agreement point FIRST (this is what makes the
 // next check correct), then upload snapshots best-effort.
-async function finishPush(row: LocalNoteRow, serverRevision: number): Promise<void> {
+export async function finishPush(row: LocalNoteRow, serverRevision: number): Promise<void> {
   await recordSynced(row.id, {
     localRevision: row.revision,
     localUpdatedAt: row.updated_at,
