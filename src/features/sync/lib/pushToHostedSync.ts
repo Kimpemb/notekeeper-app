@@ -120,7 +120,7 @@ async function fetchRemote(noteId: string): Promise<RemoteNoteInfo | null> {
 // hosted notes.parent_id is a real FK — a child can't land before its parent.
 // Missing ancestors are inserted insert-only (never overwriting a copy that
 // appeared meanwhile) at server revision 1, and recorded as synced.
-async function ensureAncestors(row: LocalNoteRow, ownerId: string): Promise<void> {
+export async function ensureAncestors(row: LocalNoteRow, ownerId: string): Promise<void> {
   const chain: LocalNoteRow[] = [];
   const seen = new Set<string>([row.id]);
   let parentId = row.parent_id;
