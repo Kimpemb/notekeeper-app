@@ -6,6 +6,8 @@ import { getQueueCounts, requeueParked, type PushQueueCounts } from "@/features/
 import { drainPushQueue } from "@/features/sync/lib/drainPushQueue";
 import { useVaultSync } from "@/features/sync/hooks/useVaultSync";
 import { VaultSyncPrompt } from "@/features/sync/components/VaultSyncPrompt";
+import { NeedReviewEntry } from "@/features/sync/components/NeedReviewEntry";
+import { ReviewListModal } from "@/features/sync/components/ReviewListModal";
 
 function formatSummary(s: BackfillSummary): string {
   const parts = [`${s.uploaded} uploaded`, `${s.upToDate} already up to date`];
@@ -26,6 +28,7 @@ export function SignInPanel() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   // 4d.5: new-device download. Owned here so Upload vault can be locked while the gate is closed.
   const vault = useVaultSync();
@@ -111,6 +114,8 @@ export function SignInPanel() {
             )}
           </p>
         )}
+        <NeedReviewEntry refreshKey={queue?.remoteAhead} onOpen={() => setReviewOpen(true)} />
+        <ReviewListModal open={reviewOpen} onClose={() => setReviewOpen(false)} />
         <button onClick={signOut} className="mt-2 text-idemora-text-muted hover:text-idemora-text-normal">
           Sign out
         </button>
