@@ -182,6 +182,20 @@ describe("planBulk", () => {
     expect(r.skipped).toEqual([{ noteId: "i", reason: "already_identical" }]);
   });
 
+  it("take theirs skips a note whose own side has images or attachments", () => {
+    const takeTheirs = BULK_OPTIONS.find((o) => o.id === "whole_take_theirs")!;
+    const wholeNote = new Map<string, ReviewMode | null>([["a", "whole_note"], ["m", "whole_note"]]);
+    const r = planBulk(takeTheirs, [c({ noteId: "a" }), c({ noteId: "m" })], wholeNote, new Set(), new Set(["m"]));
+    expect(ids(r.eligible)).toEqual(["a"]);
+    expect(r.skipped).toEqual([{ noteId: "m", reason: "has_media" }]);
+  });
+
+  it("keep mine does not skip notes with media", () => {
+    const wholeNote = new Map<string, ReviewMode | null>([["m", "whole_note"]]);
+    const r = planBulk(keepMine, [c({ noteId: "m" })], wholeNote, new Set(), new Set(["m"]));
+    expect(ids(r.eligible)).toEqual(["m"]);
+  });
+
   it("D2 rows need no mode, but an open note is skipped", () => {
     const d2rows = [c({ noteId: "a", kind: "purged_elsewhere" }), c({ noteId: "o", kind: "purged_elsewhere" })];
     const r = planBulk(d2, d2rows, new Map(), new Set(["o"]));
@@ -282,7 +296,7 @@ describe("summarizeBulk and bulkSummaryText", () => {
 
 describe("wording", () => {
   it("every skip reason has text", () => {
-    for (const r of ["note_open", "needs_item_review", "already_identical", "mode_unknown"] as const) {
+    for (const r of ["note_open", "needs_item_review", "already_identical", "has_media", "mode_unknown"] as const) {
       expect(skipReasonLabel(r).length).toBeGreaterThan(10);
     }
   });

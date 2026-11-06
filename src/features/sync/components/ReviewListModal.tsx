@@ -25,14 +25,16 @@ import {
   type SortKey,
 } from "@/features/sync/lib/reviewList";
 import { runBulk, type BulkStopReason } from "@/features/sync/lib/reviewBulkRun";
-import { commitOneFor, isNoteOpen, loadReviewModes } from "@/features/sync/lib/reviewBulkLive";
+import { commitOneFor, isNoteOpen, loadMediaIds, loadReviewModes } from "@/features/sync/lib/reviewBulkLive";
+import { WholeNoteReview } from "@/features/sync/components/WholeNoteReview";
 
 type Phase =
   | { kind: "list" }
   | { kind: "preparing" }
   | { kind: "confirm"; option: BulkOption; plan: BulkPlan }
   | { kind: "running"; option: BulkOption; done: number; total: number }
-  | { kind: "done"; text: string; problems: Array<{ noteId: string; title: string; status: string; reason?: string }> };
+  | { kind: "done"; text: string; problems: Array<{ noteId: string; title: string; status: string; reason?: string }> }
+  | { kind: "error"; message: string };
 
 const KIND_ORDER: CandidateKind[] = ["content_conflict", "purged_elsewhere", "deleted_here", "hosted_missing", "unchecked"];
 
@@ -58,6 +60,8 @@ export function ReviewListModal({ open, onClose }: Props) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [phase, setPhase] = useState<Phase>({ kind: "list" });
   const cancelRef = useRef(false);
+  const [reviewing, setReviewing] = useState<{ noteId: string; title: string; kind: CandidateKind } | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,6 +82,7 @@ export function ReviewListModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     setPhase({ kind: "list" });
+    setReviewing(null);
     void load();
   }, [open, load]);
 
@@ -86,14 +91,14 @@ export function ReviewListModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) {
-        e.preventDefault();
-        onClose();
-      }
+      if (e.key !== "Escape" || busy || reviewBusy) return;
+      e.preventDefault();
+      if (reviewing) setReviewing(null);
+      else onClose();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [open, busy, onClose]);
+  }, [open, busy, reviewBusy, reviewing, onClose]);
 
   const candidates = useMemo(() => list?.candidates ?? [], [list]);
   const visible = useMemo(() => filterAndSort(candidates, { text, kinds, sort }), [candidates, text, kinds, sort]);
@@ -120,13 +125,27 @@ export function ReviewListModal({ open, onClose }: Props) {
 
   async function startBulk(option: BulkOption) {
     setPhase({ kind: "preparing" });
-    const rows = selectedVisible;
-    const modes = option.needsWholeNote ? await loadReviewModes(rows) : new Map();
-    const openIds = new Set(rows.filter((r) => isNoteOpen(r.noteId)).map((r) => r.noteId));
-    setPhase({ kind: "confirm", option, plan: planBulk(option, rows, modes, openIds) });
+    try {
+      const rows = selectedVisible;
+      const modes = option.needsWholeNote ? await loadReviewModes(rows) : new Map();
+      const mediaIds = option.id === "whole_take_theirs" ? await loadMediaIds(rows) : new Set<string>();
+      const openIds = new Set(rows.filter((r) => isNoteOpen(r.noteId)).map((r) => r.noteId));
+      setPhase({ kind: "confirm", option, plan: planBulk(option, rows, modes, openIds, mediaIds) });
+    } catch (err) {
+      setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   async function confirmBulk(option: BulkOption, plan: BulkPlan) {
+    try {
+      await runConfirmed(option, plan);
+    } catch (err) {
+      setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      void load();
+    }
+  }
+
+  async function runConfirmed(option: BulkOption, plan: BulkPlan) {
     cancelRef.current = false;
     setPhase({ kind: "running", option, done: 0, total: plan.eligible.length });
     const result = await runBulk(plan.eligible, commitOneFor(option), {
@@ -158,7 +177,7 @@ export function ReviewListModal({ open, onClose }: Props) {
       <div
         role="dialog"
         aria-label="Notes that need review"
-        className="flex flex-col w-[640px] max-w-[92vw] max-h-[80vh] rounded-lg border border-idemora-border bg-idemora-bg-secondary shadow-xl text-sm"
+        className={`flex flex-col ${reviewing ? "w-[920px]" : "w-[640px]"} max-w-[92vw] max-h-[80vh] rounded-lg border border-idemora-border bg-idemora-bg-secondary shadow-xl text-sm`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-idemora-border">
@@ -175,7 +194,7 @@ export function ReviewListModal({ open, onClose }: Props) {
             </button>
             <button
               onClick={onClose}
-              disabled={busy}
+              disabled={busy || reviewBusy}
               className="text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
             >
               Close
@@ -185,6 +204,19 @@ export function ReviewListModal({ open, onClose }: Props) {
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-3">
+          {reviewing && (
+            <WholeNoteReview
+              noteId={reviewing.noteId}
+              title={reviewing.title}
+              kind={reviewing.kind}
+              onBusyChange={setReviewBusy}
+              onBack={(changed) => {
+                setReviewing(null);
+                if (changed) void load();
+              }}
+            />
+          )}
+          <div className={reviewing ? "hidden" : ""}>
           {loadError && <p className="text-red-500">Could not load the list: {loadError}</p>}
 
           {list && !list.hostedChecked && (
@@ -260,6 +292,21 @@ export function ReviewListModal({ open, onClose }: Props) {
                   {phase.plan.eligible.length > 0 ? "Cancel" : "Back"}
                 </button>
               </div>
+            </div>
+          )}
+
+          {phase.kind === "error" && (
+            <div>
+              <p className="text-red-500">Something went wrong: {phase.message}</p>
+              <p className="mt-1 text-xs text-idemora-text-muted">
+                Check the list to see what changed before trying again.
+              </p>
+              <button
+                onClick={() => setPhase({ kind: "list" })}
+                className="mt-3 px-2 py-1 rounded bg-blue-500 text-white"
+              >
+                Back to the list
+              </button>
             </div>
           )}
 
@@ -347,7 +394,12 @@ export function ReviewListModal({ open, onClose }: Props) {
                           aria-label={`Select ${c.title ?? "Untitled"}`}
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-idemora-text-normal">{c.title ?? "Untitled"}</p>
+                          <button
+                            onClick={() => setReviewing({ noteId: c.noteId, title: c.title ?? "Untitled", kind: c.kind })}
+                            className="block max-w-full truncate text-left text-idemora-text-normal hover:underline"
+                          >
+                            {c.title ?? "Untitled"}
+                          </button>
                           <p className="text-xs text-idemora-text-muted">{kindLabel(c.kind)}</p>
                           <p className="text-xs text-idemora-text-muted">{new Date(c.detectedAt).toLocaleString()}</p>
                         </div>
@@ -358,10 +410,11 @@ export function ReviewListModal({ open, onClose }: Props) {
               )}
             </>
           )}
+          </div>
         </div>
 
         {/* Bulk bar */}
-        {phase.kind === "list" && selectedVisible.length > 0 && (
+        {phase.kind === "list" && !reviewing && selectedVisible.length > 0 && (
           <div className="px-4 py-3 border-t border-idemora-border">
             <p className="text-xs text-idemora-text-muted">{selectedVisible.length} selected</p>
             {availability.options.length > 0 ? (

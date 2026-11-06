@@ -12,6 +12,8 @@ import { buildSyncReview } from "@/features/sync/lib/syncReview";
 import { commitNoteReview } from "@/features/sync/lib/commitLive";
 import { commitNoteDelete, liveDeleteDeps } from "@/features/sync/lib/commitDeleteLive";
 import { isNoteOpen } from "@/features/sync/lib/pullFromHostedSync";
+import { getDb } from "@/features/notes/db/client";
+import { countMedia } from "@/features/sync/lib/wholeNoteView";
 import type { ReviewCandidate } from "@/features/sync/lib/reviewCandidates";
 import type { BulkOption, BulkOutcomeLike, ReviewMode } from "@/features/sync/lib/reviewList";
 
@@ -29,6 +31,17 @@ export async function loadReviewModes(rows: readonly ReviewCandidate[]): Promise
     }
   }
   return modes;
+}
+
+/** Notes whose own (local) content has images or attachments. A local read only. */
+export async function loadMediaIds(rows: readonly ReviewCandidate[]): Promise<Set<string>> {
+  const db = await getDb();
+  const ids = new Set<string>();
+  for (const r of rows) {
+    const found = await db.select<Array<{ content: string }>>(`SELECT content FROM notes WHERE id = $1`, [r.noteId]);
+    if (found[0] && countMedia(found[0].content).total > 0) ids.add(r.noteId);
+  }
+  return ids;
 }
 
 export function commitOneFor(option: BulkOption): (row: ReviewCandidate) => Promise<BulkOutcomeLike> {

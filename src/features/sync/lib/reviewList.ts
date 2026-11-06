@@ -114,7 +114,7 @@ export function bulkOptionsFor(selected: readonly ReviewCandidate[]): BulkAvaila
 
 export type { ReviewMode };
 
-export type SkipReason = "needs_item_review" | "already_identical" | "mode_unknown" | "note_open";
+export type SkipReason = "needs_item_review" | "already_identical" | "has_media" | "mode_unknown" | "note_open";
 
 export interface BulkPlan {
   eligible: ReviewCandidate[];
@@ -130,7 +130,9 @@ export function planBulk(
   option: BulkOption,
   rows: readonly ReviewCandidate[],
   modes: ReadonlyMap<string, ReviewMode | null>,
-  openIds: ReadonlySet<string>
+  openIds: ReadonlySet<string>,
+  /** Notes whose own side has images or attachments; bulk take theirs skips them. */
+  mediaIds: ReadonlySet<string> = new Set()
 ): BulkPlan {
   const eligible: ReviewCandidate[] = [];
   const skipped: BulkPlan["skipped"] = [];
@@ -155,6 +157,10 @@ export function planBulk(
         skipped.push({ noteId: row.noteId, reason: "already_identical" });
         continue;
       }
+    }
+    if (option.id === "whole_take_theirs" && mediaIds.has(row.noteId)) {
+      skipped.push({ noteId: row.noteId, reason: "has_media" });
+      continue;
     }
     eligible.push(row);
   }
@@ -259,6 +265,8 @@ export function skipReasonLabel(reason: SkipReason): string {
       return "Has items that need your decision. Open it to review.";
     case "already_identical":
       return "Both versions already match. Open it to finish.";
+    case "has_media":
+      return "Has images or attachments that would stop showing here. Open it to review.";
     case "mode_unknown":
       return "Could not be checked. Try again when the server is reachable.";
   }
