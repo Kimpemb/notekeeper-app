@@ -6,7 +6,7 @@
 //   reconcile_backups  a copy of both versions, written before anything is
 //                      committed or purged. Never synced. Survives the note
 //                      being deleted (there is deliberately no foreign key).
-//                      Retention: the last 5 per note and at most 30 days.
+//                      Retention: the last 10 per note and at most 30 days.
 //   reconcile_choices  the user's decision per block, kept across restarts and
 //                      reused only while the block still hashes the same on
 //                      both sides. Keyed by user id so another account's
@@ -22,10 +22,10 @@ export interface SqlDb {
   select<T = unknown>(sql: string, params?: unknown[]): Promise<T>;
 }
 
-export const BACKUPS_PER_NOTE = 5;
+export const BACKUPS_PER_NOTE = 10;
 export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-export type BackupKind = "merge" | "whole_note" | "purge";
+export type BackupKind = "merge" | "whole_note" | "purge" | "recover";
 
 /** The metadata one side of a backup holds. Null fields are real values (a root note has a null parent). */
 export interface BackupMeta {
