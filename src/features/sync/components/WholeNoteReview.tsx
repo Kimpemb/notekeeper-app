@@ -13,6 +13,7 @@ import {
   type LoadedReview,
 } from "@/features/sync/lib/wholeNoteReviewLive";
 import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeText";
+import { BlockMergeReview } from "@/features/sync/components/BlockMergeReview";
 import type { WholeNoteChoiceId } from "@/features/sync/lib/wholeNoteView";
 import type { CandidateKind } from "@/features/sync/lib/reviewCandidates";
 
@@ -95,17 +96,17 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
     );
   }
 
-  if (loaded.kind === "other_mode") {
+  if (loaded.kind === "block_merge") {
     return (
-      <div>
-        {heading}
-        <p className="mt-2 text-idemora-text-muted">
-          {loaded.mode === "block"
-            ? "This note has individual changes to decide, and that screen is coming next. It is skipped by bulk actions."
-            : "Both versions of this note already match. Finishing it from here is coming next."}
-        </p>
-        <div className="mt-3">{back}</div>
-      </div>
+      <BlockMergeReview
+        noteId={noteId}
+        title={title}
+        review={loaded.review}
+        metaRows={loaded.metaRows}
+        parentTitles={loaded.parentTitles}
+        onBack={onBack}
+        onBusyChange={onBusyChange}
+      />
     );
   }
 

@@ -12,7 +12,8 @@ import { getDb } from "@/features/notes/db/client";
 import { buildSyncReview } from "@/features/sync/lib/syncReview";
 import { commitNoteReview } from "@/features/sync/lib/commitLive";
 import { planCommit } from "@/features/sync/lib/commitPlan";
-import { buildWholeNoteView, type WholeNoteView } from "@/features/sync/lib/wholeNoteView";
+import { buildWholeNoteView, type MetaRowInput, type WholeNoteView } from "@/features/sync/lib/wholeNoteView";
+import type { ApplyItem } from "@/features/notes/lib/applyReconcile";
 import type { OutcomeLike } from "@/features/sync/lib/outcomeText";
 
 type BuildResult = Awaited<ReturnType<typeof buildSyncReview>>;
@@ -20,7 +21,13 @@ export type SyncReviewData = Extract<BuildResult, { ok: true }>["review"];
 
 export type LoadedReview =
   | { ok: true; kind: "whole_note"; review: SyncReviewData; view: WholeNoteView }
-  | { ok: true; kind: "other_mode"; mode: string }
+  | {
+      ok: true;
+      kind: "block_merge";
+      review: SyncReviewData;
+      metaRows: MetaRowInput[];
+      parentTitles: ReadonlyMap<string, string>;
+    }
   | { ok: false; message: string };
 
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -41,7 +48,7 @@ export async function loadWholeNoteReview(noteId: string): Promise<LoadedReview>
     const b = await buildSyncReview(noteId);
     if (!b.ok) return { ok: false, message: reasonText(b.reason) };
     const review = b.review;
-    if (review.mode !== "whole_note") return { ok: true, kind: "other_mode", mode: review.mode };
+    const isWhole = review.mode === "whole_note";
 
     // Parent names for the metadata rows, from this device only (no network).
     const db = await getDb();
@@ -56,17 +63,33 @@ export async function loadWholeNoteReview(noteId: string): Promise<LoadedReview>
     const hostedParent = review.remote.parentId;
     const parentExistsLocally = !hostedParent || parentTitles.has(hostedParent);
 
+    // A block merge cannot be planned with a conflict undecided. This plan only reads the
+    // metadata rows, so undecided conflicts get a placeholder choice here. Nothing is written.
+    const dryItems: ApplyItem[] =
+      review.mode === "block"
+        ? review.items.map(
+            (i): ApplyItem =>
+              i.classification === "conflict" && i.status !== "resolved"
+                ? { ...i, status: "resolved", chosenAction: "keep_mine" }
+                : i
+          )
+        : [];
+
     // A dry plan, only to read the metadata rows. Nothing is written.
     const planned = planCommit({
       review,
-      variant: "whole_keep_mine",
-      items: [],
+      variant: isWhole ? "whole_keep_mine" : review.mode === "identical" ? "identical" : "block_merge",
+      items: isWhole ? [] : dryItems,
       metaChoices: {},
       parentExistsLocally,
       storedMatchedGeneratedBefore: false,
       now: Date.now(),
     });
     if (!planned.ok) return { ok: false, message: `This note cannot be reviewed yet (${planned.reason}).` };
+
+    if (!isWhole) {
+      return { ok: true, kind: "block_merge", review, metaRows: planned.plan.metaRows, parentTitles };
+    }
 
     const view = buildWholeNoteView({
       mineContent: review.mineContent,
@@ -89,4 +112,15 @@ export function commitWholeNoteReview(
   metaChoices: Record<string, "mine" | "theirs">
 ): Promise<OutcomeLike> {
   return commitNoteReview({ noteId, variant, review, items: [], metaChoices });
+}
+
+/** Runs the user's decisions on a block-mode or identical review. The commit re-checks that nothing moved. */
+export function commitBlockMergeReview(
+  noteId: string,
+  review: SyncReviewData,
+  items: ApplyItem[],
+  metaChoices: Record<string, "mine" | "theirs">
+): Promise<OutcomeLike> {
+  const variant = review.mode === "identical" ? "identical" : "block_merge";
+  return commitNoteReview({ noteId, variant, review, items: variant === "identical" ? [] : items, metaChoices });
 }
