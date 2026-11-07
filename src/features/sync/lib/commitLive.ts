@@ -222,7 +222,7 @@ async function record({ noteId, plan, newServerRevision }: RecordArgs): Promise<
  * Inserts theirs' version as a new local note with NO sync state, so the next
  * drain's dirty scan pushes it as a new note. Same insert the pull uses.
  */
-async function createCopy(copy: ConflictCopyPlan): Promise<void> {
+export async function createCopy(copy: ConflictCopyPlan): Promise<void> {
   const db = await getDb();
   const iso = (ms: number): string => new Date(ms).toISOString();
   const params = remoteRowToInsertParams(
@@ -273,7 +273,7 @@ async function removeCopy(copy: ConflictCopyPlan): Promise<void> {
 }
 
 /** Best-effort follow-up once the commit has succeeded. Never throws. */
-async function finishCopy(copy: ConflictCopyPlan): Promise<void> {
+export async function finishCopy(copy: ConflictCopyPlan): Promise<void> {
   try {
     await writeBlockRevisionSnapshot(copy.noteId, copy.content);
   } catch (err) {
