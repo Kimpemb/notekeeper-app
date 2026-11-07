@@ -157,6 +157,23 @@ function valueLabel(field: string, v: unknown, parentTitles?: ReadonlyMap<string
   if (v === null || v === undefined || v === "") return "(none)";
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
+/** Plain labels for the metadata rows. Shared by the whole-note and block-merge screens. */
+export function toMetaRows(rows: readonly MetaRowInput[], parentTitles?: ReadonlyMap<string, string>): WholeNoteMetaRow[] {
+  return rows.map((r) => ({
+    field: r.field,
+    label: FIELD_LABELS[r.field] ?? r.field,
+    mineLabel: valueLabel(r.field, r.mine, parentTitles),
+    theirsLabel: valueLabel(r.field, r.theirs, parentTitles),
+    preselected: r.choice,
+    canTakeTheirs: r.canTakeTheirs,
+  }));
+}
+
+/** The images-and-attachments heads-up; null when neither version has any. */
+export function buildMediaNotice(mine: MediaCount, theirs: MediaCount): string | null {
+  if (mine.total + theirs.total === 0) return null;
+  return `Images and attachments are stored as files on one device and are not synced, so they may not appear on your other device. Your version has ${describeMedia(mine)}; the other version has ${describeMedia(theirs)}.`;
+}
 
 // ─── The view ─────────────────────────────────────────────────────────────
 
@@ -203,10 +220,7 @@ export function buildWholeNoteView(input: WholeNoteViewInput): WholeNoteView {
   const mine: WholeNoteSide = { lines: contentToLines(input.mineContent), media: countMedia(input.mineContent) };
   const theirs: WholeNoteSide = { lines: contentToLines(input.theirsContent), media: countMedia(input.theirsContent) };
 
-  const mediaNotice =
-    mine.media.total + theirs.media.total === 0
-      ? null
-      : `Images and attachments are stored as files on one device and are not synced, so they may not appear on your other device. Your version has ${describeMedia(mine.media)}; the other version has ${describeMedia(theirs.media)}.`;
+  const mediaNotice = buildMediaNotice(mine.media, theirs.media);
 
   const takeTheirsWarnings: string[] = [];
   if (mine.media.total > 0) {
@@ -258,14 +272,7 @@ export function buildWholeNoteView(input: WholeNoteViewInput): WholeNoteView {
     theirs,
     sameText: mine.lines.join("\n") === theirs.lines.join("\n"),
     mediaNotice,
-    metaRows: input.metaRows.map((r) => ({
-      field: r.field,
-      label: FIELD_LABELS[r.field] ?? r.field,
-      mineLabel: valueLabel(r.field, r.mine, input.parentTitles),
-      theirsLabel: valueLabel(r.field, r.theirs, input.parentTitles),
-      preselected: r.choice,
-      canTakeTheirs: r.canTakeTheirs,
-    })),
+    metaRows: toMetaRows(input.metaRows, input.parentTitles),
     choices,
   };
 }
