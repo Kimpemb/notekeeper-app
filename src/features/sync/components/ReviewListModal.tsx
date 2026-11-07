@@ -27,6 +27,7 @@ import {
 import { runBulk, type BulkStopReason } from "@/features/sync/lib/reviewBulkRun";
 import { commitOneFor, isNoteOpen, loadMediaIds, loadReviewModes } from "@/features/sync/lib/reviewBulkLive";
 import { WholeNoteReview } from "@/features/sync/components/WholeNoteReview";
+import { DeleteReview } from "@/features/sync/components/DeleteReview";
 
 type Phase =
   | { kind: "list" }
@@ -204,7 +205,19 @@ export function ReviewListModal({ open, onClose }: Props) {
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-3">
-          {reviewing && (
+          {reviewing && (reviewing.kind === "deleted_here" || reviewing.kind === "purged_elsewhere") && (
+            <DeleteReview
+              noteId={reviewing.noteId}
+              title={reviewing.title}
+              kind={reviewing.kind}
+              onBusyChange={setReviewBusy}
+              onBack={(changed) => {
+                setReviewing(null);
+                if (changed) void load();
+              }}
+            />
+          )}
+          {reviewing && reviewing.kind !== "deleted_here" && reviewing.kind !== "purged_elsewhere" && (
             <WholeNoteReview
               noteId={reviewing.noteId}
               title={reviewing.title}

@@ -30,6 +30,32 @@ describe("describeOutcome — success", () => {
   });
 });
 
+describe("describeOutcome — delete reviews", () => {
+  it("restore says nothing on the server changed", () => {
+    expect(describeOutcome({ status: "committed", choice: "keep_it" }).text).toMatch(/Nothing on the server changed/);
+  });
+
+  it("delete everywhere says the note was deleted everywhere and a backup exists", () => {
+    const r = describeOutcome({ status: "committed", choice: "delete_anyway" });
+    expect(r.text).toMatch(/deleted everywhere/);
+    expect(r.text).toMatch(/backup/);
+  });
+
+  it("keep mine says the note exists everywhere again", () => {
+    expect(describeOutcome({ status: "committed", choice: "keep_mine" }).text).toMatch(/exists everywhere again/);
+  });
+
+  it("let the deletion stand says the note was deleted from this device", () => {
+    expect(describeOutcome({ status: "committed", choice: "let_go" }).text).toMatch(/deleted from this device/);
+  });
+
+  it("all four are successes that refresh the list", () => {
+    for (const choice of ["keep_it", "delete_anyway", "keep_mine", "let_go"]) {
+      expect(describeOutcome({ status: "committed", choice })).toMatchObject({ tone: "success", changed: true });
+    }
+  });
+});
+
 describe("describeOutcome — nothing changed", () => {
   it("stale because the hosted note moved", () => {
     const r = describeOutcome({ status: "stale", reason: "hosted_moved" });

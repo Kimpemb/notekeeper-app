@@ -16,6 +16,7 @@ export interface OutcomeLike {
   maybeApplied?: boolean;
   copyNoteId?: string;
   variant?: string;
+  choice?: string;
 }
 
 export type OutcomeTone = "success" | "info" | "warning" | "error";
@@ -28,6 +29,16 @@ export interface OutcomeText {
 }
 
 function committedText(o: OutcomeLike): string {
+  switch (o.choice) {
+    case "keep_it":
+      return "Done. The note is back on this device with the other device's version. Nothing on the server changed.";
+    case "delete_anyway":
+      return "Done. The note was deleted everywhere. A backup of the other device's version was saved on this device.";
+    case "keep_mine":
+      return "Done. Your version is restored on the server, so the note exists everywhere again. A backup was saved.";
+    case "let_go":
+      return "Done. The note was deleted from this device. A backup was saved.";
+  }
   if (o.copyNoteId) {
     return "Done. Your version is kept, and the other device's version was saved as a new note. A backup of both was saved.";
   }
