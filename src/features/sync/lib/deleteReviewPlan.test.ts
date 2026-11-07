@@ -105,6 +105,7 @@ describe("planD1 — delete anyway", () => {
       mineContent: null,
       theirsTitle: "Theirs title",
       theirsContent: '{"type":"doc"}',
+      theirsMeta: { parentId: null, sortOrder: 2, tags: null, frontmatter: null },
     });
     expect(p.purgeExpectedRevision).toBe(5); // not the tombstone's 3
     expect(p.insert).toBeNull();
@@ -222,6 +223,7 @@ describe("planD2 — keep mine", () => {
       mineContent: '{"type":"doc","mine":true}',
       theirsTitle: null,
       theirsContent: null,
+      mineMeta: { parentId: "P", sortOrder: 4, tags: "a,b", frontmatter: null },
     });
   });
 

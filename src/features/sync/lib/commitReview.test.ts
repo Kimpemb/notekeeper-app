@@ -201,6 +201,8 @@ describe("commitReview — happy path", () => {
       mineContent: JSON.stringify(mineDoc),
       theirsTitle: "Title",
       theirsContent: JSON.stringify(theirsDoc),
+      mineMeta: { parentId: null, sortOrder: 1, tags: null, frontmatter: null },
+      theirsMeta: { parentId: null, sortOrder: 1, tags: null, frontmatter: null },
     });
     expect(h.log.pushes[0].expected).toBe(5);
     expect(h.log.pushes[0].fields.content).toContain("a2");

@@ -833,6 +833,20 @@ export const ALL_MIGRATIONS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_reconcile_backups_note
     ON reconcile_backups (note_id, created_at)`,
 
+  // Step 14: metadata per side, so a backup can be restored in full. *_has_meta = 0
+  // on older rows (and on a side that did not exist): a restore must then leave
+  // parent, sort order, tags and frontmatter as they are now.
+  `ALTER TABLE reconcile_backups ADD COLUMN mine_has_meta INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE reconcile_backups ADD COLUMN mine_parent_id TEXT`,
+  `ALTER TABLE reconcile_backups ADD COLUMN mine_sort_order INTEGER`,
+  `ALTER TABLE reconcile_backups ADD COLUMN mine_tags TEXT`,
+  `ALTER TABLE reconcile_backups ADD COLUMN mine_frontmatter TEXT`,
+  `ALTER TABLE reconcile_backups ADD COLUMN theirs_has_meta INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE reconcile_backups ADD COLUMN theirs_parent_id TEXT`,
+  `ALTER TABLE reconcile_backups ADD COLUMN theirs_sort_order INTEGER`,
+  `ALTER TABLE reconcile_backups ADD COLUMN theirs_tags TEXT`,
+  `ALTER TABLE reconcile_backups ADD COLUMN theirs_frontmatter TEXT`,
+
   `CREATE TABLE IF NOT EXISTS reconcile_choices (
     user_id     TEXT    NOT NULL,
     note_id     TEXT    NOT NULL,

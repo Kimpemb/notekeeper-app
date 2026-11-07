@@ -271,6 +271,18 @@ async function run(deps: CommitDeps, req: CommitRequest, held: Array<() => void>
         mineContent: fresh.mineContent,
         theirsTitle: fresh.remote.title,
         theirsContent: fresh.theirsContent,
+        mineMeta: {
+          parentId: fresh.mine.parentId,
+          sortOrder: fresh.mine.sortOrder,
+          tags: fresh.mine.tags,
+          frontmatter: fresh.mine.frontmatter,
+        },
+        theirsMeta: {
+          parentId: fresh.remote.parentId,
+          sortOrder: fresh.remote.sortOrder,
+          tags: fresh.remote.tags,
+          frontmatter: fresh.remote.frontmatter,
+        },
       });
     } catch (err) {
       return { status: "refused", reason: "backup_failed", detail: [msg(err)] };

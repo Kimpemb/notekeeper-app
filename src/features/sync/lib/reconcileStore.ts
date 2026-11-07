@@ -27,6 +27,14 @@ export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type BackupKind = "merge" | "whole_note" | "purge";
 
+/** The metadata one side of a backup holds. Null fields are real values (a root note has a null parent). */
+export interface BackupMeta {
+  parentId: string | null;
+  sortOrder: number | null;
+  tags: string | null;
+  frontmatter: string | null;
+}
+
 export interface BackupInput {
   noteId: string;
   kind: BackupKind;
@@ -35,6 +43,9 @@ export interface BackupInput {
   mineContent: string | null;
   theirsTitle: string | null;
   theirsContent: string | null;
+  /** Omit (or null) when that side has no metadata to keep; the row is then marked has_meta = 0. */
+  mineMeta?: BackupMeta | null;
+  theirsMeta?: BackupMeta | null;
 }
 
 export interface BackupRow {
@@ -47,6 +58,24 @@ export interface BackupRow {
   mine_content: string | null;
   theirs_title: string | null;
   theirs_content: string | null;
+  mine_has_meta: number;
+  mine_parent_id: string | null;
+  mine_sort_order: number | null;
+  mine_tags: string | null;
+  mine_frontmatter: string | null;
+  theirs_has_meta: number;
+  theirs_parent_id: string | null;
+  theirs_sort_order: number | null;
+  theirs_tags: string | null;
+  theirs_frontmatter: string | null;
+}
+
+const BACKUP_COLUMNS = `id, note_id, kind, created_at, hosted_revision, mine_title, mine_content, theirs_title, theirs_content,
+     mine_has_meta, mine_parent_id, mine_sort_order, mine_tags, mine_frontmatter,
+     theirs_has_meta, theirs_parent_id, theirs_sort_order, theirs_tags, theirs_frontmatter`;
+
+function metaParams(m: BackupMeta | null | undefined): unknown[] {
+  return m ? [1, m.parentId, m.sortOrder, m.tags, m.frontmatter] : [0, null, null, null, null];
 }
 
 /** Writes a backup, then trims that note's backups to the newest BACKUPS_PER_NOTE. Returns the backup id. */
@@ -54,8 +83,8 @@ export async function writeBackup(db: SqlDb, input: BackupInput, now = Date.now(
   const id = crypto.randomUUID();
   await db.execute(
     `INSERT INTO reconcile_backups
-       (id, note_id, kind, created_at, hosted_revision, mine_title, mine_content, theirs_title, theirs_content)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       (${BACKUP_COLUMNS})
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
     [
       id,
       input.noteId,
@@ -66,6 +95,8 @@ export async function writeBackup(db: SqlDb, input: BackupInput, now = Date.now(
       input.mineContent,
       input.theirsTitle,
       input.theirsContent,
+      ...metaParams(input.mineMeta),
+      ...metaParams(input.theirsMeta),
     ]
   );
   await db.execute(
@@ -82,7 +113,7 @@ export async function writeBackup(db: SqlDb, input: BackupInput, now = Date.now(
 
 export async function listBackups(db: SqlDb, noteId: string): Promise<BackupRow[]> {
   return db.select<BackupRow[]>(
-    `SELECT id, note_id, kind, created_at, hosted_revision, mine_title, mine_content, theirs_title, theirs_content
+    `SELECT ${BACKUP_COLUMNS}
      FROM reconcile_backups WHERE note_id = $1 ORDER BY created_at DESC, rowid DESC`,
     [noteId]
   );

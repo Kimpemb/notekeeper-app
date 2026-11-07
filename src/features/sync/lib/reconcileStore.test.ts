@@ -168,6 +168,64 @@ describe("reconcile_choices", () => {
   });
 });
 
+describe("backup metadata (step 14)", () => {
+  it("stores and returns metadata for both sides", async () => {
+    await writeBackup(
+      db,
+      backup({
+        mineMeta: { parentId: "P1", sortOrder: 3, tags: '["a"]', frontmatter: "fm" },
+        theirsMeta: { parentId: null, sortOrder: 0, tags: null, frontmatter: null },
+      }),
+      1000
+    );
+    const [row] = await listBackups(db, "n1");
+    expect(row.mine_has_meta).toBe(1);
+    expect(row.mine_parent_id).toBe("P1");
+    expect(row.mine_sort_order).toBe(3);
+    expect(row.mine_tags).toBe('["a"]');
+    expect(row.mine_frontmatter).toBe("fm");
+    // A real root note: has_meta is 1 and the parent is genuinely null.
+    expect(row.theirs_has_meta).toBe(1);
+    expect(row.theirs_parent_id).toBeNull();
+    expect(row.theirs_sort_order).toBe(0);
+  });
+
+  it("a backup written without metadata reads back as has_meta 0 with null fields", async () => {
+    await writeBackup(db, backup(), 1000);
+    const [row] = await listBackups(db, "n1");
+    expect(row.mine_has_meta).toBe(0);
+    expect(row.theirs_has_meta).toBe(0);
+    expect(row.mine_parent_id).toBeNull();
+    expect(row.theirs_sort_order).toBeNull();
+  });
+
+  it("a side that did not exist (purge backup) keeps has_meta 0 on that side only", async () => {
+    await writeBackup(
+      db,
+      backup({
+        kind: "purge",
+        mineTitle: null,
+        mineContent: null,
+        theirsMeta: { parentId: "P2", sortOrder: 1, tags: null, frontmatter: null },
+      }),
+      1000
+    );
+    const [row] = await listBackups(db, "n1");
+    expect(row.mine_has_meta).toBe(0);
+    expect(row.theirs_has_meta).toBe(1);
+    expect(row.theirs_parent_id).toBe("P2");
+  });
+
+  it("an old-format row (inserted without the new columns) defaults to has_meta 0", async () => {
+    raw.prepare(
+      "INSERT INTO reconcile_backups (id, note_id, kind, created_at, hosted_revision, mine_title, mine_content, theirs_title, theirs_content) VALUES ('old','n1','merge',500,1,'m','{}','t','{}')"
+    ).run();
+    const [row] = await listBackups(db, "n1");
+    expect(row.mine_has_meta).toBe(0);
+    expect(row.theirs_has_meta).toBe(0);
+  });
+});
+
 describe("migrations", () => {
   it("are idempotent: replaying them again keeps the tables working", async () => {
     expect(() => replaySchema()).not.toThrow();

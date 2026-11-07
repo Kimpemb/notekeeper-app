@@ -130,6 +130,12 @@ export function planD1(noteId: string, input: D1Input): DeleteResult<D1Plan, D1F
           mineContent: null,
           theirsTitle: hosted.title,
           theirsContent: hosted.content,
+          theirsMeta: {
+            parentId: hosted.parent_id,
+            sortOrder: hosted.sort_order,
+            tags: hosted.tags,
+            frontmatter: hosted.frontmatter,
+          },
         },
         insert: null,
         syncedAfter: null,
@@ -256,6 +262,12 @@ export function planD2(noteId: string, input: D2Input): DeleteResult<D2Plan, D2F
     mineContent: local.content,
     theirsTitle: null,
     theirsContent: null,
+    mineMeta: {
+      parentId: local.parent_id,
+      sortOrder: local.sort_order,
+      tags: local.tags,
+      frontmatter: local.frontmatter,
+    },
   };
   const expectedLocalStamp = { revision: local.revision, metaRev: local.meta_rev, updatedAt: local.updated_at };
 
