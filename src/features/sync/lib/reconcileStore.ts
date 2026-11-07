@@ -119,6 +119,13 @@ export async function listBackups(db: SqlDb, noteId: string): Promise<BackupRow[
   );
 }
 
+export async function listAllBackups(db: SqlDb): Promise<BackupRow[]> {
+  return db.select<BackupRow[]>(
+    `SELECT ${BACKUP_COLUMNS}
+     FROM reconcile_backups ORDER BY created_at DESC, rowid DESC`
+  );
+}
+
 export interface ChoiceItem {
   blockId: string;
   mine?: { hash: string };
