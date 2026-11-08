@@ -19,6 +19,7 @@ import {
   type SyncReviewData,
 } from "@/features/sync/lib/wholeNoteReviewLive";
 import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeText";
+import { saveBlockPick } from "@/features/sync/lib/reviewPicksLive";
 import type { MetaRowInput } from "@/features/sync/lib/wholeNoteView";
 import type { ReconcileAction } from "@/features/notes/lib/reconcileSession";
 
@@ -91,6 +92,12 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
   );
   const heading = <h3 className="font-medium text-idemora-text-normal truncate">{title}</h3>;
 
+  function pick(blockId: string, action: ReconcileAction) {
+    setChoices((prev) => ({ ...prev, [blockId]: action }));
+    const item = review.items.find((i) => i.blockId === blockId);
+    if (item) void saveBlockPick(noteId, item, action);
+  }
+
   async function apply() {
     if (!view.canApply) return;
     setRunning(true);
@@ -159,7 +166,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
                         name={`card-${card.blockId}`}
                         className="mt-1"
                         checked={card.selected === o.action}
-                        onChange={() => setChoices({ ...choices, [card.blockId]: o.action })}
+                        onChange={() => pick(card.blockId, o.action)}
                       />
                       <span>
                         <span className="text-xs text-idemora-text-normal">
