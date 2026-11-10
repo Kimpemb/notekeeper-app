@@ -29,6 +29,7 @@ import { writeBlockRevisionSnapshot } from "@/features/notes/lib/blockRevisionin
 import { pushToHostedSync } from "@/features/sync/lib/pushToHostedSync";
 import { nudgeIndexer } from "@/features/ai/lib/indexer";
 import { useAIStore } from "@/features/ai/store/useAIStore";
+import { registerEditor, trackSave } from "@/features/editor/lib/pendingSaves";
 
 const HARD_CAP_MS = 30_000;
 
@@ -77,6 +78,7 @@ export function useAutoSave({
   const debounceTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hardCapTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDirty          = useRef(false);
+  const savePending      = useRef(false); // a save was scheduled (idle callback) but has not run yet
   const isActiveTabRef   = useRef(isActiveTab);
   const autosaveDelayRef = useRef(autosaveDelay);
   const dbSettledRef     = useRef(dbSettled);
@@ -162,12 +164,15 @@ const save = useCallback(() => {
   // pause". requestIdleCallback lets the browser run it once the main
   // thread is actually free instead of blocking the pause moment itself.
   const performSave = () => {
+    // Cancelled: the unmount flush already saved this content.
+    if (!savePending.current) return;
+    savePending.current = false;
     if (!editor || editor.isDestroyed) return;
     const content = JSON.stringify(editor.getJSON());
     if (content === '{"type":"doc","content":[]}') return;
     const plaintext = editor.getText();
     onSaveComplete?.(content, noteId);
-    updateNote(noteId, { content, plaintext }, true).then(() => {
+    trackSave(noteId, updateNote(noteId, { content, plaintext }, true)).then(() => {
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
       runEmbeddingPipeline(noteId, content);
@@ -180,6 +185,7 @@ const save = useCallback(() => {
     });
   };
 
+  savePending.current = true;
   scheduleIdle(performSave);
 }, [editor, noteId, updateNote, setSaveStatus, onSaveComplete, clearTimers, runEmbeddingPipeline, runBlockRevisionSnapshot, runHostedPush, runScheduledBackupIfDue, suppressSave, contentLoading]);
 
@@ -254,18 +260,23 @@ const save = useCallback(() => {
   useEffect(() => {
     return () => {
       clearTimers();
-      if (isDirty.current && editor && noteId && !editor.isDestroyed) {
+      // A save that was scheduled but has not run yet counts as unsaved: its delayed
+      // callback would find a destroyed editor and drop the edit.
+      const hadScheduledSave = savePending.current;
+      if ((isDirty.current || hadScheduledSave) && editor && noteId && !editor.isDestroyed) {
         if (suppressSave?.current) return;
         if (contentLoading?.current) return;
         const content = JSON.stringify(editor.getJSON());
         // Never flush empty stub
         if (content === '{"type":"doc","content":[]}') return;
+        // Saving now, so the scheduled save must not run as well.
+        savePending.current = false;
         const plaintext = editor.getText();
         // Same snapshot → push chain as performSave. The push reads snapshots at
         // the note's current revision, so the snapshot must be written first.
         // Both helpers are timer-based and don't depend on this component
         // staying mounted. (Embedding is still skipped here — pre-existing gap.)
-        updateNote(noteId, { content, plaintext }, true)
+        trackSave(noteId, updateNote(noteId, { content, plaintext }, true))
           .then(() => {
             runBlockRevisionSnapshot(noteId, content);
             runHostedPush(noteId);
@@ -275,4 +286,13 @@ const save = useCallback(() => {
       }
     };
   }, [editor, noteId, updateNote, clearTimers, suppressSave, contentLoading, runScheduledBackupIfDue, runBlockRevisionSnapshot, runHostedPush]);
+
+  // ── Editor registration ───────────────────────────────────────────────────
+  // Declared AFTER the unmount flush on purpose: React runs cleanups in declaration
+  // order, so the flush above has already been counted (trackSave) by the time this
+  // registration is released. "Close it for me" waits on this, then on the saves.
+  useEffect(() => {
+    if (!noteId) return;
+    return registerEditor(noteId);
+  }, [noteId]);
 }
