@@ -153,7 +153,13 @@ export function describeRecoverOutcome(o: RecoverOutcomeLike): RecoverOutcomeTex
         notes,
       };
     case "refused":
-      return { text: REFUSED_TEXT[o.reason ?? ""] ?? "Nothing was changed.", tone: "info", changed: false, notes };
+      return {
+        text: REFUSED_TEXT[o.reason ?? ""] ?? "Nothing was changed.",
+        tone: "info",
+        changed: false,
+        notes,
+        ...(o.reason === "note_open" ? { closeNote: true } : {}),
+      };
     case "plan_failed":
       return {
         text: PLAN_FAILED_TEXT[o.reason ?? ""] ?? "Nothing was changed.",

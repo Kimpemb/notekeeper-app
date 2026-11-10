@@ -26,6 +26,8 @@ export interface OutcomeText {
   tone: OutcomeTone;
   /** true when something may have changed, so the list should be refreshed. */
   changed: boolean;
+  /** true when the way forward is to close the note's tab (a refusal because the note is open). */
+  closeNote?: boolean;
 }
 
 function committedText(o: OutcomeLike): string {
@@ -101,7 +103,9 @@ export function describeOutcome(o: OutcomeLike): OutcomeText {
       };
 
     case "refused":
-      return { text: refusedText(o.reason), tone: "error", changed: false };
+      return o.reason === "note_open"
+        ? { text: refusedText(o.reason), tone: "error", changed: false, closeNote: true }
+        : { text: refusedText(o.reason), tone: "error", changed: false };
 
     case "push_lost":
       return {

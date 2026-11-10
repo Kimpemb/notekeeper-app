@@ -79,6 +79,15 @@ describe("describeOutcome — nothing changed", () => {
     expect(describeOutcome({ status: "refused", reason: "note_open" }).text).toMatch(/Close it/);
   });
 
+  it("only an open-note refusal offers to close the note", () => {
+    expect(describeOutcome({ status: "refused", reason: "note_open" }).closeNote).toBe(true);
+    for (const reason of ["signed_out", "busy", "backup_failed", "copy_failed", "rebuild_failed", "read_failed", "plan_failed", undefined]) {
+      expect(describeOutcome({ status: "refused", reason }).closeNote).toBeUndefined();
+    }
+    expect(describeOutcome({ status: "committed", variant: "whole_keep_mine" }).closeNote).toBeUndefined();
+    expect(describeOutcome({ status: "stale" }).closeNote).toBeUndefined();
+  });
+
   it("push_lost leaves this device alone", () => {
     const r = describeOutcome({ status: "push_lost", hosted: "moved" });
     expect(r.text).toMatch(/Nothing on this device was changed/);

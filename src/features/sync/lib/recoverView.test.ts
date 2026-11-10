@@ -145,6 +145,15 @@ describe("describeRecoverOutcome", () => {
     }
   });
 
+  it("only an open-note refusal offers to close the note", () => {
+    expect(describeRecoverOutcome({ status: "refused", reason: "note_open" }).closeNote).toBe(true);
+    for (const reason of ["busy", "read_failed", "backup_failed"]) {
+      expect(describeRecoverOutcome({ status: "refused", reason }).closeNote).toBeUndefined();
+    }
+    expect(describeRecoverOutcome({ status: "committed", choice: "replace" }).closeNote).toBeUndefined();
+    expect(describeRecoverOutcome({ status: "stale" }).closeNote).toBeUndefined();
+  });
+
   it("each plan failure has its own sentence and changes nothing", () => {
     const texts = ["side_empty", "bad_content", "note_missing", "nothing_to_change"].map((reason) => {
       const o = describeRecoverOutcome({ status: "plan_failed", reason });
