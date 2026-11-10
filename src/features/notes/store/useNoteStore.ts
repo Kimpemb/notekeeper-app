@@ -411,20 +411,19 @@ updateNote: async (id, input, silent = false) => {
         n.id === id ? { ...n, ...input, updated_at: Date.now() } : n
       ),
     }));
-  } else if ("content" in input) {
-    // Silent saves (autosave) intentionally skip the in-memory patch, so a
-    // mounted editor never re-reads a stale `content` prop mid-keystroke
-    // (see readTools.ts comment on executeGetCurrentNote). Mark the note
-    // stale instead, so the *next* mount knows its in-memory content is
-    // out of date and should re-fetch from the DB via loadNoteContent,
-    // rather than treating stale-but-non-empty content as already loaded.
+  }
+  await dbUpdateNote(id, input);
+  if (silent && "content" in input) {
+    // Silent saves skip the in-memory patch so a mounted editor never
+    // re-reads stale `content` mid-keystroke. Mark the note stale only
+    // AFTER the write has landed: marking it earlier lets the mounted
+    // editor's refetch read the old row, store it, and clear the flag.
     set((state) => {
       const staleContentIds = new Set(state.staleContentIds);
       staleContentIds.add(id);
       return { staleContentIds };
     });
   }
-  await dbUpdateNote(id, input);
 },
 
   reorderNote: async (draggedId, targetId, section) => {
