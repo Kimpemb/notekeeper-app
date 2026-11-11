@@ -140,7 +140,7 @@ export function describeOutcome(o: OutcomeLike): OutcomeText {
 
     default:
       return {
-        text: `Unexpected result (${o.status}). Check the note before trying again.`,
+        text: `Something unexpected happened (${o.status}). Check the note before trying again.`,
         tone: "warning",
         changed: true,
       };

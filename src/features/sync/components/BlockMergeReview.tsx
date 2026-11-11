@@ -23,6 +23,7 @@ import { saveBlockPick } from "@/features/sync/lib/reviewPicksLive";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import type { MetaRowInput } from "@/features/sync/lib/wholeNoteView";
 import type { ReconcileAction } from "@/features/notes/lib/reconcileSession";
+import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 interface Props {
   noteId: string;
@@ -67,6 +68,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
   );
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<OutcomeText | null>(null);
+  const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
 
   const view = useMemo(
     () =>
@@ -123,9 +125,11 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
     return (
       <div>
         {heading}
-        <p className={`mt-2 ${TONE_CLASS[result.tone]}`}>{result.text}</p>
-        {result.closeNote && (
-          <CloseNoteButton noteId={noteId} context="review" onBusyChange={onBusyChange} />
+        <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
+          {closeMsg ? closeMsg.text : result.text}
+        </p>
+        {result.closeNote && !closeMsg && (
+          <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
         <div className="mt-3">{back}</div>
       </div>
@@ -139,6 +143,12 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
         {back}
       </div>
       <p className="mt-2 text-xs text-idemora-text-muted">{view.summary}</p>
+
+      {view.banners.map((b) => (
+        <p key={b} className="mt-2 rounded border border-idemora-border px-2 py-1 text-xs text-idemora-text-muted">
+          {b}
+        </p>
+      ))}
 
       {view.mediaNotice && (
         <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-idemora-text-normal">
@@ -156,7 +166,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
               </div>
               <p className="mt-1 text-xs text-idemora-text-muted">{card.explanation}</p>
 
-              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <div className={`mt-2 grid gap-2 ${card.base ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                 <Preview label="Before either change" lines={card.base} />
                 <Preview label="Mine (this device)" lines={card.mine} />
                 <Preview label="Theirs (the other device)" lines={card.theirs} />

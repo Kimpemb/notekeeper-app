@@ -17,6 +17,7 @@ import { BlockMergeReview } from "@/features/sync/components/BlockMergeReview";
 import type { WholeNoteChoiceId } from "@/features/sync/lib/wholeNoteView";
 import type { CandidateKind } from "@/features/sync/lib/reviewCandidates";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
+import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 
 interface Props {
@@ -41,6 +42,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
   const [metaChoices, setMetaChoices] = useState<Record<string, "mine" | "theirs">>({});
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<OutcomeText | null>(null);
+  const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
 
   useEffect(() => {
     if (kind !== "content_conflict") return;
@@ -134,9 +136,11 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
     return (
       <div>
         {heading}
-        <p className={`mt-2 ${TONE_CLASS[result.tone]}`}>{result.text}</p>
-        {result.closeNote && (
-          <CloseNoteButton noteId={noteId} context="review" onBusyChange={onBusyChange} />
+        <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
+          {closeMsg ? closeMsg.text : result.text}
+        </p>
+        {result.closeNote && !closeMsg && (
+          <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
         <div className="mt-3">{back}</div>
       </div>

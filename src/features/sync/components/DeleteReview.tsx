@@ -10,6 +10,7 @@ import { commitDeleteChoice, loadDeleteReview, type LoadedDeleteReview } from "@
 import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeText";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import type { DeleteReviewChoiceId } from "@/features/sync/lib/deleteReviewView";
+import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 interface Props {
   noteId: string;
@@ -33,6 +34,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<OutcomeText | null>(null);
+  const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,9 +112,11 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
     return (
       <div>
         {heading}
-        <p className={`mt-2 ${TONE_CLASS[result.tone]}`}>{result.text}</p>
-        {result.closeNote && (
-          <CloseNoteButton noteId={noteId} context="review" onBusyChange={onBusyChange} />
+        <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
+          {closeMsg ? closeMsg.text : result.text}
+        </p>
+        {result.closeNote && !closeMsg && (
+          <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
         <div className="mt-3">{back}</div>
       </div>
