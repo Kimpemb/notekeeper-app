@@ -72,6 +72,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
     () =>
       buildBlockMergeView({
         mode: review.mode === "identical" ? "identical" : "block",
+        baseKind: review.baseKind,
         items: review.items,
         choices,
         mineContent: review.mineContent,

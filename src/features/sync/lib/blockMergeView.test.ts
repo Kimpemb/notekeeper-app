@@ -3,7 +3,10 @@
 import { describe, it, expect } from "vitest";
 import {
   allowedActions,
+  buildBanners,
   buildBlockMergeView,
+  NO_BASE_BANNER,
+  ORDER_NOT_MERGED_BANNER,
   effectiveChoice,
   itemsForCommit,
   type BlockMergeViewInput,
@@ -360,6 +363,40 @@ describe("buildBlockMergeView — invariants", () => {
       const v = buildBlockMergeView(input(items, { choices }));
       const pending = itemsForCommit(items, choices).filter((i) => i.status === "pending").length;
       expect(v.canApply).toBe(pending === 0);
+    }
+  });
+});
+
+
+describe("buildBlockMergeView — banners", () => {
+  it("always says block order is not merged on a block screen", () => {
+    expect(buildBlockMergeView(input([conflict()])).banners).toEqual([ORDER_NOT_MERGED_BANNER]);
+  });
+
+  it("adds the no-common-ancestor banner first when there is no base", () => {
+    const v = buildBlockMergeView(input([conflict()], { baseKind: "none" }));
+    expect(v.banners).toEqual([NO_BASE_BANNER, ORDER_NOT_MERGED_BANNER]);
+  });
+
+  it("has no no-ancestor banner when a snapshot base exists", () => {
+    const v = buildBlockMergeView(input([conflict()], { baseKind: "snapshot" }));
+    expect(v.banners).not.toContain(NO_BASE_BANNER);
+  });
+
+  it("shows no banners on the identical screen, even without a base", () => {
+    const v = buildBlockMergeView(input([], { mode: "identical", baseKind: "none" }));
+    expect(v.banners).toEqual([]);
+  });
+
+  it("buildBanners is the single source of the banner list", () => {
+    expect(buildBanners("block", undefined)).toEqual([ORDER_NOT_MERGED_BANNER]);
+    expect(buildBanners("block", "none")).toHaveLength(2);
+    expect(buildBanners("identical", "none")).toEqual([]);
+  });
+
+  it("the banners never mention raw internals", () => {
+    for (const b of [NO_BASE_BANNER, ORDER_NOT_MERGED_BANNER]) {
+      expect(b).not.toMatch(/blockId|snapshot|revision|hash/i);
     }
   });
 });

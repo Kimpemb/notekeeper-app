@@ -79,6 +79,8 @@ export interface BlockMergeView {
   autoLines: AutoLine[];
   counts: BlockMergeCounts;
   mediaNotice: string | null;
+  /** Plain-language notices shown under the summary (no common ancestor, block order not merged). */
+  banners: string[];
   metaRows: WholeNoteMetaRow[];
   /** Apply is allowed: no card is still pending. */
   canApply: boolean;
@@ -96,6 +98,8 @@ export interface BlockMergeViewInput {
   theirsContent: string;
   metaRows: readonly MetaRowInput[];
   parentTitles?: ReadonlyMap<string, string>;
+  /** Whether a common ancestor was available. Omitted means a snapshot base exists (no banner). */
+  baseKind?: "snapshot" | "none";
 }
 
 // ─── Per-kind rules ───────────────────────────────────────────────────────
@@ -270,6 +274,20 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+export const NO_BASE_BANNER =
+  "No earlier shared version of this note was available, so the two versions were compared directly. The cards do not show a \u201cBefore either change\u201d column.";
+export const ORDER_NOT_MERGED_BANNER =
+  "Changes to the order of blocks are not merged. If you moved blocks on either device, check the order after you apply.";
+
+/** Notices for a block-merge screen. Nothing is shown when both versions already match. */
+export function buildBanners(mode: "block" | "identical", baseKind: "snapshot" | "none" | undefined): string[] {
+  if (mode === "identical") return [];
+  const banners: string[] = [];
+  if (baseKind === "none") banners.push(NO_BASE_BANNER);
+  banners.push(ORDER_NOT_MERGED_BANNER);
+  return banners;
+}
+
 export function buildBlockMergeView(input: BlockMergeViewInput): BlockMergeView {
   const choices = input.choices ?? {};
 
@@ -337,6 +355,7 @@ export function buildBlockMergeView(input: BlockMergeViewInput): BlockMergeView 
     autoLines,
     counts,
     mediaNotice: buildMediaNotice(mineMedia, theirsMedia),
+    banners: buildBanners(input.mode, input.baseKind),
     metaRows: toMetaRows(input.metaRows, input.parentTitles),
     canApply: counts.pending === 0,
     applyLabel: state === "identical" ? "Finish" : "Apply merge",
