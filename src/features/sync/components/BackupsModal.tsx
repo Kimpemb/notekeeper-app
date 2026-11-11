@@ -14,6 +14,8 @@ import { createPortal } from "react-dom";
 import { loadBackupsOverview, runRecover, type BackupNote, type BackupsOverview } from "@/features/sync/lib/backupsLive";
 import type { RecoverSide } from "@/features/sync/lib/recoverPlan";
 import type { RecoverOutcomeText } from "@/features/sync/lib/recoverView";
+import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
+import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 type Overview = Extract<BackupsOverview, { ok: true }>;
 
@@ -41,6 +43,7 @@ export function BackupsModal({ open, onClose }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RecoverOutcomeText | null>(null);
+  const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,7 +92,16 @@ export function BackupsModal({ open, onClose }: Props) {
     setBackupId(null);
     setResult(null);
     setConfirming(false);
+    setCloseMsg(null);
     if (changed) void load();
+  }
+
+    function afterClose(text: CloseText) {
+    // Keep the same note and version selected; drop the refusal and reload the overview.
+    setResult(null);
+    setConfirming(false);
+    setCloseMsg(text);
+    void load();
   }
 
   function pickBackup(id: string, firstSide: RecoverSide) {
@@ -196,6 +208,7 @@ export function BackupsModal({ open, onClose }: Props) {
                   Back to the list
                 </button>
               </div>
+              {closeMsg && <p className={`mt-2 ${TONE_CLASS[closeMsg.tone]}`}>{closeMsg.text}</p>}
               {!note.exists && (
                 <p className="mt-2 text-xs text-idemora-text-muted">
                   This note is no longer on this device, so a backup can only be restored as a new note.
@@ -312,6 +325,9 @@ export function BackupsModal({ open, onClose }: Props) {
                     <li key={i}>{n}</li>
                   ))}
                 </ul>
+              )}
+              {result.closeNote && (
+                <CloseNoteButton noteId={note.noteId} context="backups" onClosed={afterClose} />
               )}
               <div className="mt-3">
                 <button onClick={goBack} className="underline text-idemora-text-muted hover:text-idemora-text-normal">

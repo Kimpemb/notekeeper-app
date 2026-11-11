@@ -16,6 +16,8 @@ import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeTe
 import { BlockMergeReview } from "@/features/sync/components/BlockMergeReview";
 import type { WholeNoteChoiceId } from "@/features/sync/lib/wholeNoteView";
 import type { CandidateKind } from "@/features/sync/lib/reviewCandidates";
+import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
+
 
 interface Props {
   noteId: string;
@@ -133,6 +135,9 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
       <div>
         {heading}
         <p className={`mt-2 ${TONE_CLASS[result.tone]}`}>{result.text}</p>
+        {result.closeNote && (
+          <CloseNoteButton noteId={noteId} context="review" onBusyChange={onBusyChange} />
+        )}
         <div className="mt-3">{back}</div>
       </div>
     );

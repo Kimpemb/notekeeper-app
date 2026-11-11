@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { commitDeleteChoice, loadDeleteReview, type LoadedDeleteReview } from "@/features/sync/lib/deleteReviewLive";
 import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeText";
+import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import type { DeleteReviewChoiceId } from "@/features/sync/lib/deleteReviewView";
 
 interface Props {
@@ -110,6 +111,9 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
       <div>
         {heading}
         <p className={`mt-2 ${TONE_CLASS[result.tone]}`}>{result.text}</p>
+        {result.closeNote && (
+          <CloseNoteButton noteId={noteId} context="review" onBusyChange={onBusyChange} />
+        )}
         <div className="mt-3">{back}</div>
       </div>
     );

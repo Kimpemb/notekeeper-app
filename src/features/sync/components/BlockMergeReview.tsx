@@ -20,6 +20,7 @@ import {
 } from "@/features/sync/lib/wholeNoteReviewLive";
 import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeText";
 import { saveBlockPick } from "@/features/sync/lib/reviewPicksLive";
+import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import type { MetaRowInput } from "@/features/sync/lib/wholeNoteView";
 import type { ReconcileAction } from "@/features/notes/lib/reconcileSession";
 
@@ -122,6 +123,9 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
       <div>
         {heading}
         <p className={`mt-2 ${TONE_CLASS[result.tone]}`}>{result.text}</p>
+        {result.closeNote && (
+          <CloseNoteButton noteId={noteId} context="review" onBusyChange={onBusyChange} />
+        )}
         <div className="mt-3">{back}</div>
       </div>
     );
