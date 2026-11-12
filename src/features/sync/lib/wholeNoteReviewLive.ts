@@ -111,22 +111,25 @@ export async function loadWholeNoteReview(noteId: string): Promise<LoadedReview>
 }
 
 /** Runs the user's choice on the review they saw. The commit re-checks that nothing moved. */
-export function commitWholeNoteReview(
+export async function commitWholeNoteReview(
   noteId: string,
   review: SyncReviewData,
   variant: "whole_keep_mine" | "whole_take_theirs" | "whole_keep_both",
   metaChoices: Record<string, "mine" | "theirs">
 ): Promise<OutcomeLike> {
+  // Nothing has been written yet, so "not reached" here is definite.
+  if ((await checkReachable({ force: true })).state === "offline") return { status: "network_error" };
   return commitNoteReview({ noteId, variant, review, items: [], metaChoices });
 }
 
 /** Runs the user's decisions on a block-mode or identical review. The commit re-checks that nothing moved. */
-export function commitBlockMergeReview(
+export async function commitBlockMergeReview(
   noteId: string,
   review: SyncReviewData,
   items: ApplyItem[],
   metaChoices: Record<string, "mine" | "theirs">
 ): Promise<OutcomeLike> {
   const variant = review.mode === "identical" ? "identical" : "block_merge";
+  if ((await checkReachable({ force: true })).state === "offline") return { status: "network_error" };
   return commitNoteReview({ noteId, variant, review, items: variant === "identical" ? [] : items, metaChoices });
 }

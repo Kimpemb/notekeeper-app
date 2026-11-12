@@ -81,6 +81,7 @@ export async function commitDeleteChoice(
   loaded: Extract<LoadedDeleteReview, { ok: true }>,
   choice: DeleteReviewChoiceId
 ): Promise<OutcomeLike> {
+  if ((await checkReachable({ force: true })).state === "offline") return { status: "network_error" };
   if (loaded.case === "d1" && (choice === "keep_it" || choice === "delete_anyway")) {
     return commitNoteDelete({ case: "d1", noteId, choice, reviewedHostedRevision: loaded.hostedRevision });
   }
