@@ -10,6 +10,8 @@ import { NeedReviewEntry } from "@/features/sync/components/NeedReviewEntry";
 import { ReviewListModal } from "@/features/sync/components/ReviewListModal";
 import { BackupsModal } from "@/features/sync/components/BackupsModal";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
+import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
+import { classifyError } from "@/features/sync/lib/classifyError";
 
 function formatSummary(s: BackfillSummary): string {
   const parts = [`${s.uploaded} uploaded`, `${s.upToDate} already up to date`];
@@ -39,6 +41,7 @@ export function SignInPanel() {
 
   const [backfilling, setBackfilling] = useState(false);
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
+  const [backfillDetails, setBackfillDetails] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // 4c: surface retry-queue state so failed pushes aren't silent.
@@ -67,6 +70,7 @@ export function SignInPanel() {
     abortRef.current = controller;
     setBackfilling(true);
     setBackfillStatus("Preparing…");
+    setBackfillDetails(null);
     try {
       const summary = await backfillVault({
         signal: controller.signal,
@@ -74,7 +78,9 @@ export function SignInPanel() {
       });
       setBackfillStatus(formatSummary(summary));
     } catch (err) {
-      setBackfillStatus(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      const f = classifyError(err, "other");
+      setBackfillStatus(`Upload did not finish. ${f.text}`);
+      setBackfillDetails(f.details);
     } finally {
       setBackfilling(false);
       abortRef.current = null;
@@ -105,7 +111,10 @@ export function SignInPanel() {
           )}
         </div>
         {backfillStatus && (
-          <p className="mt-2 text-xs text-idemora-text-muted max-w-64">{backfillStatus}</p>
+          <>
+            <p className="mt-2 text-xs text-idemora-text-muted max-w-64">{backfillStatus}</p>
+            {backfillDetails && <ErrorDetails details={backfillDetails} />}
+          </>
         )}
         {queue && (
           <p className="mt-2 text-xs text-idemora-text-muted max-w-64">

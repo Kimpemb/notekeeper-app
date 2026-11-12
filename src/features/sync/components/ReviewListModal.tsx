@@ -28,6 +28,8 @@ import { runBulk, type BulkStopReason } from "@/features/sync/lib/reviewBulkRun"
 import { commitOneFor, isNoteOpen, loadMediaIds, loadReviewModes } from "@/features/sync/lib/reviewBulkLive";
 import { WholeNoteReview } from "@/features/sync/components/WholeNoteReview";
 import { DeleteReview } from "@/features/sync/components/DeleteReview";
+import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
+import { classifyError } from "@/features/sync/lib/classifyError";
 
 type Phase =
   | { kind: "list" }
@@ -35,7 +37,7 @@ type Phase =
   | { kind: "confirm"; option: BulkOption; plan: BulkPlan }
   | { kind: "running"; option: BulkOption; done: number; total: number }
   | { kind: "done"; text: string; problems: Array<{ noteId: string; title: string; status: string; reason?: string }> }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; details?: string };
 
 const KIND_ORDER: CandidateKind[] = ["content_conflict", "purged_elsewhere", "deleted_here", "hosted_missing", "unchecked"];
 
@@ -53,7 +55,7 @@ interface Props {
 export function ReviewListModal({ open, onClose }: Props) {
   const [list, setList] = useState<ReviewCandidateList | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{ text: string; details: string } | null>(null);
 
   const [text, setText] = useState(DEFAULT_QUERY.text);
   const [sort, setSort] = useState<SortKey>(DEFAULT_QUERY.sort);
@@ -74,7 +76,8 @@ export function ReviewListModal({ open, onClose }: Props) {
       const present = new Set(result.candidates.map((c) => c.noteId));
       setSelected((prev) => new Set([...prev].filter((id) => present.has(id))));
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err));
+      const f = classifyError(err, "load");
+      setLoadError({ text: f.text, details: f.details });
     } finally {
       setLoading(false);
     }
@@ -133,7 +136,8 @@ export function ReviewListModal({ open, onClose }: Props) {
       const openIds = new Set(rows.filter((r) => isNoteOpen(r.noteId)).map((r) => r.noteId));
       setPhase({ kind: "confirm", option, plan: planBulk(option, rows, modes, openIds, mediaIds) });
     } catch (err) {
-      setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      const f = classifyError(err, "load");
+      setPhase({ kind: "error", message: f.text, details: f.details });
     }
   }
 
@@ -141,7 +145,8 @@ export function ReviewListModal({ open, onClose }: Props) {
     try {
       await runConfirmed(option, plan);
     } catch (err) {
-      setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      const f = classifyError(err, "apply");
+      setPhase({ kind: "error", message: f.text, details: f.details });
       void load();
     }
   }
@@ -230,7 +235,15 @@ export function ReviewListModal({ open, onClose }: Props) {
             />
           )}
           <div className={reviewing ? "hidden" : ""}>
-          {loadError && <p className="text-red-500">Could not load the list: {loadError}</p>}
+          {loadError && (
+            <div>
+              <p className="text-red-500">Could not load the list. {loadError.text}</p>
+              <ErrorDetails details={loadError.details} />
+              <button onClick={() => void load()} className="mt-2 px-2 py-1 rounded bg-blue-500 text-white">
+                Try again
+              </button>
+            </div>
+          )}
 
           {list && !list.hostedChecked && (
             <p className="mb-2 text-xs text-idemora-text-muted">
@@ -310,7 +323,8 @@ export function ReviewListModal({ open, onClose }: Props) {
 
           {phase.kind === "error" && (
             <div>
-              <p className="text-red-500">Something went wrong: {phase.message}</p>
+              <p className="text-red-500">{phase.message}</p>
+              {phase.details && <ErrorDetails details={phase.details} />}
               <p className="mt-1 text-xs text-idemora-text-muted">
                 Check the list to see what changed before trying again.
               </p>

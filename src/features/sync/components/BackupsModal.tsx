@@ -15,6 +15,7 @@ import { loadBackupsOverview, runRecover, type BackupNote, type BackupsOverview 
 import type { RecoverSide } from "@/features/sync/lib/recoverPlan";
 import type { RecoverOutcomeText } from "@/features/sync/lib/recoverView";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
+import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 type Overview = Extract<BackupsOverview, { ok: true }>;
@@ -34,7 +35,7 @@ interface Props {
 export function BackupsModal({ open, onClose }: Props) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{ message: string; details?: string; retryable?: boolean } | null>(null);
   const [text, setText] = useState("");
 
   const [noteId, setNoteId] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export function BackupsModal({ open, onClose }: Props) {
     setLoadError(null);
     const r = await loadBackupsOverview();
     if (r.ok) setOverview(r);
-    else setLoadError(r.message);
+    else setLoadError({ message: r.message, details: r.details, retryable: r.retryable });
     setLoading(false);
   }, []);
 
@@ -156,7 +157,17 @@ export function BackupsModal({ open, onClose }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-3">
-          {loadError && <p className="text-red-500">{loadError}</p>}
+          {loadError && (
+            <div>
+              <p className="text-red-500">{loadError.message}</p>
+              {loadError.details && <ErrorDetails details={loadError.details} />}
+              {loadError.retryable && (
+                <button onClick={() => void load()} className="mt-2 px-2 py-1 rounded bg-blue-500 text-white">
+                  Try again
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Notes list */}
           {!note && !loadError && (
@@ -319,6 +330,7 @@ export function BackupsModal({ open, onClose }: Props) {
             <div>
               <h3 className="font-medium text-idemora-text-normal truncate">{note.title}</h3>
               <p className={`mt-2 ${TONE_CLASS[result.tone]}`}>{result.text}</p>
+              {result.details && <ErrorDetails details={result.details} />}
               {result.notes.length > 0 && (
                 <ul className="mt-2 text-xs text-idemora-text-muted list-disc pl-4">
                   {result.notes.map((n, i) => (
