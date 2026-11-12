@@ -9,6 +9,7 @@ import { VaultSyncPrompt } from "@/features/sync/components/VaultSyncPrompt";
 import { NeedReviewEntry } from "@/features/sync/components/NeedReviewEntry";
 import { ReviewListModal } from "@/features/sync/components/ReviewListModal";
 import { BackupsModal } from "@/features/sync/components/BackupsModal";
+import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 
 function formatSummary(s: BackfillSummary): string {
   const parts = [`${s.uploaded} uploaded`, `${s.upToDate} already up to date`];
@@ -122,6 +123,9 @@ export function SignInPanel() {
           Backups
         </button>
         <BackupsModal open={backupsOpen} onClose={() => setBackupsOpen(false)} />
+        <div className="mt-2">
+          <CopyDiagnosticsButton />
+        </div>
         <button onClick={signOut} className="mt-2 text-idemora-text-muted hover:text-idemora-text-normal">
           Sign out
         </button>
