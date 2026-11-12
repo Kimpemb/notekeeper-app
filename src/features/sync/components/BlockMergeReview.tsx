@@ -8,7 +8,7 @@
 // the same commitNoteReview every earlier live run used (own backup, lock and
 // compare-and-swap). Nothing is written until the user presses Apply.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   buildBlockMergeView,
   itemsForCommit,
@@ -38,6 +38,8 @@ interface Props {
   /** changed: something may have been written, so the list should refresh. */
   onBack: (changed: boolean, resolved?: boolean) => void;
   onBusyChange: (busy: boolean) => void;
+  /** Reports whether this screen needs the wide layout (side-by-side columns). */
+  onWide?: (wide: boolean) => void;
 }
 
 const TONE_CLASS: Record<OutcomeText["tone"], string> = {
@@ -65,7 +67,7 @@ function Preview({ label, lines }: { label: string; lines: string[] | null }) {
   );
 }
 
-export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles, onBack, onBusyChange }: Props) {
+export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles, onBack, onBusyChange, onWide }: Props) {
   const [choices, setChoices] = useState<Record<string, ReconcileAction>>({});
   const [metaChoices, setMetaChoices] = useState<Record<string, "mine" | "theirs">>(() =>
     Object.fromEntries(metaRows.map((r) => [r.field, r.choice]))
@@ -89,6 +91,14 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
       }),
     [review, choices, metaRows, parentTitles]
   );
+
+  // Side-by-side columns only exist while there are decision cards to show.
+  const wide = view.cards.length > 0 && !result;
+  useEffect(() => {
+    if (!wide) return;
+    onWide?.(true);
+    return () => onWide?.(false);
+  }, [wide, onWide]);
 
   const back = (
     <button

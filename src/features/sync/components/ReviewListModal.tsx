@@ -66,6 +66,7 @@ export function ReviewListModal({ open, onClose }: Props) {
   const cancelRef = useRef(false);
   const [reviewing, setReviewing] = useState<{ noteId: string; title: string; kind: CandidateKind } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [wide, setWide] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -187,7 +188,7 @@ export function ReviewListModal({ open, onClose }: Props) {
       <div
         role="dialog"
         aria-label="Notes that need review"
-        className={`flex flex-col ${reviewing ? "w-[920px]" : "w-[640px]"} max-w-[92vw] max-h-[80vh] rounded-lg border border-idemora-border bg-idemora-bg-secondary shadow-xl text-sm`}
+        className={`flex flex-col ${reviewing && wide ? "w-[920px]" : "w-[640px]"} max-w-[92vw] max-h-[80vh] rounded-lg border border-idemora-border bg-idemora-bg-secondary shadow-xl text-sm transition-[width] duration-150`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-idemora-border">
@@ -232,6 +233,7 @@ export function ReviewListModal({ open, onClose }: Props) {
           )}
           {reviewing && reviewing.kind !== "deleted_here" && reviewing.kind !== "purged_elsewhere" && (
             <WholeNoteReview
+              onWide={setWide}
               noteId={reviewing.noteId}
               title={reviewing.title}
               kind={reviewing.kind}

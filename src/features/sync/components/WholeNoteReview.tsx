@@ -31,6 +31,8 @@ interface Props {
   /** changed: something may have been written, so the list should refresh. */
   onBack: (changed: boolean, resolved?: boolean) => void;
   onBusyChange: (busy: boolean) => void;
+  /** Reports whether this screen needs the wide layout (side-by-side columns). */
+  onWide?: (wide: boolean) => void;
 }
 
 const TONE_CLASS: Record<OutcomeText["tone"], string> = {
@@ -40,7 +42,7 @@ const TONE_CLASS: Record<OutcomeText["tone"], string> = {
   error: "text-red-500",
 };
 
-export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: Props) {
+export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onWide }: Props) {
   const [loaded, setLoaded] = useState<LoadedReview | null>(null);
   const [choice, setChoice] = useState<WholeNoteChoiceId>("keep_mine");
   const [metaChoices, setMetaChoices] = useState<Record<string, "mine" | "theirs">>({});
@@ -74,6 +76,15 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
   );
 
   const heading = <h3 className="font-medium text-idemora-text-normal truncate">{title}</h3>;
+
+  // Wide only while the mine/theirs columns are on screen. When the block merge takes over
+  // (loaded.kind === "block_merge") it reports its own width, so this stays out of the way.
+  const wholeNoteWide = !!loaded && loaded.ok && loaded.kind === "whole_note" && !result;
+  useEffect(() => {
+    if (!wholeNoteWide) return;
+    onWide?.(true);
+    return () => onWide?.(false);
+  }, [wholeNoteWide, onWide]);
 
   if (kind !== "content_conflict") {
     const unchecked = kind === "unchecked";
@@ -133,6 +144,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
         metaRows={loaded.metaRows}
         parentTitles={loaded.parentTitles}
         onBack={onBack}
+        onWide={onWide}
         onBusyChange={onBusyChange}
       />
     );
