@@ -22,6 +22,7 @@ import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { enqueueFailedPush, markRemoteAhead, clearQueued } from "@/features/sync/lib/pushQueue";
 import { getSyncState, recordSynced } from "@/features/sync/lib/noteSyncState";
 import { tryLockNote, noteLockHolder } from "@/features/sync/lib/noteLock";
+import { healVerdict, type HostedCompare } from "@/features/sync/lib/hostedMatch";
 import {
   decideSyncAction,
   describeDecision,
@@ -243,6 +244,24 @@ export async function finishPush(row: LocalNoteRow, serverRevision: number): Pro
   }
 }
 
+// Full hosted row for the lost-answer heal. Never throws: any failure returns
+// null, and the caller then parks the note exactly as before.
+async function fetchHostedForHeal(noteId: string): Promise<HostedCompare | null> {
+  try {
+    const { data, error } = await supabase
+      .from("notes")
+      .select(
+        "revision, title, content, plaintext, tags, parent_id, sort_order, frontmatter, updated_at, deleted_at, purged_at"
+      )
+      .eq("id", noteId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data as unknown as HostedCompare;
+  } catch {
+    return null;
+  }
+}
+
 type PushOnceResult = "pushed" | "in_sync" | "skipped" | "remote_ahead";
 
 async function pushOnce(noteId: string): Promise<PushOnceResult> {
@@ -287,6 +306,27 @@ async function pushOnce(noteId: string): Promise<PushOnceResult> {
       case "behind":
       case "diverged": {
         const reason = describeDecision(decision);
+        // Lost-answer heal: a push may have won on the server while its answer was lost.
+        // Adopt ONLY when hosted still has the revision this decision saw and every
+        // compared field is identical (healVerdict). Anything else parks as before.
+        if (decision.action === "diverged" && remote) {
+          const hosted = await fetchHostedForHeal(noteId);
+          if (hosted) {
+            const verdict = healVerdict(decision.reason, remote.revision, hosted, row);
+            if (verdict.heal) {
+              await recordSynced(noteId, {
+                localRevision: row.revision,
+                localUpdatedAt: row.updated_at,
+                serverRevision: hosted.revision,
+                metaRev: row.meta_rev,
+              });
+              await clearQueued(noteId);
+              console.warn(`[sync] ${noteId}: healed (${reason}); hosted identical at r${hosted.revision}`);
+              return "in_sync";
+            }
+            console.warn(`[sync] ${noteId}: not healed (${verdict.why})`);
+          }
+        }
         console.warn(`[sync] ${noteId}: ${reason} — not pushing`);
         await markRemoteAhead(noteId, remote?.revision ?? 0, row.revision, reason);
         return "remote_ahead";
@@ -347,6 +387,9 @@ export async function pushToHostedSync(
         result = await pushOnce(noteId);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[sync] push failed${opts.isRetry ? " (queued retry)" : ""}: ${noteId}: ${reason}`
+        );
         await enqueueFailedPush(noteId, reason, { isRetry: opts.isRetry });
         result = "failed";
       }
