@@ -68,7 +68,10 @@ export function BackupsModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || running) return;
+      if (e.key !== "Escape") return;
+      // Keep Esc from also reaching the Settings modal underneath (it listens on window).
+      e.stopPropagation();
+      if (running) return;
       e.preventDefault();
       if (noteId) goBack();
       else onClose();

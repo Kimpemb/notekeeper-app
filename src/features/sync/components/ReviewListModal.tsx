@@ -95,7 +95,10 @@ export function ReviewListModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || busy || reviewBusy) return;
+      if (e.key !== "Escape") return;
+      // Keep Esc from also reaching the Settings modal underneath (it listens on window).
+      e.stopPropagation();
+      if (busy || reviewBusy) return;
       e.preventDefault();
       if (reviewing) setReviewing(null);
       else onClose();

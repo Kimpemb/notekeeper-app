@@ -16,6 +16,7 @@ import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
 import { useAIStore }     from "@/features/ai/store/useAIStore";
 import { BackupModal }    from "@/features/backup/components/BackupModal";
+import { SignInPanel }    from "@/features/sync/components/SignInPanel";
 import { SHORTCUT_GROUPS } from "@/lib/keybindings";
 import type { ShortcutGroup, Shortcut } from "@/lib/keybindings";
 import { getDb } from "@/features/notes/db/client"
@@ -425,7 +426,7 @@ function VaultIndexStatus() {
 
 // ─── Sidebar nav tabs ─────────────────────────────────────────────────────────
 
-type Section = "appearance" | "editor" | "keybindings" | "data" | "ai" | "backup" | "websearch";
+type Section = "appearance" | "editor" | "keybindings" | "sync" | "data" | "ai" | "backup" | "websearch";
 
 const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -454,6 +455,16 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <rect x="1" y="3" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
         <path d="M4 7h1M7 7h1M9.5 7h1M4 9h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    id: "sync",
+    label: "Sync",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M2.5 5.5A4.5 4.5 0 0 1 10.8 4M11.5 8.5A4.5 4.5 0 0 1 3.2 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M10.8 1.8V4h-2.2M3.2 12.2V10h2.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -1087,8 +1098,8 @@ export function SettingsModal() {
 
                 <div className="mt-4 p-3 rounded-lg bg-idemora-bg-secondary border border-idemora-border">
                   <p className="text-xs text-idemora-text-muted leading-relaxed">
-                    All data is stored locally on your machine. No cloud sync, no accounts.
-                    Use Export from the command palette to back up your notes.
+                    Notes are stored locally on your machine. Syncing is optional and stays off
+                    until you sign in under Sync. Use Export from the command palette to back up your notes.
                   </p>
                 </div>
               </div>
@@ -1096,6 +1107,7 @@ export function SettingsModal() {
 
             {section === "ai"        && <AISection />}
             {section === "backup"    && <div><BackupModal /></div>}
+            {section === "sync"      && <div><SignInPanel /></div>}
             {section === "websearch" && <div><WebSearchSection /></div>}
 
           </div>

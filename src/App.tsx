@@ -61,7 +61,7 @@ import {
 import { getAllMilestones } from "@/features/goals/db/goalQueries";
 import { syncMilestonesToCalendar } from "@/features/calendar/lib/layerSync";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
-import { SignInPanel } from "@/features/sync/components/SignInPanel";
+ 
 import { startPushQueueDrain } from "@/features/sync/lib/drainPushQueue";
 import { getDb } from "@/features/notes/db/client";
 import { pruneReconcileData } from "@/features/sync/lib/reconcileStore";
@@ -906,10 +906,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
         <ResurfaceBar />
         <DeadlineResurfaceBar />
 
-        {/* TEMP scaffolding for Stage 4b testing — remove once wired into SettingsModal */}
-        <div className="fixed top-14 right-4 z-50 bg-idemora-bg-secondary border border-idemora-border rounded-lg shadow-lg">
-          <SignInPanel />
-        </div>
+ 
 
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
