@@ -1,4 +1,10 @@
 // src/features/sync/components/SignInPanel.tsx
+//
+// The Sync screen (rendered under Settings > Sync). Step 5 (UI/UX refactor), slice 1:
+// redesigned layout only. All behaviour is unchanged: sign in and out, the vault download
+// prompt, Upload vault, the queue polling, Retry parked, the review list, Backups and
+// Copy diagnostics. The status sentence comes from the pure syncStatus().
+
 import { useEffect, useRef, useState } from "react";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { backfillVault, type BackfillSummary } from "@/features/sync/lib/backfillVault";
@@ -6,12 +12,14 @@ import { getQueueCounts, requeueParked, type PushQueueCounts } from "@/features/
 import { drainPushQueue } from "@/features/sync/lib/drainPushQueue";
 import { useVaultSync } from "@/features/sync/hooks/useVaultSync";
 import { VaultSyncPrompt } from "@/features/sync/components/VaultSyncPrompt";
-import { NeedReviewEntry } from "@/features/sync/components/NeedReviewEntry";
+import { NeedReviewEntry, type ReviewCount } from "@/features/sync/components/NeedReviewEntry";
 import { ReviewListModal } from "@/features/sync/components/ReviewListModal";
 import { BackupsModal } from "@/features/sync/components/BackupsModal";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
+import { BTN_PRIMARY, BTN_SECONDARY, SyncIcons, SyncRow } from "@/features/sync/components/SyncRow";
 import { classifyError } from "@/features/sync/lib/classifyError";
+import { syncStatus, type StatusTone } from "@/features/sync/lib/syncStatus";
 
 function formatSummary(s: BackfillSummary): string {
   const parts = [`${s.uploaded} uploaded`, `${s.upToDate} already up to date`];
@@ -24,6 +32,24 @@ function formatSummary(s: BackfillSummary): string {
   return parts.join(", ") + tail;
 }
 
+const DOT: Record<StatusTone, string> = {
+  ok: "bg-green-500",
+  info: "bg-blue-500",
+  warn: "bg-amber-500",
+};
+
+// Same look as SettingsModal's SectionTitle (that one is not exported).
+function Heading({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mb-3 mt-6 text-[11px] font-semibold uppercase tracking-widest text-idemora-text-muted first:mt-0">
+      {children}
+    </p>
+  );
+}
+
+const INPUT =
+  "w-full rounded-md border border-idemora-border bg-idemora-bg-secondary px-3 py-2 text-sm text-idemora-text-normal outline-none focus:border-blue-500";
+
 export function SignInPanel() {
   const signIn = useSyncStore((s) => s.signIn);
   const signOut = useSyncStore((s) => s.signOut);
@@ -34,6 +60,7 @@ export function SignInPanel() {
   const [loading, setLoading] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [backupsOpen, setBackupsOpen] = useState(false);
+  const [review, setReview] = useState<ReviewCount | null>(null);
 
   // 4d.5: new-device download. Owned here so Upload vault can be locked while the gate is closed.
   const vault = useVaultSync();
@@ -47,7 +74,11 @@ export function SignInPanel() {
   // 4c: surface retry-queue state so failed pushes aren't silent.
   const [queue, setQueue] = useState<PushQueueCounts | null>(null);
   useEffect(() => {
-    if (!session) return;
+    if (!session) {
+      setQueue(null);
+      setReview(null);
+      return;
+    }
     let cancelled = false;
     const refresh = () => {
       getQueueCounts()
@@ -88,56 +119,83 @@ export function SignInPanel() {
   }
 
   if (session) {
+    const status = syncStatus({ queue, review });
     return (
-      <div className="p-3 text-sm">
-        <p>Signed in as {session.user.email}</p>
-        <VaultSyncPrompt vault={vault} />
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            onClick={handleBackfill}
-            disabled={backfilling || vaultBusy}
-            title={vaultBusy ? "Resolve the vault download first" : undefined}
-            className="px-2 py-1 rounded bg-blue-500 text-white disabled:opacity-50"
-          >
-            {backfilling ? "Uploading…" : "Upload vault"}
-          </button>
-          {backfilling && (
-            <button
-              onClick={() => abortRef.current?.abort()}
-              className="text-idemora-text-muted hover:text-idemora-text-normal"
-            >
-              Cancel
+      <div className="text-sm">
+        <Heading>Status</Heading>
+        <div className="rounded-lg border border-idemora-border p-3">
+          <div className="flex items-start gap-3">
+            <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${DOT[status.tone]}`} />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-idemora-text-normal">{status.text}</p>
+              <p className="mt-0.5 truncate text-xs text-idemora-text-muted">Signed in as {session.user.email}</p>
+            </div>
+          </div>
+          {queue && queue.parked > 0 && (
+            <button onClick={handleRetryParked} className={`mt-3 ${BTN_SECONDARY}`}>
+              Retry stuck changes
             </button>
           )}
         </div>
-        {backfillStatus && (
-          <>
-            <p className="mt-2 text-xs text-idemora-text-muted max-w-64">{backfillStatus}</p>
-            {backfillDetails && <ErrorDetails details={backfillDetails} />}
-          </>
-        )}
-        {queue && (
-          <p className="mt-2 text-xs text-idemora-text-muted max-w-64">
-            Sync queue: {queue.pending} retrying · {queue.parked} parked · {queue.remoteAhead} newer on server
-            {queue.parked > 0 && (
-              <button onClick={handleRetryParked} className="ml-2 underline">
-                Retry parked
+
+        <NeedReviewEntry
+          variant="row"
+          refreshKey={queue?.remoteAhead}
+          onOpen={() => setReviewOpen(true)}
+          onCount={setReview}
+        />
+        <ReviewListModal open={reviewOpen} onClose={() => setReviewOpen(false)} />
+
+        <VaultSyncPrompt vault={vault} />
+
+        <Heading>Vault</Heading>
+        <div className="rounded-lg border border-idemora-border p-3">
+          <p className="text-sm text-idemora-text-normal">Upload vault</p>
+          <p className="mt-0.5 text-xs text-idemora-text-muted">
+            Sends the notes on this device to your hosted vault. Notes that are already up to date, or newer on
+            the server, are skipped.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={handleBackfill}
+              disabled={backfilling || vaultBusy}
+              title={vaultBusy ? "Resolve the vault download first" : undefined}
+              className={BTN_PRIMARY}
+            >
+              {backfilling ? "Uploading…" : "Upload vault"}
+            </button>
+            {backfilling && (
+              <button onClick={() => abortRef.current?.abort()} className={BTN_SECONDARY}>
+                Cancel
               </button>
             )}
-          </p>
-        )}
-        <NeedReviewEntry refreshKey={queue?.remoteAhead} onOpen={() => setReviewOpen(true)} />
-        <ReviewListModal open={reviewOpen} onClose={() => setReviewOpen(false)} />
-        <button onClick={() => setBackupsOpen(true)} className="mt-2 block text-xs underline text-idemora-text-normal">
-          Backups
-        </button>
-        <BackupsModal open={backupsOpen} onClose={() => setBackupsOpen(false)} />
-        <div className="mt-2">
-          <CopyDiagnosticsButton />
+          </div>
+          {backfillStatus && (
+            <>
+              <p className="mt-3 text-xs text-idemora-text-muted">{backfillStatus}</p>
+              {backfillDetails && <ErrorDetails details={backfillDetails} />}
+            </>
+          )}
         </div>
-        <button onClick={signOut} className="mt-2 text-idemora-text-muted hover:text-idemora-text-normal">
-          Sign out
-        </button>
+
+        <Heading>Tools</Heading>
+        <div className="flex flex-col gap-2">
+          <SyncRow
+            icon={SyncIcons.backups}
+            title="Backups"
+            description="Copies saved before sync changes, and how to restore them."
+            chevron
+            onClick={() => setBackupsOpen(true)}
+          />
+          <CopyDiagnosticsButton variant="row" />
+        </div>
+        <BackupsModal open={backupsOpen} onClose={() => setBackupsOpen(false)} />
+
+        <div className="mt-6">
+          <button onClick={signOut} className={BTN_SECONDARY}>
+            Sign out
+          </button>
+        </div>
       </div>
     );
   }
@@ -152,27 +210,33 @@ export function SignInPanel() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="p-3 flex flex-col gap-2 text-sm">
-      <input
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="px-2 py-1 rounded border border-idemora-border bg-idemora-bg-secondary"
-      />
-      <input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        className="px-2 py-1 rounded border border-idemora-border bg-idemora-bg-secondary"
-      />
-      {error && <p className="text-red-500 text-xs">{error}</p>}
-      <button
-        type="submit"
-        disabled={loading}
-        className="px-2 py-1 rounded bg-blue-500 text-white disabled:opacity-50"
-      >
+    <form onSubmit={handleSubmit} className="flex max-w-sm flex-col gap-3 text-sm">
+      <Heading>Sign in</Heading>
+      <p className="-mt-1 text-xs text-idemora-text-muted">
+        Sign in to sync your notes with your hosted vault. Syncing stays off until you do.
+      </p>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-idemora-text-muted">Email</span>
+        <input
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className={INPUT}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-idemora-text-muted">Password</span>
+        <input
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={INPUT}
+        />
+      </label>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      <button type="submit" disabled={loading} className={`${BTN_PRIMARY} w-full`}>
         {loading ? "Signing in…" : "Sign in"}
       </button>
     </form>
