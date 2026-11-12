@@ -30,7 +30,7 @@ import { WholeNoteReview } from "@/features/sync/components/WholeNoteReview";
 import { DeleteReview } from "@/features/sync/components/DeleteReview";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
-import { BTN_GHOST, BTN_PRIMARY, BTN_SECONDARY } from "@/features/sync/components/SyncRow";
+import { BTN_GHOST, BTN_PRIMARY, BTN_SECONDARY, INPUT_COMPACT, ROW_HOVER } from "@/features/sync/components/SyncRow";
 
 type Phase =
   | { kind: "list" }
@@ -379,12 +379,12 @@ export function ReviewListModal({ open, onClose }: Props) {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   placeholder="Search by title"
-                  className="flex-1 min-w-40 px-2 py-1 rounded border border-idemora-border bg-idemora-bg-secondary"
+                  className={`flex-1 min-w-40 ${INPUT_COMPACT}`}
                 />
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortKey)}
-                  className="px-2 py-1 rounded border border-idemora-border bg-idemora-bg-secondary"
+                  className={INPUT_COMPACT}
                 >
                   <option value="newest">Newest first</option>
                   <option value="oldest">Oldest first</option>
@@ -399,8 +399,10 @@ export function ReviewListModal({ open, onClose }: Props) {
                     <button
                       key={k}
                       onClick={() => toggleKind(k)}
-                      className={`px-2 py-0.5 rounded-full border text-xs ${
-                        on ? "bg-blue-500 text-white border-blue-500" : "border-idemora-border text-idemora-text-muted"
+                      className={`px-2 py-0.5 rounded-full border text-xs transition-colors duration-150 ${
+                        on
+                          ? "bg-blue-500 text-white border-blue-500 hover:bg-blue-600"
+                          : `border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal ${ROW_HOVER}`
                       }`}
                     >
                       {kindLabel(k)} · {counts[k]}
@@ -411,39 +413,72 @@ export function ReviewListModal({ open, onClose }: Props) {
 
               {/* Rows */}
               {loading && !list && <p className="mt-3 text-idemora-text-muted">Checking…</p>}
-              {list && candidates.length === 0 && <p className="mt-3 text-idemora-text-muted">Nothing needs review.</p>}
+              {list && candidates.length === 0 && (
+                <div className="mt-3 rounded-lg border border-idemora-border px-4 py-8 text-center">
+                  <p className="text-sm text-idemora-text-normal">All caught up.</p>
+                  <p className="mt-1 text-xs text-idemora-text-muted">Nothing needs review.</p>
+                  <button type="button" onClick={onClose} className={`mt-4 ${BTN_SECONDARY}`}>
+                    Close
+                  </button>
+                </div>
+              )}
               {list && candidates.length > 0 && visible.length === 0 && (
                 <p className="mt-3 text-idemora-text-muted">No notes match the filter.</p>
               )}
 
               {visible.length > 0 && (
                 <div className="mt-3">
-                  <label className="flex items-center gap-2 text-xs text-idemora-text-muted">
+                  <label className="flex cursor-pointer items-center gap-2 px-1 text-xs text-idemora-text-muted">
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} />
-                    Select all shown
+                    Select all shown ({selectedVisible.length} of {visible.length} selected)
                   </label>
-                  <ul className="mt-1 divide-y divide-idemora-border">
-                    {visible.map((c) => (
-                      <li key={c.noteId} className="flex items-start gap-2 py-2">
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={selected.has(c.noteId)}
-                          onChange={() => toggleRow(c.noteId)}
-                          aria-label={`Select ${c.title ?? "Untitled"}`}
-                        />
-                        <div className="min-w-0 flex-1">
+                  <ul className="mt-2 space-y-2">
+                    {visible.map((c) => {
+                      const isSelected = selected.has(c.noteId);
+                      return (
+                        <li
+                          key={c.noteId}
+                          className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-150 ${ROW_HOVER} ${
+                            isSelected ? "border-blue-500 bg-blue-500/5" : "border-idemora-border"
+                          }`}
+                        >
+                          <label className="-m-1 flex shrink-0 cursor-pointer items-center p-1">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer"
+                              checked={isSelected}
+                              onChange={() => toggleRow(c.noteId)}
+                              aria-label={`Select ${c.title ?? "Untitled"}`}
+                            />
+                          </label>
                           <button
+                            type="button"
                             onClick={() => setReviewing({ noteId: c.noteId, title: c.title ?? "Untitled", kind: c.kind })}
-                            className="block max-w-full truncate text-left text-idemora-text-normal hover:underline"
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
                           >
-                            {c.title ?? "Untitled"}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm leading-snug text-idemora-text-normal">
+                                {c.title ?? "Untitled"}
+                              </span>
+                              <span className="block truncate text-xs leading-snug text-idemora-text-muted">
+                                {kindLabel(c.kind)} · {new Date(c.detectedAt).toLocaleString()}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-idemora-text-muted">
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path
+                                  d="M4.5 2.5L8 6l-3.5 3.5"
+                                  stroke="currentColor"
+                                  strokeWidth="1.4"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </span>
                           </button>
-                          <p className="text-xs text-idemora-text-muted">{kindLabel(c.kind)}</p>
-                          <p className="text-xs text-idemora-text-muted">{new Date(c.detectedAt).toLocaleString()}</p>
-                        </div>
-                      </li>
-                    ))}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
@@ -459,7 +494,7 @@ export function ReviewListModal({ open, onClose }: Props) {
             {availability.options.length > 0 ? (
               <div className="mt-1 flex flex-wrap items-center gap-3">
                 {availability.options.map((o) => (
-                  <button key={o.id} onClick={() => void startBulk(o)} className="px-2 py-1 rounded bg-blue-500 text-white">
+                  <button key={o.id} onClick={() => void startBulk(o)} className={BTN_PRIMARY}>
                     {o.label}
                   </button>
                 ))}
