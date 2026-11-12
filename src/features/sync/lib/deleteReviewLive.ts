@@ -17,6 +17,8 @@ import {
 } from "@/features/sync/lib/deleteReviewView";
 import type { OutcomeLike } from "@/features/sync/lib/outcomeText";
 import { classifyError } from "@/features/sync/lib/classifyError";
+import { checkReachable } from "@/features/sync/lib/reachabilityLive";
+import { OFFLINE_TEXT } from "@/features/sync/lib/reachability";
 
 export type LoadedDeleteReview =
   | { ok: true; case: "d1"; view: DeleteReviewView; hostedRevision: number }
@@ -30,6 +32,10 @@ export async function loadDeleteReview(
   kind: "deleted_here" | "purged_elsewhere"
 ): Promise<LoadedDeleteReview> {
   try {
+    const probe = await checkReachable();
+    if (probe.state === "offline") {
+      return { ok: false, message: OFFLINE_TEXT, details: `reachability check: ${probe.reason}`, retryable: true };
+    }
     const deps = liveDeleteDeps();
 
     if (kind === "deleted_here") {

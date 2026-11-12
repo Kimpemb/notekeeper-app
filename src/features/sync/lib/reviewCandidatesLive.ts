@@ -12,6 +12,7 @@
 import { getDb } from "@/features/notes/db/client";
 import { supabase } from "@/features/sync/db/supabaseClient";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
+import { checkReachable } from "@/features/sync/lib/reachabilityLive";
 import {
   classifyCandidates,
   type HostedStatus,
@@ -88,7 +89,12 @@ export async function listReviewCandidates(): Promise<ReviewCandidateList> {
   let hosted: Map<string, HostedStatus> | null = null;
   if (useSyncStore.getState().session) {
     try {
-      hosted = await fetchHostedStatuses(ids);
+      const probe = await checkReachable();
+      if (probe.state === "online") {
+        hosted = await fetchHostedStatuses(ids);
+      } else {
+        console.warn(`[sync] review list: server not reachable (${probe.reason}); rows shown unchecked`);
+      }
     } catch (err) {
       console.warn("[sync] review list: hosted lookup threw:", err);
     }

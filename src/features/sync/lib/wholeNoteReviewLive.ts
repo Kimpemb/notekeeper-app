@@ -16,6 +16,8 @@ import { buildWholeNoteView, type MetaRowInput, type WholeNoteView } from "@/fea
 import type { ApplyItem } from "@/features/notes/lib/applyReconcile";
 import type { OutcomeLike } from "@/features/sync/lib/outcomeText";
 import { classifyError } from "@/features/sync/lib/classifyError";
+import { checkReachable } from "@/features/sync/lib/reachabilityLive";
+import { OFFLINE_TEXT } from "@/features/sync/lib/reachability";
 
 type BuildResult = Awaited<ReturnType<typeof buildSyncReview>>;
 export type SyncReviewData = Extract<BuildResult, { ok: true }>["review"];
@@ -44,6 +46,10 @@ function reasonText(reason: string): string {
 
 export async function loadWholeNoteReview(noteId: string): Promise<LoadedReview> {
   try {
+    const probe = await checkReachable();
+    if (probe.state === "offline") {
+      return { ok: false, message: OFFLINE_TEXT, details: `reachability check: ${probe.reason}`, retryable: true };
+    }
     const b = await buildSyncReview(noteId);
     if (!b.ok) return { ok: false, message: reasonText(b.reason) };
     const review = b.review;
