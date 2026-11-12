@@ -24,6 +24,7 @@ import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
+import { BTN_PRIMARY, BTN_SECONDARY, ROW_HOVER } from "@/features/sync/components/SyncRow";
 import type { MetaRowInput } from "@/features/sync/lib/wholeNoteView";
 import type { ReconcileAction } from "@/features/notes/lib/reconcileSession";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
@@ -57,7 +58,7 @@ function Preview({ label, lines }: { label: string; lines: string[] | null }) {
   return (
     <div className="min-w-0">
       <p className="text-xs font-medium text-idemora-text-muted">{label}</p>
-      <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded border border-idemora-border p-2 text-xs text-idemora-text-normal">
+      <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-idemora-border bg-idemora-bg-primary/40 px-3 py-2 text-xs text-idemora-text-normal">
         {lines.join("\n")}
       </pre>
     </div>
@@ -93,7 +94,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
     <button
       onClick={() => onBack(result?.changed ?? false, result?.tone === "success")}
       disabled={running}
-      className="underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
+      className={BTN_SECONDARY}
     >
       Back to the list
     </button>
@@ -151,13 +152,13 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
       <p className="mt-2 text-xs text-idemora-text-muted">{view.summary}</p>
 
       {view.banners.map((b) => (
-        <p key={b} className="mt-2 rounded border border-idemora-border px-2 py-1 text-xs text-idemora-text-muted">
+        <p key={b} className="mt-2 rounded-lg border border-idemora-border px-3 py-2 text-xs text-idemora-text-muted">
           {b}
         </p>
       ))}
 
       {view.mediaNotice && (
-        <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-idemora-text-normal">
+        <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-idemora-text-normal">
           {view.mediaNotice}
         </p>
       )}
@@ -165,7 +166,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
       {view.cards.length > 0 && (
         <ul className="mt-3 space-y-3">
           {view.cards.map((card) => (
-            <li key={card.blockId} className="rounded border border-idemora-border p-2">
+            <li key={card.blockId} className="rounded-lg border border-idemora-border p-3">
               <div className="flex items-center gap-2">
                 <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${BADGE_CLASS[card.kind]}`}>{card.badge}</span>
                 <span className="text-sm text-idemora-text-normal">{card.heading}</span>
@@ -181,7 +182,11 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
               <ul className="mt-2 space-y-1">
                 {card.options.map((o) => (
                   <li key={o.action}>
-                    <label className="flex items-start gap-2">
+                    <label
+                      className={`flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors duration-150 ${
+                        card.selected === o.action ? "bg-blue-500/5 ring-1 ring-blue-500" : ROW_HOVER
+                      }`}
+                    >
                       <input
                         type="radio"
                         name={`card-${card.blockId}`}
@@ -224,7 +229,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
       {view.metaRows.length > 0 && (
         <div className="mt-3">
           <p className="text-xs font-medium text-idemora-text-muted">These also differ</p>
-          <ul className="mt-1 divide-y divide-idemora-border">
+          <ul className="mt-1 divide-y divide-idemora-border rounded-lg border border-idemora-border px-3">
             {view.metaRows.map((row) => (
               <li key={row.field} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                 <span className="w-24 text-xs text-idemora-text-muted">{row.label}</span>
@@ -250,7 +255,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
         <button
           onClick={() => void apply()}
           disabled={running || !view.canApply}
-          className="px-2 py-1 rounded bg-blue-500 text-white disabled:opacity-50"
+          className={BTN_PRIMARY}
         >
           {running ? "Applying…" : view.applyLabel}
         </button>

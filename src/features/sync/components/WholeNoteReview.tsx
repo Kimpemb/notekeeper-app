@@ -20,6 +20,7 @@ import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
+import { BTN_PRIMARY, BTN_SECONDARY, ROW_HOVER } from "@/features/sync/components/SyncRow";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 
@@ -67,7 +68,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
   }, [noteId, kind, attempt]);
 
   const back = (
-    <button onClick={() => onBack(result?.changed ?? false, result?.tone === "success")} disabled={running} className="underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50">
+    <button onClick={() => onBack(result?.changed ?? false, result?.tone === "success")} disabled={running} className={BTN_SECONDARY}>
       Back to the list
     </button>
   );
@@ -86,7 +87,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
         </p>
         <div className="mt-3 flex items-center gap-4">
           {unchecked && (
-            <button onClick={() => onBack(true)} className="px-2 py-1 rounded bg-blue-500 text-white">
+            <button onClick={() => onBack(true)} className={BTN_PRIMARY}>
               Check again
             </button>
           )}
@@ -113,7 +114,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
         {loaded.details && <ErrorDetails details={loaded.details} />}
         <div className="mt-3 flex items-center gap-4">
           {loaded.retryable && (
-            <button onClick={() => setAttempt((a) => a + 1)} className="px-2 py-1 rounded bg-blue-500 text-white">
+            <button onClick={() => setAttempt((a) => a + 1)} className={BTN_PRIMARY}>
               Try again
             </button>
           )}
@@ -203,7 +204,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
         ] as const).map(([label, lines]) => (
           <div key={label} className="min-w-0">
             <p className="text-xs font-medium text-idemora-text-muted">{label}</p>
-            <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-idemora-border p-2 text-xs text-idemora-text-normal">
+            <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-idemora-border bg-idemora-bg-primary/40 px-3 py-2 text-xs text-idemora-text-normal">
               {lines.join("\n")}
             </pre>
           </div>
@@ -213,7 +214,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
       {view.metaRows.length > 0 && (
         <div className="mt-3">
           <p className="text-xs font-medium text-idemora-text-muted">These also differ</p>
-          <ul className="mt-1 divide-y divide-idemora-border">
+          <ul className="mt-1 divide-y divide-idemora-border rounded-lg border border-idemora-border px-3">
             {view.metaRows.map((row) => (
               <li key={row.field} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                 <span className="w-24 text-xs text-idemora-text-muted">{row.label}</span>
@@ -240,7 +241,11 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
         <ul className="mt-1 space-y-2">
           {view.choices.map((c) => (
             <li key={c.id}>
-              <label className="flex items-start gap-2">
+              <label
+                className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition-colors duration-150 ${
+                  choice === c.id ? "border-blue-500 bg-blue-500/5" : `border-idemora-border ${ROW_HOVER}`
+                }`}
+              >
                 <input type="radio" name="choice" className="mt-1" checked={choice === c.id} onChange={() => setChoice(c.id)} />
                 <span>
                   <span className="text-idemora-text-normal">
@@ -257,7 +262,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
       </div>
 
       <div className="mt-3 flex items-center gap-3">
-        <button onClick={() => void apply()} disabled={running || !picked} className="px-2 py-1 rounded bg-blue-500 text-white disabled:opacity-50">
+        <button onClick={() => void apply()} disabled={running || !picked} className={BTN_PRIMARY}>
           {running ? "Applying…" : `Apply: ${picked?.label ?? ""}`}
         </button>
         <CopyDiagnosticsButton noteId={noteId} review={review} />

@@ -12,6 +12,7 @@ import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
+import { BTN_PRIMARY, BTN_SECONDARY, ROW_HOVER } from "@/features/sync/components/SyncRow";
 import type { DeleteReviewChoiceId } from "@/features/sync/lib/deleteReviewView";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
@@ -57,7 +58,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
     <button
       onClick={() => onBack(result?.changed ?? false, result?.tone === "success")}
       disabled={running}
-      className="underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
+      className={BTN_SECONDARY}
     >
       Back to the list
     </button>
@@ -81,7 +82,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
         {loaded.details && <ErrorDetails details={loaded.details} />}
         <div className="mt-3 flex items-center gap-4">
           {loaded.retryable && (
-            <button onClick={() => setAttempt((a) => a + 1)} className="px-2 py-1 rounded bg-blue-500 text-white">
+            <button onClick={() => setAttempt((a) => a + 1)} className={BTN_PRIMARY}>
               Try again
             </button>
           )}
@@ -148,14 +149,14 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
       <p className="mt-2 text-idemora-text-normal">{view.explanation}</p>
 
       {view.mediaNotice && (
-        <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-idemora-text-normal">
+        <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-idemora-text-normal">
           {view.mediaNotice}
         </p>
       )}
 
       <div className="mt-3 min-w-0">
         <p className="text-xs font-medium text-idemora-text-muted">{view.contentLabel}</p>
-        <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-idemora-border p-2 text-xs text-idemora-text-normal">
+        <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-idemora-border bg-idemora-bg-primary/40 px-3 py-2 text-xs text-idemora-text-normal">
           {view.lines.join("\n")}
         </pre>
       </div>
@@ -165,7 +166,11 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
         <ul className="mt-1 space-y-2">
           {view.choices.map((c) => (
             <li key={c.id}>
-              <label className="flex items-start gap-2">
+              <label
+                className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition-colors duration-150 ${
+                  choice === c.id ? "border-blue-500 bg-blue-500/5" : `border-idemora-border ${ROW_HOVER}`
+                }`}
+              >
                 <input
                   type="radio"
                   name="delete-choice"
@@ -192,7 +197,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
       </div>
 
       {confirming && picked?.confirmText && (
-        <p className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-idemora-text-normal">
+        <p className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-idemora-text-normal">
           {picked.confirmText}
         </p>
       )}
@@ -201,12 +206,16 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
         <button
           onClick={onApply}
           disabled={running || !picked}
-          className={`px-2 py-1 rounded text-white disabled:opacity-50 ${confirming ? "bg-red-600" : "bg-blue-500"}`}
+          className={
+            confirming
+              ? "rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-red-700 disabled:opacity-50"
+              : BTN_PRIMARY
+          }
         >
           {running ? "Applying…" : confirming ? `Yes: ${picked?.label ?? ""}` : `Apply: ${picked?.label ?? ""}`}
         </button>
         {confirming && !running && (
-          <button onClick={() => setConfirming(false)} className="underline text-idemora-text-muted hover:text-idemora-text-normal">
+          <button onClick={() => setConfirming(false)} className={BTN_SECONDARY}>
             Cancel
           </button>
         )}

@@ -15,7 +15,7 @@ import {
   type OutcomeShape,
   type ReviewLike,
 } from "@/features/sync/lib/diagnosticsLive";
-import { SyncIcons, SyncRow } from "@/features/sync/components/SyncRow";
+import { BTN_GHOST, SyncIcons, SyncRow } from "@/features/sync/components/SyncRow";
 
 interface Props {
   /** Leave out for the Sync panel (app and queue numbers only). */
@@ -100,7 +100,7 @@ export function CopyDiagnosticsButton({ noteId, review, outcome, variant = "link
         onClick={() => void run()}
         disabled={running}
         title={hint}
-        className="text-xs underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
+        className={BTN_GHOST}
       >
         {running ? "Collecting…" : "Copy diagnostics"}
       </button>
