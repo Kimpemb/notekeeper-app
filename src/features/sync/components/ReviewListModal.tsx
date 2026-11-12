@@ -216,8 +216,12 @@ export function ReviewListModal({ open, onClose }: Props) {
               title={reviewing.title}
               kind={reviewing.kind}
               onBusyChange={setReviewBusy}
-              onBack={(changed) => {
+              onBack={(changed, resolved) => {
+                const clearedId = reviewing.noteId;
                 setReviewing(null);
+                if (resolved) {
+                  setList((l) => (l ? { ...l, candidates: l.candidates.filter((c) => c.noteId !== clearedId) } : l));
+                }
                 if (changed) void load();
               }}
             />
@@ -228,8 +232,12 @@ export function ReviewListModal({ open, onClose }: Props) {
               title={reviewing.title}
               kind={reviewing.kind}
               onBusyChange={setReviewBusy}
-              onBack={(changed) => {
+              onBack={(changed, resolved) => {
+                const clearedId = reviewing.noteId;
                 setReviewing(null);
+                if (resolved) {
+                  setList((l) => (l ? { ...l, candidates: l.candidates.filter((c) => c.noteId !== clearedId) } : l));
+                }
                 if (changed) void load();
               }}
             />

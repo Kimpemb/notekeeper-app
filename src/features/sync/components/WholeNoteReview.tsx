@@ -28,7 +28,7 @@ interface Props {
   title: string;
   kind: CandidateKind;
   /** changed: something may have been written, so the list should refresh. */
-  onBack: (changed: boolean) => void;
+  onBack: (changed: boolean, resolved?: boolean) => void;
   onBusyChange: (busy: boolean) => void;
 }
 
@@ -67,7 +67,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
   }, [noteId, kind, attempt]);
 
   const back = (
-    <button onClick={() => onBack(result?.changed ?? false)} disabled={running} className="underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50">
+    <button onClick={() => onBack(result?.changed ?? false, result?.tone === "success")} disabled={running} className="underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50">
       Back to the list
     </button>
   );

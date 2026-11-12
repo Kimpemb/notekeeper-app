@@ -35,7 +35,7 @@ interface Props {
   metaRows: MetaRowInput[];
   parentTitles: ReadonlyMap<string, string>;
   /** changed: something may have been written, so the list should refresh. */
-  onBack: (changed: boolean) => void;
+  onBack: (changed: boolean, resolved?: boolean) => void;
   onBusyChange: (busy: boolean) => void;
 }
 
@@ -91,7 +91,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
 
   const back = (
     <button
-      onClick={() => onBack(result?.changed ?? false)}
+      onClick={() => onBack(result?.changed ?? false, result?.tone === "success")}
       disabled={running}
       className="underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
     >
