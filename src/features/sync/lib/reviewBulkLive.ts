@@ -9,6 +9,7 @@
 // Never import this file from a test: it reaches supabaseClient.
 
 import { buildSyncReview } from "@/features/sync/lib/syncReview";
+import { checkReachable } from "@/features/sync/lib/reachabilityLive";
 import { commitNoteReview } from "@/features/sync/lib/commitLive";
 import { commitNoteDelete, liveDeleteDeps } from "@/features/sync/lib/commitDeleteLive";
 import { isNoteOpen } from "@/features/sync/lib/pullFromHostedSync";
@@ -21,6 +22,9 @@ export { isNoteOpen };
 
 /** One review build per note (each asks the server). null = could not be determined. */
 export async function loadReviewModes(rows: readonly ReviewCandidate[]): Promise<Map<string, ReviewMode | null>> {
+  // One quick check first: offline, each build below would hang for several seconds.
+  const probe = await checkReachable();
+  if (probe.state === "offline") throw new Error(`No internet connection (reachability check: ${probe.reason})`);
   const modes = new Map<string, ReviewMode | null>();
   for (const r of rows) {
     try {
@@ -44,7 +48,27 @@ export async function loadMediaIds(rows: readonly ReviewCandidate[]): Promise<Se
   return ids;
 }
 
+/** Every note's commit is preceded by a reachability check, so an offline run stops after
+ *  two quick network_error outcomes instead of waiting on a hanging request per note. */
 export function commitOneFor(option: BulkOption): (row: ReviewCandidate) => Promise<BulkOutcomeLike> {
+  const inner = commitOneInner(option);
+  return async (row) => {
+    if ((await checkReachable()).state === "offline") return { status: "network_error" };
+    const outcome = await inner(row);
+    // A refused read right after a cached "online" answer usually means the connection
+    // just dropped. Nothing was written, so a fresh probe can safely say so.
+    if (
+      outcome.status === "refused" &&
+      outcome.reason === "read_failed" &&
+      (await checkReachable({ force: true })).state === "offline"
+    ) {
+      return { status: "network_error" };
+    }
+    return outcome;
+  };
+}
+
+function commitOneInner(option: BulkOption): (row: ReviewCandidate) => Promise<BulkOutcomeLike> {
   switch (option.id) {
     case "d1_keep_it":
       return async (row) => {
