@@ -18,6 +18,8 @@ import type { WholeNoteChoiceId } from "@/features/sync/lib/wholeNoteView";
 import type { CandidateKind } from "@/features/sync/lib/reviewCandidates";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
+import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
+import { classifyError } from "@/features/sync/lib/classifyError";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 
@@ -45,6 +47,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
   const [result, setResult] = useState<OutcomeText | null>(null);
   const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
   const [rawOutcome, setRawOutcome] = useState<OutcomeLike | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (kind !== "content_conflict") return;
@@ -61,7 +64,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
     return () => {
       cancelled = true;
     };
-  }, [noteId, kind]);
+  }, [noteId, kind, attempt]);
 
   const back = (
     <button onClick={() => onBack(result?.changed ?? false)} disabled={running} className="underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50">
@@ -72,13 +75,23 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
   const heading = <h3 className="font-medium text-idemora-text-normal truncate">{title}</h3>;
 
   if (kind !== "content_conflict") {
+    const unchecked = kind === "unchecked";
     return (
       <div>
         {heading}
         <p className="mt-2 text-idemora-text-muted">
-          Reviewing this kind of note one by one is coming next. For now, use the bulk actions in the list.
+          {unchecked
+            ? "The server could not be reached to check this note, so it cannot be reviewed right now. Check your connection, then check again."
+            : "This note was not found on the server, so there is nothing to compare it with. Nothing was changed."}
         </p>
-        <div className="mt-3">{back}</div>
+        <div className="mt-3 flex items-center gap-4">
+          {unchecked && (
+            <button onClick={() => onBack(true)} className="px-2 py-1 rounded bg-blue-500 text-white">
+              Check again
+            </button>
+          )}
+          {back}
+        </div>
       </div>
     );
   }
@@ -97,7 +110,15 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
       <div>
         {heading}
         <p className="mt-2 text-red-500">{loaded.message}</p>
-        <div className="mt-3">{back}</div>
+        {loaded.details && <ErrorDetails details={loaded.details} />}
+        <div className="mt-3 flex items-center gap-4">
+          {loaded.retryable && (
+            <button onClick={() => setAttempt((a) => a + 1)} className="px-2 py-1 rounded bg-blue-500 text-white">
+              Try again
+            </button>
+          )}
+          {back}
+        </div>
       </div>
     );
   }
@@ -128,7 +149,8 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
       setRawOutcome(outcome);
       setResult(describeOutcome(outcome));
     } catch (err) {
-      setResult({ text: `Something went wrong: ${err instanceof Error ? err.message : String(err)}. Check the note before trying again.`, tone: "error", changed: true });
+      const f = classifyError(err, "apply");
+      setResult({ text: f.text, tone: "error", changed: true, details: f.details });
     } finally {
       setRunning(false);
       onBusyChange(false);
@@ -142,6 +164,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
         <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
           {closeMsg ? closeMsg.text : result.text}
         </p>
+        {result.details && !closeMsg && <ErrorDetails details={result.details} />}
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}

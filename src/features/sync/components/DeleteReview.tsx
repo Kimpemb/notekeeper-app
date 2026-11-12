@@ -10,6 +10,8 @@ import { commitDeleteChoice, loadDeleteReview, type LoadedDeleteReview } from "@
 import { describeOutcome, type OutcomeLike, type OutcomeText } from "@/features/sync/lib/outcomeText";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
+import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
+import { classifyError } from "@/features/sync/lib/classifyError";
 import type { DeleteReviewChoiceId } from "@/features/sync/lib/deleteReviewView";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
@@ -37,6 +39,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
   const [result, setResult] = useState<OutcomeText | null>(null);
   const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
   const [rawOutcome, setRawOutcome] = useState<OutcomeLike | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +51,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
     return () => {
       cancelled = true;
     };
-  }, [noteId, kind]);
+  }, [noteId, kind, attempt]);
 
   const back = (
     <button
@@ -75,7 +78,15 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
       <div>
         {heading}
         <p className="mt-2 text-idemora-text-muted">{loaded.message}</p>
-        <div className="mt-3">{back}</div>
+        {loaded.details && <ErrorDetails details={loaded.details} />}
+        <div className="mt-3 flex items-center gap-4">
+          {loaded.retryable && (
+            <button onClick={() => setAttempt((a) => a + 1)} className="px-2 py-1 rounded bg-blue-500 text-white">
+              Try again
+            </button>
+          )}
+          {back}
+        </div>
       </div>
     );
   }
@@ -92,11 +103,8 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
       setRawOutcome(outcome);
       setResult(describeOutcome(outcome));
     } catch (err) {
-      setResult({
-        text: `Something went wrong: ${err instanceof Error ? err.message : String(err)}. Check the note before trying again.`,
-        tone: "error",
-        changed: true,
-      });
+      const f = classifyError(err, "apply");
+      setResult({ text: f.text, tone: "error", changed: true, details: f.details });
     } finally {
       setRunning(false);
       setConfirming(false);
@@ -119,6 +127,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
         <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
           {closeMsg ? closeMsg.text : result.text}
         </p>
+        {result.details && !closeMsg && <ErrorDetails details={result.details} />}
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}

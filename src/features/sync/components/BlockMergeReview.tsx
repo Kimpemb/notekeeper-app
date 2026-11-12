@@ -22,6 +22,8 @@ import { describeOutcome, type OutcomeLike, type OutcomeText } from "@/features/
 import { saveBlockPick } from "@/features/sync/lib/reviewPicksLive";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
+import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
+import { classifyError } from "@/features/sync/lib/classifyError";
 import type { MetaRowInput } from "@/features/sync/lib/wholeNoteView";
 import type { ReconcileAction } from "@/features/notes/lib/reconcileSession";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
@@ -113,11 +115,8 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
       setRawOutcome(outcome);
       setResult(describeOutcome(outcome));
     } catch (err) {
-      setResult({
-        text: `Something went wrong: ${err instanceof Error ? err.message : String(err)}. Check the note before trying again.`,
-        tone: "error",
-        changed: true,
-      });
+      const f = classifyError(err, "apply");
+      setResult({ text: f.text, tone: "error", changed: true, details: f.details });
     } finally {
       setRunning(false);
       onBusyChange(false);
@@ -131,6 +130,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
         <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
           {closeMsg ? closeMsg.text : result.text}
         </p>
+        {result.details && !closeMsg && <ErrorDetails details={result.details} />}
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}

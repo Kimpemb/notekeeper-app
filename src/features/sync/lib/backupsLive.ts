@@ -13,6 +13,7 @@ import { groupBackups, describeRecoverOutcome, type NoteBackups, type RecoverOut
 import { commitNoteRecover } from "@/features/sync/lib/commitRecoverLive";
 import type { RecoverChoice, RecoverSide } from "@/features/sync/lib/recoverPlan";
 import type { RecoverStamp } from "@/features/sync/lib/commitRecover";
+import { classifyError } from "@/features/sync/lib/classifyError";
 
 export interface BackupNote {
   noteId: string;
@@ -27,7 +28,7 @@ export interface BackupNote {
 
 export type BackupsOverview =
   | { ok: true; notes: BackupNote[]; rows: Map<string, BackupRow> }
-  | { ok: false; message: string };
+  | { ok: false; message: string; details?: string; retryable?: boolean };
 
 interface NoteHead {
   id: string;
@@ -64,7 +65,8 @@ export async function loadBackupsOverview(): Promise<BackupsOverview> {
     });
     return { ok: true, notes, rows: new Map(rows.map((r) => [r.id, r])) };
   } catch (err) {
-    return { ok: false, message: `Backups could not be read: ${err instanceof Error ? err.message : String(err)}` };
+    const f = classifyError(err, "load");
+    return { ok: false, message: `Backups could not be read. ${f.text}`, details: f.details, retryable: f.retryable };
   }
 }
 
@@ -89,11 +91,7 @@ export async function runRecover(
     });
     return describeRecoverOutcome(outcome);
   } catch (err) {
-    return {
-      text: `Something went wrong: ${err instanceof Error ? err.message : String(err)}. Check the note before trying again.`,
-      tone: "error",
-      changed: true,
-      notes: [],
-    };
+    const f = classifyError(err, "apply");
+    return { text: f.text, tone: "error", changed: true, notes: [], details: f.details };
   }
 }

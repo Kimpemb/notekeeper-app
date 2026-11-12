@@ -28,6 +28,8 @@ export interface OutcomeText {
   changed: boolean;
   /** true when the way forward is to close the note's tab (a refusal because the note is open). */
   closeNote?: boolean;
+  /** Raw error text for a collapsed "Details" line (set only for errors that were thrown). */
+  details?: string;
 }
 
 function committedText(o: OutcomeLike): string {

@@ -15,6 +15,7 @@ import { planCommit } from "@/features/sync/lib/commitPlan";
 import { buildWholeNoteView, type MetaRowInput, type WholeNoteView } from "@/features/sync/lib/wholeNoteView";
 import type { ApplyItem } from "@/features/notes/lib/applyReconcile";
 import type { OutcomeLike } from "@/features/sync/lib/outcomeText";
+import { classifyError } from "@/features/sync/lib/classifyError";
 
 type BuildResult = Awaited<ReturnType<typeof buildSyncReview>>;
 export type SyncReviewData = Extract<BuildResult, { ok: true }>["review"];
@@ -28,9 +29,7 @@ export type LoadedReview =
       metaRows: MetaRowInput[];
       parentTitles: ReadonlyMap<string, string>;
     }
-  | { ok: false; message: string };
-
-const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+  | { ok: false; message: string; details?: string; retryable?: boolean };
 
 function reasonText(reason: string): string {
   switch (reason) {
@@ -100,7 +99,8 @@ export async function loadWholeNoteReview(noteId: string): Promise<LoadedReview>
     });
     return { ok: true, kind: "whole_note", review, view };
   } catch (err) {
-    return { ok: false, message: msg(err) };
+    const f = classifyError(err, "load");
+    return { ok: false, message: f.text, details: f.details, retryable: f.retryable };
   }
 }
 

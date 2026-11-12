@@ -16,15 +16,14 @@ import {
   type DeleteReviewView,
 } from "@/features/sync/lib/deleteReviewView";
 import type { OutcomeLike } from "@/features/sync/lib/outcomeText";
+import { classifyError } from "@/features/sync/lib/classifyError";
 
 export type LoadedDeleteReview =
   | { ok: true; case: "d1"; view: DeleteReviewView; hostedRevision: number }
   | { ok: true; case: "d2"; view: DeleteReviewView; hostedRevision: number; localStamp: LocalStamp }
-  | { ok: false; message: string };
+  | { ok: false; message: string; details?: string; retryable?: boolean };
 
-const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-
-const NETWORK = /abort|timed? ?out|fetch failed|network/i;
+ 
 
 export async function loadDeleteReview(
   noteId: string,
@@ -65,11 +64,8 @@ export async function loadDeleteReview(
       view: buildD2View({ title: local.title, localContent: local.content }),
     };
   } catch (err) {
-    const m = msg(err);
-    return {
-      ok: false,
-      message: NETWORK.test(m) ? "Could not reach the server in time. Check your connection and try again." : m,
-    };
+    const f = classifyError(err, "load");
+    return { ok: false, message: f.text, details: f.details, retryable: f.retryable };
   }
 }
 
