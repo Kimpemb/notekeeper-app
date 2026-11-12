@@ -14,6 +14,8 @@ export const BTN_PRIMARY =
 
 export const BTN_SECONDARY = `rounded-md border border-idemora-border px-3 py-1.5 text-sm text-idemora-text-normal transition-colors duration-150 ${ROW_HOVER} disabled:opacity-50`;
 
+export const BTN_GHOST = `rounded-md px-2 py-1 text-sm text-idemora-text-muted transition-colors duration-150 hover:text-idemora-text-normal ${ROW_HOVER} disabled:opacity-50`;
+
 export const SyncIcons = {
   review: (
     <svg width="16" height="16" viewBox="0 0 14 14" fill="none">

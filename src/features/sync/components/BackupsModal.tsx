@@ -16,6 +16,14 @@ import type { RecoverSide } from "@/features/sync/lib/recoverPlan";
 import type { RecoverOutcomeText } from "@/features/sync/lib/recoverView";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
+import {
+  BTN_GHOST,
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  ROW_HOVER,
+  SyncIcons,
+  SyncRow,
+} from "@/features/sync/components/SyncRow";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 type Overview = Extract<BackupsOverview, { ok: true }>;
@@ -144,7 +152,7 @@ export function BackupsModal({ open, onClose }: Props) {
               <button
                 onClick={() => void load()}
                 disabled={loading}
-                className="text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
+                className={BTN_GHOST}
               >
                 {loading ? "Loading…" : "Refresh"}
               </button>
@@ -152,7 +160,7 @@ export function BackupsModal({ open, onClose }: Props) {
             <button
               onClick={onClose}
               disabled={running}
-              className="text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
+              className={BTN_GHOST}
             >
               Close
             </button>
@@ -165,7 +173,7 @@ export function BackupsModal({ open, onClose }: Props) {
               <p className="text-red-500">{loadError.message}</p>
               {loadError.details && <ErrorDetails details={loadError.details} />}
               {loadError.retryable && (
-                <button onClick={() => void load()} className="mt-2 px-2 py-1 rounded bg-blue-500 text-white">
+                <button onClick={() => void load()} className={`mt-2 ${BTN_PRIMARY}`}>
                   Try again
                 </button>
               )}
@@ -189,20 +197,16 @@ export function BackupsModal({ open, onClose }: Props) {
               {overview && overview.notes.length > 0 && notes.length === 0 && (
                 <p className="mt-3 text-idemora-text-muted">No notes match the search.</p>
               )}
-              <ul className="mt-2 divide-y divide-idemora-border">
+              <ul className="mt-3 flex flex-col gap-2">
                 {notes.map((n) => (
-                  <li key={n.noteId} className="py-2">
-                    <button
+                  <li key={n.noteId}>
+                    <SyncRow
+                      icon={SyncIcons.backups}
+                      title={n.title}
+                      description={`${n.group.backups.length} ${n.group.backups.length === 1 ? "backup" : "backups"} · latest ${new Date(n.group.latest).toLocaleString()}${n.exists ? "" : " · note no longer on this device"}`}
+                      chevron
                       onClick={() => setNoteId(n.noteId)}
-                      className="block max-w-full truncate text-left text-idemora-text-normal hover:underline"
-                    >
-                      {n.title}
-                    </button>
-                    <p className="text-xs text-idemora-text-muted">
-                      {n.group.backups.length} {n.group.backups.length === 1 ? "backup" : "backups"} · latest{" "}
-                      {new Date(n.group.latest).toLocaleString()}
-                      {n.exists ? "" : " · note no longer on this device"}
-                    </p>
+                    />
                   </li>
                 ))}
               </ul>
@@ -217,7 +221,7 @@ export function BackupsModal({ open, onClose }: Props) {
                 <button
                   onClick={goBack}
                   disabled={running}
-                  className="underline text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
+                  className={BTN_SECONDARY}
                 >
                   Back to the list
                 </button>
@@ -237,7 +241,7 @@ export function BackupsModal({ open, onClose }: Props) {
                       <button
                         onClick={() => pickBackup(b.id, b.sides[0].side)}
                         disabled={running}
-                        className="block w-full text-left"
+                        className={`block w-full rounded text-left transition-colors duration-150 ${ROW_HOVER}`}
                       >
                         <span className="text-idemora-text-normal">{b.kindLabel}</span>
                         <span className="block text-xs text-idemora-text-muted">{new Date(b.createdAt).toLocaleString()}</span>
@@ -295,7 +299,7 @@ export function BackupsModal({ open, onClose }: Props) {
                             <button
                               onClick={() => void run("as_new")}
                               disabled={running}
-                              className="px-2 py-1 rounded text-white bg-blue-500 disabled:opacity-50"
+                              className={BTN_PRIMARY}
                             >
                               {running ? "Working…" : "Restore as a new note"}
                             </button>
@@ -303,9 +307,11 @@ export function BackupsModal({ open, onClose }: Props) {
                               <button
                                 onClick={() => (confirming ? void run("replace") : setConfirming(true))}
                                 disabled={running}
-                                className={`px-2 py-1 rounded border disabled:opacity-50 ${
-                                  confirming ? "bg-red-600 text-white border-red-600" : "border-idemora-border text-idemora-text-normal"
-                                }`}
+                                className={
+                                  confirming
+                                    ? "rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-red-700 disabled:opacity-50"
+                                    : BTN_SECONDARY
+                                }
                               >
                                 {confirming ? "Yes: replace this note" : "Replace this note's content"}
                               </button>
@@ -313,7 +319,7 @@ export function BackupsModal({ open, onClose }: Props) {
                             {confirming && !running && (
                               <button
                                 onClick={() => setConfirming(false)}
-                                className="underline text-idemora-text-muted hover:text-idemora-text-normal"
+                                className={BTN_GHOST}
                               >
                                 Cancel
                               </button>
@@ -345,7 +351,7 @@ export function BackupsModal({ open, onClose }: Props) {
                 <CloseNoteButton noteId={note.noteId} context="backups" onClosed={afterClose} />
               )}
               <div className="mt-3">
-                <button onClick={goBack} className="underline text-idemora-text-muted hover:text-idemora-text-normal">
+                <button onClick={goBack} className={BTN_SECONDARY}>
                   Back to the list
                 </button>
               </div>

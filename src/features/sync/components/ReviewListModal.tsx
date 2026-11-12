@@ -30,6 +30,7 @@ import { WholeNoteReview } from "@/features/sync/components/WholeNoteReview";
 import { DeleteReview } from "@/features/sync/components/DeleteReview";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
+import { BTN_GHOST, BTN_PRIMARY, BTN_SECONDARY } from "@/features/sync/components/SyncRow";
 
 type Phase =
   | { kind: "list" }
@@ -197,14 +198,14 @@ export function ReviewListModal({ open, onClose }: Props) {
             <button
               onClick={() => void load()}
               disabled={loading || busy}
-              className="text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
+              className={BTN_GHOST}
             >
               {loading ? "Checking…" : "Refresh"}
             </button>
             <button
               onClick={onClose}
               disabled={busy || reviewBusy}
-              className="text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-50"
+              className={BTN_GHOST}
             >
               Close
             </button>
@@ -250,7 +251,7 @@ export function ReviewListModal({ open, onClose }: Props) {
             <div>
               <p className="text-red-500">Could not load the list. {loadError.text}</p>
               <ErrorDetails details={loadError.details} />
-              <button onClick={() => void load()} className="mt-2 px-2 py-1 rounded bg-blue-500 text-white">
+              <button onClick={() => void load()} className={`mt-2 ${BTN_PRIMARY}`}>
                 Try again
               </button>
             </div>
@@ -278,7 +279,7 @@ export function ReviewListModal({ open, onClose }: Props) {
               <p className="mt-2 text-xs text-idemora-text-muted">Keep the app open. Each note is backed up before it changes.</p>
               <button
                 onClick={() => (cancelRef.current = true)}
-                className="mt-2 underline text-idemora-text-muted hover:text-idemora-text-normal"
+                className={`mt-3 ${BTN_SECONDARY}`}
               >
                 Stop after this note
               </button>
@@ -317,14 +318,14 @@ export function ReviewListModal({ open, onClose }: Props) {
                 {phase.plan.eligible.length > 0 && (
                   <button
                     onClick={() => void confirmBulk(phase.option, phase.plan)}
-                    className="px-2 py-1 rounded bg-blue-500 text-white"
+                    className={BTN_PRIMARY}
                   >
                     Apply to {phase.plan.eligible.length}
                   </button>
                 )}
                 <button
                   onClick={() => setPhase({ kind: "list" })}
-                  className="text-idemora-text-muted hover:text-idemora-text-normal underline"
+                  className={BTN_SECONDARY}
                 >
                   {phase.plan.eligible.length > 0 ? "Cancel" : "Back"}
                 </button>
@@ -341,7 +342,7 @@ export function ReviewListModal({ open, onClose }: Props) {
               </p>
               <button
                 onClick={() => setPhase({ kind: "list" })}
-                className="mt-3 px-2 py-1 rounded bg-blue-500 text-white"
+                className={`mt-3 ${BTN_PRIMARY}`}
               >
                 Back to the list
               </button>
@@ -363,7 +364,7 @@ export function ReviewListModal({ open, onClose }: Props) {
               )}
               <button
                 onClick={() => setPhase({ kind: "list" })}
-                className="mt-3 px-2 py-1 rounded bg-blue-500 text-white"
+                className={`mt-3 ${BTN_PRIMARY}`}
               >
                 Back to the list
               </button>
