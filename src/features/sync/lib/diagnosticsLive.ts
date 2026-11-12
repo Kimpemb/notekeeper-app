@@ -15,6 +15,7 @@ import { supabase } from "@/features/sync/db/supabaseClient";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { getSyncState } from "@/features/sync/lib/noteSyncState";
 import { getQueueCounts } from "@/features/sync/lib/pushQueue";
+import { checkReachable } from "@/features/sync/lib/reachabilityLive";
 import {
   buildDiagnostics,
   type DiagnosticsOutcomeInput,
@@ -144,7 +145,10 @@ export async function collectDiagnostics(opts: CollectOptions = {}): Promise<str
       errors.push("local read failed");
     }
 
-    if (useSyncStore.getState().session) {
+    const reachable = useSyncStore.getState().session ? (await checkReachable()).state === "online" : true;
+    if (useSyncStore.getState().session && !reachable) {
+      errors.push("server not reachable, hosted revision skipped");
+    } else if (useSyncStore.getState().session) {
       try {
         const { data, error } = await supabase
           .from("notes")

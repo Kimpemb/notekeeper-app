@@ -41,6 +41,15 @@ export function CopyDiagnosticsButton({ noteId, review, outcome }: Props) {
     }
   }
 
+  // A fresh click is a valid gesture for the clipboard, so this usually works
+  // even when the first automatic copy was refused or came too late.
+  async function copyAgain() {
+    if (await copyText(manualText)) {
+      setStatus("copied");
+      setManualText("");
+    }
+  }
+
   return (
     <span className="inline-block">
       <button
@@ -53,12 +62,21 @@ export function CopyDiagnosticsButton({ noteId, review, outcome }: Props) {
       </button>
       {status === "copied" && <span className="ml-2 text-xs text-green-600">Copied</span>}
       {status === "manual" && (
-        <textarea
-          readOnly
-          value={manualText}
-          onFocus={(e) => e.currentTarget.select()}
-          className="mt-2 block h-32 w-full rounded border border-idemora-border bg-transparent p-2 text-xs text-idemora-text-normal"
-        />
+        <span className="mt-1 block text-xs text-idemora-text-muted">
+          Could not copy automatically.{" "}
+          <button onClick={() => void copyAgain()} className="underline hover:text-idemora-text-normal">
+            Copy
+          </button>
+          <details className="mt-1">
+            <summary className="cursor-pointer">Show the text</summary>
+            <textarea
+              readOnly
+              value={manualText}
+              onFocus={(e) => e.currentTarget.select()}
+              className="mt-1 block h-24 w-full resize-none rounded border border-idemora-border bg-transparent p-1 font-mono text-[10px] text-idemora-text-normal"
+            />
+          </details>
+        </span>
       )}
     </span>
   );
