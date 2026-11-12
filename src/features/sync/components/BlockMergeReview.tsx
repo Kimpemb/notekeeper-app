@@ -18,9 +18,10 @@ import {
   commitBlockMergeReview,
   type SyncReviewData,
 } from "@/features/sync/lib/wholeNoteReviewLive";
-import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeText";
+import { describeOutcome, type OutcomeLike, type OutcomeText } from "@/features/sync/lib/outcomeText";
 import { saveBlockPick } from "@/features/sync/lib/reviewPicksLive";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
+import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import type { MetaRowInput } from "@/features/sync/lib/wholeNoteView";
 import type { ReconcileAction } from "@/features/notes/lib/reconcileSession";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
@@ -69,6 +70,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<OutcomeText | null>(null);
   const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
+  const [rawOutcome, setRawOutcome] = useState<OutcomeLike | null>(null);
 
   const view = useMemo(
     () =>
@@ -108,6 +110,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
     onBusyChange(true);
     try {
       const outcome = await commitBlockMergeReview(noteId, review, itemsForCommit(review.items, choices), metaChoices);
+      setRawOutcome(outcome);
       setResult(describeOutcome(outcome));
     } catch (err) {
       setResult({
@@ -131,7 +134,10 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
-        <div className="mt-3">{back}</div>
+        <div className="mt-3 flex items-center gap-4">
+          {back}
+          <CopyDiagnosticsButton noteId={noteId} review={review} outcome={rawOutcome} />
+        </div>
       </div>
     );
   }
@@ -253,6 +259,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
             Decide {view.counts.pending} more {view.counts.pending === 1 ? "block" : "blocks"} to apply.
           </span>
         )}
+        <CopyDiagnosticsButton noteId={noteId} review={review} />
       </div>
     </div>
   );

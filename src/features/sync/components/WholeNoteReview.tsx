@@ -12,11 +12,12 @@ import {
   loadWholeNoteReview,
   type LoadedReview,
 } from "@/features/sync/lib/wholeNoteReviewLive";
-import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeText";
+import { describeOutcome, type OutcomeLike, type OutcomeText } from "@/features/sync/lib/outcomeText";
 import { BlockMergeReview } from "@/features/sync/components/BlockMergeReview";
 import type { WholeNoteChoiceId } from "@/features/sync/lib/wholeNoteView";
 import type { CandidateKind } from "@/features/sync/lib/reviewCandidates";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
+import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 
@@ -43,6 +44,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<OutcomeText | null>(null);
   const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
+  const [rawOutcome, setRawOutcome] = useState<OutcomeLike | null>(null);
 
   useEffect(() => {
     if (kind !== "content_conflict") return;
@@ -123,6 +125,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
     onBusyChange(true);
     try {
       const outcome = await commitWholeNoteReview(noteId, review, picked.variant, metaChoices);
+      setRawOutcome(outcome);
       setResult(describeOutcome(outcome));
     } catch (err) {
       setResult({ text: `Something went wrong: ${err instanceof Error ? err.message : String(err)}. Check the note before trying again.`, tone: "error", changed: true });
@@ -142,7 +145,10 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
-        <div className="mt-3">{back}</div>
+        <div className="mt-3 flex items-center gap-4">
+          {back}
+          <CopyDiagnosticsButton noteId={noteId} review={review} outcome={rawOutcome} />
+        </div>
       </div>
     );
   }
@@ -231,6 +237,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange }: P
         <button onClick={() => void apply()} disabled={running || !picked} className="px-2 py-1 rounded bg-blue-500 text-white disabled:opacity-50">
           {running ? "Applying…" : `Apply: ${picked?.label ?? ""}`}
         </button>
+        <CopyDiagnosticsButton noteId={noteId} review={review} />
       </div>
     </div>
   );

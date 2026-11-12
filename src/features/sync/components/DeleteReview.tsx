@@ -7,8 +7,9 @@
 
 import { useEffect, useState } from "react";
 import { commitDeleteChoice, loadDeleteReview, type LoadedDeleteReview } from "@/features/sync/lib/deleteReviewLive";
-import { describeOutcome, type OutcomeText } from "@/features/sync/lib/outcomeText";
+import { describeOutcome, type OutcomeLike, type OutcomeText } from "@/features/sync/lib/outcomeText";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
+import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import type { DeleteReviewChoiceId } from "@/features/sync/lib/deleteReviewView";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
@@ -35,6 +36,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<OutcomeText | null>(null);
   const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
+  const [rawOutcome, setRawOutcome] = useState<OutcomeLike | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +88,9 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
     setRunning(true);
     onBusyChange(true);
     try {
-      setResult(describeOutcome(await commitDeleteChoice(noteId, loaded, picked.id)));
+      const outcome = await commitDeleteChoice(noteId, loaded, picked.id);
+      setRawOutcome(outcome);
+      setResult(describeOutcome(outcome));
     } catch (err) {
       setResult({
         text: `Something went wrong: ${err instanceof Error ? err.message : String(err)}. Check the note before trying again.`,
@@ -118,7 +122,10 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
-        <div className="mt-3">{back}</div>
+        <div className="mt-3 flex items-center gap-4">
+          {back}
+          <CopyDiagnosticsButton noteId={noteId} outcome={rawOutcome} />
+        </div>
       </div>
     );
   }
@@ -194,6 +201,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
             Cancel
           </button>
         )}
+        <CopyDiagnosticsButton noteId={noteId} />
       </div>
     </div>
   );
