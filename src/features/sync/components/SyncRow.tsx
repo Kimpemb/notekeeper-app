@@ -53,6 +53,33 @@ export function SubPageHeader({
   );
 }
 
+/**
+ * Footer for a page inside Settings > Sync: stays visible at the bottom of the scrolling pane
+ * while the body scrolls. Settings' pane has px-6 and pb-6, so the negative margins let the bar
+ * span the full width and sit on the pane's bottom edge. (Sticky inside that padded pane has
+ * to be checked live.)
+ */
+export function StickyFooter({ children }: { children: ReactNode }) {
+  return (
+    <div className="sticky bottom-0 z-10 -mx-6 -mb-6 mt-4 flex flex-wrap items-center gap-3 border-t border-idemora-border bg-idemora-bg-secondary px-6 py-3">
+      {children}
+    </div>
+  );
+}
+
+/** Settings scrolls one pane for every page; start a newly opened page at the top. */
+export function scrollPaneToTop(el: HTMLElement | null) {
+  let p = el?.parentElement ?? null;
+  while (p) {
+    const oy = getComputedStyle(p).overflowY;
+    if (oy === "auto" || oy === "scroll") {
+      p.scrollTo({ top: 0 });
+      return;
+    }
+    p = p.parentElement;
+  }
+}
+
 export const SyncIcons = {
   review: (
     <svg width="16" height="16" viewBox="0 0 14 14" fill="none">

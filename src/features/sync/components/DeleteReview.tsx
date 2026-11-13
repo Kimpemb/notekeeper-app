@@ -12,17 +12,18 @@ import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
-import { BTN_PRIMARY, BTN_SECONDARY, ROW_HOVER } from "@/features/sync/components/SyncRow";
+import { BTN_PRIMARY, BTN_SECONDARY, ROW_HOVER, StickyFooter } from "@/features/sync/components/SyncRow";
 import type { DeleteReviewChoiceId } from "@/features/sync/lib/deleteReviewView";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 interface Props {
   noteId: string;
-  title: string;
   kind: "deleted_here" | "purged_elsewhere";
   /** changed: something may have been written, so the list should refresh. */
   onBack: (changed: boolean, resolved?: boolean) => void;
   onBusyChange: (busy: boolean) => void;
+  /** Reports the result of an apply, so the page header's back button can act like "Done". */
+  onOutcome?: (changed: boolean, resolved: boolean) => void;
 }
 
 const TONE_CLASS: Record<OutcomeText["tone"], string> = {
@@ -32,7 +33,7 @@ const TONE_CLASS: Record<OutcomeText["tone"], string> = {
   error: "text-red-500",
 };
 
-export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Props) {
+export function DeleteReview({ noteId, kind, onBack, onBusyChange, onOutcome }: Props) {
   const [loaded, setLoaded] = useState<LoadedDeleteReview | null>(null);
   const [choice, setChoice] = useState<DeleteReviewChoiceId>(kind === "deleted_here" ? "keep_it" : "keep_mine");
   const [confirming, setConfirming] = useState(false);
@@ -41,6 +42,11 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
   const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
   const [rawOutcome, setRawOutcome] = useState<OutcomeLike | null>(null);
   const [attempt, setAttempt] = useState(0);
+
+  // Tell the page what happened, so its header back button can behave like "Done".
+  useEffect(() => {
+    if (result) onOutcome?.(result.changed, result.tone === "success");
+  }, [result, onOutcome]);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,22 +60,21 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
     };
   }, [noteId, kind, attempt]);
 
-  const back = (
+  // Shown on the result screen (the page header's back button does the same).
+  const done = (
     <button
       onClick={() => onBack(result?.changed ?? false, result?.tone === "success")}
       disabled={running}
-      className={BTN_SECONDARY}
+      className={BTN_PRIMARY}
     >
-      Back to the list
+      {result?.tone === "success" ? "Done" : "Back to the list"}
     </button>
   );
-  const heading = <h3 className="font-medium text-idemora-text-normal truncate">{title}</h3>;
 
   if (!loaded) {
     return (
       <div>
-        {heading}
-        <p className="mt-2 text-idemora-text-muted">Loading…</p>
+        <p className="text-idemora-text-muted">Loading…</p>
       </div>
     );
   }
@@ -77,17 +82,15 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
   if (!loaded.ok) {
     return (
       <div>
-        {heading}
-        <p className="mt-2 text-idemora-text-muted">{loaded.message}</p>
+        <p className="text-idemora-text-muted">{loaded.message}</p>
         {loaded.details && <ErrorDetails details={loaded.details} />}
-        <div className="mt-3 flex items-center gap-4">
-          {loaded.retryable && (
+        {loaded.retryable && (
+          <div className="mt-3">
             <button onClick={() => setAttempt((a) => a + 1)} className={BTN_PRIMARY}>
               Try again
             </button>
-          )}
-          {back}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -124,29 +127,24 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
   if (result) {
     return (
       <div>
-        {heading}
-        <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
+        <p className={TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}>
           {closeMsg ? closeMsg.text : result.text}
         </p>
         {result.details && !closeMsg && <ErrorDetails details={result.details} />}
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
-        <div className="mt-3 flex items-center gap-4">
-          {back}
+        <StickyFooter>
+          {done}
           <CopyDiagnosticsButton noteId={noteId} outcome={rawOutcome} />
-        </div>
+        </StickyFooter>
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3">
-        {heading}
-        {back}
-      </div>
-      <p className="mt-2 text-idemora-text-normal">{view.explanation}</p>
+      <p className="text-idemora-text-normal">{view.explanation}</p>
 
       {view.mediaNotice && (
         <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-idemora-text-normal">
@@ -156,7 +154,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
 
       <div className="mt-3 min-w-0">
         <p className="text-xs font-medium text-idemora-text-muted">{view.contentLabel}</p>
-        <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-idemora-border bg-idemora-bg-primary/40 px-3 py-2 text-xs text-idemora-text-normal">
+        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-idemora-border bg-idemora-bg-primary/40 px-3 py-2 text-xs text-idemora-text-normal">
           {view.lines.join("\n")}
         </pre>
       </div>
@@ -202,7 +200,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
         </p>
       )}
 
-      <div className="mt-3 flex items-center gap-3">
+      <StickyFooter>
         <button
           onClick={onApply}
           disabled={running || !picked}
@@ -220,7 +218,7 @@ export function DeleteReview({ noteId, title, kind, onBack, onBusyChange }: Prop
           </button>
         )}
         <CopyDiagnosticsButton noteId={noteId} />
-      </div>
+      </StickyFooter>
     </div>
   );
 }

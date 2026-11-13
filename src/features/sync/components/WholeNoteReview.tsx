@@ -20,19 +20,18 @@ import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
-import { BTN_PRIMARY, BTN_SECONDARY, ROW_HOVER } from "@/features/sync/components/SyncRow";
+import { BTN_PRIMARY, ROW_HOVER, StickyFooter } from "@/features/sync/components/SyncRow";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 
 interface Props {
   noteId: string;
-  title: string;
   kind: CandidateKind;
   /** changed: something may have been written, so the list should refresh. */
   onBack: (changed: boolean, resolved?: boolean) => void;
   onBusyChange: (busy: boolean) => void;
-  /** Reports whether this screen needs the wide layout (side-by-side columns). */
-  onWide?: (wide: boolean) => void;
+  /** Reports the result of an apply, so the page header's back button can act like "Done". */
+  onOutcome?: (changed: boolean, resolved: boolean) => void;
 }
 
 const TONE_CLASS: Record<OutcomeText["tone"], string> = {
@@ -42,7 +41,7 @@ const TONE_CLASS: Record<OutcomeText["tone"], string> = {
   error: "text-red-500",
 };
 
-export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onWide }: Props) {
+export function WholeNoteReview({ noteId, kind, onBack, onBusyChange, onOutcome }: Props) {
   const [loaded, setLoaded] = useState<LoadedReview | null>(null);
   const [choice, setChoice] = useState<WholeNoteChoiceId>("keep_mine");
   const [metaChoices, setMetaChoices] = useState<Record<string, "mine" | "theirs">>({});
@@ -51,6 +50,11 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
   const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
   const [rawOutcome, setRawOutcome] = useState<OutcomeLike | null>(null);
   const [attempt, setAttempt] = useState(0);
+
+  // Tell the page what happened, so its header back button can behave like "Done".
+  useEffect(() => {
+    if (result) onOutcome?.(result.changed, result.tone === "success");
+  }, [result, onOutcome]);
 
   useEffect(() => {
     if (kind !== "content_conflict") return;
@@ -69,41 +73,33 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
     };
   }, [noteId, kind, attempt]);
 
-  const back = (
-    <button onClick={() => onBack(result?.changed ?? false, result?.tone === "success")} disabled={running} className={BTN_SECONDARY}>
-      Back to the list
+  // Shown on the result screen (the page header's back button does the same).
+  const done = (
+    <button
+      onClick={() => onBack(result?.changed ?? false, result?.tone === "success")}
+      disabled={running}
+      className={BTN_PRIMARY}
+    >
+      {result?.tone === "success" ? "Done" : "Back to the list"}
     </button>
   );
-
-  const heading = <h3 className="font-medium text-idemora-text-normal truncate">{title}</h3>;
-
-  // Wide only while the mine/theirs columns are on screen. When the block merge takes over
-  // (loaded.kind === "block_merge") it reports its own width, so this stays out of the way.
-  const wholeNoteWide = !!loaded && loaded.ok && loaded.kind === "whole_note" && !result;
-  useEffect(() => {
-    if (!wholeNoteWide) return;
-    onWide?.(true);
-    return () => onWide?.(false);
-  }, [wholeNoteWide, onWide]);
 
   if (kind !== "content_conflict") {
     const unchecked = kind === "unchecked";
     return (
       <div>
-        {heading}
-        <p className="mt-2 text-idemora-text-muted">
+        <p className="text-idemora-text-muted">
           {unchecked
             ? "The server could not be reached to check this note, so it cannot be reviewed right now. Check your connection, then check again."
             : "This note was not found on the server, so there is nothing to compare it with. Nothing was changed."}
         </p>
-        <div className="mt-3 flex items-center gap-4">
-          {unchecked && (
+        {unchecked && (
+          <div className="mt-3">
             <button onClick={() => onBack(true)} className={BTN_PRIMARY}>
               Check again
             </button>
-          )}
-          {back}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -111,8 +107,7 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
   if (!loaded) {
     return (
       <div>
-        {heading}
-        <p className="mt-2 text-idemora-text-muted">Loading both versions…</p>
+        <p className="text-idemora-text-muted">Loading both versions…</p>
       </div>
     );
   }
@@ -120,17 +115,15 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
   if (!loaded.ok) {
     return (
       <div>
-        {heading}
-        <p className="mt-2 text-red-500">{loaded.message}</p>
+        <p className="text-red-500">{loaded.message}</p>
         {loaded.details && <ErrorDetails details={loaded.details} />}
-        <div className="mt-3 flex items-center gap-4">
-          {loaded.retryable && (
+        {loaded.retryable && (
+          <div className="mt-3">
             <button onClick={() => setAttempt((a) => a + 1)} className={BTN_PRIMARY}>
               Try again
             </button>
-          )}
-          {back}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -139,12 +132,11 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
     return (
       <BlockMergeReview
         noteId={noteId}
-        title={title}
         review={loaded.review}
         metaRows={loaded.metaRows}
         parentTitles={loaded.parentTitles}
         onBack={onBack}
-        onWide={onWide}
+        onOutcome={onOutcome}
         onBusyChange={onBusyChange}
       />
     );
@@ -173,18 +165,17 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
   if (result) {
     return (
       <div>
-        {heading}
-        <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
+        <p className={TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}>
           {closeMsg ? closeMsg.text : result.text}
         </p>
         {result.details && !closeMsg && <ErrorDetails details={result.details} />}
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
-        <div className="mt-3 flex items-center gap-4">
-          {back}
+        <StickyFooter>
+          {done}
           <CopyDiagnosticsButton noteId={noteId} review={review} outcome={rawOutcome} />
-        </div>
+        </StickyFooter>
       </div>
     );
   }
@@ -193,13 +184,8 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3">
-        {heading}
-        {back}
-      </div>
-
       {view.mediaNotice && (
-        <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-idemora-text-normal">
+        <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-idemora-text-normal">
           {view.mediaNotice}
         </p>
       )}
@@ -209,14 +195,14 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
         </p>
       )}
 
-      <div className="mt-3 grid grid-cols-2 gap-3">
+      <div className="mt-3 grid grid-cols-1 gap-3">
         {([
           ["Mine (this device)", view.mine.lines],
           ["Theirs (the other device)", view.theirs.lines],
         ] as const).map(([label, lines]) => (
           <div key={label} className="min-w-0">
             <p className="text-xs font-medium text-idemora-text-muted">{label}</p>
-            <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-idemora-border bg-idemora-bg-primary/40 px-3 py-2 text-xs text-idemora-text-normal">
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-idemora-border bg-idemora-bg-primary/40 px-3 py-2 text-xs text-idemora-text-normal">
               {lines.join("\n")}
             </pre>
           </div>
@@ -273,12 +259,12 @@ export function WholeNoteReview({ noteId, title, kind, onBack, onBusyChange, onW
         </ul>
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      <StickyFooter>
         <button onClick={() => void apply()} disabled={running || !picked} className={BTN_PRIMARY}>
           {running ? "Applying…" : `Apply: ${picked?.label ?? ""}`}
         </button>
         <CopyDiagnosticsButton noteId={noteId} review={review} />
-      </div>
+      </StickyFooter>
     </div>
   );
 }

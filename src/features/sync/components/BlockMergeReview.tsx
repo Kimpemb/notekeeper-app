@@ -24,22 +24,21 @@ import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
-import { BTN_PRIMARY, BTN_SECONDARY, ROW_HOVER } from "@/features/sync/components/SyncRow";
+import { BTN_PRIMARY, ROW_HOVER, StickyFooter } from "@/features/sync/components/SyncRow";
 import type { MetaRowInput } from "@/features/sync/lib/wholeNoteView";
 import type { ReconcileAction } from "@/features/notes/lib/reconcileSession";
 import type { CloseText } from "@/features/sync/lib/closeNoteText";
 
 interface Props {
   noteId: string;
-  title: string;
   review: SyncReviewData;
   metaRows: MetaRowInput[];
   parentTitles: ReadonlyMap<string, string>;
   /** changed: something may have been written, so the list should refresh. */
   onBack: (changed: boolean, resolved?: boolean) => void;
   onBusyChange: (busy: boolean) => void;
-  /** Reports whether this screen needs the wide layout (side-by-side columns). */
-  onWide?: (wide: boolean) => void;
+  /** Reports the result of an apply, so the page header's back button can act like "Done". */
+  onOutcome?: (changed: boolean, resolved: boolean) => void;
 }
 
 const TONE_CLASS: Record<OutcomeText["tone"], string> = {
@@ -67,7 +66,7 @@ function Preview({ label, lines }: { label: string; lines: string[] | null }) {
   );
 }
 
-export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles, onBack, onBusyChange, onWide }: Props) {
+export function BlockMergeReview({ noteId, review, metaRows, parentTitles, onBack, onBusyChange, onOutcome }: Props) {
   const [choices, setChoices] = useState<Record<string, ReconcileAction>>({});
   const [metaChoices, setMetaChoices] = useState<Record<string, "mine" | "theirs">>(() =>
     Object.fromEntries(metaRows.map((r) => [r.field, r.choice]))
@@ -92,24 +91,21 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
     [review, choices, metaRows, parentTitles]
   );
 
-  // Side-by-side columns only exist while there are decision cards to show.
-  const wide = view.cards.length > 0 && !result;
+  // Tell the page what happened, so its header back button can behave like "Done".
   useEffect(() => {
-    if (!wide) return;
-    onWide?.(true);
-    return () => onWide?.(false);
-  }, [wide, onWide]);
+    if (result) onOutcome?.(result.changed, result.tone === "success");
+  }, [result, onOutcome]);
 
-  const back = (
+  // Shown on the result screen (the page header's back button does the same).
+  const done = (
     <button
       onClick={() => onBack(result?.changed ?? false, result?.tone === "success")}
       disabled={running}
-      className={BTN_SECONDARY}
+      className={BTN_PRIMARY}
     >
-      Back to the list
+      {result?.tone === "success" ? "Done" : "Back to the list"}
     </button>
   );
-  const heading = <h3 className="font-medium text-idemora-text-normal truncate">{title}</h3>;
 
   function pick(blockId: string, action: ReconcileAction) {
     setChoices((prev) => ({ ...prev, [blockId]: action }));
@@ -137,29 +133,24 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
   if (result) {
     return (
       <div>
-        {heading}
-        <p className={`mt-2 ${TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}`}>
+        <p className={TONE_CLASS[closeMsg ? closeMsg.tone : result.tone]}>
           {closeMsg ? closeMsg.text : result.text}
         </p>
         {result.details && !closeMsg && <ErrorDetails details={result.details} />}
         {result.closeNote && !closeMsg && (
           <CloseNoteButton noteId={noteId} context="review" onClosed={setCloseMsg} onBusyChange={onBusyChange} />
         )}
-        <div className="mt-3 flex items-center gap-4">
-          {back}
+        <StickyFooter>
+          {done}
           <CopyDiagnosticsButton noteId={noteId} review={review} outcome={rawOutcome} />
-        </div>
+        </StickyFooter>
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3">
-        {heading}
-        {back}
-      </div>
-      <p className="mt-2 text-xs text-idemora-text-muted">{view.summary}</p>
+      <p className="text-xs text-idemora-text-muted">{view.summary}</p>
 
       {view.banners.map((b) => (
         <p key={b} className="mt-2 rounded-lg border border-idemora-border px-3 py-2 text-xs text-idemora-text-muted">
@@ -183,7 +174,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
               </div>
               <p className="mt-1 text-xs text-idemora-text-muted">{card.explanation}</p>
 
-              <div className={`mt-2 grid gap-2 ${card.base ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+              <div className="mt-2 grid grid-cols-1 gap-2">
                 <Preview label="Before either change" lines={card.base} />
                 <Preview label="Mine (this device)" lines={card.mine} />
                 <Preview label="Theirs (the other device)" lines={card.theirs} />
@@ -261,7 +252,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-3">
+      <StickyFooter>
         <button
           onClick={() => void apply()}
           disabled={running || !view.canApply}
@@ -275,7 +266,7 @@ export function BlockMergeReview({ noteId, title, review, metaRows, parentTitles
           </span>
         )}
         <CopyDiagnosticsButton noteId={noteId} review={review} />
-      </div>
+      </StickyFooter>
     </div>
   );
 }

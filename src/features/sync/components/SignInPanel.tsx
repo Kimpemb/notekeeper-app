@@ -13,11 +13,11 @@ import { drainPushQueue } from "@/features/sync/lib/drainPushQueue";
 import { useVaultSync } from "@/features/sync/hooks/useVaultSync";
 import { VaultSyncPrompt } from "@/features/sync/components/VaultSyncPrompt";
 import { NeedReviewEntry, type ReviewCount } from "@/features/sync/components/NeedReviewEntry";
-import { ReviewListModal } from "@/features/sync/components/ReviewListModal";
+import { ReviewListView } from "@/features/sync/components/ReviewListView";
 import { BackupsView } from "@/features/sync/components/BackupsView";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
-import { BTN_PRIMARY, BTN_SECONDARY, SyncIcons, SyncRow } from "@/features/sync/components/SyncRow";
+import { BTN_PRIMARY, BTN_SECONDARY, SyncIcons, SyncRow, scrollPaneToTop } from "@/features/sync/components/SyncRow";
 import { classifyError } from "@/features/sync/lib/classifyError";
 import { syncStatus, type StatusTone } from "@/features/sync/lib/syncStatus";
 
@@ -50,19 +50,6 @@ function Heading({ children }: { children: React.ReactNode }) {
 const INPUT =
   "w-full rounded-md border border-idemora-border bg-idemora-bg-secondary px-3 py-2 text-sm text-idemora-text-normal outline-none focus:border-blue-500";
 
-// Settings scrolls one pane for every page; start a newly opened page at the top.
-function scrollPaneToTop(el: HTMLElement | null) {
-  let p = el?.parentElement ?? null;
-  while (p) {
-    const oy = getComputedStyle(p).overflowY;
-    if (oy === "auto" || oy === "scroll") {
-      p.scrollTo({ top: 0 });
-      return;
-    }
-    p = p.parentElement;
-  }
-}
-
 export function SignInPanel() {
   const signIn = useSyncStore((s) => s.signIn);
   const signOut = useSyncStore((s) => s.signOut);
@@ -71,13 +58,14 @@ export function SignInPanel() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [backupsOpen, setBackupsOpen] = useState(false);
+  // Which page of Settings > Sync is showing. The review list and Backups are pages inside
+  // the Settings window (not stacked modals); each has its own back button.
+  const [view, setView] = useState<"main" | "review" | "backups">("main");
   const [review, setReview] = useState<ReviewCount | null>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollPaneToTop(paneRef.current);
-  }, [backupsOpen]);
+  }, [view]);
 
   // 4d.5: new-device download. Owned here so Upload vault can be locked while the gate is closed.
   const vault = useVaultSync();
@@ -136,10 +124,17 @@ export function SignInPanel() {
   }
 
   if (session) {
-    if (backupsOpen) {
+    if (view === "backups") {
       return (
         <div ref={paneRef} className="text-sm">
-          <BackupsView onBack={() => setBackupsOpen(false)} />
+          <BackupsView onBack={() => setView("main")} />
+        </div>
+      );
+    }
+    if (view === "review") {
+      return (
+        <div ref={paneRef} className="text-sm">
+          <ReviewListView onBack={() => setView("main")} />
         </div>
       );
     }
@@ -165,10 +160,9 @@ export function SignInPanel() {
         <NeedReviewEntry
           variant="row"
           refreshKey={queue?.remoteAhead}
-          onOpen={() => setReviewOpen(true)}
+          onOpen={() => setView("review")}
           onCount={setReview}
         />
-        <ReviewListModal open={reviewOpen} onClose={() => setReviewOpen(false)} />
 
         <VaultSyncPrompt vault={vault} />
 
@@ -209,7 +203,7 @@ export function SignInPanel() {
             title="Backups"
             description="Copies saved before sync changes, and how to restore them."
             chevron
-            onClick={() => setBackupsOpen(true)}
+            onClick={() => setView("backups")}
           />
           <CopyDiagnosticsButton variant="row" />
         </div>
