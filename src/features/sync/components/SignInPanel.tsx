@@ -17,7 +17,7 @@ import { ReviewListView } from "@/features/sync/components/ReviewListView";
 import { BackupsView } from "@/features/sync/components/BackupsView";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
-import { BTN_PRIMARY, BTN_SECONDARY, SyncIcons, SyncRow, scrollPaneToTop } from "@/features/sync/components/SyncRow";
+import { BTN_GHOST, BTN_PRIMARY, BTN_SECONDARY, SyncIcons, SyncRow, scrollPaneToTop } from "@/features/sync/components/SyncRow";
 import { classifyError } from "@/features/sync/lib/classifyError";
 import { syncStatus, type StatusTone } from "@/features/sync/lib/syncStatus";
 
@@ -149,6 +149,9 @@ export function SignInPanel() {
               <p className="text-sm text-idemora-text-normal">{status.text}</p>
               <p className="mt-0.5 truncate text-xs text-idemora-text-muted">Signed in as {session.user.email}</p>
             </div>
+            <button onClick={signOut} className={`-mr-1 shrink-0 ${BTN_GHOST}`}>
+              Sign out
+            </button>
           </div>
           {queue && queue.parked > 0 && (
             <button onClick={handleRetryParked} className={`mt-3 ${BTN_SECONDARY}`}>
@@ -207,12 +210,7 @@ export function SignInPanel() {
           />
           <CopyDiagnosticsButton variant="row" />
         </div>
-
-        <div className="mt-6">
-          <button onClick={signOut} className={BTN_SECONDARY}>
-            Sign out
-          </button>
-        </div>
+ 
       </div>
     );
   }
