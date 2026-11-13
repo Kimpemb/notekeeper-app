@@ -14,7 +14,7 @@ import { useVaultSync } from "@/features/sync/hooks/useVaultSync";
 import { VaultSyncPrompt } from "@/features/sync/components/VaultSyncPrompt";
 import { NeedReviewEntry, type ReviewCount } from "@/features/sync/components/NeedReviewEntry";
 import { ReviewListModal } from "@/features/sync/components/ReviewListModal";
-import { BackupsModal } from "@/features/sync/components/BackupsModal";
+import { BackupsView } from "@/features/sync/components/BackupsView";
 import { CopyDiagnosticsButton } from "@/features/sync/components/CopyDiagnosticsButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { BTN_PRIMARY, BTN_SECONDARY, SyncIcons, SyncRow } from "@/features/sync/components/SyncRow";
@@ -50,6 +50,19 @@ function Heading({ children }: { children: React.ReactNode }) {
 const INPUT =
   "w-full rounded-md border border-idemora-border bg-idemora-bg-secondary px-3 py-2 text-sm text-idemora-text-normal outline-none focus:border-blue-500";
 
+// Settings scrolls one pane for every page; start a newly opened page at the top.
+function scrollPaneToTop(el: HTMLElement | null) {
+  let p = el?.parentElement ?? null;
+  while (p) {
+    const oy = getComputedStyle(p).overflowY;
+    if (oy === "auto" || oy === "scroll") {
+      p.scrollTo({ top: 0 });
+      return;
+    }
+    p = p.parentElement;
+  }
+}
+
 export function SignInPanel() {
   const signIn = useSyncStore((s) => s.signIn);
   const signOut = useSyncStore((s) => s.signOut);
@@ -61,6 +74,10 @@ export function SignInPanel() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [backupsOpen, setBackupsOpen] = useState(false);
   const [review, setReview] = useState<ReviewCount | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scrollPaneToTop(paneRef.current);
+  }, [backupsOpen]);
 
   // 4d.5: new-device download. Owned here so Upload vault can be locked while the gate is closed.
   const vault = useVaultSync();
@@ -119,9 +136,16 @@ export function SignInPanel() {
   }
 
   if (session) {
+    if (backupsOpen) {
+      return (
+        <div ref={paneRef} className="text-sm">
+          <BackupsView onBack={() => setBackupsOpen(false)} />
+        </div>
+      );
+    }
     const status = syncStatus({ queue, review });
     return (
-      <div className="text-sm">
+      <div ref={paneRef} className="text-sm">
         <Heading>Status</Heading>
         <div className="rounded-lg border border-idemora-border p-3">
           <div className="flex items-start gap-3">
@@ -189,7 +213,6 @@ export function SignInPanel() {
           />
           <CopyDiagnosticsButton variant="row" />
         </div>
-        <BackupsModal open={backupsOpen} onClose={() => setBackupsOpen(false)} />
 
         <div className="mt-6">
           <button onClick={signOut} className={BTN_SECONDARY}>

@@ -20,6 +20,39 @@ export const BTN_GHOST = `rounded-md px-2 py-1 text-sm text-idemora-text-muted t
 export const INPUT_COMPACT =
   "rounded-md border border-idemora-border bg-idemora-bg-secondary px-3 py-1.5 text-sm text-idemora-text-normal outline-none focus:border-blue-500";
 
+/** Header for a page inside Settings > Sync: back button (named after the page it returns to), title, optional right slot. */
+export function SubPageHeader({
+  title,
+  backLabel,
+  onBack,
+  backDisabled,
+  right,
+}: {
+  title: string;
+  backLabel: string;
+  onBack: () => void;
+  backDisabled?: boolean;
+  right?: ReactNode;
+}) {
+  return (
+    <div className="mb-4 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onBack}
+        disabled={backDisabled}
+        className={`-ml-2 flex shrink-0 items-center gap-1 ${BTN_GHOST}`}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M7.5 2.5L4 6l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        {backLabel}
+      </button>
+      <h2 className="min-w-0 flex-1 truncate text-base font-medium text-idemora-text-normal">{title}</h2>
+      {right}
+    </div>
+  );
+}
+
 export const SyncIcons = {
   review: (
     <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
