@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { createNote as dbCreateNote } from "@/features/notes/db/queries";
+import { wasSubPageJustInserted } from "@/features/editor/components/Editor/subPageFresh";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
@@ -61,6 +62,12 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
 
   useEffect(() => {
     if (mode !== "editing") return;
+    // A placeholder loaded from saved content (tab closed before the name was confirmed) has no
+    // note behind it. Create it now with its saved title instead of leaving it half-made.
+    if (!wasSubPageJustInserted()) {
+      void commit(title);
+      return;
+    }
     const el = inputRef.current;
     if (!el) return;
     setTimeout(() => { el.focus(); el.select(); }, 30);

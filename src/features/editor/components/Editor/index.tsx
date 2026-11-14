@@ -40,7 +40,7 @@ import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
 import { Breadcrumb } from "./Breadcrumb";
 import { enqueueNoteForIndexing } from "@/features/ai/lib/indexer"
 import { DateChipExtension, DateChipDeletionWatcher } from "./DateChipExtension";
-
+import { markSubPageInserted } from "@/features/editor/components/Editor/subPageFresh";
 
 import {
   CodeBlock, Callout, CheckList, CheckItem, Toggle, ToggleSummary, ToggleBody,
@@ -962,6 +962,7 @@ if (!contentReady) return null;
       s["subPage"].paneId = paneId;
     }
 
+    markSubPageInserted();
     const insertChain = editor.chain().focus();
     if (slashStartPos.current !== null) {
       insertChain.deleteRange({ from: slashStartPos.current, to: editor.state.selection.from });
