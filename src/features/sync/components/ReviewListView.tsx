@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listReviewCandidates, type ReviewCandidateList } from "@/features/sync/lib/reviewCandidatesLive";
+import { refreshReviewBadge } from "@/features/sync/lib/reviewBadgeLive";
 import { countByKind, type CandidateKind } from "@/features/sync/lib/reviewCandidates";
 import {
   DEFAULT_QUERY,
@@ -82,6 +83,8 @@ export function ReviewListView({ onBack }: Props) {
   const outcomeRef = useRef({ changed: false, resolved: false });
   const onOutcome = useCallback((changed: boolean, resolved: boolean) => {
     outcomeRef.current = { changed, resolved };
+    // The apply is already committed: let the title-bar badge drop to the new count at once.
+    void refreshReviewBadge();
   }, []);
 
   const load = useCallback(async () => {
@@ -90,6 +93,7 @@ export function ReviewListView({ onBack }: Props) {
     try {
       const result = await listReviewCandidates();
       setList(result);
+      void refreshReviewBadge();
       // Forget selections for notes that are no longer in the list.
       const present = new Set(result.candidates.map((c) => c.noteId));
       setSelected((prev) => new Set([...prev].filter((id) => present.has(id))));

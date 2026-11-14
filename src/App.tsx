@@ -25,6 +25,7 @@ import { exportNotesToFile, exportDocxToFile } from "@/lib/tauri/fs";
 import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
 import { DeadlineResurfaceBar } from "@/features/ui/components/DeadlineResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ConflictBadge } from "@/features/sync/components/ConflictBadge";
  
 import "@/styles/main.css";
 import "@/styles/idemora-theme.css";
@@ -868,6 +869,9 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
 
             {/* Separator line */}
             <div className="w-px h-5 bg-idemora-border/50 mx-1 shrink-0" />
+
+            {/* Conflict badge: only renders when a note needs review */}
+            <ConflictBadge />
 
             {/* Separator line */}
             <div className="w-px h-5 bg-idemora-border/50 mx-1 shrink-0" />

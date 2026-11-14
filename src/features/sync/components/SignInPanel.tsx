@@ -6,6 +6,7 @@
 // Copy diagnostics. The status sentence comes from the pure syncStatus().
 
 import { useEffect, useRef, useState } from "react";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { backfillVault, type BackfillSummary } from "@/features/sync/lib/backfillVault";
 import { getQueueCounts, requeueParked, type PushQueueCounts } from "@/features/sync/lib/pushQueue";
@@ -60,7 +61,14 @@ export function SignInPanel() {
   const [loading, setLoading] = useState(false);
   // Which page of Settings > Sync is showing. The review list and Backups are pages inside
   // the Settings window (not stacked modals); each has its own back button.
-  const [view, setView] = useState<"main" | "review" | "backups">("main");
+  // Opened from the conflict badge: start on the Needs review list.
+  const settingsTarget = useUIStore((s) => s.settingsTarget);
+  const [view, setView] = useState<"main" | "review" | "backups">(() =>
+    useUIStore.getState().settingsTarget?.view === "review" ? "review" : "main"
+  );
+  useEffect(() => {
+    if (settingsTarget?.view === "review") setView("review");
+  }, [settingsTarget]);
   const [review, setReview] = useState<ReviewCount | null>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   useEffect(() => {

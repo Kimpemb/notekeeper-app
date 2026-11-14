@@ -10,7 +10,7 @@
 // Phase 5: WebSearchSection rebuilt to match modal quality bar.
 // Hover pass: consistent hover states applied throughout all sections.
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useUIStore }     from "@/features/ui/store/useUIStore";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
@@ -841,6 +841,7 @@ function WebSearchSection() {
 
 export function SettingsModal() {
   const settingsOpen  = useUIStore((s) => s.settingsOpen);
+  const settingsTarget = useUIStore((s) => s.settingsTarget);
   const closeSettings = useUIStore((s) => s.closeSettings);
   const theme         = useUIStore((s) => s.theme);
   const setTheme      = useUIStore((s) => s.setTheme);
@@ -849,6 +850,11 @@ export function SettingsModal() {
   const storeUpdate = useAppSettings((s) => s.updateSetting);
 
   const [section, setSection] = useState<Section>("appearance");
+
+  // Opened with a target (for example from the conflict badge): jump to that section before paint.
+  useLayoutEffect(() => {
+    if (settingsOpen && settingsTarget) setSection(settingsTarget.section);
+  }, [settingsOpen, settingsTarget]);
   const [saved, setSaved]     = useState(false);
   const saveTimer             = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overlayRef            = useRef<HTMLDivElement>(null);
@@ -913,16 +919,8 @@ export function SettingsModal() {
 
         {/* ── Content ── */}
         <div className="flex-1 relative">
-          <button
-            onClick={closeSettings}
-            className={`absolute top-3 right-3 z-10 w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted transition-colors duration-150 ${H}`}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </button>
-
-          <div ref={contentRef} className="h-full overflow-y-auto pt-12 pb-6 px-6">
+          {/* No close button: Esc and a click outside the window close Settings. */}
+          <div ref={contentRef} className="h-full overflow-y-auto pt-6 pb-6 px-6">
 
             {/* ── Appearance ── */}
             {section === "appearance" && (

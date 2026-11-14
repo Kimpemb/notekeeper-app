@@ -3,8 +3,8 @@
 // A small amber "refresh" ring in the title bar (left of the window controls) with the number of
 // notes that need review inside it. Visible only when signed in and the count is above zero; it disappears the
 // moment the last note is resolved. Clicking it opens Settings > Sync > Needs review.
-// The ring is the two sync arrows themselves (no separate border). It pulses (twice) each time the
-// count goes UP, then stays still. No toast.
+// The ring is the two sync arrows themselves (no separate border). The ring itself swells slightly
+// (twice) each time the count goes UP, then stays still. No toast.
 //
 // The count is local (reviewBadgeLive.ts), refreshed every few seconds and straight after a
 // review is applied (ReviewListView calls refreshReviewBadge).
@@ -22,10 +22,11 @@ const POLL_MS = 5_000;
 // inside the 44 px title bar. Reduced-motion users get no animation.
 const PULSE_CSS = `
 @keyframes idemora-badge-pulse {
-  0%   { transform: scale(1); opacity: 0.8; }
-  100% { transform: scale(1.3); opacity: 0; }
+  0%   { transform: scale(1); opacity: 1; }
+  50%  { transform: scale(1.18); opacity: 0.65; }
+  100% { transform: scale(1); opacity: 1; }
 }
-.idemora-badge-pulse { animation: idemora-badge-pulse 1s ease-out 2; }
+.idemora-badge-pulse { animation: idemora-badge-pulse 0.9s ease-in-out 2; }
 @media (prefers-reduced-motion: reduce) { .idemora-badge-pulse { animation: none; } }
 `;
 
@@ -67,19 +68,20 @@ export function ConflictBadge() {
         aria-label={tip}
         className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-amber-600 transition-colors duration-150 hover:bg-amber-500/15 dark:text-amber-400"
       >
-        {pulseKey > 0 && (
-          <span
-            key={pulseKey}
-            aria-hidden
-            className="idemora-badge-pulse pointer-events-none absolute inset-0 rounded-full ring-2 ring-amber-400"
-          />
-        )}
         {/* The two sync arrows form the ring; the count sits in the middle. */}
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <svg
+          key={pulseKey}
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden
+          className={pulseKey > 0 ? "idemora-badge-pulse" : undefined}
+        >
           <path
             d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"
             stroke="currentColor"
-            strokeWidth="1.9"
+            strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
           />

@@ -80,6 +80,13 @@ interface ClosedTab {
   pane: 1 | 2;
 }
 
+/** Where Settings should open. Only the Sync section can be targeted for now. */
+export interface SettingsTarget {
+  section: "sync";
+  /** "review" opens Sync > Needs review (the list); omitted opens the Sync screen. */
+  view?: "review";
+}
+
 interface UIStore {
   // ─── Theme ────────────────────────────────────────────────────────────────
   theme: Theme;
@@ -89,7 +96,9 @@ interface UIStore {
 
   // ─── Settings modal ───────────────────────────────────────────────────────
   settingsOpen: boolean;
-  openSettings: () => void;
+  /** Set by openSettings(target), cleared when Settings closes. */
+  settingsTarget: SettingsTarget | null;
+  openSettings: (target?: SettingsTarget) => void;
   closeSettings: () => void;
 
   // ─── Sidebar (left rail) ──────────────────────────────────────────────────
@@ -366,11 +375,12 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     // ─── Settings modal ───────────────────────────────────────────────────────
     settingsOpen: false,
-    openSettings: () => {
-      set({ settingsOpen: true });
+    settingsTarget: null,
+    openSettings: (target) => {
+      set({ settingsOpen: true, settingsTarget: target ?? null });
       window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
     },
-    closeSettings: () => set({ settingsOpen: false }),
+    closeSettings: () => set({ settingsOpen: false, settingsTarget: null }),
 
     // ─── Sidebar (left rail) ──────────────────────────────────────────────────
     activeSidebarPanel: null,

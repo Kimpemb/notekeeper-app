@@ -35,7 +35,10 @@ export function SubPageHeader({
   right?: ReactNode;
 }) {
   return (
-    <div className="mb-4 flex items-center gap-2">
+    // Pinned: sticks to the very top of the Settings pane while the page scrolls underneath.
+    // Sticky measures from the scroll container's content box (inside its pt-6), hence the
+    // -top-6 / -mt-6 pair; the opaque background hides what scrolls beneath.
+    <div className="sticky -top-6 z-[5] -mx-6 -mt-6 mb-1 flex items-center gap-2 bg-idemora-bg-secondary px-6 pb-3 pt-6">
       <button
         type="button"
         onClick={onBack}
@@ -56,12 +59,12 @@ export function SubPageHeader({
 /**
  * Footer for a page inside Settings > Sync: stays visible at the bottom of the scrolling pane
  * while the body scrolls. Settings' pane has px-6 and pb-6, so the negative margins let the bar
- * span the full width and sit on the pane's bottom edge. (Sticky inside that padded pane has
- * to be checked live.)
+ * span the full width and sit on the pane's bottom edge. Sticky measures from the scroll
+ * container's content box, so the offset is -bottom-6 (the pane's pb-6) to reach the edge.
  */
 export function StickyFooter({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky bottom-0 z-10 -mx-6 -mb-6 mt-4 flex flex-wrap items-center gap-3 border-t border-idemora-border bg-idemora-bg-secondary px-6 py-3">
+    <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-4 flex flex-wrap items-center gap-3 border-t border-idemora-border bg-idemora-bg-secondary px-6 py-3">
       {children}
     </div>
   );
