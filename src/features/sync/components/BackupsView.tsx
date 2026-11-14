@@ -145,8 +145,8 @@ export function BackupsView({ onBack }: Props) {
   return (
     <div>
       <SubPageHeader
-        title={note ? note.title : "Backups"}
-        backLabel={note ? "Backups" : "Sync"}
+        title={note ? note.title : "Sync backups"}
+        backLabel={note ? "Sync backups" : "Sync"}
         onBack={note ? goBack : onBack}
         backDisabled={running}
         right={

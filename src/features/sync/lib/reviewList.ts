@@ -257,6 +257,28 @@ export function bulkSummaryText(s: BulkSummary): string {
   return parts.join(" ");
 }
 
+/** Plain sentence for one note in the bulk "problems" list (replaces raw status codes). */
+export function problemText(status: string, reason?: string): string {
+  switch (status) {
+    case "refused":
+      if (reason === "signed_out") return "You were signed out. Nothing was changed.";
+      if (reason === "read_failed") return "Could not read the note from the server. Nothing was changed.";
+      return "Could not start. Nothing was changed.";
+    case "network_error":
+      return "The server could not be reached. Open the note to check it.";
+    case "stale":
+    case "push_lost":
+      return "Changed again while the run was going, so it was left alone.";
+    case "committed_unrecorded":
+      return "The server took the change but this device could not record it. Check this note.";
+    case "local_failed":
+    case "server_won_local_failed":
+      return "Could not finish saving on this device. Check this note.";
+    default:
+      return "Could not be completed. Open the note to check it.";
+  }
+}
+
 export function skipReasonLabel(reason: SkipReason): string {
   switch (reason) {
     case "note_open":

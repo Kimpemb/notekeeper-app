@@ -21,6 +21,7 @@ import {
   kindLabel,
   planBulk,
   skipReasonLabel,
+  problemText,
   summarizeBulk,
   type BulkOption,
   type BulkPlan,
@@ -56,7 +57,7 @@ const KIND_ORDER: CandidateKind[] = ["content_conflict", "purged_elsewhere", "de
 
 const STOP_TEXT: Record<Exclude<BulkStopReason, null>, string> = {
   signed_out: " Stopped: you were signed out.",
-  network: " Stopped: the server could not be reached.",
+  network: " Stopped: the server could not be reached. Notes the run did not reach were left as they are.",
   cancelled: " Stopped at your request.",
 };
 
@@ -382,8 +383,7 @@ export function ReviewListView({ onBack }: Props) {
           <ul className="mt-2 text-xs text-idemora-text-muted list-disc pl-4">
             {phase.problems.map((p) => (
               <li key={p.noteId}>
-                {p.title}: {p.status}
-                {p.reason ? ` (${p.reason})` : ""}
+                {p.title}: {problemText(p.status, p.reason)}
               </li>
             ))}
           </ul>

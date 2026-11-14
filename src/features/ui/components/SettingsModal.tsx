@@ -853,7 +853,8 @@ export function SettingsModal() {
 
   // Opened with a target (for example from the conflict badge): jump to that section before paint.
   useLayoutEffect(() => {
-    if (settingsOpen && settingsTarget) setSection(settingsTarget.section);
+    if (!settingsOpen) return;
+    setSection(settingsTarget ? settingsTarget.section : "appearance");
   }, [settingsOpen, settingsTarget]);
   const [saved, setSaved]     = useState(false);
   const saveTimer             = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -211,7 +211,7 @@ export function SignInPanel() {
         <div className="flex flex-col gap-2">
           <SyncRow
             icon={SyncIcons.backups}
-            title="Backups"
+            title="Sync backups"
             description="Copies saved before sync changes, and how to restore them."
             chevron
             onClick={() => setView("backups")}
