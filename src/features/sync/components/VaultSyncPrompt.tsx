@@ -50,7 +50,7 @@ export function VaultSyncPrompt({ vault }: { vault: VaultSync }) {
     <>
       {phase === "needs_choice" && (
         <div className={NOTICE}>
-          <p className="text-sm font-medium text-idemora-text-normal">Your hosted vault already has notes</p>
+          <p className="text-sm font-medium text-idemora-text-normal">Your online vault already has notes</p>
           <p className="mt-1 text-xs text-idemora-text-muted">
             Download it to this device, or start fresh. Syncing stays paused until you choose.
           </p>
@@ -107,7 +107,7 @@ export function VaultSyncPrompt({ vault }: { vault: VaultSync }) {
         open={confirmingFresh}
         danger
         title="Start fresh on this device?"
-        message="Your hosted vault already has notes. If you start fresh, this device's own notes (including any starter notes) will be uploaded as new notes next to the existing ones, under different IDs. That means duplicates. To get your existing notes instead, cancel and choose Download vault."
+        message="Your online vault already has notes. If you start fresh, the notes on this device (including any starter notes) will be uploaded next to them, creating duplicates. To get your existing notes instead, cancel and choose Download vault."
         confirmLabel="Start fresh"
         onCancel={() => setConfirmingFresh(false)}
         onConfirm={() => {

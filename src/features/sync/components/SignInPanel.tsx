@@ -181,7 +181,7 @@ export function SignInPanel() {
         <div className="rounded-lg border border-idemora-border p-3">
           <p className="text-sm text-idemora-text-normal">Upload vault</p>
           <p className="mt-0.5 text-xs text-idemora-text-muted">
-            Sends the notes on this device to your hosted vault. Notes that are already up to date, or newer on
+            Sends the notes on this device to your online vault. Notes that are already up to date, or newer on
             the server, are skipped.
           </p>
           <div className="mt-3 flex items-center gap-2">
@@ -236,7 +236,7 @@ export function SignInPanel() {
     <form onSubmit={handleSubmit} className="flex max-w-sm flex-col gap-3 text-sm">
       <Heading>Sign in</Heading>
       <p className="-mt-1 text-xs text-idemora-text-muted">
-        Sign in to sync your notes with your hosted vault. Syncing stays off until you do.
+        Sign in to sync your notes with your online vault. Syncing stays off until you do.
       </p>
       <label className="flex flex-col gap-1">
         <span className="text-xs text-idemora-text-muted">Email</span>
