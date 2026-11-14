@@ -13,6 +13,7 @@ import { getDb } from "@/features/notes/db/client";
 import { supabase } from "@/features/sync/db/supabaseClient";
 import { useSyncStore } from "@/features/sync/store/useSyncStore";
 import { checkReachable } from "@/features/sync/lib/reachabilityLive";
+import { pushToHostedSync } from "@/features/sync/lib/pushToHostedSync";
 import {
   classifyCandidates,
   type HostedStatus,
@@ -43,6 +44,29 @@ async function fetchHostedStatuses(ids: string[]): Promise<Map<string, HostedSta
     }
   }
   return out;
+}
+
+const HEAL_CAP = 25;
+
+/**
+ * Decision 45: a parked "changed on both" row may be a lost push answer (hosted already holds
+ * exactly this device's version). pushToHostedSync re-decides and runs the heal, so call it once
+ * per content-conflict row and drop the rows that come back in sync. Anything else stays listed.
+ */
+async function healFalseConflicts(candidates: ReviewCandidate[]): Promise<ReviewCandidate[]> {
+  const healed = new Set<string>();
+  let tried = 0;
+  for (const c of candidates) {
+    if (c.kind !== "content_conflict") continue;
+    if (tried++ >= HEAL_CAP) break;
+    try {
+      const result = String(await pushToHostedSync(c.noteId));
+      if (result === "in_sync") healed.add(c.noteId);
+    } catch (err) {
+      console.warn("[sync] review list: heal attempt failed:", err);
+    }
+  }
+  return healed.size === 0 ? candidates : candidates.filter((c) => !healed.has(c.noteId));
 }
 
 export async function listReviewCandidates(): Promise<ReviewCandidateList> {
@@ -101,10 +125,9 @@ export async function listReviewCandidates(): Promise<ReviewCandidateList> {
   }
 
   const hostedChecked = hosted !== null;
-  return {
-    candidates: classifyCandidates({ queue, tombstones, hosted: hosted ?? new Map(), hostedChecked }),
-    hostedChecked,
-  };
+  let candidates = classifyCandidates({ queue, tombstones, hosted: hosted ?? new Map(), hostedChecked });
+  if (hostedChecked) candidates = await healFalseConflicts(candidates);
+  return { candidates, hostedChecked };
 }
 
 /** The number the Sync panel shows. */
