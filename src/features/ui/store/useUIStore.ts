@@ -98,6 +98,9 @@ interface UIStore {
   settingsOpen: boolean;
   /** Set by openSettings(target), cleared when Settings closes. */
   settingsTarget: SettingsTarget | null;
+  /** True while a sync operation (apply, bulk run, recover) runs; Settings will not close. */
+  syncBusy: boolean;
+  setSyncBusy: (busy: boolean) => void;
   openSettings: (target?: SettingsTarget) => void;
   closeSettings: () => void;
 
@@ -376,11 +379,14 @@ export const useUIStore = create<UIStore>((set, get) => {
     // ─── Settings modal ───────────────────────────────────────────────────────
     settingsOpen: false,
     settingsTarget: null,
+    syncBusy: false,
+    setSyncBusy: (busy) => set({ syncBusy: busy }),
     openSettings: (target) => {
       set({ settingsOpen: true, settingsTarget: target ?? null });
       window.dispatchEvent(new CustomEvent("idemora:overlay-opened"));
     },
-    closeSettings: () => set({ settingsOpen: false, settingsTarget: null }),
+    closeSettings: () =>
+      set((s) => (s.syncBusy ? s : { settingsOpen: false, settingsTarget: null })),
 
     // ─── Sidebar (left rail) ──────────────────────────────────────────────────
     activeSidebarPanel: null,

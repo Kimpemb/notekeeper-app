@@ -899,7 +899,7 @@ export function SettingsModal() {
           {SECTIONS.map((s) => (
             <button
               key={s.id}
-              onClick={() => setSection(s.id)}
+              onClick={() => { if (!useUIStore.getState().syncBusy) setSection(s.id); }}
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm text-left transition-colors duration-150 w-full ${
                 section === s.id
                   ? "bg-blue-500/10 text-blue-400 font-medium"

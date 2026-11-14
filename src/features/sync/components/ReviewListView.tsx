@@ -32,6 +32,7 @@ import { WholeNoteReview } from "@/features/sync/components/WholeNoteReview";
 import { DeleteReview } from "@/features/sync/components/DeleteReview";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import { classifyError } from "@/features/sync/lib/classifyError";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 import {
   BTN_GHOST,
   BTN_PRIMARY,
@@ -141,6 +142,12 @@ export function ReviewListView({ onBack }: Props) {
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
+  }, [busy, reviewBusy]);
+
+  // Tell Settings an operation is running so it will not close underneath it (decision 59).
+  useEffect(() => {
+    useUIStore.getState().setSyncBusy(busy || reviewBusy);
+    return () => useUIStore.getState().setSyncBusy(false);
   }, [busy, reviewBusy]);
 
   // Entering or leaving a review: forget the previous review's outcome, and (because Settings

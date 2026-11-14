@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadBackupsOverview, runRecover, type BackupNote, type BackupsOverview } from "@/features/sync/lib/backupsLive";
 import type { RecoverSide } from "@/features/sync/lib/recoverPlan";
 import type { RecoverOutcomeText } from "@/features/sync/lib/recoverView";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 import { CloseNoteButton } from "@/features/sync/components/CloseNoteButton";
 import { ErrorDetails } from "@/features/sync/components/ErrorDetails";
 import {
@@ -57,6 +58,12 @@ export function BackupsView({ onBack }: Props) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RecoverOutcomeText | null>(null);
   const [closeMsg, setCloseMsg] = useState<CloseText | null>(null);
+
+  // Tell Settings a recover is running so it will not close underneath it (decision 59).
+  useEffect(() => {
+    useUIStore.getState().setSyncBusy(running);
+    return () => useUIStore.getState().setSyncBusy(false);
+  }, [running]);
 
   const load = useCallback(async () => {
     setLoading(true);
