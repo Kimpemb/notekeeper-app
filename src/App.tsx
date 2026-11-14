@@ -12,6 +12,7 @@ import { KeyboardShortcuts } from "@/features/ui/components/KeyboardShortcuts";
 import { ImportModal } from "@/features/ui/components/ImportModal";
  
 import { SettingsModal } from "@/features/ui/components/SettingsModal";
+import { VaultSyncGate } from "@/features/sync/components/VaultSyncGate";
 import { TabBar } from "@/features/ui/components/TabBar";
 import { SplitDivider } from "@/features/ui/components/SplitDivider";
 import { TipsPanel } from "@/features/ui/components/TipsPanel";
@@ -927,6 +928,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
       <KeyboardShortcuts />
       <ImportModal />
       <SettingsModal />
+      <VaultSyncGate />
        
 
       {graphOpen    && <GraphView    ref={graphViewRef}    initialFocusNoteId={graphFocusNoteId} />}

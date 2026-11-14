@@ -67,6 +67,13 @@ export function useVaultSync() {
     void refresh();
   }, [session, refresh]);
 
+  // Another instance (the app-level prompt or the Sync screen) finished a download or Start fresh.
+  useEffect(() => {
+    const onChanged = () => void refresh();
+    window.addEventListener("idemora:vault-changed", onChanged);
+    return () => window.removeEventListener("idemora:vault-changed", onChanged);
+  }, [refresh]);
+
   const download = useCallback(async () => {
     if (abortRef.current) return; // already running
     const controller = new AbortController();
@@ -88,6 +95,7 @@ export function useVaultSync() {
       abortRef.current = null;
       setRunning(false);
       await refresh();
+      window.dispatchEvent(new Event("idemora:vault-changed"));
     }
   }, [refresh]);
 
@@ -105,6 +113,7 @@ export function useVaultSync() {
       setError(err instanceof Error ? err.message : String(err));
     }
     await refresh();
+    window.dispatchEvent(new Event("idemora:vault-changed"));
   }, [refresh]);
 
   const dismissResult = useCallback(() => {
