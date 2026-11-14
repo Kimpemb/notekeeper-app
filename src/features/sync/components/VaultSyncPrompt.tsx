@@ -96,7 +96,10 @@ export function VaultSyncPrompt({ vault }: { vault: VaultSync }) {
 
       {error && (
         <div className={`${CARD} border-red-500/40 bg-red-500/5`}>
-          <p className="text-sm text-red-500">Download failed: {error}</p>
+          <p className="text-sm text-red-500">The download did not finish.</p>
+          <p className="mt-1 text-xs text-idemora-text-muted break-words">
+            {error} You can try again; notes already downloaded are kept and the rest will be fetched.
+          </p>
         </div>
       )}
 

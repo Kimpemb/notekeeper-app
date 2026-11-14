@@ -258,7 +258,7 @@ export function SignInPanel() {
           className={INPUT}
         />
       </label>
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-sm text-red-500">{error}</p>}
       <button type="submit" disabled={loading} className={`${BTN_PRIMARY} w-full`}>
         {loading ? "Signing in…" : "Sign in"}
       </button>
