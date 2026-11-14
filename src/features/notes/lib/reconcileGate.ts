@@ -43,7 +43,10 @@ export const TRACKED_TYPES: ReadonlySet<string> = new Set([
 
 // A starting guess, NOT a measurement. The dry run (reconcileDryRun.ts) logs
 // the diff time per note so this can be replaced by a measured value.
-export const DEFAULT_MAX_BLOCKS = 1000;
+// Measured on the real vault (2026-11-14): 1,471 blocks diffed in about 0.7 s, 995 in 0.25 s; the
+// cost grows faster than linearly above about 1,000 (threeWayDiff.ts contains()). 1,500 covers every
+// note in that vault at roughly 1 s worst case.
+export const DEFAULT_MAX_BLOCKS = 1500;
 
 export function blockIdOf(node: DocNode | undefined): string | null {
   const id = node?.attrs?.blockId;
