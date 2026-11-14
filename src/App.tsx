@@ -873,9 +873,6 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
             {/* Conflict badge: only renders when a note needs review */}
             <ConflictBadge />
 
-            {/* Separator line */}
-            <div className="w-px h-5 bg-idemora-border/50 mx-1 shrink-0" />
-
             {/* WINDOW CONTROLS */}
             <button onClick={async () => (await getCurrentWindow()).minimize()} className="w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted hover:bg-black/6 dark:hover:bg-white/7 transition-colors">
               <svg width="14" height="14" viewBox="0 0 14 2" fill="none"><rect width="14" height="1.5" fill="currentColor"/></svg>
