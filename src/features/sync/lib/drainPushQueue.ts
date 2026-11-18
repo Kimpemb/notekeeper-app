@@ -17,6 +17,7 @@ import { pullBehindNotes } from "@/features/sync/lib/pullFromHostedSync";
 import { pushTombstones } from "@/features/sync/lib/pushTombstones";
  
 import { pullNewNotes } from "@/features/sync/lib/pullNewNotes";
+import { ensureMetaRevTrigger } from "@/features/sync/lib/ensureMetaRevTrigger";
 import { isDownloadInProgress, isVaultGateOpen } from "@/features/sync/lib/vaultGate";
 
 const DRAIN_INTERVAL_MS = 60_000;
@@ -61,6 +62,7 @@ export async function drainPushQueue(): Promise<DrainSummary> {
       }
       return summary;
     }
+    await ensureMetaRevTrigger();
     await ensureSeeded();
 
     // Phase 1: queued retries, then notes that are dirty but were never queued.
