@@ -55,10 +55,23 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.1.5
+            ## What's new in v2.2.0
 
             **New**
-            - Added a note rename tool to AI chat, so notes can be renamed directly through conversation
+            - Sync (beta): sign in to keep your notes in an online vault and download that vault on a second device
+            - Two-way sync: edits made on another device are pulled in, and deletes, trash and restores carry over
+            - Needs review: when a note changed on both devices, review it block by block, or choose between your version and the other one. A backup is saved before anything is replaced
+            - A badge in the app shows how many notes need review
+
+            **Improved**
+            - Faster comparison of large notes
+            - Plainer wording in the sign-in and vault prompts
+            - Sync now repairs its own change tracking before each run
+
+            **Known issues**
+            - Sync can be slow or time out for a while when the online vault is slow to respond. It recovers on the next run
+            - A note's sub-pages may occasionally show fewer items until the note is reopened
+            - Attachments, images, settings, pins and bookmarks do not sync yet
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
