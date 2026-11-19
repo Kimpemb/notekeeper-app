@@ -919,7 +919,7 @@ export function SettingsModal() {
         </aside>
 
         {/* ── Content ── */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-w-0">
           {/* No close button: Esc and a click outside the window close Settings. */}
           <div ref={contentRef} className="h-full overflow-y-auto pt-6 pb-6 px-6">
 
