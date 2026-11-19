@@ -115,7 +115,7 @@ export async function listReviewCandidates(): Promise<ReviewCandidateList> {
     try {
       const probe = await checkReachable();
       if (probe.state === "online") {
-        hosted = await fetchHostedStatuses(ids);
+        hosted = (await fetchHostedStatuses(ids)) ?? (await fetchHostedStatuses(ids));
       } else {
         console.warn(`[sync] review list: server not reachable (${probe.reason}); rows shown unchecked`);
       }
