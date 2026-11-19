@@ -518,7 +518,7 @@ useEffect(() => {
         {/* ── Title bar ── */}
         <div style={{
           padding:      "10px 14px 8px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          borderBottom: "1px solid rgba(var(--tint),0.06)",
           flexShrink:   0,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -599,14 +599,14 @@ useEffect(() => {
             .graph-editor-wrap .tiptap ul,
             .graph-editor-wrap .tiptap ol         { padding-left: 18px; margin: 0 0 4px; }
             .graph-editor-wrap .tiptap li         { margin-bottom: 2px; }
-            .graph-editor-wrap .tiptap code       { background: rgba(255,255,255,0.08); border-radius: 3px; padding: 1px 4px; font-size: 12px; font-family: monospace; }
-            .graph-editor-wrap .tiptap blockquote { border-left: 2px solid rgba(255,255,255,0.15); margin: 4px 0; padding-left: 10px; opacity: 0.7; }
+            .graph-editor-wrap .tiptap code       { background: rgba(var(--tint),0.08); border-radius: 3px; padding: 1px 4px; font-size: 12px; font-family: monospace; }
+            .graph-editor-wrap .tiptap blockquote { border-left: 2px solid rgba(var(--tint),0.15); margin: 4px 0; padding-left: 10px; opacity: 0.7; }
             .graph-editor-wrap .tiptap a          { color: #6366f1; text-decoration: underline; }
             .graph-editor-wrap .tiptap .note-link { color: #6366f1; text-decoration: none; cursor: pointer; }
             .graph-editor-wrap .tiptap .note-link:hover { text-decoration: underline; }
             .graph-editor-wrap .tiptap [data-placeholder]::before {
               content: attr(data-placeholder);
-              color: rgba(255,255,255,0.2);
+              color: rgba(var(--tint),0.2);
               pointer-events: none;
               position: absolute;
             }
@@ -619,7 +619,7 @@ useEffect(() => {
         {/* ── Footer ── */}
         <div style={{
           padding:    "6px 14px",
-          borderTop:  "1px solid rgba(255,255,255,0.05)",
+          borderTop:  "1px solid rgba(var(--tint),0.05)",
           flexShrink: 0,
           display:    "flex",
           alignItems: "center",
@@ -629,7 +629,7 @@ useEffect(() => {
             onClick={onClose}
             style={{
               background:   "transparent",
-              border:       "1px solid rgba(255,255,255,0.1)",
+              border:       "1px solid rgba(var(--tint),0.1)",
               borderRadius: 5,
               padding:      "4px 10px",
               fontSize:     10,

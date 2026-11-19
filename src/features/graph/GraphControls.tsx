@@ -5,7 +5,7 @@ import type { GraphNode } from "./graphTypes";
 
 const LABEL_COLOR = "var(--color-text, #e2e2e2)";
 const BORDER      = "var(--color-border, #2a2a2a)";
-const BG          = "var(--color-bg, #1e1e1e)";
+const BG          = "var(--color-bg-primary, #1e1e1e)";
 const ACCENT      = "#6366f1";
 
 interface GraphControlsProps {
@@ -152,7 +152,7 @@ function iconBtnStyle(active = false, activeColor?: string): React.CSSProperties
     height: 26,
     borderRadius: 5,
     border: `1px solid ${active && activeColor ? activeColor + "55" : BORDER}`,
-    background: active ? (activeColor ? activeColor + "18" : "rgba(255,255,255,0.08)") : "transparent",
+    background: active ? (activeColor ? activeColor + "18" : "rgba(var(--tint),0.08)") : "transparent",
     cursor: "pointer",
     opacity: active ? 1 : 0.6,
     flexShrink: 0,
@@ -219,10 +219,10 @@ export function GraphControls({
       </div>
 
       {/* ── Center: depth + search ────────────────────────────────────── */}
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, minWidth: 0 }}>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
 
         {/* Depth */}
-        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0, marginLeft: "auto" }}>
           <span style={{ fontSize: 11, color: LABEL_COLOR, opacity: 0.4, whiteSpace: "nowrap" }}>
             D{depth}
           </span>
@@ -237,7 +237,7 @@ export function GraphControls({
         {divider()}
 
         {/* Search */}
-        <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+        <div style={{ position: "relative", display: "flex", alignItems: "center", flex: "0 1 200px", minWidth: 80 }}>
           <input
             type="text"
             placeholder="Filter nodes…"
@@ -254,7 +254,8 @@ export function GraphControls({
               fontSize: 12,
               color: LABEL_COLOR,
               outline: "none",
-              width: 200,
+              width: "100%",
+              boxSizing: "border-box",
               transition: "border-color 150ms, padding 100ms",
             }}
           />
@@ -277,7 +278,7 @@ export function GraphControls({
         {divider()}
 
         {/* Fit — view control, lives near search */}
-        <button onClick={onFit} title="Fit graph to view" style={iconBtnStyle()}>
+        <button onClick={onFit} title="Fit graph to view" style={{ ...iconBtnStyle(), marginRight: "auto" }}>
           <IconFit />
         </button>
       </div>

@@ -748,7 +748,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           <div
             onMouseDown={onResizeMouseDown}
             style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 5, cursor: "ew-resize", zIndex: 10, background: "transparent" }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--tint),0.08)")}
             onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
           />
         )}
@@ -967,7 +967,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
 
           <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, pointerEvents: "none", zIndex: 20 }}>
             {toasts.map((t) => (
-              <div key={t.id} style={{ background: "rgba(30,30,30,0.95)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "7px 14px", fontSize: 12, color: LABEL_COLOR, animation: "graphToastIn 200ms ease", whiteSpace: "nowrap" }}>
+              <div key={t.id} style={{ background: "var(--idemora-bg-secondary)", border: "1px solid rgba(var(--tint),0.12)", borderRadius: 8, padding: "7px 14px", fontSize: 12, color: LABEL_COLOR, animation: "graphToastIn 200ms ease", whiteSpace: "nowrap" }}>
                 {t.message}
               </div>
             ))}
@@ -982,16 +982,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(
           )}
 
           {graphMode === "thought" && graphNoteId && (
-            <div style={{
-              position: "absolute", top: 16, right: 16, bottom: 16,
-              width: "min(380px, calc(100% - 32px))", zIndex: 20,
-              borderRadius: 10, overflow: "hidden",
-              background: "rgba(16,16,16,0.97)",
-              border: "1px solid rgba(255,255,255,0.09)",
-              boxShadow: "0 8px 40px rgba(0,0,0,0.7)",
-              backdropFilter: "blur(12px)",
-              display: "flex",
-            }}>
+            <div
+              className="bg-idemora-bg-primary border border-idemora-border"
+              style={{
+                position: "absolute", top: 16, right: 16, bottom: 16,
+                width: "min(380px, calc(100% - 32px))", zIndex: 20,
+                borderRadius: 10, overflow: "hidden",
+                boxShadow: "0 8px 40px rgba(0,0,0,0.35)",
+                display: "flex",
+              }}
+            >
               <ChatPanel
                 noteId={graphNoteId}
                 paneId={3}

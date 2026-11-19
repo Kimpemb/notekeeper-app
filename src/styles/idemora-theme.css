@@ -9,6 +9,14 @@
   --idemora-text-faint: #a1a1aa;
   --idemora-text-muted: #71717a;
   --idemora-text-normal: #18181b;
+
+  /* Aliases for code that uses var(--color-*): the graph and calendar. Resolve per theme. */
+  --color-bg-primary: var(--idemora-bg-primary);
+  --color-bg-secondary: var(--idemora-bg-secondary);
+  --color-border: var(--idemora-border);
+  --color-text: var(--idemora-text-normal);
+  --color-text-muted: var(--idemora-text-muted);
+  --tint: 0, 0, 0;          /* overlay tint: black on light surfaces */
   color-scheme: light;
 }
 
@@ -21,6 +29,7 @@
   --idemora-text-faint: #666666;
   --idemora-text-muted: #b3b3b3;
   --idemora-text-normal: #dadada;
+  --tint: 255, 255, 255;    /* overlay tint: white on dark surfaces */
   color-scheme: dark;
 }
 

@@ -163,7 +163,7 @@ function Shimmer() {
       {[75, 55, 65].map((w, i) => (
         <div key={i} style={{
           height: 10, width: `${w}%`,
-          background: "rgba(255,255,255,0.06)",
+          background: "rgba(var(--tint),0.06)",
           borderRadius: 4,
           animation: "gnpShimmer 1.2s ease infinite",
           animationDelay: `${i * 0.15}s`,
@@ -379,8 +379,8 @@ export function GraphNotePanel({
           flexDirection: "column",
           borderRadius:  10,
           overflow:      "hidden",
-          background:    "rgba(16,16,16,0.97)",
-          border:        "1px solid rgba(255,255,255,0.09)",
+          background:    "var(--idemora-bg-primary)",
+          border:        "1px solid rgba(var(--tint),0.09)",
           boxShadow:     "0 8px 40px rgba(0,0,0,0.7)",
           backdropFilter:"blur(12px)",
         }}
@@ -391,7 +391,7 @@ export function GraphNotePanel({
             <div style={{
               display: "flex", alignItems: "center",
               padding: "10px 12px 8px",
-              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              borderBottom: "1px solid rgba(var(--tint),0.06)",
               gap: 8, flexShrink: 0,
             }}>
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, opacity: 0.5 }}>
@@ -417,7 +417,7 @@ export function GraphNotePanel({
                 </button>
               </div>
               {edgeContext.snippet ? (
-                <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
+                <div style={{ background: "rgba(var(--tint),0.04)", border: "1px solid rgba(var(--tint),0.07)", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
                   <p style={{ margin: 0, fontSize: 11, color: LABEL, opacity: 0.6, lineHeight: 1.65, fontStyle: "italic" }}>
                     "{edgeContext.snippet}"
                   </p>
@@ -440,7 +440,7 @@ export function GraphNotePanel({
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <span style={{ fontSize: 11, color: LABEL, opacity: 0.55, textAlign: "center" }}>Remove this link?</span>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => setConfirmingDelete(false)} style={{ flex: 1, padding: "6px 0", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, cursor: "pointer", fontSize: 11, color: LABEL, opacity: 0.7 }}>Cancel</button>
+                    <button onClick={() => setConfirmingDelete(false)} style={{ flex: 1, padding: "6px 0", background: "rgba(var(--tint),0.06)", border: "1px solid rgba(var(--tint),0.1)", borderRadius: 6, cursor: "pointer", fontSize: 11, color: LABEL, opacity: 0.7 }}>Cancel</button>
                     <button
                       onClick={() => { setConfirmingDelete(false); onDeleteEdge(edgeContext.sourceId, edgeContext.targetId); }}
                       style={{ flex: 1, padding: "6px 0", background: DANGER, border: "none", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700, color: "#fff" }}
@@ -460,7 +460,7 @@ export function GraphNotePanel({
             <div style={{
               display: "flex", alignItems: "center",
               padding: "10px 12px 8px",
-              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              borderBottom: "1px solid rgba(var(--tint),0.06)",
               gap: 8, flexShrink: 0,
             }}>
               <span style={{
@@ -500,15 +500,15 @@ export function GraphNotePanel({
                 </button>
               )}
             </div>
-            <div style={{ display: "flex", gap: 4, padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ display: "flex", gap: 4, padding: "8px 12px", borderTop: "1px solid rgba(var(--tint),0.06)" }}>
               {(["open", "resolved", "parked"] as const).map((s) => (
                 <button
                   key={s}
                   onClick={() => onChangeThoughtState?.(thoughtDetail.id, s)}
                   style={{
                     flex: 1, padding: "5px 0", fontSize: 10, borderRadius: 5, cursor: "pointer",
-                    background: thoughtDetail.state === s ? `${ACCENT}28` : "rgba(255,255,255,0.04)",
-                    border: `1px solid ${thoughtDetail.state === s ? ACCENT + "55" : "rgba(255,255,255,0.08)"}`,
+                    background: thoughtDetail.state === s ? `${ACCENT}28` : "rgba(var(--tint),0.04)",
+                    border: `1px solid ${thoughtDetail.state === s ? ACCENT + "55" : "rgba(var(--tint),0.08)"}`,
                     color: LABEL, opacity: thoughtDetail.state === s ? 1 : 0.5,
                   }}
                 >
@@ -528,7 +528,7 @@ export function GraphNotePanel({
             <div style={{
               display: "flex", alignItems: "center",
               padding: "10px 12px 10px",
-              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              borderBottom: "1px solid rgba(var(--tint),0.06)",
               gap: 8, flexShrink: 0,
             }}>
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0, opacity: 0.45 }}>
@@ -570,7 +570,7 @@ export function GraphNotePanel({
             <div style={{
               display: "flex", alignItems: "center",
               padding: "10px 10px 8px 12px",
-              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              borderBottom: "1px solid rgba(var(--tint),0.06)",
               gap: 6, flexShrink: 0,
             }}>
               <button
@@ -612,7 +612,7 @@ export function GraphNotePanel({
               {mode === "detail" && <CloseBtn onClick={onCloseDetail} />}
             </div>
             {preview && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderBottom: "1px solid rgba(var(--tint),0.05)", flexShrink: 0, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 11, color: LABEL, opacity: 0.38, whiteSpace: "nowrap" }}>
                   {preview.linkCount} {preview.linkCount === 1 ? "link" : "links"}
                 </span>
@@ -623,7 +623,7 @@ export function GraphNotePanel({
               </div>
             )}
             {mode === "detail" && preview && (
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 12px", borderBottom: "1px solid rgba(var(--tint),0.05)", flexShrink: 0 }}>
                 <span style={{ fontSize: 11, color: LABEL, opacity: 0.35 }}>
                   {preview.wordCount} {preview.wordCount === 1 ? "word" : "words"}
                 </span>
@@ -641,7 +641,7 @@ export function GraphNotePanel({
                       <button
                         onClick={() => activeNode && onOpen(activeNode.id, h.text)}
                         style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, paddingLeft: h.level === 1 ? 0 : 8 + (h.level - 1) * 10, paddingRight: 12, paddingTop: 5, paddingBottom: 5, background: "transparent", border: "none", borderLeft: h.level === 1 ? `2px solid ${ACCENT}` : "2px solid transparent", cursor: "pointer", textAlign: "left", transition: "background 80ms ease" }}
-                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(var(--tint),0.05)")}
                         onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                       >
                         <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", color: h.level === 1 ? ACCENT : LABEL, opacity: h.level === 1 ? 0.9 : 0.32, flexShrink: 0, letterSpacing: "0.04em", paddingLeft: h.level === 1 ? 10 : 0 }}>
@@ -669,7 +669,7 @@ export function GraphNotePanel({
                 </p>
               )}
               {mode === "detail" && (
-                <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", marginTop: 4 }}>
+                <div style={{ borderTop: "1px solid rgba(var(--tint),0.05)", marginTop: 4 }}>
                   <div style={{ padding: "7px 12px 4px", fontSize: 10, fontWeight: 600, color: LABEL, opacity: 0.3, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                     Backlinks
                   </div>
@@ -682,7 +682,7 @@ export function GraphNotePanel({
                       key={bl.id}
                       onClick={() => onOpenBacklink(bl.id)}
                       style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", transition: "background 80ms" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(var(--tint),0.05)")}
                       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                     >
                       <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ flexShrink: 0, opacity: 0.3 }}>
@@ -697,7 +697,7 @@ export function GraphNotePanel({
               )}
             </div>
             {!loading && preview && (
-              <div style={{ padding: "5px 12px", borderTop: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
+              <div style={{ padding: "5px 12px", borderTop: "1px solid rgba(var(--tint),0.05)", flexShrink: 0 }}>
                 <span style={{ fontSize: 10, color: LABEL, opacity: 0.26 }}>
                   {mode === "detail"
                     ? "Press E to edit · Double-click to rename · Triple-click to open"
