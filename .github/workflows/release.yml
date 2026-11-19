@@ -66,9 +66,12 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.2.2
+            ## What's new in v2.2.3
 
             **Fixed**
+            - The note graph and thought graph now follow light and dark mode, including the toolbar, search box, side panels, chat panel and minimap
+
+            **In v2.2.2**
             - Long note titles no longer run past the edge of the Settings window
             - Pressing Ctrl+A outside a text area no longer selects the whole page
             - A brief connection hiccup no longer shows "Could not reach the server" in the review list
