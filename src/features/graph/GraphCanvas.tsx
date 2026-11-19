@@ -125,7 +125,7 @@ function CanvasSurface({
             position: "absolute", bottom: 16,
             ...(minimapPosition === "right" ? { right: 16 } : { left: 16 }),
             borderRadius: 8,
-            overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)",
+            overflow: "hidden", border: "1px solid var(--idemora-border)",
             cursor: "crosshair",
           }}
         />

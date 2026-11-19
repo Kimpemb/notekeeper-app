@@ -383,11 +383,14 @@ linkSelRef.current = linkG
     minimap.selectAll("*").remove();
     minimap.append("rect")
       .attr("width", MINIMAP_W).attr("height", MINIMAP_H)
-      .attr("fill", "rgba(0,0,0,0.5)").attr("rx", 6);
+      .attr("rx", 6)
+      .style("fill", "var(--idemora-bg-secondary)")
+      .style("fill-opacity", 0.9);
     const mmG = minimap.append("g").attr("class", "mm-nodes");
     minimap.append("rect").attr("class", "mm-viewport")
-      .attr("fill", "rgba(255,255,255,0.06)")
-      .attr("stroke", "rgba(255,255,255,0.2)").attr("stroke-width", 1).attr("rx", 2);
+      .attr("rx", 2).attr("stroke-width", 1)
+      .style("fill", "rgba(var(--tint), 0.06)")
+      .style("stroke", "rgba(var(--tint), 0.35)");
 
     function getMinimapScale(ns: GraphNode[]) {
       const xs = ns.map((n) => n.x ?? 0);
