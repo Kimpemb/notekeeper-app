@@ -1,6 +1,6 @@
 // src/features/sync/lib/downloadVault.ts
 //
-// Stage 4d.5 — new-device download. Pulls the hosted vault into an empty local
+// Stage 4d.5 — new-device download. Pulls the online vault into an empty local
 // vault, seeding note_sync_state as it goes so the first drain pushes nothing
 // back. Design: stage-4d5-new-device-download.md.
 //

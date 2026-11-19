@@ -329,6 +329,7 @@ export async function pullBehindNotes(limit = 25): Promise<PullSummary> {
   summary.candidates = ids.length;
 
   let consecutiveFailures = 0;
+  let deferred = 0;
   for (const id of ids) {
     if (!useSyncStore.getState().session) break;
     const result = await pullNoteFromHosted(id);
@@ -340,6 +341,7 @@ export async function pullBehindNotes(limit = 25): Promise<PullSummary> {
       if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
     } else {
       summary.skipped++;
+      if (result === "skipped_open" || result === "skipped_busy") deferred++;
     }
   }
   if (listsDirty) {
@@ -354,7 +356,8 @@ export async function pullBehindNotes(limit = 25): Promise<PullSummary> {
   }
   if (ids.length > 0) {
     console.info(
-      `[sync] pull: ${summary.pulled} pulled, ${summary.skipped} skipped, ${summary.failed} failed`
+      `[sync] pull: ${summary.pulled} pulled, ${summary.skipped} skipped ` +
+        `(${deferred} open or busy, ${summary.skipped - deferred} not pulled), ${summary.failed} failed`
     );
   }
   return summary;
