@@ -153,7 +153,7 @@ export function BlockMergeReview({ noteId, review, metaRows, parentTitles, onBac
       <p className="text-xs text-idemora-text-muted">{view.summary}</p>
 
       {view.banners.map((b) => (
-        <p key={b} className="mt-2 rounded-lg border border-idemora-border px-3 py-2 text-xs text-idemora-text-muted">
+        <p key={b} className="mt-2 break-words rounded-lg border border-idemora-border px-3 py-2 text-xs text-idemora-text-muted">
           {b}
         </p>
       ))}
