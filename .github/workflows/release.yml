@@ -51,13 +51,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.2.0
+            ## What's new in v2.2.1
 
-            **New**
+            **Fixed**
+            - Sign-in now works in the installed app (v2.2.0 reported that sync was not configured)
+
+            **New in v2.2.0**
             - Sync (beta): sign in to keep your notes in an online vault and download that vault on a second device
             - Two-way sync: edits made on another device are pulled in, and deletes, trash and restores carry over
             - Needs review: when a note changed on both devices, review it block by block, or choose between your version and the other one. A backup is saved before anything is replaced
