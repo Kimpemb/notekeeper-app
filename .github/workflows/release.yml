@@ -45,6 +45,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Check Supabase secrets
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          test -n "$SUPABASE_URL" || { echo "VITE_SUPABASE_URL is missing"; exit 1; }
+          test -n "$SUPABASE_KEY" || { echo "VITE_SUPABASE_ANON_KEY is missing"; exit 1; }
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -57,9 +66,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.2.1
+            ## What's new in v2.2.2
 
             **Fixed**
+            - Long note titles no longer run past the edge of the Settings window
+            - Pressing Ctrl+A outside a text area no longer selects the whole page
+            - A brief connection hiccup no longer shows "Could not reach the server" in the review list
+
+            **In v2.2.1**
             - Sign-in now works in the installed app (v2.2.0 reported that sync was not configured)
 
             **New in v2.2.0**
