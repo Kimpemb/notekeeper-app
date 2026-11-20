@@ -45,8 +45,18 @@ export function Sidebar() {
         requestAnimationFrame(() => focusSidebarSearch?.());
       }
     }
+    // Plain Ctrl+F: stop the webview's native find bar. Bubble phase on purpose, so the
+    // editor's own Ctrl+F (in-note find) still gets the key first.
+    function blockNativeFind(e: KeyboardEvent) {
+      const mod = navigator.platform.toUpperCase().includes("MAC") ? e.metaKey : e.ctrlKey;
+      if (mod && !e.shiftKey && e.key.toLowerCase() === "f") e.preventDefault();
+    }
     window.addEventListener("keydown", handleKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+    window.addEventListener("keydown", blockNativeFind);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+      window.removeEventListener("keydown", blockNativeFind);
+    };
   }, [setActiveSidebarPanel, focusSidebarSearch]);
 
   const panelOpen = activeSidebarPanel !== null;

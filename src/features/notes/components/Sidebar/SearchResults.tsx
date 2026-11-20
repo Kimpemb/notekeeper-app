@@ -103,6 +103,16 @@ export function SearchResults({ query }: Props) {
   const itemRefs      = useRef<(HTMLLIElement | null)[]>([]);
   const noteIndexMap  = useRef<Map<string, number>>(new Map());
 
+  // The list owns arrows/Enter only after the user last interacted with it
+  const armedRef = useRef(false);
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      armedRef.current = !!listRef.current?.contains(e.target as Node);
+    }
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
+
   // Reset cycling state when query changes
   useEffect(() => {
     noteIndexMap.current.clear();
@@ -121,6 +131,11 @@ export function SearchResults({ query }: Props) {
 
       // Only handle keys when the search panel is the active sidebar panel
       if (useUIStore.getState().activeSidebarPanel !== "search") return;
+
+      // ...and only while the user's last interaction was inside the results list
+      if (!armedRef.current) return;
+      const ae = document.activeElement;
+      if (ae && ae !== document.body && !listRef.current?.contains(ae)) return;
 
       // Never intercept keys when focus is inside an editor or input
       const target = e.target as HTMLElement;
