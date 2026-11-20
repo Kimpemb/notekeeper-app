@@ -174,26 +174,59 @@ export function scrollToQuery(
   const target = allMatches[Math.min(matchIndex, allMatches.length - 1)];
   const { from, to } = target;
 
+  // Open any closed toggle around the match first
+  const revealed = revealPosition(editor, from);
+
   // Place caret at match start
   editor.commands.setTextSelection(from);
 
-  // Scroll into view
-  const domAtPos = editor.view.domAtPos(from);
-  const node = domAtPos.node instanceof HTMLElement
-    ? domAtPos.node
-    : domAtPos.node.parentElement;
+  // Scroll into view (after a beat if a toggle was just opened, so it has rendered)
+  const doScroll = () => {
+    const domAtPos = editor.view.domAtPos(from);
+    const node = domAtPos.node instanceof HTMLElement
+      ? domAtPos.node
+      : domAtPos.node.parentElement;
 
-  if (node && scrollContainer) {
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const nodeRect      = node.getBoundingClientRect();
-    scrollContainer.scrollTo({
-      top: scrollContainer.scrollTop + (nodeRect.top - containerRect.top) - 120,
-      behavior: "smooth",
-    });
-  }
+    if (node && scrollContainer) {
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const nodeRect      = node.getBoundingClientRect();
+      scrollContainer.scrollTo({
+        top: scrollContainer.scrollTop + (nodeRect.top - containerRect.top) - 120,
+        behavior: "smooth",
+      });
+    }
+  };
+  if (revealed) setTimeout(doScroll, 60); else doScroll();
 
   // Apply highlight decoration
   const decoration    = Decoration.inline(from, to, { class: "search-match-highlight" });
   const decorationSet = DecorationSet.create(editor.state.doc, [decoration]);
   editor.view.dispatch(editor.state.tr.setMeta(searchHighlightKey, decorationSet));
+}
+
+// Open every closed toggle whose BODY contains `pos` (nested toggles too).
+// Returns true if anything was opened, so callers can wait a beat before scrolling.
+export function revealPosition(editor: Editor, pos: number): boolean {
+  const { doc } = editor.state;
+  const $pos = doc.resolve(Math.min(pos, doc.content.size));
+  const toOpen: number[] = [];
+  for (let d = $pos.depth; d > 0; d--) {
+    const node = $pos.node(d);
+    if (
+      node.type.name === "toggle" &&
+      !node.attrs.open &&
+      $pos.depth > d &&
+      $pos.node(d + 1).type.name === "toggleBody"
+    ) {
+      toOpen.push($pos.before(d));
+    }
+  }
+  if (toOpen.length === 0) return false;
+  const tr = editor.state.tr;
+  for (const p of toOpen) {
+    const n = doc.nodeAt(p);
+    if (n) tr.setNodeMarkup(p, undefined, { ...n.attrs, open: true });
+  }
+  editor.view.dispatch(tr);
+  return true;
 }

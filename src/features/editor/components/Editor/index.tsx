@@ -744,6 +744,12 @@ useEffect(() => {
       if (intoNoteId && intoNoteId !== noteId) return;
 
       const { doc } = editor.state;
+
+      let alreadyLinked = false;
+      doc.descendants((n) => {
+        if (n.type.name === "noteLink" && n.attrs.id === linkedId) alreadyLinked = true;
+      });
+      if (alreadyLinked) return;
       const firstNode = doc.firstChild;
 
       const isLinksLine =

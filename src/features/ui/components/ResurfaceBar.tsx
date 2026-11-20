@@ -184,9 +184,21 @@ export function ResurfaceBar() {
 
   function handleLink() {
     if (!suggestion) return;
-    window.dispatchEvent(new CustomEvent("idemora:insert-link", {
-      detail: { noteId: suggestion.noteId, noteTitle: suggestion.noteTitle, intoNoteId: suggestion.referringNoteId },
-    }));
+    const detail = {
+      noteId: suggestion.noteId,
+      noteTitle: suggestion.noteTitle,
+      intoNoteId: suggestion.referringNoteId,
+    };
+    const fire = () =>
+      window.dispatchEvent(new CustomEvent("idemora:insert-link", { detail }));
+    if (activeNoteId === suggestion.referringNoteId) {
+      fire();
+    } else {
+      // The link belongs in the referring note: open it first, then insert once its editor has mounted
+      setActiveNote(suggestion.referringNoteId);
+      openTab(suggestion.referringNoteId);
+      setTimeout(fire, 400);
+    }
     animateOut(async () => {
       await persistMeta();
       setTimeout(() => setRendered(false), 300);

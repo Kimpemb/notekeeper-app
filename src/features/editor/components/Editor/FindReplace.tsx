@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { Editor } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { DecorationSet, Decoration } from "@tiptap/pm/view";
+import { revealPosition } from "./editorUtils";
 
 // ---------------------------------------------------------------------------
 // Decoration plugin — lives outside React, updated via plugin meta
@@ -146,11 +147,14 @@ export function FindReplace({ editor, onClose }: Props) {
   function scrollToCurrent(idx: number) {
     const match = matchesRef.current[idx];
     if (!match) return;
-    const coords = editor.view.coordsAtPos(match.from);
-    const editorEl = editor.view.dom.closest(".overflow-y-auto");
-    if (editorEl) {
-      editorEl.scrollTo({ top: editorEl.scrollTop + coords.top - editorEl.getBoundingClientRect().top - 120, behavior: "smooth" });
-    }
+    const doScroll = () => {
+      const coords = editor.view.coordsAtPos(match.from);
+      const editorEl = editor.view.dom.closest(".overflow-y-auto");
+      if (editorEl) {
+        editorEl.scrollTo({ top: editorEl.scrollTop + coords.top - editorEl.getBoundingClientRect().top - 120, behavior: "smooth" });
+      }
+    };
+    if (revealPosition(editor, match.from)) setTimeout(doScroll, 60); else doScroll();
   }
 
   function goToIndex(idx: number) {
