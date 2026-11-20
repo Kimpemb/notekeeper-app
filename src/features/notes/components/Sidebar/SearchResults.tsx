@@ -50,7 +50,7 @@ function TileMatchControl({ count, active, current, onPrev, onNext }: {
 
   if (!active) {
     return (
-      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-idemora-text-muted opacity-50">
+      <span className="ml-auto shrink-0 text-xs font-medium tabular-nums text-idemora-text-normal opacity-70">
         {count}×
       </span>
     );
@@ -68,7 +68,7 @@ function TileMatchControl({ count, active, current, onPrev, onNext }: {
           <path d="M1.5 5.5L4 2.5l2.5 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
-      <span className="text-[10px] tabular-nums text-idemora-text-muted min-w-[24px] text-center">
+      <span className="text-xs font-medium tabular-nums text-idemora-text-normal min-w-[32px] text-center">
         {current + 1}/{count}
       </span>
       <button

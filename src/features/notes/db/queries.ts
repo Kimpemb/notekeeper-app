@@ -942,20 +942,22 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     ? ftsQuery.split(" ").filter(Boolean).map(t => `${t}*`).join(" ")
     : null;
 
-  const likePattern = `%${bare}%`;
+  const likePattern = `%${bare.replace(/[\\%_]/g, "\\$&")}%`;
 
   const seen    = new Set<string>();
+  const literalIds = new Set<string>();
   const results: SearchResult[] = [];
 
   async function runFts() {
     if (!ftsMatch || results.length >= limit) return;
     try {
-      const ftsRows = await db.select<(SearchResult & { _titleSnip: string; _bodySnip: string })[]>(
+      const ftsRows = await db.select<(SearchResult & { _titleSnip: string; _bodySnip: string; _bodyStart: string })[]>(
         `SELECT
           n.id,
           n.title,
           snippet(notes_fts, 1, '**', '**', '…', 12) AS _titleSnip,
-          snippet(notes_fts, 2, '**', '**', '…', 12) AS _bodySnip,
+          snippet(notes_fts, 2, '**', '**', '…', 16) AS _bodySnip,
+          substr(n.plaintext, 1, 90) AS _bodyStart,
           n.updated_at,
           n.parent_id,
           instr(n.plaintext, $2) AS offset
@@ -969,12 +971,68 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
       );
       for (const row of ftsRows) {
         if (seen.has(row.id)) continue;
-        const snippet = row._titleSnip?.trim() || row._bodySnip?.trim() || "";
-        if (!snippet) continue;
+        // snippet() on an unmatched column returns that column's start, so only
+        // trust it when it contains highlight marks; otherwise show the note's opening
+        const bodyHit = row._bodySnip?.includes("**") ? row._bodySnip.trim() : "";
+        const snippet = bodyHit || row._bodyStart?.trim() || "";
         seen.add(row.id);
         results.push({ ...row, snippet });
       }
     } catch { /* fall through */ }
+  }
+
+  async function runTitleLike() {
+    if (results.length >= limit) return;
+    const titleRows = await db.select<{
+      id: string; title: string; updated_at: number; parent_id: string | null; plaintext: string | null;
+    }[]>(
+      `SELECT id, title, updated_at, parent_id, plaintext
+       FROM notes
+       WHERE title LIKE $1 ESCAPE '\\'
+         AND deleted_at IS NULL
+       ORDER BY length(title)
+       LIMIT $2`,
+      [likePattern, limit]
+    );
+    for (const row of titleRows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      const text = row.plaintext ?? "";
+      const idx = text.toLowerCase().indexOf(bare.toLowerCase());
+      const start = Math.max(0, idx === -1 ? 0 : idx - 40);
+      const end = Math.min(text.length, idx === -1 ? 90 : idx + bare.length + 40);
+      const slice = text.slice(start, end).trim();
+      const snippet = slice ? (start > 0 ? "…" : "") + slice + (end < text.length ? "…" : "") : "";
+      results.push({ id: row.id, title: row.title, snippet, offset: 0, updated_at: row.updated_at, parent_id: row.parent_id });
+    }
+  }
+
+    async function runLiteralBody() {
+    if (results.length >= limit) return;
+    const rawPattern = `%${raw.replace(/[\\%_]/g, "\\$&")}%`;
+    const litRows = await db.select<{
+      id: string; title: string; updated_at: number; parent_id: string | null; plaintext: string | null;
+    }[]>(
+      `SELECT id, title, updated_at, parent_id, plaintext
+       FROM notes
+       WHERE plaintext LIKE $1 ESCAPE '\\'
+         AND deleted_at IS NULL
+       ORDER BY updated_at DESC
+       LIMIT $2`,
+      [rawPattern, limit * 3]
+    );
+    for (const row of litRows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      literalIds.add(row.id);
+      const text = row.plaintext ?? "";
+      const idx = text.toLowerCase().indexOf(raw.toLowerCase());
+      const start = Math.max(0, idx === -1 ? 0 : idx - 40);
+      const end = Math.min(text.length, idx === -1 ? 90 : idx + raw.length + 40);
+      const slice = text.slice(start, end).trim();
+      const snippet = slice ? (start > 0 ? "…" : "") + slice + (end < text.length ? "…" : "") : "";
+      results.push({ id: row.id, title: row.title, snippet, offset: 0, updated_at: row.updated_at, parent_id: row.parent_id });
+    }
   }
 
   async function runTagLike() {
@@ -984,7 +1042,7 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     }[]>(
       `SELECT id, title, updated_at, parent_id, tags
        FROM notes
-       WHERE tags LIKE $1
+       WHERE tags LIKE $1 ESCAPE '\\'
          AND deleted_at IS NULL
        LIMIT $2`,
       [likePattern, limit - results.length]
@@ -1011,7 +1069,7 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     }[]>(
       `SELECT id, title, updated_at, parent_id, frontmatter
        FROM notes
-       WHERE frontmatter LIKE $1
+       WHERE frontmatter LIKE $1 ESCAPE '\\'
          AND deleted_at IS NULL
        LIMIT $2`,
       [likePattern, limit - results.length]
@@ -1044,7 +1102,7 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
     }[]>(
       `SELECT id, title, updated_at, parent_id, plaintext
        FROM notes
-       WHERE (title LIKE $1 OR plaintext LIKE $1)
+       WHERE (title LIKE $1 ESCAPE '\\' OR plaintext LIKE $1 ESCAPE '\\')
          AND deleted_at IS NULL
        LIMIT $2`,
       [likePattern, limit - results.length]
@@ -1067,11 +1125,14 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
   }
 
   if (isTagQuery) {
+    await runLiteralBody();
     await runTagLike();
     await runFts();
     await runFrontmatterLike();
     await runBodyLike();
   } else {
+    await runTitleLike();
+    await runLiteralBody();
     await runFts();
     await runTagLike();
     await runFrontmatterLike();
@@ -1079,14 +1140,16 @@ export async function searchNotes(query: string, limit = 20): Promise<SearchResu
   }
 
   // Boost title matches to the top — exact first, then startsWith, then contains
-  const needle = bare.toLowerCase();
-  results.sort((a, b) => {
-    const aTitle = a.title.toLowerCase();
-    const bTitle = b.title.toLowerCase();
-    const score = (t: string) =>
-      t === needle ? 3 : t.startsWith(needle) ? 2 : t.includes(needle) ? 1 : 0;
-    return score(bTitle) - score(aTitle);
-  });
+  // For "#05" compare titles against "#05", so a title like "05" doesn't outrank notes containing the literal "#05"
+  const needle = raw.toLowerCase();
+  const tier = (r: SearchResult) => {
+    const t = r.title.toLowerCase();
+    if (t === needle) return 6;
+    if (t.startsWith(needle)) return 5;
+    if (t.includes(needle)) return 4;
+    return literalIds.has(r.id) ? 3 : 0;
+  };
+  results.sort((a, b) => tier(b) - tier(a));
 
   return results.slice(0, limit);
 }

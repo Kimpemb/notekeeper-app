@@ -38,7 +38,7 @@ export function Sidebar() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const mod = navigator.platform.toUpperCase().includes("MAC") ? e.metaKey : e.ctrlKey;
-      if (mod && e.key === "f") {
+      if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
         setActiveSidebarPanel("search");

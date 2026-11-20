@@ -739,8 +739,9 @@ useEffect(() => {
   useEffect(() => {
     if (!editor || !isActiveTab) return;
     function handleInsertLink(e: Event) {
-      const { noteId: linkedId, noteTitle } = (e as CustomEvent<{ noteId: string; noteTitle: string }>).detail;
+      const { noteId: linkedId, noteTitle, intoNoteId } = (e as CustomEvent<{ noteId: string; noteTitle: string; intoNoteId?: string }>).detail;
       if (!editor) return;
+      if (intoNoteId && intoNoteId !== noteId) return;
 
       const { doc } = editor.state;
       const firstNode = doc.firstChild;
@@ -819,7 +820,7 @@ useEffect(() => {
   useEffect(() => {
     function handle(e: KeyboardEvent) {
       if (!isActiveTab) return;
-      if ((e.ctrlKey || e.metaKey) && e.key === "h" && !e.shiftKey) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "f") && !e.shiftKey) {
         const inEditor = (e.target as HTMLElement).closest(".tiptap") !== null;
         if (!inEditor) { e.preventDefault(); setFindReplaceOpen(true); }
       }

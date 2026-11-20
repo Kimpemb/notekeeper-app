@@ -677,6 +677,7 @@ export function createFindReplaceShortcutExtension(onOpen: () => void) {
     addKeyboardShortcuts() {
       return {
         "Mod-h": () => { onOpen(); return true; },
+        "Mod-f": () => { onOpen(); return true; },
       };
     },
   });
