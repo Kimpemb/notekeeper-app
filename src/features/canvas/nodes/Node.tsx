@@ -165,7 +165,7 @@ export const Node: React.FC<NodeProps> = ({
     transform:       `translate(${screenX}px, ${screenY}px)`,
     width:           screenW,
     height:          screenH,
-    backgroundColor: "var(--color-idemora-bg-primary, #1a1b26)",
+    backgroundColor: "var(--idemora-bg-primary, #1a1b26)",
     border:          `${borderWidth}px solid ${borderColor}`,
     borderRadius:    radius,
     boxShadow,

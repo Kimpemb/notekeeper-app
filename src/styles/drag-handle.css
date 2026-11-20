@@ -86,14 +86,14 @@
   z-index: 99;
   opacity: 0.5;
   border-radius: 4px;
-  background: var(--color-background-primary, #ffffff);
+  background: var(--idemora-bg-primary, #ffffff);
   cursor: grabbing;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 .dark .drag-ghost {
   opacity: 0.45;
-  background: var(--color-background-secondary, #1c1c1e);
+  background: var(--idemora-bg-secondary, #1c1c1e);
 }
 
 .dark .drag-handle-highlight {
