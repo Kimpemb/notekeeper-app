@@ -671,13 +671,13 @@ export const ListSelectAllExtension = Extension.create({
 });
 
 // ── Find & Replace keyboard shortcut (Mod+H) ─────────────────────────────────
-export function createFindReplaceShortcutExtension(onOpen: () => void) {
+export function createFindReplaceShortcutExtension(onOpen: (target: "find" | "replace") => void) {
   return Extension.create({
     name: "findReplaceShortcut",
     addKeyboardShortcuts() {
       return {
-        "Mod-h": () => { onOpen(); return true; },
-        "Mod-f": () => { onOpen(); return true; },
+        "Mod-h": () => { onOpen("replace"); return true; },
+        "Mod-f": () => { onOpen("find"); return true; },
       };
     },
   });

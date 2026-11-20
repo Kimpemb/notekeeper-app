@@ -57,26 +57,69 @@ export function buildFindReplacePlugin() {
 // ---------------------------------------------------------------------------
 // Helper — compute matches and decorations from a search term
 // ---------------------------------------------------------------------------
+export interface FindOptions {
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  useRegex: boolean;
+}
+
+interface FindMatch {
+  from: number;
+  to: number;
+  groups: string[];
+}
+
+// Returns null when the pattern is not a valid regular expression
+function buildRegex(term: string, opts: FindOptions): RegExp | null {
+  try {
+    const flags = opts.caseSensitive ? "g" : "gi";
+    let source = opts.useRegex ? term : term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (opts.wholeWord) {
+      if (opts.useRegex) {
+        source = `\\b(?:${source})\\b`;
+      } else {
+        // Only anchor on sides where the term itself starts/ends with a word character
+        const start = /^\w/.test(term) ? "\\b" : "";
+        const end = /\w$/.test(term) ? "\\b" : "";
+        source = `${start}${source}${end}`;
+      }
+    }
+    return new RegExp(source, flags);
+  } catch {
+    return null;
+  }
+}
+
+// In regex mode the Replace field supports $1, $2 ... and $& ($$ is a literal $)
+function expandReplacement(m: FindMatch, replaceText: string, useRegex: boolean): string {
+  if (!useRegex) return replaceText;
+  return replaceText.replace(/\$(\d+|&|\$)/g, (_, k: string) =>
+    k === "$" ? "$" : k === "&" ? m.groups[0] : (m.groups[Number(k)] ?? "")
+  );
+}
+
 function computeMatches(
   editor: Editor,
   term: string,
-  caseSensitive: boolean,
+  opts: FindOptions,
   currentIndex: number
-): { matches: { from: number; to: number }[]; decorations: DecorationSet } {
+): { matches: FindMatch[]; decorations: DecorationSet; invalid: boolean } {
   const doc = editor.state.doc;
-  if (!term) return { matches: [], decorations: DecorationSet.empty };
+  if (!term) return { matches: [], decorations: DecorationSet.empty, invalid: false };
 
-  const matches: { from: number; to: number }[] = [];
-  const flags = caseSensitive ? "g" : "gi";
-  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(escaped, flags);
+  const regex = buildRegex(term, opts);
+  if (!regex) return { matches: [], decorations: DecorationSet.empty, invalid: true };
+
+  const matches: FindMatch[] = [];
 
   doc.descendants((node, pos) => {
     if (!node.isText || !node.text) return;
     let m: RegExpExecArray | null;
     regex.lastIndex = 0;
     while ((m = regex.exec(node.text)) !== null) {
-      matches.push({ from: pos + m.index, to: pos + m.index + m[0].length });
+      // Skip empty matches (for example the regex a*) so the loop always advances
+      if (m[0].length === 0) { regex.lastIndex++; continue; }
+      matches.push({ from: pos + m.index, to: pos + m.index + m[0].length, groups: Array.from(m) });
     }
   });
 
@@ -88,23 +131,23 @@ function computeMatches(
     })
   );
 
-  return { matches, decorations: DecorationSet.create(doc, decorations) };
+  return { matches, decorations: DecorationSet.create(doc, decorations), invalid: false };
 }
 
 function applyToEditor(
   editor: Editor,
   term: string,
-  caseSensitive: boolean,
+  opts: FindOptions,
   currentIndex: number
-) {
-  const { matches, decorations } = computeMatches(editor, term, caseSensitive, currentIndex);
+): { matches: FindMatch[]; invalid: boolean } {
+  const { matches, decorations, invalid } = computeMatches(editor, term, opts, currentIndex);
   const tr = editor.state.tr.setMeta(findReplaceKey, {
     decorations,
-    matches,
+    matches: matches.map(({ from, to }) => ({ from, to })),
     currentIndex,
   });
   editor.view.dispatch(tr);
-  return matches;
+  return { matches, invalid };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,35 +156,48 @@ function applyToEditor(
 interface Props {
   editor: Editor;
   onClose: () => void;
+  focusSignal?: number;
+  focusTarget?: "find" | "replace";
 }
 
-export function FindReplace({ editor, onClose }: Props) {
+export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "find" }: Props) {
   const [findText, setFindText]       = useState("");
   const [replaceText, setReplaceText] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord]         = useState(false);
+  const [useRegex, setUseRegex]           = useState(false);
+  const [invalid, setInvalid]             = useState(false);
   const [currentIndex, setCurrentIndex]  = useState(0);
   const [matchCount, setMatchCount]      = useState(0);
 
   const findInputRef = useRef<HTMLInputElement>(null);
-  const matchesRef   = useRef<{ from: number; to: number }[]>([]);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const matchesRef   = useRef<FindMatch[]>([]);
+  const opts: FindOptions = { caseSensitive, wholeWord, useRegex };
 
-  // Focus find input on mount
+  // Focus and select the find input on mount and every time Ctrl+F is pressed again
   useEffect(() => {
-    setTimeout(() => findInputRef.current?.focus(), 0);
-  }, []);
+    const t = setTimeout(() => {
+      const el = focusTarget === "replace" ? replaceInputRef.current : findInputRef.current;
+      el?.focus();
+      el?.select();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [focusSignal]);
 
   // Recompute matches whenever find text, case sensitivity, or doc changes
-  const refresh = useCallback((term: string, cs: boolean, idx: number) => {
-    const matches = applyToEditor(editor, term, cs, idx);
+  const refresh = useCallback((term: string, o: FindOptions, idx: number) => {
+    const { matches, invalid: bad } = applyToEditor(editor, term, o, idx);
     matchesRef.current = matches;
     setMatchCount(matches.length);
+    setInvalid(bad);
     return matches;
   }, [editor]);
 
   useEffect(() => {
     const clamped = matchCount > 0 ? Math.min(currentIndex, matchCount - 1) : 0;
-    refresh(findText, caseSensitive, clamped);
-  }, [findText, caseSensitive]); // eslint-disable-line react-hooks/exhaustive-deps
+    refresh(findText, opts, clamped);
+  }, [findText, caseSensitive, wholeWord, useRegex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll editor to current match
   function scrollToCurrent(idx: number) {
@@ -161,7 +217,7 @@ export function FindReplace({ editor, onClose }: Props) {
     if (matchesRef.current.length === 0) return;
     const clamped = ((idx % matchesRef.current.length) + matchesRef.current.length) % matchesRef.current.length;
     setCurrentIndex(clamped);
-    refresh(findText, caseSensitive, clamped);
+    refresh(findText, opts, clamped);
     scrollToCurrent(clamped);
   }
 
@@ -172,27 +228,28 @@ export function FindReplace({ editor, onClose }: Props) {
     if (matchesRef.current.length === 0 || !findText) return;
     const match = matchesRef.current[currentIndex];
     if (!match) return;
-    editor.chain()
-      .focus()
-      .deleteRange({ from: match.from, to: match.to })
-      .insertContentAt(match.from, replaceText)
-      .run();
-    // Re-run after doc change
-    const newMatches = refresh(findText, caseSensitive, currentIndex);
-    const nextIdx = Math.min(currentIndex, newMatches.length - 1);
-    setCurrentIndex(Math.max(0, nextIdx));
+    const text = expandReplacement(match, replaceText, useRegex);
+    editor.view.dispatch(editor.state.tr.insertText(text, match.from, match.to));
+    // Recompute on the edited doc, then step to the first match after the inserted text
+    const after = refresh(findText, opts, 0);
+    if (after.length === 0) { setCurrentIndex(0); return; }
+    const insertedEnd = match.from + text.length;
+    let next = after.findIndex((m) => m.from >= insertedEnd);
+    if (next === -1) next = 0; // wrap around
+    refresh(findText, opts, next);
+    setCurrentIndex(next);
+    scrollToCurrent(next);
   }
 
   function handleReplaceAll() {
     if (matchesRef.current.length === 0 || !findText) return;
-    // Replace from end to start so positions don't shift
-    const sorted = [...matchesRef.current].reverse();
-    let chain = editor.chain().focus();
-    for (const match of sorted) {
-      chain = chain.deleteRange({ from: match.from, to: match.to }).insertContentAt(match.from, replaceText) as typeof chain;
+    const tr = editor.state.tr;
+    // End to start so earlier positions stay valid; one transaction = one undo step
+    for (const match of [...matchesRef.current].reverse()) {
+      tr.insertText(expandReplacement(match, replaceText, useRegex), match.from, match.to);
     }
-    chain.run();
-    refresh(findText, caseSensitive, 0);
+    editor.view.dispatch(tr);
+    refresh(findText, opts, 0);
     setCurrentIndex(0);
   }
 
@@ -237,7 +294,7 @@ export function FindReplace({ editor, onClose }: Props) {
           />
           {/* Match counter */}
           <span className="absolute right-2 text-xs text-idemora-text-muted pointer-events-none tabular-nums">
-            {findText ? `${displayIndex}/${matchCount}` : ""}
+            {findText ? (invalid ? "invalid" : `${displayIndex}/${matchCount}`) : ""}
           </span>
         </div>
 
@@ -252,6 +309,32 @@ export function FindReplace({ editor, onClose }: Props) {
           }`}
         >
           Aa
+        </button>
+
+        {/* Whole word toggle */}
+        <button
+          onClick={() => setWholeWord((w) => !w)}
+          title="Whole word"
+          className={`h-7 px-2 rounded-md text-xs font-mono transition-colors duration-150 border ${
+            wholeWord
+              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+              : "bg-idemora-bg-primary text-idemora-text-muted border-idemora-border"
+          }`}
+        >
+          <u>ab</u>
+        </button>
+
+        {/* Regex toggle */}
+        <button
+          onClick={() => setUseRegex((r) => !r)}
+          title="Regular expression (use $1 in Replace for capture groups)"
+          className={`h-7 px-2 rounded-md text-xs font-mono transition-colors duration-150 border ${
+            useRegex
+              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+              : "bg-idemora-bg-primary text-idemora-text-muted border-idemora-border"
+          }`}
+        >
+          .*
         </button>
 
         {/* Prev / Next */}
@@ -283,6 +366,7 @@ export function FindReplace({ editor, onClose }: Props) {
       {/* Replace input + buttons */}
       <div className="flex items-center gap-1.5 min-w-0">
         <input
+          ref={replaceInputRef}
           value={replaceText}
           onChange={(e) => setReplaceText(e.target.value)}
           onKeyDown={handleReplaceKeyDown}

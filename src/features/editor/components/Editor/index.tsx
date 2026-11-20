@@ -271,8 +271,12 @@ const [contentReady, setContentReady] = useState(!isEmptyContent && !isStaleCont
   const linkBracketStart          = useRef<number | null>(null);
 
   const [findReplaceOpen, setFindReplaceOpen] = useState(false);
-  const openFindReplaceRef = useRef<() => void>(() => setFindReplaceOpen(true));
-  openFindReplaceRef.current = () => setFindReplaceOpen(true);
+  const [findFocus, setFindFocus] = useState<{ tick: number; target: "find" | "replace" }>({ tick: 0, target: "find" });
+  const openFindReplaceRef = useRef<(target: "find" | "replace") => void>(() => {});
+  openFindReplaceRef.current = (target) => {
+    setFindReplaceOpen(true);
+    setFindFocus((f) => ({ tick: f.tick + 1, target }));
+  };
 
   const [blockRefOpen,  setBlockRefOpen]  = useState(false);
   const [blockRefPos,   setBlockRefPos]   = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -386,7 +390,7 @@ const initialContent = (() => {
       DateChipDeletionWatcher,
       Mathematics.configure({ katexOptions: { throwOnError: false } }),
       MarkdownPasteExtension,
-      createFindReplaceShortcutExtension(() => openFindReplaceRef.current()),
+      createFindReplaceShortcutExtension((target) => openFindReplaceRef.current(target)),
       Extension.create({ name: "findReplacePlugin",     addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
       Extension.create({ name: "searchHighlightPlugin", addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
     ],
@@ -828,7 +832,7 @@ useEffect(() => {
       if (!isActiveTab) return;
       if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "f") && !e.shiftKey) {
         const inEditor = (e.target as HTMLElement).closest(".tiptap") !== null;
-        if (!inEditor) { e.preventDefault(); setFindReplaceOpen(true); }
+        if (!inEditor) { e.preventDefault(); openFindReplaceRef.current(e.key.toLowerCase() === "h" ? "replace" : "find"); }
       }
     }
     window.addEventListener("keydown", handle);
@@ -1167,7 +1171,7 @@ if (!contentReady) return null;
         </div>
 
         {findReplaceOpen && editor && (
-          <FindReplace editor={editor} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
+          <FindReplace editor={editor} focusSignal={findFocus.tick} focusTarget={findFocus.target} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
         )}
 
         {editor && taskListToolbarPos && isActiveTab && (
