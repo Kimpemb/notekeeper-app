@@ -480,7 +480,12 @@ useEffect(() => {
 
     if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
     if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
-    if (ctrl && e.key === "t") { e.preventDefault(); openEmptyTab(); }
+    if (ctrl && e.key === "t") {
+      e.preventDefault();
+      const ui = useUIStore.getState();
+      if (ui.splitOpen && ui.activePaneId === 2) ui.openEmptyTabInPane2();
+      else openEmptyTab();
+    }
     if (ctrl && e.key.toLowerCase() === "n") {
       e.preventDefault();
       createNewNoteInNewTab();
@@ -543,8 +548,11 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
 
   async function createNewNoteInNewTab() {
     const parentId = useNoteStore.getState().activeNoteId ?? undefined;
-    const note = await useNoteStore.getState().createNote(parentId ? { parent_id: parentId } : {});
-    if (activePaneId === 2) { openTabInPane2(note.id); } else { openTab(note.id); }
+    const ui = useUIStore.getState();
+    // Open an empty tab first; createNote then fills it via replaceTab / replacePane2Tab
+    if (ui.splitOpen && ui.activePaneId === 2) ui.openEmptyTabInPane2();
+    else ui.openEmptyTab();
+    await useNoteStore.getState().createNote(parentId ? { parent_id: parentId } : {});
   }
 
   function noteSlug(title: string): string {
