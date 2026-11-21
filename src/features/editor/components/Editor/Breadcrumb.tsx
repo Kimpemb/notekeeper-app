@@ -49,9 +49,10 @@ interface MenuListProps {
   byParent: Map<string | null, Note[]>;
   onPick: (id: string) => void;
   flyouts: boolean;
+  depthOf?: Map<string, number>; // row indent in levels, used by the hidden-path menu
 }
 
-function MenuList({ items, activeId, byParent, onPick, flyouts }: MenuListProps) {
+function MenuList({ items, activeId, byParent, onPick, flyouts, depthOf }: MenuListProps) {
   const [expanded, setExpanded] = useState(false);
   const [sub, setSub] = useState<{ id: string; x: number; y: number } | null>(null);
   const timer = useRef(0);
@@ -83,6 +84,7 @@ function MenuList({ items, activeId, byParent, onPick, flyouts }: MenuListProps)
             key={n.id}
             onClick={() => onPick(n.id)}
             onMouseEnter={(e) => hoverRow(e, n)}
+            style={{ paddingLeft: 8 + (depthOf?.get(n.id) ?? 0) * 12 }}
             className={`flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm text-left text-idemora-text-normal transition-colors duration-100 ${
               n.id === activeId || sub?.id === n.id ? "bg-idemora-bg-secondary" : "hover:bg-idemora-bg-secondary"
             }`}
@@ -98,7 +100,7 @@ function MenuList({ items, activeId, byParent, onPick, flyouts }: MenuListProps)
         <button
           onClick={() => setExpanded(true)}
           onMouseEnter={() => { window.clearTimeout(timer.current); setSub(null); }}
-          className="block w-full px-2 py-1.5 text-sm text-left text-idemora-text-muted hover:text-idemora-text-normal"
+          className="inline-block mt-0.5 px-2 py-1 rounded-md text-sm text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary transition-colors duration-100"
         >
           {more} more
         </button>
@@ -213,6 +215,9 @@ export const Breadcrumb = memo(({ noteId, paneId = 1 }: Props) => {
   const crumbs = [...ancestors, current];
   const collapsed = crumbs.length > COLLAPSE_OVER;
   const hiddenCrumbs = collapsed ? crumbs.slice(1, crumbs.length - 3) : [];
+  const hiddenDepth = new Map<string, number>(
+    hiddenCrumbs.map((n, i): [string, number] => [n.id, i])
+  );
 
   const items: Item[] = collapsed
     ? [
@@ -288,7 +293,8 @@ export const Breadcrumb = memo(({ noteId, paneId = 1 }: Props) => {
             activeId={pop.kind === "siblings" ? pop.noteId : null}
             byParent={byParent}
             onPick={pick}
-            flyouts={pop.kind === "siblings"}
+            flyouts
+            depthOf={pop.kind === "hidden" ? hiddenDepth : undefined}
           />
         </div>,
         document.body
