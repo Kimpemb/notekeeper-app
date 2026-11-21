@@ -534,6 +534,9 @@ async function rotateSlot(
       });
       await persistSlotKeyId(slot, nextProvider, targetModel, nextProviderKeyId);
       console.info(`[rotate:${slot}] step3 — provider ${provider} → ${nextProvider}`);
+      window.dispatchEvent(new CustomEvent("idemora:ai-rotated", {
+        detail: { slot, from: provider, to: nextProvider },
+      }));
       return {
         provider: nextProvider,
         model:    targetModel,

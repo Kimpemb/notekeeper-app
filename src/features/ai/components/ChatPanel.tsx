@@ -579,14 +579,25 @@ useEffect(() => {
       prevModelRef.current    = primaryRotation.model;
       return;
     }
-    if (primaryRotation.provider !== prevProviderRef.current) {
-      addToast(`Switched to ${primaryRotation.provider} — previous provider quota reached`, true);
-    } else if (primaryRotation.model !== prevModelRef.current) {
+    // A provider change is announced by the "idemora:ai-rotated" event below;
+    // a manual switch from the pill stays silent.
+    if (primaryRotation.provider === prevProviderRef.current
+        && primaryRotation.model !== prevModelRef.current) {
       addToast(`Switched to ${primaryRotation.model}`);
     }
     prevProviderRef.current = primaryRotation.provider;
     prevModelRef.current    = primaryRotation.model;
   }, [primaryRotation, addToast]);
+
+  useEffect(() => {
+    function onRotated(e: Event) {
+      const d = (e as CustomEvent<{ slot: string; from: string; to: string }>).detail;
+      if (d?.slot !== "primary") return;
+      addToast(`Switched to ${d.to} — ${d.from} quota reached`, true);
+    }
+    window.addEventListener("idemora:ai-rotated", onRotated);
+    return () => window.removeEventListener("idemora:ai-rotated", onRotated);
+  }, [addToast]);
 
   useEffect(() => {
     if (callError?.code === "ALL_EXHAUSTED") setAllExhausted(true);
