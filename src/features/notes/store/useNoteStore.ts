@@ -69,12 +69,7 @@ interface NoteStore {
   // ─── Bookmarks ──────────────────────────────────────────────────────────────
   bookmarks: BookmarkItem[];
 
-  navHistory: string[];
-  navIndex: number;
-  canGoBack: () => boolean;
-  canGoForward: () => boolean;
-  goBack: () => void;
-  goForward: () => void;
+ 
 
   activeNote: () => Note | null;
   rootNotes: () => Note[];
@@ -165,37 +160,9 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   // ─── Bookmarks initial state ───────────────────────────────────────────────
   bookmarks: [],
 
-  navHistory: [],
-  navIndex: -1,
+ 
 
-  canGoBack: () => get().navIndex > 0,
-
-  canGoForward: () => {
-    const { navHistory, navIndex } = get();
-    return navIndex < navHistory.length - 1;
-  },
-
-  goBack: async () => {
-    const { navHistory, navIndex } = get();
-    if (navIndex <= 0) return;
-    const newIndex = navIndex - 1;
-    const id = navHistory[newIndex];
-    set({ navIndex: newIndex, activeNoteId: id });
-    get().recordVisit(id).catch(console.error);
-    const { useUIStore } = await import("@/features/ui/store/useUIStore");
-    useUIStore.getState().replaceTab(id);
-  },
-
-  goForward: async () => {
-    const { navHistory, navIndex } = get();
-    if (navIndex >= navHistory.length - 1) return;
-    const newIndex = navIndex + 1;
-    const id = navHistory[newIndex];
-    set({ navIndex: newIndex, activeNoteId: id });
-    get().recordVisit(id).catch(console.error);
-    const { useUIStore } = await import("@/features/ui/store/useUIStore");
-    useUIStore.getState().replaceTab(id);
-  },
+  
 
   activeNote: () => {
     const { notes, activeNoteId } = get();
@@ -261,22 +228,9 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }
   },
 
-  setActiveNote: (id, skipHistory = false) => {
-    if (!skipHistory && id) {
-      set((state) => {
-        const trimmed = state.navHistory.slice(0, state.navIndex + 1);
-        if (trimmed[trimmed.length - 1] === id) {
-          return { activeNoteId: id };
-        }
-        return {
-          activeNoteId: id,
-          navHistory: [...trimmed, id],
-          navIndex: trimmed.length,
-        };
-      });
-    } else {
-      set({ activeNoteId: id });
-    }
+  // History now lives on each tab (see useUIStore); this only sets the active note.
+  setActiveNote: (id, _skipHistory = false) => {
+    set({ activeNoteId: id });
     if (id) {
       get().recordVisit(id).catch(console.error);
       import("@/features/ui/store/useUIStore").then(({ useUIStore }) => {
@@ -465,15 +419,11 @@ updateNote: async (id, input, silent = false) => {
           ? null
           : state.activeNoteId;
 
-      const newHistory = state.navHistory.filter((hid) => !allIds.has(hid));
-      const newIndex = Math.min(state.navIndex, newHistory.length - 1);
       return {
         notes: remaining,
         trashedNotes,
         activeNoteId: newActiveId,
         pinnedIds: newPinnedIds,
-        navHistory: newHistory,
-        navIndex: newIndex,
       };
     });
 

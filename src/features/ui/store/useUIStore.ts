@@ -19,6 +19,10 @@ export type RightPanelType = "outline" | "backlinks" | "similar" | "chat" | "ver
 export interface Tab {
   id: string;
   noteId: string | null;
+  // Per-tab back/forward history. Optional so existing tab literals stay valid;
+  // a tab without history behaves as [noteId].
+  history?: string[];
+  historyIndex?: number;
 }
 
 export interface GraphViewState {
@@ -53,6 +57,41 @@ interface SessionPersist {
   chatOpen1: boolean;
   chatOpen2: boolean;
   calendarOpen: boolean;
+}
+
+// ─── Per-tab navigation history helpers ──────────────────────────────────────
+const HISTORY_CAP = 50;
+
+function tabHistory(tab: Tab): { list: string[]; index: number } {
+  const list = tab.history ?? (tab.noteId ? [tab.noteId] : []);
+  const index = tab.historyIndex ?? list.length - 1;
+  return { list, index };
+}
+
+// The tab navigated to noteId, with a history entry pushed (forward entries dropped)
+function navigateTab(tab: Tab, noteId: string): Tab {
+  const { list, index } = tabHistory(tab);
+  if (list[index] === noteId) return { ...tab, noteId, history: list, historyIndex: index };
+  const next = [...list.slice(0, index + 1), noteId].slice(-HISTORY_CAP);
+  return { ...tab, noteId, history: next, historyIndex: next.length - 1 };
+}
+
+function noteExists(id: string): boolean {
+  return useNoteStore.getState().notes.some((n) => n.id === id);
+}
+
+// Nearest history entry in direction dir whose note still exists, or -1
+function stepIndex(list: string[], from: number, dir: 1 | -1): number {
+  for (let i = from + dir; i >= 0 && i < list.length; i += dir) {
+    if (noteExists(list[i])) return i;
+  }
+  return -1;
+}
+
+function activeTabOf(s: UIStore, pane: 1 | 2): Tab | undefined {
+  return pane === 2
+    ? s.pane2Tabs.find((t) => t.id === s.pane2ActiveTabId)
+    : s.tabs.find((t) => t.id === s.activeTabId);
 }
 
 function saveSession(state: UIStore) {
@@ -309,13 +348,12 @@ interface UIStore {
   resetClusterSession: () => void;
 
   // ─── Pane 2 nav history ───────────────────────────────────────────────────
-  pane2NavHistory: string[];
-  pane2NavIndex: number;
-  pane2CanGoBack: () => boolean;
-  pane2CanGoForward: () => boolean;
-  pane2GoBack: () => void;
-  pane2GoForward: () => void;
-  pane2PushNav: (noteId: string) => void;
+  // Per-tab back/forward; pane defaults to the active pane
+  paneCanGoBack: (pane?: 1 | 2) => boolean;
+  paneCanGoForward: (pane?: 1 | 2) => boolean;
+  paneGoBack: (pane?: 1 | 2) => void;
+  paneGoForward: (pane?: 1 | 2) => void;
+  paneNavigate: (dir: 1 | -1, pane?: 1 | 2) => void;
 
   // ─── Sidebar note selection ───────────────────────────────────────────────
   selectedNoteIds: Set<string>;
@@ -640,8 +678,8 @@ closeCalendar: () => {
     return;
   }
   
-  // REPLACE the current tab instead of creating a new one
-  const next = tabs.map((t) => t.id === activeTabId ? { ...t, noteId } : t);
+  // REPLACE the current tab instead of creating a new one, recording history
+  const next = tabs.map((t) => t.id === activeTabId ? navigateTab(t, noteId) : t);
   set({ tabs: next });
   saveSession(get());
 },
@@ -753,7 +791,6 @@ closeCalendar: () => {
         splitOpen: false, pane2Tabs: [], pane2ActiveTabId: null, activePaneId: 1,
         pane2OutlineOpen: false, pane2BacklinksOpen: false, pane2SimilarOpen: false,
         pane2VersionHistoryOpen: false, chatOpen2: false,
-        pane2NavHistory: [], pane2NavIndex: -1,
       });
       saveSession(get());
     },
@@ -809,7 +846,6 @@ closeCalendar: () => {
       const next = [...pane2Tabs, tab];
       set({ pane2Tabs: next, pane2ActiveTabId: tab.id });
       saveSession(get());
-      get().pane2PushNav(noteId);
     },
 
     openEmptyTabInPane2: () => {
@@ -820,34 +856,23 @@ closeCalendar: () => {
       saveSession(get());
     },
 
-    replacePane2Tab: (noteId) => {
+        replacePane2Tab: (noteId) => {
       const { pane2Tabs, pane2ActiveTabId } = get();
       if (pane2Tabs.length === 0 || pane2ActiveTabId === null) {
         const tab: Tab = { id: makeTabId(), noteId };
         set({ pane2Tabs: [tab], pane2ActiveTabId: tab.id });
         saveSession(get());
-        get().pane2PushNav(noteId);
         return;
       }
       const existing = pane2Tabs.find((t) => t.noteId === noteId);
       if (existing) {
         set({ pane2ActiveTabId: existing.id });
         saveSession(get());
-        get().pane2PushNav(noteId);
         return;
       }
-      const activePane2Tab = pane2Tabs.find((t) => t.id === pane2ActiveTabId);
-      if (activePane2Tab && activePane2Tab.noteId === null) {
-        const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? { ...t, noteId } : t);
-        set({ pane2Tabs: next });
-        saveSession(get());
-        get().pane2PushNav(noteId);
-        return;
-      }
-      const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? { ...t, noteId } : t);
+      const next = pane2Tabs.map((t) => t.id === pane2ActiveTabId ? navigateTab(t, noteId) : t);
       set({ pane2Tabs: next });
       saveSession(get());
-      get().pane2PushNav(noteId);
     },
 
     activePaneId: 1,
@@ -880,54 +905,38 @@ closeCalendar: () => {
     tickClusterSession: () => set((s) => ({ clusterSession: tickSession(s.clusterSession) })),
     resetClusterSession: () => set({ clusterSession: createSession() }),
 
-    // ─── Pane 2 nav history ───────────────────────────────────────────────────
-    pane2NavHistory: [],
-    pane2NavIndex: -1,
-    pane2CanGoBack: () => get().pane2NavIndex > 0,
-    pane2CanGoForward: () => get().pane2NavIndex < get().pane2NavHistory.length - 1,
-    pane2GoBack: () => {
-      const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
-      if (pane2NavIndex <= 0) return;
-      const newIndex = pane2NavIndex - 1;
-      const id = pane2NavHistory[newIndex];
-      const existing = pane2Tabs.find((t) => t.noteId === id);
-      if (existing) {
-        set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
-      } else {
-        set((s) => ({
-          pane2NavIndex: newIndex,
-          pane2Tabs: s.pane2Tabs.map((t) =>
-            t.id === s.pane2ActiveTabId ? { ...t, noteId: id } : t
-          ),
-        }));
-      }
-      saveSession(get());
+        // (per-tab back/forward: each tab keeps its own history)
+    paneCanGoBack: (pane) => {
+      const s = get();
+      const tab = activeTabOf(s, pane ?? s.activePaneId);
+      if (!tab) return false;
+      const { list, index } = tabHistory(tab);
+      return stepIndex(list, index, -1) !== -1;
     },
-
-    pane2GoForward: () => {
-      const { pane2NavHistory, pane2NavIndex, pane2Tabs } = get();
-      if (pane2NavIndex >= pane2NavHistory.length - 1) return;
-      const newIndex = pane2NavIndex + 1;
-      const id = pane2NavHistory[newIndex];
-      const existing = pane2Tabs.find((t) => t.noteId === id);
-      if (existing) {
-        set({ pane2NavIndex: newIndex, pane2ActiveTabId: existing.id });
-      } else {
-        set((s) => ({
-          pane2NavIndex: newIndex,
-          pane2Tabs: s.pane2Tabs.map((t) =>
-            t.id === s.pane2ActiveTabId ? { ...t, noteId: id } : t
-          ),
-        }));
-      }
-      saveSession(get());
+    paneCanGoForward: (pane) => {
+      const s = get();
+      const tab = activeTabOf(s, pane ?? s.activePaneId);
+      if (!tab) return false;
+      const { list, index } = tabHistory(tab);
+      return stepIndex(list, index, 1) !== -1;
     },
-    pane2PushNav: (noteId) => {
-      set((s) => {
-        const trimmed = s.pane2NavHistory.slice(0, s.pane2NavIndex + 1);
-        if (trimmed[trimmed.length - 1] === noteId) return {};
-        return { pane2NavHistory: [...trimmed, noteId], pane2NavIndex: trimmed.length };
-      });
+    paneGoBack: (pane) => get().paneNavigate(-1, pane),
+    paneGoForward: (pane) => get().paneNavigate(1, pane),
+    // Swaps the note shown in the active tab only; never switches tabs or panes
+    paneNavigate: (dir, pane) => {
+      const s = get();
+      const p = pane ?? s.activePaneId;
+      const tab = activeTabOf(s, p);
+      if (!tab) return;
+      const { list, index } = tabHistory(tab);
+      const target = stepIndex(list, index, dir);
+      if (target === -1) return;
+      const id = list[target];
+      const updated: Tab = { ...tab, noteId: id, history: list, historyIndex: target };
+      if (p === 2) set({ pane2Tabs: s.pane2Tabs.map((t) => (t.id === tab.id ? updated : t)) });
+      else set({ tabs: s.tabs.map((t) => (t.id === tab.id ? updated : t)) });
+      saveSession(get());
+      useNoteStore.getState().setActiveNote(id, true);
     },
 
     // ─── Sidebar note selection ───────────────────────────────────────────────

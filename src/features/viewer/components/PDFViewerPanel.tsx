@@ -51,24 +51,18 @@ export function PDFViewerPanel({ noteId, paneId }: PDFViewerPanelProps) {
     useCallback((s) => s.notes.find((n) => n.id === noteId) ?? null, [noteId])
   );
 
-  const goBack        = useNoteStore((s) => s.goBack);
-  const goForward     = useNoteStore((s) => s.goForward);
-  const canGoBack     = useNoteStore((s) => s.canGoBack());
-  const canGoForward  = useNoteStore((s) => s.canGoForward());
-  const pane2GoBack   = useUIStore((s) => s.pane2GoBack);
-  const pane2GoForward = useUIStore((s) => s.pane2GoForward);
-  const pane2CanGoBack    = useUIStore((s) => s.pane2CanGoBack());
-  const pane2CanGoForward = useUIStore((s) => s.pane2CanGoForward());
+  const paneGoBack    = useUIStore((s) => s.paneGoBack);
+  const paneGoForward = useUIStore((s) => s.paneGoForward);
+  const navCanBack    = useUIStore((s) => s.paneCanGoBack(paneId));
+  const navCanFwd     = useUIStore((s) => s.paneCanGoForward(paneId));
   const activePaneId  = useUIStore((s) => s.activePaneId);
   const chatOpen1     = useUIStore((s) => s.chatOpen1);
   const chatOpen2     = useUIStore((s) => s.chatOpen2);
   const rightPanelOpen    = useUIStore((s) => s.rightPanelOpen);
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
 
-  const navGoBack    = paneId === 2 ? pane2GoBack    : goBack;
-  const navGoForward = paneId === 2 ? pane2GoForward : goForward;
-  const navCanBack   = paneId === 2 ? pane2CanGoBack    : canGoBack;
-  const navCanFwd    = paneId === 2 ? pane2CanGoForward : canGoForward;
+  const navGoBack    = () => paneGoBack(paneId);
+  const navGoForward = () => paneGoForward(paneId);
 
   const pane1ActiveNoteId = useUIStore((s) => s.activeTabNoteId());
   const pane2ActiveNoteId = useUIStore((s) => s.paneActiveNoteId(2));

@@ -194,19 +194,15 @@ export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }:
   const dbSettled      = useNoteStore((s) => s.dbSettled);
 
   // Nav — pane 1
-  const goBack            = useNoteStore((s) => s.goBack);
-  const goForward         = useNoteStore((s) => s.goForward);
-  const pane1CanGoBack    = useNoteStore((s) => s.canGoBack());
-  const pane1CanGoForward = useNoteStore((s) => s.canGoForward());
+  const paneGoBack        = useUIStore((s) => s.paneGoBack);
+  const paneGoForward     = useUIStore((s) => s.paneGoForward);
+  const canGoBack         = useUIStore((s) => s.paneCanGoBack(paneId));
+  const canGoForward      = useUIStore((s) => s.paneCanGoForward(paneId));
 
   // Nav — pane 2
-  const pane2CanGoBack    = useUIStore((s) => s.pane2CanGoBack());
-  const pane2CanGoForward = useUIStore((s) => s.pane2CanGoForward());
-  const pane2GoBack       = useUIStore((s) => s.pane2GoBack);
-  const pane2GoForward    = useUIStore((s) => s.pane2GoForward);
+ 
 
-  const canGoBack    = paneId === 2 ? pane2CanGoBack    : pane1CanGoBack;
-  const canGoForward = paneId === 2 ? pane2CanGoForward : pane1CanGoForward;
+ 
 
   const pane1ActiveNoteId = useUIStore((s) => s.activeTabNoteId());
   const pane2ActiveNoteId = useUIStore((s) => s.paneActiveNoteId(2));
@@ -1088,7 +1084,7 @@ if (!contentReady) return null;
         <div className="flex items-center justify-between gap-2 px-3 h-9 shrink-0">
           <div className="flex items-center gap-1 min-w-0">
             <button
-              onClick={() => paneId === 2 ? pane2GoBack() : goBack()}
+              onClick={() => paneGoBack(paneId)}
               disabled={!canGoBack}
               title="Go back (Ctrl+[)"
               className="shrink-0 w-9 h-9 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
@@ -1098,7 +1094,7 @@ if (!contentReady) return null;
               </svg>
             </button>
             <button
-              onClick={() => paneId === 2 ? pane2GoForward() : goForward()}
+              onClick={() => paneGoForward(paneId)}
               disabled={!canGoForward}
               title="Go forward (Ctrl+])"
               className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-25 disabled:cursor-not-allowed text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"

@@ -434,7 +434,7 @@ useEffect(() => {
 
   useEffect(() => {
     const noteId = useUIStore.getState().paneActiveNoteId(2);
-    if (noteId) useUIStore.getState().pane2PushNav(noteId);
+ 
     if (noteId) useChatSessionStore.getState().setPaneNote(2, noteId);
   }, [pane2ActiveTabId]);
 
@@ -507,15 +507,13 @@ useEffect(() => {
 if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") { e.preventDefault(); useUIStore.getState().reopenClosedTab(); return; }
     if (ctrl && e.key === "[") {
       e.preventDefault();
-      const { pane2GoBack } = useUIStore.getState();
-      const { canGoBack, goBack } = useNoteStore.getState();
-      if (activePaneId === 2) { triggerNav(pane2GoBack); } else if (canGoBack()) { triggerNav(goBack); }
+      const ui = useUIStore.getState();
+      if (ui.paneCanGoBack(ui.activePaneId)) triggerNav(() => ui.paneGoBack(ui.activePaneId));
     }
     if (ctrl && e.key === "]") {
       e.preventDefault();
-      const { pane2GoForward } = useUIStore.getState();
-      const { canGoForward, goForward } = useNoteStore.getState();
-      if (activePaneId === 2) { triggerNav(pane2GoForward); } else if (canGoForward()) { triggerNav(goForward); }
+      const ui = useUIStore.getState();
+      if (ui.paneCanGoForward(ui.activePaneId)) triggerNav(() => ui.paneGoForward(ui.activePaneId));
     }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "a") {
   e.preventDefault();

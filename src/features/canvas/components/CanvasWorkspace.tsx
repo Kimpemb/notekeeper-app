@@ -130,18 +130,14 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
   const note       = useNoteStore((s) => s.notes.find((n) => n.id === noteId));
   const updateNote = useNoteStore((s) => s.updateNote);
 
-  const goBack            = useNoteStore((s) => s.goBack);
-  const goForward         = useNoteStore((s) => s.goForward);
-  const pane1CanGoBack    = useNoteStore((s) => s.canGoBack());
-  const pane1CanGoForward = useNoteStore((s) => s.canGoForward());
+  const paneGoBack        = useUIStore((s) => s.paneGoBack);
+  const paneGoForward     = useUIStore((s) => s.paneGoForward);
+  const canGoBack         = useUIStore((s) => s.paneCanGoBack(paneId));
+  const canGoForward      = useUIStore((s) => s.paneCanGoForward(paneId));
 
-  const pane2CanGoBack    = useUIStore((s) => s.pane2CanGoBack());
-  const pane2CanGoForward = useUIStore((s) => s.pane2CanGoForward());
-  const pane2GoBack       = useUIStore((s) => s.pane2GoBack);
-  const pane2GoForward    = useUIStore((s) => s.pane2GoForward);
+ 
 
-  const canGoBack    = paneId === 2 ? pane2CanGoBack    : pane1CanGoBack;
-  const canGoForward = paneId === 2 ? pane2CanGoForward : pane1CanGoForward;
+ 
 
   const containerRef  = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -243,7 +239,7 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
         {/* Left: Navigation */}
         <div className="absolute left-3 flex items-center gap-2">
           <button
-            onClick={() => paneId === 2 ? pane2GoBack() : goBack()}
+            onClick={() => paneGoBack(paneId)}
             disabled={!canGoBack}
             title="Go back (Ctrl+[)"
             className="shrink-0 w-9 h-9 flex items-center justify-center rounded-md transition-colors disabled:opacity-25 disabled:cursor-not-allowed text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
@@ -254,7 +250,7 @@ export function CanvasWorkspace({ noteId, paneId = 1 }: Props) {
           </button>
 
           <button
-            onClick={() => paneId === 2 ? pane2GoForward() : goForward()}
+            onClick={() => paneGoForward(paneId)}
             disabled={!canGoForward}
             title="Go forward (Ctrl+])"
             className="shrink-0 w-9 h-9 flex items-center justify-center rounded-md transition-colors disabled:opacity-25 disabled:cursor-not-allowed text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary"
