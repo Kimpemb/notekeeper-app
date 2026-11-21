@@ -94,6 +94,28 @@ function activeTabOf(s: UIStore, pane: 1 | 2): Tab | undefined {
     : s.tabs.find((t) => t.id === s.activeTabId);
 }
 
+// Rebuild a saved tab. History is kept only when it is consistent; otherwise
+// the tab falls back to a fresh single-entry history.
+function restoreTab(t: any): Tab {
+  const noteId: string | null = t?.noteId ?? null;
+  const tab: Tab = { id: t.id, noteId };
+  const h = t?.history;
+  const i = t?.historyIndex;
+  if (
+    Array.isArray(h) &&
+    h.length > 0 &&
+    h.length <= HISTORY_CAP &&
+    h.every((x: unknown) => typeof x === "string") &&
+    Number.isInteger(i) &&
+    i >= 0 &&
+    i < h.length &&
+    h[i] === noteId
+  ) {
+    return { ...tab, history: h, historyIndex: i };
+  }
+  return tab;
+}
+
 function saveSession(state: UIStore) {
   const persist: SessionPersist = {
     tabs: state.tabs,
@@ -400,9 +422,9 @@ export const useUIStore = create<UIStore>((set, get) => {
     if (raw) {
       const session: SessionPersist = JSON.parse(raw);
       set({
-        tabs: (session.tabs ?? []).map((t: any) => ({ id: t.id, noteId: t.noteId ?? null })),
+        tabs: (session.tabs ?? []).map(restoreTab),
         activeTabId: session.activeTabId ?? null,
-        pane2Tabs: (session.pane2Tabs ?? []).map((t: any) => ({ id: t.id, noteId: t.noteId ?? null })),
+        pane2Tabs: (session.pane2Tabs ?? []).map(restoreTab),
         pane2ActiveTabId: session.pane2ActiveTabId ?? null,
         splitOpen: session.splitOpen ?? false,
         splitDirection: session.splitDirection ?? "horizontal",
