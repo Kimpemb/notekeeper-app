@@ -602,6 +602,7 @@ async function dispatchChat(
   system?:  string,
 ): Promise<ProviderChatResult> {
   let { provider, model, apiKey, keyId } = resolveSlot(slot);
+ 
 
   if (!navigator.onLine) {
     throw new AICallError("NETWORK_ERROR", provider, model,

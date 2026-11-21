@@ -651,18 +651,27 @@ loadAISettings: async () => {
   // ── Slot configuration ────────────────────────────────────────────────────
 
   setPrimarySlot: async (config) => {
-    set((s) => ({
-      primarySlot: { ...s.primarySlot, ...config },
-      profile:     "custom",
-    }));
+    set((s) => {
+      const slot = { ...s.primarySlot, ...config };
+      return {
+        primarySlot:     slot,
+        // keep the live rotation in step, or requests keep using the old provider
+        primaryRotation: { provider: slot.provider, model: slot.model, keyId: slot.keyId },
+        profile:         "custom",
+      };
+    });
     await persist(get());
   },
 
   setProcessingSlot: async (config) => {
-    set((s) => ({
-      processingSlot: { ...s.processingSlot, ...config },
-      profile:        "custom",
-    }));
+    set((s) => {
+      const slot = { ...s.processingSlot, ...config };
+      return {
+        processingSlot:     slot,
+        processingRotation: { provider: slot.provider, model: slot.model, keyId: slot.keyId },
+        profile:            "custom",
+      };
+    });
     await persist(get());
   },
 
