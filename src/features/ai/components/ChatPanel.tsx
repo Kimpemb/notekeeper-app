@@ -335,6 +335,7 @@ function WebNudge({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ChatPanel({ noteId, paneId, embedded = false, onCloseEmbedded }: Props) {
+  const splitOpen = useUIStore((s) => s.splitOpen);
   // messages and persistedMeta live in the store — not local state
   const [runtimeMetaMap, setRuntimeMetaMap] = useState<Map<string, Partial<MessageMeta>>>(new Map());
   const [input, setInput]           = useState("");
@@ -1466,7 +1467,7 @@ const meta = await streamChatWithNotes(
   return (
     <div className={embedded
       ? "flex flex-col h-full w-full"
-      : "flex flex-col h-full w-[480px] shrink-0 border-l border-idemora-border bg-idemora-bg-primary"}>
+      : `flex flex-col h-full ${splitOpen ? "w-[380px]" : "w-[480px]"} shrink-0 border-l border-idemora-border bg-idemora-bg-primary`}>
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-3 py-1.5 shrink-0 border-b border-idemora-border/60">
         <div className="flex items-center min-w-0">
