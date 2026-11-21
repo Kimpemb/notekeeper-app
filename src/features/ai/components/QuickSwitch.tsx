@@ -50,9 +50,10 @@ function ProviderDot({ provider, size = 7 }: { provider: ProviderName; size?: nu
 
 interface Props {
   defaultOpen?: boolean;
+  align?: "left" | "right"; // which edge the dropdown anchors to (left inside error cards)
 }
 
-export function QuickSwitch({ defaultOpen = false }: Props) {
+export function QuickSwitch({ defaultOpen = false, align = "right" }: Props) {
   const primarySlot    = useAIStore((s) => s.primarySlot);
   const providers      = useAIStore((s) => s.providers);
   const setPrimarySlot = useAIStore((s) => s.setPrimarySlot);
@@ -90,7 +91,7 @@ export function QuickSwitch({ defaultOpen = false }: Props) {
     if (provider === active) { setOpen(false); return; }
 
     const defaultModels: Record<ProviderName, string> = {
-      gemini:   "gemini-2.5-pro",
+      gemini:   "gemini-3.8-flash",
       claude:   "claude-sonnet-4-6",
       openai:   "gpt-4o",
       deepseek: "deepseek-chat",
@@ -143,7 +144,7 @@ export function QuickSwitch({ defaultOpen = false }: Props) {
 
       {/* ── Dropdown — opens upward ── */}
       {open && (
-        <div className="absolute bottom-full right-0 mb-2 z-50 min-w-[200px] rounded-xl border border-idemora-border bg-idemora-bg-primary py-1.5 overflow-hidden"
+        <div className={`absolute bottom-full ${align === "left" ? "left-0" : "right-0"} mb-2 z-50 min-w-[200px] rounded-xl border border-idemora-border bg-idemora-bg-primary py-1.5 overflow-hidden`}
           style={{ boxShadow: "0 -4px 16px rgba(0,0,0,0.08)" }}
         >
           <p className="px-3 pt-0.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-idemora-text-muted border-b border-idemora-border/60">

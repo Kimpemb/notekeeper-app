@@ -218,26 +218,26 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
 function QuotaExhaustedCard({ onRetry }: { onRetry: () => void }) {
   const hasAnyValidKey = useAIStore((s) => s.hasAnyValidKey);
   return (
-    <div className="mx-3 mt-2 rounded-lg border border-red-100 bg-red-50/40 p-3 space-y-2.5">
+    <div className="mx-3 mt-2 rounded-lg border border-idemora-border bg-idemora-bg-secondary p-3 space-y-2.5">
       <div className="flex items-center gap-1.5">
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-idemora-text-muted shrink-0">
           <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.2"/>
           <path d="M5.5 3.5v2.5M5.5 7.5v.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
         </svg>
-        <p className="text-xs font-semibold text-red-600">All providers exhausted</p>
+        <p className="text-xs font-semibold text-idemora-text-normal">All providers exhausted</p>
       </div>
-      <p className="text-[11px] text-red-500 leading-relaxed">
+      <p className="text-[11px] text-idemora-text-normal leading-relaxed">
         Daily quota reached on all configured providers. Add a new key or wait for quota reset.
       </p>
       <div className="flex items-center gap-2 pt-0.5">
         <button
           onClick={onRetry}
           disabled={!hasAnyValidKey()}
-          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-600 border border-red-200 hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100"
+          className="px-3 py-1.5 text-xs font-medium rounded-lg text-idemora-text-normal border border-idemora-border hover:bg-idemora-bg-header disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-100"
         >
           Retry
         </button>
-        <p className="text-[10px] text-red-400">
+        <p className="text-[10px] text-idemora-text-muted">
           {hasAnyValidKey()
             ? "A key is available — tap retry to try again."
             : "Add a key in Settings → AI to continue."}
@@ -2559,26 +2559,26 @@ function ErrorCard({ error, onDismiss, onRetry, onCancelRetry, retryCountdown }:
   };
   const cfg = configs[error.code] ?? configs.UNKNOWN;
   return (
-    <div className="rounded-lg border border-red-100 bg-red-50/40 p-3 space-y-2.5">
+    <div className="rounded-lg border border-idemora-border bg-idemora-bg-secondary p-3 space-y-2.5">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-red-400 shrink-0 mt-px">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-idemora-text-muted shrink-0 mt-px">
             <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.2"/>
             <path d="M5.5 3.5v2.5M5.5 7.5v.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
           </svg>
-          <p className="text-xs font-semibold text-red-600">{cfg.title}</p>
+          <p className="text-xs font-semibold text-idemora-text-normal">{cfg.title}</p>
         </div>
-        <button onClick={onDismiss} className="text-red-300 hover:text-red-500 transition-colors duration-75 shrink-0">
+        <button onClick={onDismiss} className="text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-75 shrink-0">
           <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
             <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
           </svg>
         </button>
       </div>
-      <p className="text-[11px] text-red-500 leading-relaxed">{cfg.body}</p>
+      <p className="text-[11px] text-idemora-text-normal leading-relaxed">{cfg.body}</p>
       {cfg.showSwitch && (
         <div className="pt-0.5">
-          <p className="text-[10px] text-red-400 mb-1.5">Switch provider:</p>
-          <QuickSwitch defaultOpen={false} />
+          <p className="text-[10px] text-idemora-text-muted mb-1.5">Switch provider:</p>
+          <QuickSwitch defaultOpen={false} align="left" />
         </div>
       )}
       {cfg.showRetry && error.retryable && (
@@ -2586,14 +2586,14 @@ function ErrorCard({ error, onDismiss, onRetry, onCancelRetry, retryCountdown }:
           {/* Retry button — clickable even during countdown to skip the wait */}
           <button
             onClick={() => { onDismiss(); onRetry?.(); }}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 text-red-600 border border-red-200 hover:bg-red-200 active:bg-red-300 transition-colors duration-100"
+            className="px-3 py-1.5 text-xs font-medium rounded-lg text-idemora-text-normal border border-idemora-border hover:bg-idemora-bg-header transition-colors duration-100"
           >
             {retryCountdown != null ? `Retry now (${retryCountdown}s)` : "Retry"}
           </button>
           {retryCountdown != null && onCancelRetry && (
             <button
               onClick={onCancelRetry}
-              className="text-[10px] text-red-400 hover:text-red-600 transition-colors duration-100"
+              className="text-[10px] text-idemora-text-muted hover:text-idemora-text-normal transition-colors duration-100"
             >
               Cancel
             </button>
