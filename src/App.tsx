@@ -616,15 +616,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
   const paneTabs        = paneId === 1 ? tabs        : pane2Tabs;
   const paneActiveTabId = paneId === 1 ? activeTabId : pane2ActiveTabId;
 
-  // Derive this pane's panel states directly (not from activePaneId)
-  const paneBacklinksOpen = paneId === 1 ? pane1BacklinksOpen : pane2BacklinksOpen;
-  const paneOutlineOpen   = paneId === 1 ? pane1OutlineOpen   : pane2OutlineOpen;
-  const paneChatOpen      = paneId === 1 ? chatOpen1          : chatOpen2;
-  const paneTagsOpen      = paneId === 1 ? pane1TagsOpen      : pane2TagsOpen;
-  const paneNoteId        = paneTabs.find(t => t.id === paneActiveTabId)?.noteId ?? null;
-
-  // Only show inline panels when right panel bar is open AND this pane is active
-  const showPanels = rightPanelOpen;
+  // Panels (tags, backlinks, outline, chat) render in the shared slot, see renderPanelSlot
 
   return (
     <div
@@ -651,28 +643,34 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
         </div>
       </div>
 
-      {/* Inline panels for this pane */}
-      {showPanels && (
-        <div className="flex shrink-0 border-l border-idemora-border">
-          {(activePaneId === paneId) && paneTagsOpen && <TagsPanel />}
-          {(activePaneId === paneId) && paneBacklinksOpen && paneNoteId && (
-            <BacklinksPanel noteId={paneNoteId} paneId={paneId} />
-          )}
-          {(activePaneId === paneId) && paneOutlineOpen && activeEditors[paneId] && paneNoteId && (
-            <OutlinePanel
-              editor={activeEditors[paneId]}
-              paneId={paneId}
-              noteId={paneNoteId}
-            />
-          )}
-          {paneChatOpen && paneNoteId && (
-            <ChatPanel noteId={paneNoteId} paneId={paneId} />
-          )}
-        </div>
-      )}
     </div>
   );
 }
+
+  // One shared panel slot on the window's right edge. It always shows the
+  // panels of the active pane; each pane remembers which panels it has open.
+  function renderPanelSlot() {
+    if (!rightPanelOpen) return null;
+    const p = activePaneId;
+    const paneTabs        = p === 1 ? tabs : pane2Tabs;
+    const paneActiveTabId = p === 1 ? activeTabId : pane2ActiveTabId;
+    const noteId          = paneTabs.find((t) => t.id === paneActiveTabId)?.noteId ?? null;
+    const tagsOpen        = p === 1 ? pane1TagsOpen      : pane2TagsOpen;
+    const backlinksOpen   = p === 1 ? pane1BacklinksOpen : pane2BacklinksOpen;
+    const outlineOpen     = p === 1 ? pane1OutlineOpen   : pane2OutlineOpen;
+    const chatIsOpen      = p === 1 ? chatOpen1          : chatOpen2;
+    if (!tagsOpen && !backlinksOpen && !outlineOpen && !(chatIsOpen && noteId)) return null;
+    return (
+      <div className="flex shrink-0 border-l border-idemora-border">
+        {tagsOpen && <TagsPanel />}
+        {backlinksOpen && noteId && <BacklinksPanel noteId={noteId} paneId={p} />}
+        {outlineOpen && activeEditors[p] && noteId && (
+          <OutlinePanel editor={activeEditors[p]} paneId={p} noteId={noteId} />
+        )}
+        {chatIsOpen && noteId && <ChatPanel noteId={noteId} paneId={p} />}
+      </div>
+    );
+  }
 
   // ── Error / loading screens ───────────────────────────────────────────────
   if (dbError) {
@@ -928,6 +926,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
       {splitOpen && <><SplitDivider />{renderPane(2)}</>}
     </div>
   </div>
+  {renderPanelSlot()}
 </main>
         </div>
       </div>
