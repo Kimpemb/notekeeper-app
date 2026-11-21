@@ -218,7 +218,7 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
 function QuotaExhaustedCard({ onRetry }: { onRetry: () => void }) {
   const hasAnyValidKey = useAIStore((s) => s.hasAnyValidKey);
   return (
-    <div className="mx-3 mt-2 rounded-lg border border-idemora-border bg-idemora-bg-secondary p-3 space-y-2.5">
+    <div className="mx-3 mt-2 rounded-lg border border-idemora-border bg-idemora-bg-header p-3 space-y-2.5">
       <div className="flex items-center gap-1.5">
         <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-idemora-text-muted shrink-0">
           <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -606,6 +606,18 @@ useEffect(() => {
   // ── Network error: auto-retry with countdown, but also allow immediate retry ──
   const retryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [offline, setOffline] = useState(!navigator.onLine);
+  useEffect(() => {
+    const goOnline  = () => setOffline(false);
+    const goOffline = () => setOffline(true);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
 
 
   useEffect(() => {
@@ -620,15 +632,11 @@ useEffect(() => {
 
   useEffect(() => {
     if (!streamingId) return
-    const el = scrollContainerRef.current
-    if (!el) return
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (distFromBottom < 100) {
-      const t = setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-      }, 80)
-      return () => clearTimeout(t)
-    }
+    // A new send always scrolls to the bottom, even if the new bubbles pushed us past 100px.
+    const t = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }, 80)
+    return () => clearTimeout(t)
   }, [streamingId]);
 
   useEffect(() => {
@@ -918,6 +926,10 @@ useEffect(() => {
       ? (typed ? `${attachmentText}\n\n${typed}` : attachmentText)
       : typed;
     if (!q || loading || isFreeTier) return;
+    if (!navigator.onLine) {
+      addToast("You're offline. Check your connection and try again.");
+      return;
+    }
 
     const userMsgId = crypto.randomUUID();
     const userMsg: ChatMessage = {
@@ -1711,7 +1723,7 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
                         } : null)
                         setSaveDialogOpen(true)
                       }) : undefined}
-                      onRetry={isLatest && msg.content === "" ? handleRetry : undefined}
+                      onRetry={isLatest && msg.content === "" ? () => handleRetry() : undefined}
                       onAddToThoughtGraph={!isFreeTier ? () => handleManualThoughtExtraction(msg.id) : undefined}
                       addingToThoughtGraph={extractingThoughtIds.has(msg.id)}
                       isLatest={isLatest}
@@ -1761,7 +1773,12 @@ onRetry={msg.role === "user" ? () => handleRetry(msg.id, msg.content) : undefine
       {/* ── Input area ── */}
       {!isFreeTier && (
         <div className="shrink-0 px-3 pt-2 pb-3">
-          <div className="rounded-2xl border border-idemora-border/60 bg-idemora-bg-secondary transition-all duration-150 focus-within:border-violet-500/30 focus-within:shadow-[0_0_0_1px_rgba(139,92,246,0.15)]">
+          {offline && (
+            <p className="mb-1.5 px-1 text-[11px] text-idemora-text-muted">
+              You're offline. Messages can't be sent until you reconnect.
+            </p>
+          )}
+          <div className="rounded-2xl border border-idemora-border/60 bg-idemora-bg-header transition-all duration-150 focus-within:border-violet-500/30 focus-within:shadow-[0_0_0_1px_rgba(139,92,246,0.15)]">
 
             {/* Pending-paste chip — shown when a large paste was intercepted */}
             {pendingAttachments.length > 0 && (
@@ -2559,7 +2576,7 @@ function ErrorCard({ error, onDismiss, onRetry, onCancelRetry, retryCountdown }:
   };
   const cfg = configs[error.code] ?? configs.UNKNOWN;
   return (
-    <div className="rounded-lg border border-idemora-border bg-idemora-bg-secondary p-3 space-y-2.5">
+    <div className="rounded-lg border border-idemora-border bg-idemora-bg-header p-3 space-y-2.5">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="text-idemora-text-muted shrink-0 mt-px">
