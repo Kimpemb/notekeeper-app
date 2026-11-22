@@ -320,6 +320,7 @@ function withTimeout<T>(
 // ─── Error normalisation ──────────────────────────────────────────────────────
 
 function normaliseError(err: unknown, provider: string, model: string): AICallError {
+  if (err instanceof AICallError) return err; // already classified (e.g. the timeout from withTimeout)
   if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
     return new AICallError("NETWORK_ERROR", provider, model,
       `Could not reach ${provider}. Check your connection.`);
@@ -357,7 +358,10 @@ function normaliseError(err: unknown, provider: string, model: string): AICallEr
       `${provider} daily quota reached.`, retryAfterMs);
   }
 
-  if (status === 529) {
+  // 529 = Claude overloaded; 503 = Gemini "high demand". Some providers throw without a
+  // .status, so the message is checked too.
+  const rawMessage = err instanceof Error ? err.message : "";
+  if (status === 529 || status === 503 || /high demand|overloaded/i.test(rawMessage)) {
     return new AICallError("OVERLOADED", provider, model,
       `${provider} is overloaded. Retrying...`);
   }
@@ -612,6 +616,8 @@ async function dispatchChat(
       "No internet connection. Check your network and try again.")
   }
 
+  let overloadRetries = 0; // 503/529 retries on the current model
+
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     const t0 = Date.now();
 
@@ -635,6 +641,7 @@ async function dispatchChat(
         slot,
       );
 
+      console.info(`[timing:${slot}] ${provider}/${model} finished in ${Date.now() - t0}ms`);
       logCallOk({
         slot:         logSlot,
         provider,
@@ -692,6 +699,21 @@ if (normalised.code === "NETWORK_ERROR") {
   });
   if (attempt < RETRY_ATTEMPTS - 1) {
     await sleep(backoffMs(attempt));
+    continue;
+  }
+  throw normalised;
+}
+
+// OVERLOADED (503/529) — wait and retry the same model up to twice, then show the error card
+if (normalised.code === "OVERLOADED") {
+  logCallError({
+    slot: logSlot, provider, model, latencyMs,
+    errorCode:    normalised.code,
+    errorMessage: `${normalised.message} — overload retry ${overloadRetries + 1}/2`,
+  });
+  if (overloadRetries < 2 && attempt < RETRY_ATTEMPTS - 1) {
+    overloadRetries++;
+    await sleep(2000 * overloadRetries);
     continue;
   }
   throw normalised;
