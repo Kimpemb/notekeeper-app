@@ -1799,17 +1799,36 @@ Answer:`
     streaming.onStatus?.("Generating answer…")
 
     const stallTimer = setTimeout(() => {
-      streaming.onStatus?.("Taking longer than usual — check your connection…")
+      streaming.onStatus?.("Still thinking…")
     }, 8_000)
 
+    // STREAM-STAGE2: show text as it arrives, holding the tail back for the RELEVANT tag
+    let streamedAll = ""  // everything received so far
+    let streamedLen = 0   // how much of it has been shown
+    const HOLD_BACK = 30
+
     try {
-      const result = await callPrimary(messages)
+      const result = await callPrimary(messages, undefined, {
+        onToken: (t) => {
+          clearTimeout(stallTimer)
+          streamedAll += t
+          const safeEnd = streamedAll.length - HOLD_BACK
+          if (safeEnd > streamedLen) {
+            streaming.onChunk(streamedAll.slice(streamedLen, safeEnd))
+            streamedLen = safeEnd
+          }
+        },
+      })
       clearTimeout(stallTimer)
       assembled    = result.text
 
       const parsedRelevance = extractRelevanceTag(assembled)
       assembled              = parsedRelevance.text
       selfReportedRelevant   = parsedRelevance.relevant
+
+      // Show whatever the held-back tail left unshown (tag already stripped)
+      if (assembled.length > streamedLen) streaming.onChunk(assembled.slice(streamedLen))
+      streamedLen = Math.max(streamedLen, assembled.length)
 
       // Vault didn't help, and the query isn't shaped for auto web search
       // (pasted content, quotes, long lists) — resolve it now with general
@@ -1841,7 +1860,8 @@ Answer:`
         }
       }
 
-      streaming.onChunk(assembled)
+      // STREAM-STAGE2: only the part not already shown (the general-knowledge addition, if any)
+      if (assembled.length > streamedLen) streaming.onChunk(assembled.slice(streamedLen))
 
       await appendAIHistory(noteId, "user",      query)
       await appendAIHistory(noteId, "assistant", assembled)

@@ -61,7 +61,15 @@ export interface GeminiChatRequest {
     temperature?:    number;
     maxOutputTokens?: number;
     topP?:           number;
+    thinkingConfig?: { thinkingLevel: "low" | "medium" | "high" };
   };
+}
+
+// Gemini 3.8 Flash thinks at "medium" by default, which delayed the first token by ~31 s.
+// Chat answers use "low". Only 3.8 models get the field (2.5 models use a different setting).
+function applyThinkingLevel(body: GeminiChatRequest, model: string): void {
+  if (!model.startsWith("gemini-3.8")) return;
+  body.generationConfig = { ...body.generationConfig, thinkingConfig: { thinkingLevel: "low" } };
 }
 
 export interface GeminiChatResponse {
@@ -175,6 +183,7 @@ export async function geminiChat(
     body.systemInstruction = { parts: [{ text: system }] };
   }
 
+  applyThinkingLevel(body, model);
   const res = await fetch(chatEndpoint(model, apiKey), {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
@@ -367,6 +376,7 @@ export async function geminiChatStream(
     body.systemInstruction = { parts: [{ text: system }] };
   }
 
+  applyThinkingLevel(body, model);
   const url = new URL(chatEndpoint(model, apiKey));
   if (!url.pathname.includes(":generateContent")) {
     throw Object.assign(new Error("Unexpected Gemini endpoint; cannot stream."), { streamUnsupported: true });
