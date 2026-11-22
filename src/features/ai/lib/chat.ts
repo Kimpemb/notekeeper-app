@@ -142,7 +142,7 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
 
   async function buildHistoryBlock(
     noteId:          string,
-    charBudget:      number = 6_000,
+    charBudget:      number = 10_000,
     sessionMessages?: ChatMessage[],
   ): Promise<string> {
     // Prefer in-memory session messages — avoids DB round-trip and gets full fidelity
@@ -179,7 +179,10 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
 
     for (let i = history.length - 1; i >= 0; i--) {
       const h    = history[i]
-      const line = `${h.role === "user" ? "User" : "Assistant"}: ${h.content}`
+      // HISTORY-CAP: one long answer must not push the rest of the conversation out
+      const cap  = i >= history.length - 2 ? 4_000 : 1_200
+      const body = h.content.length > cap ? `${h.content.slice(0, cap)} …[truncated]` : h.content
+      const line = `${h.role === "user" ? "User" : "Assistant"}: ${body}`
       if (assembled + line.length > charBudget) break
       kept.unshift(line)
       assembled += line.length
