@@ -28,7 +28,7 @@ export async function seedSyncStateFromRemote(): Promise<SeedSummary> {
     `SELECT n.id, n.revision, n.meta_rev, n.updated_at
      FROM notes n
      LEFT JOIN note_sync_state s ON s.note_id = n.id
-     WHERE s.note_id IS NULL AND n.is_canvas = 0`
+     WHERE s.note_id IS NULL AND n.is_canvas = 0 AND n.source_type != 'notepad'`
   );
   if (unseeded.length === 0) return { checked: 0, seeded: 0 };
 

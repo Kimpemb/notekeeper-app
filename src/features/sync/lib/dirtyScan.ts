@@ -15,6 +15,7 @@ export async function findDirtyNoteIds(limit = 50): Promise<string[]> {
      LEFT JOIN note_sync_state s ON s.note_id = n.id
      LEFT JOIN sync_push_queue q ON q.note_id = n.id
      WHERE n.is_canvas = 0
+       AND n.source_type != 'notepad'
        AND q.note_id IS NULL
        AND (s.note_id IS NULL
             OR n.revision   != s.synced_local_revision

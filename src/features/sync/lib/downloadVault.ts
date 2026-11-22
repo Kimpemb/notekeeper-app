@@ -225,7 +225,7 @@ async function recoverInterrupted(
     `SELECT n.id, n.title, n.content, n.updated_at, n.revision, n.meta_rev
      FROM notes n
      LEFT JOIN note_sync_state s ON s.note_id = n.id
-     WHERE s.note_id IS NULL AND n.is_canvas = 0`
+     WHERE s.note_id IS NULL AND n.is_canvas = 0 AND n.source_type != 'notepad'`
   );
   // Cheap prefilter on the already-fetched tree before fetching any content.
   const candidates = stateless.filter((n) => {

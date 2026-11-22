@@ -270,7 +270,14 @@ async function pushOnce(noteId: string): Promise<PushOnceResult> {
   const ownerId = session.user.id;
 
   const row = await loadLocalNote(noteId);
-  if (!row || row.is_canvas) {
+  // Notepads are local-only: never pushed to the hosted server.
+  const isNotepad = row
+    ? (await (await getDb()).select<{ source_type: string }[]>(
+        `SELECT source_type FROM notes WHERE id = $1`,
+        [noteId]
+      ))[0]?.source_type === "notepad"
+    : false;
+  if (!row || row.is_canvas || isNotepad) {
     await clearQueued(noteId); // nothing to push, so nothing to retry
     return "skipped";
   }

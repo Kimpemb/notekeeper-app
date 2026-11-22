@@ -109,6 +109,12 @@ export async function buildSyncReview(
   const local = rows[0];
   if (!local) return { ok: false, reason: "local_missing" };
   if (local.is_canvas) return { ok: false, reason: "canvas" };
+  const kind = await db.select<{ source_type: string }[]>(
+    `SELECT source_type FROM notes WHERE id = $1`,
+    [noteId]
+  );
+  // Local-only notepads reuse the "canvas" reason so no new union member is needed.
+  if (kind[0]?.source_type === "notepad") return { ok: false, reason: "canvas" };
 
   const { data, error } = await supabase
     .from("notes")

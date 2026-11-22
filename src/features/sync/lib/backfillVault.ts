@@ -61,7 +61,7 @@ export async function backfillVault(opts: BackfillOptions = {}): Promise<Backfil
   const local = await db.select<LocalRow[]>(
     `SELECT id, parent_id, revision, meta_rev, updated_at
      FROM notes
-     WHERE deleted_at IS NULL AND is_canvas = 0`
+     WHERE deleted_at IS NULL AND is_canvas = 0 AND source_type != 'notepad'`
   );
   const remote = await fetchRemoteNoteMap(session.user.id);
   const states = await loadAllSyncStates();
