@@ -1,6 +1,6 @@
 // src/types/index.ts
 
-export type NoteSourceType = 'note' | 'pdf' | 'docx' | 'pptx'
+export type NoteSourceType = 'note' | 'pdf' | 'docx' | 'pptx' | 'notepad'
 
 export interface NoteSourceMeta {
   pageCount?:   number
