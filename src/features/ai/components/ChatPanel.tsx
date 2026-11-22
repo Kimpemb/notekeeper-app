@@ -639,6 +639,15 @@ useEffect(() => {
     return () => clearTimeout(t)
   }, [streamingId]);
 
+  // Open at the bottom: once the session has loaded, and whenever the note changes.
+  useEffect(() => {
+    if (isLoading) return
+    const el = scrollContainerRef.current
+    if (!el) return
+    const id = requestAnimationFrame(() => { el.scrollTop = el.scrollHeight })
+    return () => cancelAnimationFrame(id)
+  }, [noteId, isLoading]);
+
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [noteId]);
