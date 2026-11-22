@@ -6,6 +6,7 @@ import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { Sidebar } from "@/features/notes/components/Sidebar";
 import { Editor } from "@/features/editor/components/Editor";
+import { NotepadEditor } from "@/features/editor/components/Notepad/NotepadEditor";
 import { EmptyState } from "@/features/ui/components/EmptyState";
 import { CommandPalette } from "@/features/ui/components/CommandPalette";
 import { KeyboardShortcuts } from "@/features/ui/components/KeyboardShortcuts";
@@ -105,6 +106,8 @@ function TabContent({
         <CanvasWorkspace key={noteId} noteId={noteId} paneId={paneId} />
       ) : note?.source_type === "pdf" ? (
         <PDFViewerPanel key={noteId} noteId={noteId} paneId={paneId} />
+      ) : note?.source_type === "notepad" ? (
+        <NotepadEditor key={noteId} noteId={noteId} paneId={paneId} isActive={isActive} />
       ) : (
         <Editor
           key={noteId}
