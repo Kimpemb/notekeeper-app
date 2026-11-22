@@ -425,7 +425,10 @@ export function ChatPanel({ noteId, paneId, embedded = false, onCloseEmbedded }:
   
   const aiReady    = isAIReady();
   const isFreeTier = !aiReady;
-  const currentNote = notes.find((n) => n.id === noteId);
+  // A hidden notepad is never exposed to the AI as the "current note".
+  const currentNote = notes.find(
+    (n) => n.id === noteId && !(n.source_type === "notepad" && n.rag_excluded === 1)
+  );
 
   const setPaneNote       = useChatSessionStore((s) => s.setPaneNote);
   const addMessage        = useChatSessionStore((s) => s.addMessage);

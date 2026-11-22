@@ -283,7 +283,7 @@ export async function executeGetNote(input: {
   }
   const note = await getNoteById(topId);
       if (!note || note.deleted_at !== null) {
-        return { success: false, error: `Note "${input.title}" found in search but could not be retrieved.` };
+        return { success: false, error: `No note found matching title "${input.title}".` };
       }
       if (note.rag_excluded === 1) {
         return { success: false, error: `Note "${note.title}" is excluded from AI access (.env).` };
@@ -330,7 +330,7 @@ export async function executeOpenNote(input: {
       }
       const note = await getNoteById(topId);
       if (!note || note.deleted_at !== null) {
-        return { success: false, error: `Note "${input.title}" found in search but could not be retrieved.` };
+        return { success: false, error: `No note found matching title "${input.title}".` };
       }
       return { success: true, data: { id: note.id, title: note.title } };
     }
