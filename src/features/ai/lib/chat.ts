@@ -1887,6 +1887,10 @@ Answer:`
       if (chatAbort.signal.aborted) { // STREAM-STOP: user pressed Stop
         const shown = extractRelevanceTag(streamedAll).text
         if (shown.length > streamedLen) streaming.onChunk(shown.slice(streamedLen))
+        if (shown.trim()) { // STREAM-STOP: keep the exchange in history
+          appendAIHistory(noteId, "user", query).catch(console.warn)
+          appendAIHistory(noteId, "assistant", shown).catch(console.warn)
+        }
         streaming.onDone?.()
       } else {
         streaming.onError?.(err as AICallError)
