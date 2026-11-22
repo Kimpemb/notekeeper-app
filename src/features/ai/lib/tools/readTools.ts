@@ -7,7 +7,14 @@
 // Also exports classifyActionIntent, which routes messages to the tool loop
 // vs the existing RAG pipeline.
 
-import { getNoteById, searchNotes, getNoteBlocksText, getOpenEpisode } from "@/features/notes/db/queries";
+import { getNoteById as dbGetNoteById, searchNotes, getNoteBlocksText, getOpenEpisode } from "@/features/notes/db/queries";
+import { isAIHidden } from "@/features/notes/lib/aiHidden";
+
+// Hidden notepads look exactly like missing notes to every read tool.
+async function getNoteById(id: string) {
+  const note = await dbGetNoteById(id);
+  return isAIHidden(note) ? null : note;
+}
 import { getEventsForDateRange }                from "@/features/calendar/db/calendarQueries";
 import { listGoals }                            from "@/features/goals/db/goalQueries";
 import { hybridSearch }                         from "@/features/ai/lib/search/hybrid";
@@ -379,7 +386,7 @@ export async function executeSearchNotes(input: {
       const nonExcluded = await Promise.all(
         keyword.map(async (r) => {
           const note = await getNoteById(r.id);
-          return note?.rag_excluded === 1 ? null : r;
+          return !note || note.rag_excluded === 1 ? null : r;
         })
       );
       results = nonExcluded.filter(Boolean).map((r) => ({
