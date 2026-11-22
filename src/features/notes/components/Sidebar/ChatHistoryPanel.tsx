@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { getRecentChatSessions, type RecentChatSession } from "@/features/notes/db/queries";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { groupByDay, formatActivity } from "./groupByDay";
 
 // ─── Breadcrumb truncation ──────────────────────────────────────────────────
 // computeBreadcrumb() returns " / "-joined titles, last segment is the note's
@@ -9,8 +10,8 @@ import { useUIStore } from "@/features/ui/store/useUIStore";
 // it, excluding the note's own title.
 function truncateBreadcrumb(breadcrumb: string): string {
   const parts = breadcrumb.split(" / ");
-  if (parts.length <= 4) return breadcrumb;
-  return ".../" + parts.slice(-4, -1).join("/");
+  if (parts.length <= 2) return breadcrumb;
+  return "… / " + parts.slice(-2).join(" / ");
 }
 
 function ClockIcon() {
@@ -36,7 +37,7 @@ export function ChatHistoryPanel() {
     if (!isActivePanel) return;
     let cancelled = false;
     setLoading(true);
-    getRecentChatSessions(20)
+    getRecentChatSessions(60)
       .then((rows) => { if (!cancelled) setSessions(rows); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -48,8 +49,8 @@ export function ChatHistoryPanel() {
     // shows up without needing to close/reopen the panel.
     if (!isActivePanel) return;
     const interval = setInterval(() => {
-      getRecentChatSessions(20).then(setSessions).catch(() => {});
-    }, 5000);
+      getRecentChatSessions(60).then(setSessions).catch(() => {});
+    }, 15000);
     return () => clearInterval(interval);
   }, [isActivePanel]);
 
@@ -80,19 +81,31 @@ export function ChatHistoryPanel() {
             <p className="text-xs text-idemora-text-muted">Loading…</p>
           </div>
         ) : (
-          sessions.map((s) => (
-            <button
-              key={s.noteId}
-              onClick={() => openSession(s.noteId)}
-              className="flex flex-col items-start w-full text-left px-3 py-2 hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-150"
-            >
-              <span className="text-sm text-idemora-text-normal leading-snug truncate w-full">
-                {s.title}
-              </span>
-              <span className="text-xs text-idemora-text-muted leading-snug truncate w-full">
-                {truncateBreadcrumb(s.breadcrumb)}
-              </span>
-            </button>
+          groupByDay(sessions).map((g) => (
+            <div key={g.label} className="pb-1">
+              <div className="sticky top-0 z-10 px-4 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-idemora-text-faint bg-idemora-bg-secondary">
+                {g.label}
+              </div>
+              {g.items.map((s) => (
+                <button
+                  key={s.noteId}
+                  onClick={() => openSession(s.noteId)}
+                  className="flex flex-col items-start mx-1.5 w-[calc(100%-0.75rem)] text-left px-2.5 py-1.5 rounded-md hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-150"
+                >
+                  <span className="text-[13px] text-idemora-text-normal leading-snug truncate w-full">
+                    {s.title}
+                  </span>
+                  <span className="flex items-baseline gap-2 w-full">
+                    <span className="flex-1 min-w-0 text-[11px] text-idemora-text-muted leading-snug truncate">
+                      {truncateBreadcrumb(s.breadcrumb)}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-idemora-text-faint tabular-nums">
+                      {formatActivity(s.updatedAt, g.label)}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
           ))
         )}
       </div>
