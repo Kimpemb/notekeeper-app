@@ -85,7 +85,18 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
         <p className="text-xs text-idemora-text-faint mt-1 mb-4">
           Notepad: stored on this device only, hidden from AI.
         </p>
-        <EditorContent editor={editor} className="text-idemora-text-normal min-h-[60vh]" />
+        <div
+          className="min-h-[60vh] cursor-text"
+          onClick={(e) => {
+            // Clicks on the text itself are handled by ProseMirror; only
+            // the empty area around it needs help.
+            if ((e.target as HTMLElement).closest(".tiptap") === null || e.target === e.currentTarget) {
+              editor?.commands.focus("end");
+            }
+          }}
+        >
+          <EditorContent editor={editor} className="text-idemora-text-normal" />
+        </div>
       </div>
     </div>
   );
