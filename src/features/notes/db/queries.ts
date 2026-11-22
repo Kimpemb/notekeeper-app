@@ -848,7 +848,27 @@ export async function setRagExcluded(
     if (excluded) {
       await db.execute(`DELETE FROM embeddings WHERE note_id = $1`, [id]);
       await db.execute(`DELETE FROM embedding_jobs WHERE note_id = $1`, [id]);
+      // Also drop the note's blocks so the startup/open enqueue paths cannot
+      // re-queue it (blocks_fts has a delete trigger, so search is cleared too).
+      await db.execute(`DELETE FROM note_blocks WHERE note_id = $1`, [id]);
+      // Hidden notepads must not keep a title chunk either.
+      const kindRows = await db.select<{ source_type: string }[]>(
+        `SELECT source_type FROM notes WHERE id = $1`,
+        [id]
+      );
+      if (kindRows[0]?.source_type === "notepad") {
+        await db.execute(`DELETE FROM note_title_chunks WHERE note_id = $1`, [id]);
+      }
     } else {
+      // Rebuild title chunk and blocks from saved content. A born-excluded
+      // notepad has neither, so enqueueing existing blocks alone would do nothing.
+      const rows = await db.select<{ title: string; content: string }[]>(
+        `SELECT title, content FROM notes WHERE id = $1`,
+        [id]
+      );
+      if (rows[0]) {
+        await syncNoteBlocks(id, rows[0].content, "note", rows[0].title);
+      }
       const blocks = await db.select<{ block_id: string }[]>(
         `SELECT block_id FROM note_blocks WHERE note_id = $1`,
         [id]
