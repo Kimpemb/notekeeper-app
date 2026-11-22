@@ -234,7 +234,9 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
 
   async function buildInventoryContext(): Promise<string> {
     const notes  = await getAllNotesMeta()
-    const active = notes.filter((n) => !n.deleted_at)
+    const active = notes.filter(
+      (n) => !n.deleted_at && !(n.source_type === "notepad" && n.rag_excluded === 1)
+    )
 
     const recentTitles = active
       .sort((a, b) => b.updated_at - a.updated_at)
@@ -839,7 +841,8 @@ function buildWebResultsBlock(webResults: WebSearchResult[]): string {
       console.log('[pipeline] deixis query detected — injecting current note plaintext')
       const db = await getDb()
       const rows = await db.select<{ title: string; plaintext: string | null }[]>(
-        `SELECT title, plaintext FROM notes WHERE id = $1 AND deleted_at IS NULL`,
+        `SELECT title, plaintext FROM notes WHERE id = $1 AND deleted_at IS NULL
+           AND (source_type != 'notepad' OR COALESCE(rag_excluded, 0) = 0)`,
         [currentNote.id]
       )
       const row = rows[0]
@@ -1321,7 +1324,8 @@ if (scopedButEmpty && !pipeline.inventoryMode && (!webResults || webResults.leng
 if (currentNote && (isDeixis || effectiveHistoryBlock.length === 0)) {
         const db = await getDb()
         const rows = await db.select<{ plaintext: string | null }[]>(
-          `SELECT plaintext FROM notes WHERE id = $1 AND deleted_at IS NULL`,
+          `SELECT plaintext FROM notes WHERE id = $1 AND deleted_at IS NULL
+             AND (source_type != 'notepad' OR COALESCE(rag_excluded, 0) = 0)`,
           [currentNote.id]
         )
         editNoteContent = rows[0]?.plaintext?.slice(0, 32_000) ?? undefined

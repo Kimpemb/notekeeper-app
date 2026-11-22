@@ -12,7 +12,14 @@
 // executeGetCurrentNote return to the model, so replaceInNote's old_content
 // can exact-match what the model was shown.
 
-import { getNoteById, createNote as dbCreateNote, updateNote } from "@/features/notes/db/queries";
+import { getNoteById as dbGetNoteById, createNote as dbCreateNote, updateNote } from "@/features/notes/db/queries";
+import { isAIHidden } from "@/features/notes/lib/aiHidden";
+
+// Hidden notepads look exactly like missing notes to every write tool.
+async function getNoteById(id: string) {
+  const note = await dbGetNoteById(id);
+  return isAIHidden(note) ? null : note;
+}
 import {
   createEvent,
   deleteEvent,
