@@ -164,12 +164,11 @@ const DEFAULT_PROVIDER_ROTATION_ORDER: ProviderName[] = [
 // ─── Gemini RPD model priority ─────────────────────────────────────────────────
 //
 // On RPD exhaustion, try models in this order — most generous RPD limit first.
-// Based on free/Tier-1 observed limits (May 2026):
-//   gemini-3.1-flash-lite : 500 RPD  ← by far the most headroom
-//   gemini-3-flash        :  20 RPD
-//   gemini-2.5-flash      :  20 RPD
-//   gemini-2.5-flash-lite :  20 RPD
-//   (gemini-2.5-pro / gemini-2.0-flash-lite = 0 RPD on free tier — excluded)
+// Based on the AI Studio free-tier limits (checked Nov 2026):
+//   gemini-3.5-flash-lite : 500 RPD  ← by far the most headroom
+//   gemini-3.1-flash-lite : 500 RPD
+//   gemini-3.8-flash      :  20 RPD
+//   (2.5-pro and 3.1-pro-preview = 0 RPD on free tier; gemini-2.0-* are shut down — excluded)
 //
 // This table is hardcoded intentionally. User-configurable ordering adds UI
 // complexity for zero practical benefit — users who care about quality should
@@ -180,9 +179,9 @@ const DEFAULT_PROVIDER_ROTATION_ORDER: ProviderName[] = [
 // Update this list when new models are released.
 
 export const GEMINI_RPD_PRIORITY: string[] = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-3.8-flash",
 ];
 
 const DEFAULT_PRIMARY_SLOT: ModelSlotConfig = {
@@ -383,6 +382,7 @@ loadAISettings: async () => {
     // "gemini-3.1-flash-lite" was removed from this list: it is a valid GA model now.
     const INVALID_MODELS = new Set([
       "gemini-3-flash",
+      "gemini-2.5-pro", // 0 RPD on a new project; "no longer available to new users"
       "gemini-2.5-flash-lite",
       "gemini-2.5-flash-lite-preview-04-17",
       "gemini-2.0-flash",
