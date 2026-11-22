@@ -1803,12 +1803,14 @@ Answer:`
     }, 8_000)
 
     // STREAM-STAGE2: show text as it arrives, holding the tail back for the RELEVANT tag
+    const chatAbort = new AbortController(); activeChatAbort = chatAbort // STREAM-STOP
     let streamedAll = ""  // everything received so far
     let streamedLen = 0   // how much of it has been shown
     const HOLD_BACK = 30
 
     try {
       const result = await callPrimary(messages, undefined, {
+        signal: chatAbort.signal,
         onToken: (t) => {
           clearTimeout(stallTimer)
           streamedAll += t
@@ -1882,7 +1884,13 @@ Answer:`
       streaming.onDone?.()
     } catch (err: unknown) {
       clearTimeout(stallTimer)
-      streaming.onError?.(err as AICallError)
+      if (chatAbort.signal.aborted) { // STREAM-STOP: user pressed Stop
+        const shown = extractRelevanceTag(streamedAll).text
+        if (shown.length > streamedLen) streaming.onChunk(shown.slice(streamedLen))
+        streaming.onDone?.()
+      } else {
+        streaming.onError?.(err as AICallError)
+      }
     }
 
     // Cross-note connection pass — skip on web-grounded responses
@@ -2061,6 +2069,12 @@ RULES:
 - replaceInNote targets a node by block_id, not by content string. Always call getNote first and read the 'nodes' array to find the block_id of what you want to replace. Never guess or construct a block_id.
 - When the user confirms or approves in chat (e.g. "yes", "do it", "go ahead", "create it") AFTER YOU have already called a write tool in this conversation and a card is showing: do NOT call the write tool again — tell the user to click Apply on the card.
 - If you asked a question in plain text (e.g. flagging a conflict, asking which time slot, asking for clarification) WITHOUT calling a write tool, and the user then responds "yes" / "go ahead" / confirms: this is the user answering your question, not confirming a card. There is no card yet. You MUST now call the write tool — this is your first opportunity to propose the write. Never tell the user to click Apply when you have not yet called the write tool in this conversation.`;
+// STREAM-STOP: lets the Stop button cancel the answer that is currently streaming
+let activeChatAbort: AbortController | null = null
+export function abortActiveChatStream(): void {
+  activeChatAbort?.abort()
+}
+
 export async function streamChatWithTools(
   query:            string,
   noteId:           string,

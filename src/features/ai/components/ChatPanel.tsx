@@ -1186,6 +1186,7 @@ useEffect(() => {
   }
 
   function handleStop() {
+    void import("@/features/ai/lib/chat").then((m) => m.abortActiveChatStream()) // STREAM-STOP
     abortRef.current?.abort()
     abortRef.current = null
     setStreamingId(null)
@@ -2574,7 +2575,7 @@ function ErrorCard({ error, onDismiss, onRetry, onCancelRetry, retryCountdown }:
   retryCountdown?:  number | null;
 }) {
   const configs: Record<string, { title: string; body: string; showSwitch: boolean; showRetry: boolean }> = {
-    NETWORK_ERROR: { title: "No connection",        body: "Couldn't reach the provider. Check your internet and try again.", showSwitch: false, showRetry: true },
+    NETWORK_ERROR: { title: "No response",          body: "The provider didn't respond, or the connection dropped. Try again, or switch provider.", showSwitch: true, showRetry: true },
     AUTH_FAILED:   { title: "Invalid API key",     body: `The API key for ${error.provider} was rejected. Check your key in Settings → AI, or switch providers.`, showSwitch: true, showRetry: false },
     QUOTA_EXCEEDED:{ title: "Quota exhausted",      body: `You've hit your ${error.provider} limit. Switch providers or upgrade your plan.`, showSwitch: true, showRetry: false },
     RATE_LIMITED:  { title: "Rate limited",         body: `Too many requests to ${error.provider}. Wait a moment, or switch to another provider.`, showSwitch: true, showRetry: true },
