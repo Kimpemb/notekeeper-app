@@ -681,6 +681,43 @@ async function streamWithGuards(
   }
 }
 
+// ─── Overload / stall fallback (in memory only: nothing is marked exhausted or persisted) ───
+const FALLBACK_COOLDOWN_MS = 5 * 60_000;
+const providerCoolUntil = new Map<string, number>(); // provider → time until it is skipped first
+
+function pickFallback(
+  provider:       ProviderName,
+  model:          string,
+  keyId:          string,
+  tried:          Set<string>,
+  sameProviderOk: boolean,
+): { provider: ProviderName; model: string; keyId: string; apiKey: string } | null {
+  const store = useAIStore.getState();
+  tried.add(`${provider}/${model}`);
+
+  // 1. another model on the same provider and key
+  if (sameProviderOk) {
+    const triedHere = [...tried]
+      .filter((t) => t.startsWith(`${provider}/`))
+      .map((t) => t.slice(provider.length + 1));
+    const next = store.getNextModelForProvider(provider, model, triedHere);
+    const key  = store.getKeyById(provider, keyId);
+    if (next && key) return { provider, model: next, keyId, apiKey: key };
+  }
+
+  // 2. the other providers, in rotation order, skipping cooling ones and ones already tried
+  for (const p of store.providerRotationOrder) {
+    if (p === provider) continue;
+    if ([...tried].some((t) => t.startsWith(`${p}/`))) continue;
+    if ((providerCoolUntil.get(p) ?? 0) > Date.now()) continue;
+    const id = store.getNextKeyForProvider(p, []);
+    const m  = store.getNextModelForProvider(p, "", []);
+    const k  = id ? store.getKeyById(p, id) : null;
+    if (id && m && k) return { provider: p, model: m, keyId: id, apiKey: k };
+  }
+  return null;
+}
+
 async function dispatchChat(
   slot:     "primary" | "processing",
   logSlot:  LogSlot,
@@ -694,6 +731,12 @@ async function dispatchChat(
   if (!navigator.onLine) {
     throw new AICallError("NETWORK_ERROR", provider, model,
       "No internet connection. Check your network and try again.")
+  }
+
+  const tried = new Set<string>(); // provider/model pairs already attempted in this call
+  if ((providerCoolUntil.get(provider) ?? 0) > Date.now()) {
+    const fb = pickFallback(provider, model, keyId, tried, false);
+    if (fb) ({ provider, model, keyId, apiKey } = fb);
   }
 
   let overloadRetries = 0; // 503/529 retries on the current model
@@ -815,6 +858,18 @@ if (normalised.code === "NETWORK_ERROR") {
     await sleep(backoffMs(attempt));
     continue;
   }
+  if (normalised instanceof StreamStallError) {
+    const fb = pickFallback(provider, model, keyId, tried, true);
+    if (fb) {
+      console.info(`[fallback] stalled: ${provider}/${model} → ${fb.provider}/${fb.model}`);
+      if (fb.provider !== provider) providerCoolUntil.set(provider, Date.now() + FALLBACK_COOLDOWN_MS);
+      ({ provider, model, keyId, apiKey } = fb);
+      overloadRetries = 0;
+      stallRetries    = 0;
+      attempt         = -1;
+      continue;
+    }
+  }
   throw normalised;
 }
 
@@ -829,6 +884,18 @@ if (normalised.code === "OVERLOADED") {
     overloadRetries++;
     await sleep(2000 * overloadRetries);
     continue;
+  }
+  {
+    const fb = pickFallback(provider, model, keyId, tried, true);
+    if (fb) {
+      console.info(`[fallback] overloaded: ${provider}/${model} → ${fb.provider}/${fb.model}`);
+      if (fb.provider !== provider) providerCoolUntil.set(provider, Date.now() + FALLBACK_COOLDOWN_MS);
+      ({ provider, model, keyId, apiKey } = fb);
+      overloadRetries = 0;
+      stallRetries    = 0;
+      attempt         = -1;
+      continue;
+    }
   }
   throw normalised;
 }
