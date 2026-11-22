@@ -263,3 +263,82 @@ export const CLAUDE_PROVIDER_META = {
   embeddingModelId:  null,
   docsUrl:           "https://console.anthropic.com/settings/keys",
 };
+
+// ─── Streaming chat (SSE) ─────────────────────────────────────────────────────
+// Same request as claudeChat with stream: true. Chat answers only (see client.ts).
+
+interface ClaudeStreamEvent {
+  type?:    string;
+  message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+  delta?:   { type?: string; text?: string };
+  usage?:   { output_tokens?: number };
+  error?:   { type?: string; message?: string };
+}
+
+export async function claudeChatStream(
+  apiKey:      string,
+  model:       string,
+  messages:    ClaudeMessage[],
+  system:      string | undefined,
+  onToken:     (token: string) => void,
+  signal?:     AbortSignal,
+  onActivity?: () => void,
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+  const body = {
+    model,
+    max_tokens: DEFAULT_MAX_TOKENS,
+    messages,
+    stream: true,
+    ...(system ? { system } : {}),
+  };
+
+  const res = await fetch(`${CLAUDE_BASE_URL}/messages`, {
+    method:  "POST",
+    headers: {
+      "Content-Type":      "application/json",
+      "x-api-key":         apiKey,
+      "anthropic-version": ANTHROPIC_VERSION,
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  onActivity?.(); // headers arrived
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ClaudeError(res.status, err?.error?.message ?? res.statusText, model, err?.error?.type ?? "unknown");
+  }
+
+  const { readSSE, safeJSON } = await import("./sse");
+  let text = "";
+  let inputTokens  = 0;
+  let outputTokens = 0;
+
+  await readSSE(res, (ev) => {
+    const d = safeJSON<ClaudeStreamEvent>(ev.data);
+    if (!d) return;
+    switch (d.type) {
+      case "message_start":
+        inputTokens  = d.message?.usage?.input_tokens  ?? inputTokens;
+        outputTokens = d.message?.usage?.output_tokens ?? outputTokens;
+        break;
+      case "content_block_delta":
+        if (d.delta?.type === "text_delta" && d.delta.text) { text += d.delta.text; onToken(d.delta.text); }
+        break;
+      case "message_delta":
+        outputTokens = d.usage?.output_tokens ?? outputTokens;
+        break;
+      case "error": {
+        const t = d.error?.type ?? "unknown";
+        const status = t === "overloaded_error" ? 529
+          : t === "rate_limit_error" ? 429
+          : t === "authentication_error" ? 401
+          : t === "permission_error" ? 403
+          : 500;
+        throw new ClaudeError(status, d.error?.message ?? "Claude stream error", model, t);
+      }
+    }
+  }, onActivity);
+
+  return { text, inputTokens, outputTokens };
+}

@@ -342,3 +342,70 @@ export const GEMINI_PROVIDER_META = {
   embeddingModelId:  GEMINI_EMBEDDING_MODEL_ID,
   docsUrl:           "https://aistudio.google.com/app/apikey",
 };
+
+// ─── Streaming chat (SSE) ─────────────────────────────────────────────────────
+// Same request as geminiChat, sent to :streamGenerateContent?alt=sse so text
+// arrives as it is generated. Chat answers only (see client.ts).
+
+interface GeminiStreamChunk {
+  candidates?:    { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  error?:         { code?: number; message?: string };
+}
+
+export async function geminiChatStream(
+  apiKey:      string,
+  model:       string,
+  messages:    GeminiMessage[],
+  system:      string | undefined,
+  onToken:     (token: string) => void,
+  signal?:     AbortSignal,
+  onActivity?: () => void,
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+  const body: GeminiChatRequest = { contents: messages };
+  if (system) {
+    body.systemInstruction = { parts: [{ text: system }] };
+  }
+
+  const url = new URL(chatEndpoint(model, apiKey));
+  if (!url.pathname.includes(":generateContent")) {
+    throw Object.assign(new Error("Unexpected Gemini endpoint; cannot stream."), { streamUnsupported: true });
+  }
+  url.pathname = url.pathname.replace(":generateContent", ":streamGenerateContent");
+  url.searchParams.set("alt", "sse");
+
+  const res = await fetch(url.toString(), {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify(body),
+    signal,
+  });
+  onActivity?.(); // headers arrived
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new GeminiError(res.status, err?.error?.message ?? res.statusText, model);
+  }
+
+  const { readSSE, safeJSON } = await import("./sse");
+  let text = "";
+  let inputTokens  = 0;
+  let outputTokens = 0;
+
+  await readSSE(res, (ev) => {
+    const d = safeJSON<GeminiStreamChunk>(ev.data);
+    if (!d) return;
+    if (d.error) throw new GeminiError(d.error.code ?? 500, d.error.message ?? "Gemini stream error", model);
+    let piece = "";
+    for (const p of d.candidates?.[0]?.content?.parts ?? []) {
+      if (p.text && !p.thought) piece += p.text;
+    }
+    if (piece) { text += piece; onToken(piece); }
+    if (d.usageMetadata) {
+      inputTokens  = d.usageMetadata.promptTokenCount     ?? inputTokens;
+      outputTokens = d.usageMetadata.candidatesTokenCount ?? outputTokens;
+    }
+  }, onActivity);
+
+  return { text, inputTokens, outputTokens };
+}

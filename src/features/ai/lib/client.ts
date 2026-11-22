@@ -361,7 +361,7 @@ function normaliseError(err: unknown, provider: string, model: string): AICallEr
   // 529 = Claude overloaded; 503 = Gemini "high demand". Some providers throw without a
   // .status, so the message is checked too.
   const rawMessage = err instanceof Error ? err.message : "";
-  if (status === 529 || status === 503 || /high demand|overloaded/i.test(rawMessage)) {
+  if ([500, 502, 503, 504, 529].includes(status) || /high demand|overloaded/i.test(rawMessage)) {
     return new AICallError("OVERLOADED", provider, model,
       `${provider} is overloaded. Retrying...`);
   }
@@ -602,11 +602,91 @@ const projectTag = getProjectTag(provider as ProviderName, keyId);
 
 // ─── Core dispatcher — chat slots ────────────────────────────────────────────
 
+// ─── Streaming (chat answers) ─────────────────────────────────────────────────
+// Used only when a caller passes stream options; otherwise dispatchChat is unchanged.
+
+export interface ChatStreamOptions {
+  onToken: (token: string) => void;
+  signal?: AbortSignal; // user cancel (Stop button)
+}
+
+// Starting values, deliberately generous so healthy slow answers are not cut off.
+// Tune them from the "[stream] ... first token after Nms" log lines.
+const STREAM_HEADERS_TIMEOUT_MS = 60_000;  // request sent, nothing back yet
+const STREAM_IDLE_TIMEOUT_MS    = 60_000;  // response started, then no bytes at all
+const STREAM_TOTAL_TIMEOUT_MS   = 300_000; // hard cap for one answer
+
+export class StreamStallError extends AICallError {
+  constructor(provider: string, model: string, message: string) {
+    super("NETWORK_ERROR", provider, model, message);
+    this.name = "StreamStallError";
+  }
+}
+
+async function streamWithGuards(
+  provider:    ProviderName,
+  apiKey:      string,
+  model:       string,
+  messages:    ProviderMessage[],
+  system:      string | undefined,
+  stream:      ChatStreamOptions,
+  streamState: { gotToken: boolean },
+): Promise<ProviderChatResult> {
+  const { callProviderChatStream } = await import("@/features/ai/lib/provider");
+  const t0     = Date.now();
+  const ac     = new AbortController();
+  const guard  = { why: null as "headers" | "idle" | "total" | null };
+  const holder = { idle: null as ReturnType<typeof setTimeout> | null };
+
+  const arm = (ms: number, why: "headers" | "idle") => {
+    if (holder.idle) clearTimeout(holder.idle);
+    holder.idle = setTimeout(() => { guard.why = why; ac.abort(); }, ms);
+  };
+  const total = setTimeout(() => { guard.why = "total"; ac.abort(); }, STREAM_TOTAL_TIMEOUT_MS);
+  const onUserAbort = () => ac.abort();
+  if (stream.signal) {
+    if (stream.signal.aborted) ac.abort();
+    else stream.signal.addEventListener("abort", onUserAbort, { once: true });
+  }
+  arm(STREAM_HEADERS_TIMEOUT_MS, "headers");
+
+  try {
+    return await callProviderChatStream(provider, apiKey, model, messages, system, {
+      signal:     ac.signal,
+      onActivity: () => arm(STREAM_IDLE_TIMEOUT_MS, "idle"),
+      onToken:    (t) => {
+        if (!streamState.gotToken) {
+          console.info(`[stream] ${provider}/${model} first token after ${Date.now() - t0}ms`);
+        }
+        streamState.gotToken = true;
+        stream.onToken(t);
+      },
+    });
+  } catch (err) {
+    if (stream.signal?.aborted) throw err; // user pressed Stop
+    if (guard.why) {
+      const limit = guard.why === "headers" ? STREAM_HEADERS_TIMEOUT_MS
+                  : guard.why === "idle"    ? STREAM_IDLE_TIMEOUT_MS
+                  : STREAM_TOTAL_TIMEOUT_MS;
+      const what  = guard.why === "headers" ? "did not respond"
+                  : guard.why === "idle"    ? "stopped sending data"
+                  : "answer ran too long";
+      throw new StreamStallError(provider, model, `${provider} ${what} (${Math.round(limit / 1000)}s).`);
+    }
+    throw err;
+  } finally {
+    if (holder.idle) clearTimeout(holder.idle);
+    clearTimeout(total);
+    stream.signal?.removeEventListener("abort", onUserAbort);
+  }
+}
+
 async function dispatchChat(
   slot:     "primary" | "processing",
   logSlot:  LogSlot,
   messages: ProviderMessage[],
   system?:  string,
+  stream?:  ChatStreamOptions,
 ): Promise<ProviderChatResult> {
   let { provider, model, apiKey, keyId } = resolveSlot(slot);
  
@@ -617,6 +697,9 @@ async function dispatchChat(
   }
 
   let overloadRetries = 0; // 503/529 retries on the current model
+  let stallRetries    = 0; // streamed requests that went silent
+  let useStream       = !!stream;
+  const streamState   = { gotToken: false }; // true once a streamed token reached the UI: from then on a failed call is never re-sent
 
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     const t0 = Date.now();
@@ -634,12 +717,14 @@ async function dispatchChat(
     }
 
     try {
-      const result = await withTimeout(
-        callProviderChat(provider, apiKey, model, messages, system),
-        provider,
-        model,
-        slot,
-      );
+      const result = (useStream && stream)
+        ? await streamWithGuards(provider, apiKey, model, messages, system, stream, streamState)
+        : await withTimeout(
+            callProviderChat(provider, apiKey, model, messages, system),
+            provider,
+            model,
+            slot,
+          );
 
       console.info(`[timing:${slot}] ${provider}/${model} finished in ${Date.now() - t0}ms`);
       logCallOk({
@@ -655,6 +740,34 @@ async function dispatchChat(
 
     } catch (err) {
       const latencyMs  = Date.now() - t0;
+
+      // Stop pressed by the user: not an error.
+      if (stream?.signal?.aborted) throw err;
+
+      // Streamed text already reached the screen: never re-send. Keep it and show the error.
+      if (streamState.gotToken) {
+        const partial = normaliseError(err, provider, model);
+        logCallError({
+          slot: logSlot, provider, model, latencyMs,
+          errorCode:    partial.code,
+          errorMessage: `${partial.message} — stream broke after partial output`,
+        });
+        throw partial;
+      }
+
+      // The stream request itself was refused (malformed or unsupported): use the plain call.
+      if (useStream) {
+        const st = (err as { status?: number }).status;
+        const refused = (err as { streamUnsupported?: boolean }).streamUnsupported === true
+          || st === 400 || st === 404 || st === 405 || st === 415;
+        if (refused) {
+          console.warn(`[stream] ${provider}/${model} stream refused (${st ?? "unsupported"}), using the plain call`);
+          useStream = false;
+          attempt--; // does not use up a retry attempt
+          continue;
+        }
+      }
+
       const normalised = normaliseError(err, provider, model);
 
       // RPM — wait retry-after and retry same model/key
@@ -697,7 +810,8 @@ if (normalised.code === "NETWORK_ERROR") {
     errorCode:    normalised.code,
     errorMessage: `${normalised.message} — retry attempt ${attempt + 1}/${RETRY_ATTEMPTS}`,
   });
-  if (attempt < RETRY_ATTEMPTS - 1) {
+  if (normalised instanceof StreamStallError) stallRetries++;
+  if (attempt < RETRY_ATTEMPTS - 1 && stallRetries <= 1) {
     await sleep(backoffMs(attempt));
     continue;
   }
@@ -737,8 +851,25 @@ throw normalised;
 export async function callPrimary(
   messages: ProviderMessage[],
   system?:  string,
+  stream?:  ChatStreamOptions,
 ): Promise<ProviderChatResult> {
-  return dispatchChat("primary", "primary", messages, system);
+  return dispatchChat("primary", "primary", messages, system, stream);
+}
+
+// Dev-only console test:  await __aiStream("Write two sentences about owls.")
+if (typeof window !== "undefined" && (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) {
+  (window as unknown as Record<string, unknown>).__aiStream = async (prompt: string) => {
+    const t0 = Date.now();
+    let first = 0;
+    const res = await callPrimary([{ role: "user", content: prompt }], undefined, {
+      onToken: (t) => {
+        if (!first) first = Date.now() - t0;
+        console.log(`[__aiStream] +${t.length} chars`);
+      },
+    });
+    console.log(`[__aiStream] done: first token ${first}ms, total ${Date.now() - t0}ms, ${res.text.length} chars`);
+    return res.text;
+  };
 }
 
 // Sentinel thrown by callProcessing when all processing providers are exhausted.

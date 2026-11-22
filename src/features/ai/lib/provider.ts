@@ -304,3 +304,91 @@
     const denom = Math.sqrt(magA) * Math.sqrt(magB);
     return denom === 0 ? 0 : dot / denom;
   }
+
+  // ─── Streaming chat dispatcher ────────────────────────────────────────────────
+// Same routing and message mapping as callProviderChat, but the text is delivered
+// through onToken as it arrives. The return value is the full text, as before.
+
+export interface ProviderStreamOptions {
+  onToken:     (token: string) => void;
+  signal?:     AbortSignal;
+  onActivity?: () => void;
+}
+
+export async function callProviderChatStream(
+  provider: ProviderName,
+  apiKey:   string,
+  model:    string,
+  messages: ProviderMessage[],
+  system:   string | undefined,
+  opts:     ProviderStreamOptions,
+): Promise<ProviderChatResult> {
+  const { onToken, signal, onActivity } = opts;
+
+  switch (provider) {
+    case "gemini": {
+      const { geminiChatStream } = await import("./providers/gemini");
+      return geminiChatStream(
+        apiKey,
+        model,
+        messages.map((m) => ({
+          role:  m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content ?? "" }],
+        })),
+        system, onToken, signal, onActivity,
+      );
+    }
+    case "deepseek": {
+      const { deepseekChatStream } = await import("./providers/deepseek");
+      return deepseekChatStream(
+        apiKey,
+        model,
+        messages.map((m) => ({
+          role:    m.role as "user" | "assistant" | "system",
+          content: m.content ?? "",
+        })),
+        system, onToken, signal, onActivity,
+      );
+    }
+    case "grok": {
+      const { grokChatStream } = await import("./providers/grok");
+      return grokChatStream(
+        apiKey,
+        model,
+        messages.map((m) => ({
+          role:    m.role as "user" | "assistant" | "system",
+          content: m.content ?? "",
+        })),
+        system, onToken, signal, onActivity,
+      );
+    }
+    case "claude": {
+      const { claudeChatStream } = await import("./providers/claude");
+      return claudeChatStream(
+        apiKey,
+        model,
+        messages
+          .filter((m) => m.role !== "system")
+          .map((m) => ({
+            role:    m.role as "user" | "assistant",
+            content: m.content ?? "",
+          })),
+        system, onToken, signal, onActivity,
+      );
+    }
+    case "openai": {
+      const { openaiChatStream } = await import("./providers/openai");
+      return openaiChatStream(
+        apiKey,
+        model,
+        messages.map((m) => ({
+          role:    m.role as "user" | "assistant" | "system",
+          content: m.content ?? "",
+        })),
+        system, onToken, signal, onActivity,
+      );
+    }
+    default:
+      throw new Error(`No streaming adapter for provider "${String(provider)}".`);
+  }
+}

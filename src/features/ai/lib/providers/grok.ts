@@ -153,3 +153,24 @@ export const GROK_PROVIDER_META = {
   embeddingModelId:  null,               // not supported
   docsUrl:           "https://console.x.ai/",
 };
+
+// ─── Streaming chat (SSE) ─────────────────────────────────────────────────────
+// includeUsage is off: I have not verified that Grok accepts stream_options, so
+// token counts may be 0 for streamed Grok answers.
+export async function grokChatStream(
+  apiKey:      string,
+  model:       string,
+  messages:    GrokMessage[],
+  system:      string | undefined,
+  onToken:     (token: string) => void,
+  signal?:     AbortSignal,
+  onActivity?: () => void,
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+  const { streamOpenAICompat } = await import("./sse");
+  return streamOpenAICompat({
+    url: `${GROK_BASE_URL}/chat/completions`,
+    apiKey, model, messages, system, onToken, signal, onActivity,
+    includeUsage: false,
+    makeError: (status, message) => new GrokError(status, message, model),
+  });
+}

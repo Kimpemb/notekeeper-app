@@ -339,3 +339,22 @@ export const OPENAI_PROVIDER_META = {
   embeddingModelId:  OPENAI_EMBEDDING_MODEL_ID,
   docsUrl:           "https://platform.openai.com/api-keys",
 };
+
+// ─── Streaming chat (SSE) ─────────────────────────────────────────────────────
+export async function openaiChatStream(
+  apiKey:      string,
+  model:       string,
+  messages:    OpenAIMessage[],
+  system:      string | undefined,
+  onToken:     (token: string) => void,
+  signal?:     AbortSignal,
+  onActivity?: () => void,
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+  const { streamOpenAICompat } = await import("./sse");
+  return streamOpenAICompat({
+    url: `${OPENAI_BASE_URL}/chat/completions`,
+    apiKey, model, messages, system, onToken, signal, onActivity,
+    includeUsage: true,
+    makeError: (status, message, code) => new OpenAIError(status, message, model, code),
+  });
+}

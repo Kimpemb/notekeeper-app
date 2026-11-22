@@ -366,3 +366,22 @@ export const DEEPSEEK_PROVIDER_META = {
   freeTokenGrant:     DEEPSEEK_FREE_TOKEN_GRANT,
   docsUrl:            "https://platform.deepseek.com/api_keys",
 };
+
+// ─── Streaming chat (SSE) ─────────────────────────────────────────────────────
+export async function deepseekChatStream(
+  apiKey:      string,
+  model:       string,
+  messages:    DeepSeekMessage[],
+  system:      string | undefined,
+  onToken:     (token: string) => void,
+  signal?:     AbortSignal,
+  onActivity?: () => void,
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+  const { streamOpenAICompat } = await import("./sse");
+  return streamOpenAICompat({
+    url: `${DEEPSEEK_BASE_URL}/chat/completions`,
+    apiKey, model, messages, system, onToken, signal, onActivity,
+    includeUsage: true,
+    makeError: (status, message) => new DeepSeekError(status, message, model),
+  });
+}
