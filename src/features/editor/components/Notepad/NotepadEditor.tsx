@@ -38,6 +38,9 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
         class: "tiptap h-full outline-none whitespace-pre-wrap",
         spellcheck: "false",
       },
+      // Copy out as plain text with one newline per paragraph, like Windows Notepad.
+      clipboardTextSerializer: (slice) =>
+        slice.content.textBetween(0, slice.content.size, "\n", "\n"),
       // Paste as literal text, one paragraph per line.
       handlePaste: (_view, event) => {
         const text = event.clipboardData?.getData("text/plain");
