@@ -10,6 +10,7 @@ import {
   type FeedbackEntry,
 } from "@/features/notes/similarity/similarityUtils";
 import { chunkDocument, type SourceType } from "@/features/ai/lib/search/chunker";
+import { isAIHidden } from "@/features/notes/lib/aiHidden";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -565,6 +566,7 @@ export interface CreateNoteInput {
   is_canvas?:    boolean
   canvas_state?: string | null
   source_type?:  NoteSourceType
+  rag_excluded?: number
   source_file?:  string
   source_meta?:  string
 }
@@ -596,7 +598,7 @@ const note: Note = {
     sort_order,
     is_canvas: input.is_canvas ?? false,
     canvas_state: input.canvas_state ?? null,
-    rag_excluded: 0,
+    rag_excluded: input.rag_excluded ?? 0,
     source_type: input.source_type ?? 'note',
     source_file: input.source_file,
     source_meta: input.source_meta,
@@ -611,7 +613,7 @@ await db.execute(
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
     [note.id, note.title, note.content, note.plaintext, note.tags, note.frontmatter,
      note.parent_id, note.sync_id, note.created_at, note.updated_at, null, note.sort_order,
-     note.is_canvas ? 1 : 0, note.canvas_state, 0,
+     note.is_canvas ? 1 : 0, note.canvas_state, note.rag_excluded,
      note.source_type, note.source_file ?? null, note.source_meta ?? null]
   );
 
@@ -1765,6 +1767,17 @@ async function upsertNoteTitleChunkWithBreadcrumb(
 ): Promise<void> {
   if (!title.trim()) return;
   const db = await getDb();
+
+  // Hidden notepads (source_type 'notepad' AND rag_excluded 1) get no title
+  // chunk, so the AI cannot discover them by title. Remove any stale chunk.
+  const own = await db.select<{ source_type: string; rag_excluded: number }[]>(
+    `SELECT source_type, COALESCE(rag_excluded, 0) AS rag_excluded FROM notes WHERE id = $1`,
+    [noteId]
+  );
+  if (isAIHidden(own[0] as Pick<Note, "source_type" | "rag_excluded"> | undefined)) {
+    await db.execute(`DELETE FROM note_title_chunks WHERE note_id = $1`, [noteId]);
+    return;
+  }
   await db.execute(
     `INSERT INTO note_title_chunks (note_id, title, source_type, updated_at, breadcrumb)
      VALUES ($1, $2, $3, $4, $5)
