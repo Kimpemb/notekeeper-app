@@ -187,13 +187,13 @@ export const GEMINI_RPD_PRIORITY: string[] = [
 
 const DEFAULT_PRIMARY_SLOT: ModelSlotConfig = {
   provider: "gemini",
-  model:    "gemini-2.5-flash",
+  model:    "gemini-3.8-flash",
   keyId:    null,
 };
 
 const DEFAULT_PROCESSING_SLOT: ModelSlotConfig = {
   provider: "gemini",
-  model:    "gemini-2.0-flash-lite",
+  model:    "gemini-3.5-flash-lite",
   keyId:    null,
 };
 
@@ -243,12 +243,12 @@ function nextMidnightMs(): number {
 // Pro: Claude/OpenAI primary, Gemini Flash-Lite processing
 const PRO_PRESET: { primary: Omit<ModelSlotConfig, "keyId">; processing: Omit<ModelSlotConfig, "keyId"> } = {
   primary:    { provider: "claude" as ProviderName,   model: "claude-sonnet-4-6" },
-  processing: { provider: "gemini" as ProviderName,   model: "gemini-2.0-flash-lite" },
+  processing: { provider: "gemini" as ProviderName,   model: "gemini-3.5-flash-lite" },
 };
 
 const BUDGET_PRESET: { primary: Omit<ModelSlotConfig, "keyId">; processing: Omit<ModelSlotConfig, "keyId"> } = {
-  primary:    { provider: "gemini" as ProviderName,   model: "gemini-2.5-flash" },
-  processing: { provider: "gemini" as ProviderName,   model: "gemini-2.0-flash-lite" },
+  primary:    { provider: "gemini" as ProviderName,   model: "gemini-3.8-flash" },
+  processing: { provider: "gemini" as ProviderName,   model: "gemini-3.5-flash-lite" },
 };
 
 // ─── Migration from v1 ────────────────────────────────────────────────────────
@@ -288,7 +288,7 @@ function migrateV1(raw: string): Partial<PersistedSettings> | null {
     return {
       primarySlot: {
         provider: providerName,
-        model:    providerName === "gemini" ? "gemini-2.5-pro" : "claude-sonnet-4-6",
+        model:    providerName === "gemini" ? "gemini-3.8-flash" : "claude-sonnet-4-6",
         keyId,
       },
       processingSlot: DEFAULT_PROCESSING_SLOT,
@@ -379,17 +379,22 @@ loadAISettings: async () => {
     if (!parsed) return;
 
     // Migrate invalid model strings from before May 2026 API changes
+    // Model ids that no longer exist (retired or never valid) move to the current defaults.
+    // "gemini-3.1-flash-lite" was removed from this list: it is a valid GA model now.
     const INVALID_MODELS = new Set([
-      "gemini-3.1-flash-lite",
       "gemini-3-flash",
       "gemini-2.5-flash-lite",
       "gemini-2.5-flash-lite-preview-04-17",
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-001",
+      "gemini-2.0-flash-lite",
+      "gemini-2.0-flash-lite-001",
     ])
     if (parsed.primarySlot?.model && INVALID_MODELS.has(parsed.primarySlot.model)) {
-      parsed.primarySlot.model = "gemini-2.5-flash"
+      parsed.primarySlot.model = "gemini-3.8-flash"
     }
     if (parsed.processingSlot?.model && INVALID_MODELS.has(parsed.processingSlot.model)) {
-      parsed.processingSlot.model = "gemini-2.0-flash-lite"
+      parsed.processingSlot.model = "gemini-3.5-flash-lite"
     }
 
     // Rehydrate provider state — merge persisted keys into default runtime state

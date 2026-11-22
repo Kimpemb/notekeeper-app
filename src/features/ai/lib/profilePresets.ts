@@ -55,7 +55,7 @@ export const PRO_PRESET: ProfilePreset = {
   highlights: [
     "Primary: Claude Sonnet — strong reasoning and writing",
     "Processing: Gemini Flash-Lite — fractions of a cent per background op",
-    "Embeddings: Gemini text-embedding-004 — generous free tier",
+    "Embeddings: Gemini Embedding — generous free tier",
     "Recommended for users with an existing Claude or OpenAI subscription",
   ],
 };

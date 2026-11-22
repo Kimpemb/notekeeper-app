@@ -13,8 +13,8 @@ import type { ProviderName } from "@/features/ai/store/useAIStore";
 // Rough estimate: one vault import ≈ 2000 processing tokens
 
 const PROCESSING_COST_PER_1M: Partial<Record<string, number>> = {
-  "gemini-2.0-flash-lite": 0.075,
-  "gemini-2.0-flash":      0.10,
+  "gemini-3.5-flash-lite": 0.30,
+  "gemini-3.1-flash-lite": 0.25,
   "deepseek-chat":         0.28,
   "gpt-4o-mini":           0.15,
   "claude-haiku-4-5-20251001": 0.80,
