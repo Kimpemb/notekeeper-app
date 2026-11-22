@@ -7,6 +7,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useAutoSave } from "@/features/editor/hooks/useAutoSave";
 import { BlockIdExtension } from "@/features/editor/components/Editor/extensions";
+import { getNoteContent } from "@/features/notes/db/queries";
 
 interface NotepadEditorProps {
   noteId:   string;
@@ -18,11 +19,8 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
   const note       = useNoteStore((s) => s.notes.find((n) => n.id === noteId));
   const updateNote = useNoteStore((s) => s.updateNote);
   const editorRef  = useRef<Editor | null>(null);
+  const contentLoading = useRef(true);
   const [title, setTitle] = useState(note?.title ?? "");
-
-  const raw = note?.content;
-  const initialContent =
-    raw && raw !== "null" && raw !== "{}" ? JSON.parse(raw) : "";
 
   const editor = useEditor({
     extensions: [
@@ -33,7 +31,7 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
       }),
       BlockIdExtension,
     ],
-    content: initialContent,
+    content: "",
     autofocus: false,
     editorProps: {
       attributes: {
@@ -58,7 +56,29 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
 
   useEffect(() => { editorRef.current = editor; }, [editor]);
 
-  useAutoSave({ editor, noteId, isActiveTab: isActive });
+  // The store holds notes without content, so load it from the DB on open.
+  // contentLoading blocks autosave until the load has finished, so a blank
+  // editor can never overwrite stored text.
+  useEffect(() => {
+    if (!editor) return;
+    let cancelled = false;
+    contentLoading.current = true;
+    getNoteContent(noteId).then(({ content }) => {
+      if (cancelled || editor.isDestroyed) return;
+      try {
+        if (content && content !== "null" && content !== "{}") {
+          editor.commands.setContent(JSON.parse(content));
+        }
+      } catch (err) {
+        console.warn("[Notepad] could not parse saved content:", err);
+      }
+      editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
+      setTimeout(() => { contentLoading.current = false; }, 300);
+    });
+    return () => { cancelled = true; };
+  }, [editor, noteId]);
+
+  useAutoSave({ editor, noteId, isActiveTab: isActive, contentLoading });
 
   const commitTitle = useCallback(() => {
     const next = title.trim() || "Untitled";
@@ -86,7 +106,7 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
           Notepad: stored on this device only, hidden from AI.
         </p>
         <div
-          className="min-h-[60vh] cursor-text"
+          className="min-h-[60vh] cursor-text [&_.tiptap]:leading-[1.3]! [&_.tiptap_p]:m-0! [&_.tiptap_p]:leading-[1.3]!"
           onClick={(e) => {
             // Clicks on the text itself are handled by ProseMirror; only
             // the empty area around it needs help.

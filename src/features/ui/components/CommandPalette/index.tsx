@@ -352,6 +352,13 @@ const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
       action: () => { closePalette(); createNote(); },
     },
     {
+      kind: "action", id: "new-notepad", label: "New Notepad", hint: "Local only, hidden from AI",
+      action: () => {
+        closePalette();
+        createNote({ title: "Notepad", source_type: "notepad", rag_excluded: 1 });
+      },
+    },
+    {
       kind: "action", id: "new-note-new-tab", label: "New Note in New Tab", hint: "Ctrl+Shift+N",
       action: () => {
         closePalette();
