@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import type { Editor } from "@tiptap/react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { revealPosition } from "./editorUtils";
 
 interface HeadingItem {
   level: 1 | 2 | 3;
@@ -46,22 +47,33 @@ function getScrollContainer(editor: Editor | null): HTMLElement | null {
 
 function scrollToHeading(editor: Editor | null, pos: number) {
   if (!editor || !editor.view) return;
-  
+
+  // Open any closed toggle that contains this heading first
+  // (same helper Find and vault search use).
+  const revealed = revealPosition(editor, pos + 1);
+
   editor.commands.setTextSelection(pos + 1);
-  const domNode = editor.view.nodeDOM(pos);
-  const el = domNode instanceof HTMLElement ? domNode : (domNode as Node)?.parentElement;
-  if (!el) return;
-  
-  const scrollContainer = getScrollContainer(editor);
-  if (!scrollContainer) return;
-  
-  const containerRect = scrollContainer.getBoundingClientRect();
-  const elRect = el.getBoundingClientRect();
-  
-  scrollContainer.scrollTo({
-    top: scrollContainer.scrollTop + (elRect.top - containerRect.top) - 80,
-    behavior: "smooth",
-  });
+
+  const doScroll = () => {
+    if (!editor || !editor.view) return;
+    const domNode = editor.view.nodeDOM(pos);
+    const el = domNode instanceof HTMLElement ? domNode : (domNode as Node)?.parentElement;
+    if (!el) return;
+
+    const scrollContainer = getScrollContainer(editor);
+    if (!scrollContainer) return;
+
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollTop + (elRect.top - containerRect.top) - 80,
+      behavior: "smooth",
+    });
+  };
+
+  // If a toggle was just opened, give it a beat to render before measuring.
+  if (revealed) setTimeout(doScroll, 60); else doScroll();
 }
 
 const indentClass: Record<1 | 2 | 3, string> = { 1: "pl-3", 2: "pl-6", 3: "pl-9" };
