@@ -106,7 +106,9 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
           style={{ fontSize: "2rem", lineHeight: 1.2 }}
         />
         <p className="text-xs text-idemora-text-faint mt-1 mb-4">
-          Notepad: stored on this device only, hidden from AI.
+          {note.rag_excluded === 1
+            ? "Notepad: stored on this device only, hidden from AI."
+            : "Notepad: stored on this device only. Included in AI search."}
         </p>
         <div
           className="min-h-[60vh] cursor-text [&_.tiptap]:leading-[1.3]! [&_.tiptap_p]:m-0! [&_.tiptap_p]:leading-[1.3]!"
