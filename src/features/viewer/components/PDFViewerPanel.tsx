@@ -55,11 +55,7 @@ export function PDFViewerPanel({ noteId, paneId }: PDFViewerPanelProps) {
   const paneGoForward = useUIStore((s) => s.paneGoForward);
   const navCanBack    = useUIStore((s) => s.paneCanGoBack(paneId));
   const navCanFwd     = useUIStore((s) => s.paneCanGoForward(paneId));
-  const activePaneId  = useUIStore((s) => s.activePaneId);
-  const chatOpen1     = useUIStore((s) => s.chatOpen1);
-  const chatOpen2     = useUIStore((s) => s.chatOpen2);
-  const rightPanelOpen    = useUIStore((s) => s.rightPanelOpen);
-  const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
+ 
 
   const navGoBack    = () => paneGoBack(paneId);
   const navGoForward = () => paneGoForward(paneId);
@@ -69,8 +65,7 @@ export function PDFViewerPanel({ noteId, paneId }: PDFViewerPanelProps) {
   const isActiveTab = paneId === 1
     ? pane1ActiveNoteId === noteId
     : pane2ActiveNoteId === noteId;
-  const showButtons = isActiveTab && activePaneId === paneId;
-  const chatActive  = paneId === 1 ? chatOpen1 : chatOpen2;
+ 
 
   const [loadState, setLoadState]   = useState<LoadState>("loading");
   const [errorMsg, setErrorMsg]     = useState<string | null>(null);
@@ -284,38 +279,7 @@ useEffect(() => {
           </span>
         </div>
 
-        {showButtons && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            <div className={`flex items-center gap-1.5 transition-all duration-200 ease-in-out overflow-hidden ${rightPanelOpen ? "w-auto opacity-100" : "w-0 opacity-0"}`}>
-              <button
-                onClick={() => {
-                  const { openChat, closeChat } = useUIStore.getState();
-                  if (chatActive) { closeChat(paneId); setRightPanelOpen(false); }
-                  else { openChat(paneId); setRightPanelOpen(true); }
-                }}
-                className={`flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium transition-all duration-150 border ${
-                  chatActive
-                    ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
-                    : "bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border"
-                }`}
-              >
-                <svg width="11" height="11" viewBox="0 0 14 14" fill="none">
-                  <path d="M2.5 2.5h9a1.5 1.5 0 011.5 1.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 011 10V4a1.5 1.5 0 011.5-1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-                  <path d="M3.5 5h7M3.5 7h5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-                </svg>
-                AI Chat
-              </button>
-            </div>
-            <button
-              onClick={() => setRightPanelOpen(!rightPanelOpen)}
-              className="w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 border bg-idemora-bg-primary text-idemora-text-muted hover:text-idemora-text-normal hover:bg-idemora-bg-secondary border-idemora-border"
-            >
-              <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className={`transition-transform duration-200 ${rightPanelOpen ? "" : "rotate-180"}`}>
-                <path d="M3 2l3 2.5L3 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        )}
+        
       </div>
 
       {/* ── PDF toolbar ── */}
