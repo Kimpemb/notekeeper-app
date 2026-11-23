@@ -529,10 +529,19 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") { e.preventDefault(); use
     }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "a") {
   e.preventDefault();
-  if (!rightPanelOpen) setRightPanelOpen(true);  // ADD THIS LINE
-  const { openChat, closeChat } = useUIStore.getState();
-  const chatOpen = activePaneId === 2 ? chatOpen2 : chatOpen1;
-  chatOpen ? closeChat(activePaneId) : openChat(activePaneId);
+  // Read live state, not the values captured when this handler was created.
+  const ui = useUIStore.getState();
+  const pane = ui.activePaneId;
+  const chatIsOpen = pane === 2 ? ui.chatOpen2 : ui.chatOpen1;
+  if (!ui.rightPanelOpen) {
+    // Zone hidden: reveal it and make sure chat is showing.
+    ui.setRightPanelOpen(true);
+    ui.openChat(pane);
+  } else if (chatIsOpen) {
+    ui.closeChat(pane);
+  } else {
+    ui.openChat(pane);
+  }
 }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
       e.preventDefault();
@@ -868,15 +877,21 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
               </button>
             </div>
 
-            {/* Chat button - outside sliding container, hidden when chat is open */}
-            {rightPanelOpen && !chatActive && (
+            {/* Chat toggle - same style as tags, backlinks and outline */}
+            {rightPanelOpen && (
               <button
                 onClick={() => {
-                  const { openChat } = useUIStore.getState();
-                  openChat(activePaneId);
+                  const { openChat, closeChat } = useUIStore.getState();
+                  chatActive ? closeChat(activePaneId) : openChat(activePaneId);
                 }}
-                className="relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
+                title="AI Chat (Ctrl+Shift+A)"
+                className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 ${
+                  chatActive
+                    ? "text-idemora-text-normal"
+                    : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
+                }`}
               >
+                {chatActive && <span className="absolute bottom-1 left-2 right-2 h-0.5 rounded-full bg-blue-500" />}
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                   <path d="M2.5 2.5h13a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5h-4.5l-4 2.5v-2.5h-4.5A1.5 1.5 0 011 12V4a1.5 1.5 0 011.5-1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
                   <path d="M5.5 8h7M5.5 5.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
