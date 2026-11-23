@@ -450,7 +450,7 @@ export const useUIStore = create<UIStore>((set, get) => {
 
     // ─── Sidebar (left rail) ──────────────────────────────────────────────────
     activeSidebarPanel: null,
-    sidebarWidth: 288,
+    sidebarWidth: 240,
     expandedNodes: new Set(),
 
     setActiveSidebarPanel: (panel) => set({ activeSidebarPanel: panel }),

@@ -350,7 +350,7 @@ export function NoteTreeItem({
   }, [isActive]);
 
   if (!note) return null;
-  const indentPx = depth * 14;
+  const indentPx = depth * 16;
 
   function handleClick(e: React.MouseEvent) {
     const isMac  = navigator.platform.toUpperCase().includes("MAC");
@@ -404,9 +404,9 @@ export function NoteTreeItem({
   }
 
   const rowClass = isSelected
-    ? "bg-blue-500/10 text-blue-400"
+    ? "bg-black/[0.09] dark:bg-white/[0.12] text-idemora-text-normal"
     : isActive
-      ? "bg-blue-500/10 text-blue-400 font-medium"
+      ? "bg-black/[0.09] dark:bg-white/[0.12] text-idemora-text-normal font-medium"
       : isFocused
         ? "bg-black/[0.06] dark:bg-white/[0.07] text-idemora-text-normal ring-1 ring-inset ring-idemora-border"
         : "text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07]";
@@ -416,8 +416,8 @@ export function NoteTreeItem({
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        style={{ paddingLeft: `${indentPx + 10}px` }}
-        className={`group flex items-center gap-1.5 h-10 pr-2 rounded-md cursor-pointer transition-all duration-150 ${rowClass}`}
+        style={{ paddingLeft: `${indentPx + 6}px` }}
+        className={`group flex items-center gap-1 h-7 pr-1.5 rounded-md cursor-pointer transition-all duration-150 ${rowClass}`}
       >
         <span
           onClick={handleChevronClick}
@@ -429,7 +429,7 @@ export function NoteTreeItem({
             <path d="M2 1.5l3 2.5-3 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </span>
-        <span className={`shrink-0 ${
+        <span className={`shrink-0 w-4 h-4 mr-1 flex items-center justify-center [&>svg]:w-4 [&>svg]:h-4 ${
           note.source_type === "pdf"  ? "opacity-80 text-red-400"  :
           note.source_type === "docx" ? "opacity-80 text-blue-400" :
           note.source_type === "pptx" ? "opacity-80 text-orange-400" :
@@ -486,18 +486,27 @@ export function NoteTreeItem({
             onBlur={commitRename}
             onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenaming(false); }}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 bg-idemora-bg-primary text-idemora-text-normal text-base px-1 rounded outline-none border border-idemora-border focus:border-blue-500/50 min-w-0"
+            className="flex-1 bg-idemora-bg-primary text-idemora-text-normal text-sm px-1 rounded outline-none border border-idemora-border focus:border-blue-500/50 min-w-0"
           />
         ) : (
           <>
             <span
-              className={`flex-1 text-base leading-none overflow-hidden whitespace-nowrap transition-colors duration-150 min-w-0 ${
-                isSelected || isActive ? "text-blue-400" : "text-idemora-text-normal"
-              }`}
-              style={{ maskImage: "linear-gradient(to right, black 75%, transparent 100%)", WebkitMaskImage: "linear-gradient(to right, black 75%, transparent 100%)" }}
+              className={`flex-1 text-sm leading-5 overflow-hidden whitespace-nowrap transition-colors duration-150 min-w-0 text-idemora-text-normal`}
+              style={{ maskImage: "linear-gradient(to right, black calc(100% - 16px), transparent 100%)", WebkitMaskImage: "linear-gradient(to right, black calc(100% - 16px), transparent 100%)" }}
             >
               {note.title}
             </span>
+            {note.source_type !== "notepad" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); triggerItem("new-sub-note"); }}
+                title="New sub-note"
+                className="shrink-0 w-4 h-4 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity duration-100 text-idemora-text-muted hover:text-idemora-text-normal"
+              >
+                <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
+                  <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </button>
+            )}
             {isPinned && (
               <span className="shrink-0 opacity-40">
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
@@ -530,17 +539,6 @@ export function NoteTreeItem({
               <span className="shrink-0 text-[9px] font-semibold tracking-wide text-orange-400 opacity-70">PPT</span>
             )}
           </>
-        )}
-        {!renaming && note.source_type !== "notepad" && (
-          <button
-            onClick={(e) => { e.stopPropagation(); triggerItem("new-sub-note"); }}
-            title="New sub-note"
-            className="shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity duration-100 text-idemora-text-muted hover:text-idemora-text-normal"
-          >
-            <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
-              <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </button>
         )}
       </div>
 
@@ -716,7 +714,7 @@ function CtxItem({ label, focused, onHover, onClick, danger = false, suffix }: {
       className={`w-full flex items-center justify-between px-3 py-1.5 text-sm transition-colors duration-100 ${
         danger
           ? focused ? "bg-red-500/10 text-red-400" : "text-red-400 hover:bg-red-500/10"
-          : focused ? "bg-blue-500/10 text-blue-400" : "text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
+          : focused ? "bg-black/[0.06] dark:bg-white/[0.07] text-idemora-text-normal" : "text-idemora-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
       }`}
     >
       {label}
