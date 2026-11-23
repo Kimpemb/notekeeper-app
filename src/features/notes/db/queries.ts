@@ -2669,7 +2669,11 @@ export async function enqueueUnindexedBlocks(activeModelId: string): Promise<num
      LEFT JOIN embeddings e
        ON e.block_id = nb.block_id
       AND e.model_id = $1
-     WHERE e.block_id IS NULL`,
+     WHERE e.block_id IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM notes xn
+         WHERE xn.id = nb.note_id AND COALESCE(xn.rag_excluded, 0) = 1
+       )`,
     [activeModelId]
   )
 

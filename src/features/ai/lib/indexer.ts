@@ -277,6 +277,10 @@ async function enqueueWithPriority(modelId: string, limit: number): Promise<numb
        LIMIT $3
      ) t2 ON t2.note_id = nb.note_id
      WHERE e.block_id IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM notes xn
+         WHERE xn.id = nb.note_id AND COALESCE(xn.rag_excluded, 0) = 1
+       )
      ORDER BY
        CASE
          WHEN t1.tier IS NOT NULL THEN 1
@@ -369,6 +373,10 @@ export async function enqueueNoteForIndexing(noteId: string): Promise<void> {
         AND e.model_id = $2
        WHERE nb.note_id  = $3
          AND e.block_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM notes xn
+           WHERE xn.id = nb.note_id AND COALESCE(xn.rag_excluded, 0) = 1
+         )
        ON CONFLICT(block_id) DO NOTHING`,
       [ts, modelId, noteId]
     )
