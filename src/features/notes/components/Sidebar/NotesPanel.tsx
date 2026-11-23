@@ -66,9 +66,9 @@ export function NotesPanel() {
         <button
           onClick={() => createNote({ title: "Notepad", source_type: "notepad", rag_excluded: 1 })}
           title="New notepad (local only, hidden from AI)"
-          className={btnClass}
+          className={`${btnClass} group`}
         >
-          <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" className="group-hover:text-amber-400 transition-colors duration-150">
             <rect x="4" y="4" width="14" height="16" rx="2" stroke="currentColor" strokeWidth="1.7"/>
             <path d="M8 2v4M11 2v4M14 2v4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
             <path d="M8 10.5h6M8 13.5h6M8 16.5h3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
