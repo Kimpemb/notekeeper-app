@@ -250,7 +250,6 @@ function NoteRow({
 // ── Shortcuts reference (shown in right panel) ────────────────────────────────
 const SHORTCUTS = [
   { label: "Command palette",         keys: ["Ctrl", "K"] },
-  { label: "New note",                keys: ["Ctrl", "N"] },
   { label: "New note in new tab",     keys: ["Ctrl", "N"] },
   { label: "New sub-note in new tab", keys: ["Ctrl", "Shift", "N"] },
   { label: "New notepad",             keys: ["Ctrl", "Alt", "N"] },

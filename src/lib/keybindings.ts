@@ -40,8 +40,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: "Notes",
     shortcuts: [
-      { ctrl: true,               key: "n",  keys: ["Ctrl", "N"],           label: "New note" },
-      { ctrl: true, shift: true,  key: "n",  keys: ["Ctrl", "Shift", "N"], label: "New note in new tab" },
+      { ctrl: true,               key: "n",  keys: ["Ctrl", "N"],           label: "New note in new tab" },
+      { ctrl: true, shift: true,  key: "n",  keys: ["Ctrl", "Shift", "N"], label: "New sub-note of open note, in new tab" },
       { ctrl: true, alt: true,                keys: ["Ctrl", "Alt", "N"],   label: "New notepad (local only, hidden from AI)" },
       { ctrl: true,               key: "w",  keys: ["Ctrl", "W"],           label: "Close tab" },
       { ctrl: true,               key: "Tab",keys: ["Ctrl", "Tab"],         label: "Next tab" },
