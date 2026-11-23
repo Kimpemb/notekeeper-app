@@ -78,12 +78,13 @@ interface NoteRowProps {
   title: string;
   timestamp?: number;
   snippet?: string;
+  sourceType?: string;
   isSelected?: boolean;
   onClick: () => void;
   onHover?: () => void;
 }
 
-function NoteRow({ title, timestamp, snippet, isSelected, onClick, onHover }: NoteRowProps) {
+function NoteRow({ title, timestamp, snippet, sourceType, isSelected, onClick, onHover }: NoteRowProps) {
   return (
     <button
       onClick={onClick}
@@ -97,14 +98,22 @@ function NoteRow({ title, timestamp, snippet, isSelected, onClick, onHover }: No
         }
       `}
     >
-      <FileText
-        size={13}
-        className={`shrink-0 transition-colors duration-100 ${
-          isSelected
-            ? "text-blue-400"
-            : "text-idemora-text-faint group-hover:text-idemora-text-muted"
-        }`}
-      />
+      {sourceType === "notepad" ? (
+        <svg width="13" height="13" viewBox="0 0 12 12" fill="none" className="shrink-0 text-amber-400">
+          <rect x="2" y="2" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M4 1v2M6 1v2M8 1v2" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+          <path d="M4 5.5h4M4 7.3h4M4 9h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
+      ) : (
+        <FileText
+          size={13}
+          className={`shrink-0 transition-colors duration-100 ${
+            isSelected
+              ? "text-blue-400"
+              : "text-idemora-text-faint group-hover:text-idemora-text-muted"
+          }`}
+        />
+      )}
       <div className="flex-1 min-w-0 text-left">
         <div className="truncate">
           {isUntitled(title) ? (
@@ -337,6 +346,12 @@ export function NewTabScreen({ paneId }: Props) {
     openNote(note.id);
   }, [createNote, openNote]);
 
+  // Local-only notepad, hidden from the AI until the owner includes it.
+  const handleNewNotepad = useCallback(async () => {
+    const note = await createNote({ title: "Notepad", source_type: "notepad", rag_excluded: 1 });
+    openNote(note.id);
+  }, [createNote, openNote]);
+
    
 
   const handleCreateFromQuery = useCallback(async () => {
@@ -438,6 +453,22 @@ export function NewTabScreen({ paneId }: Props) {
             <kbd className="ml-0.5 px-1.5 py-0.5 text-[9px] font-mono rounded bg-blue-500/15 text-blue-300">
               ⌘N
             </kbd>
+          </button>
+          <button
+            onClick={handleNewNotepad}
+            title="Local only, hidden from AI"
+            className="
+              flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+              transition-all duration-150
+              bg-idemora-bg-secondary border border-idemora-border text-amber-400 hover:bg-idemora-bg-primary
+            "
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="2" y="2" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+              <path d="M4 1v2M6 1v2M8 1v2" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              <path d="M4 5.5h4M4 7.3h4M4 9h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+            </svg>
+            Notepad
           </button>
           <button
   onClick={async () => {
