@@ -142,6 +142,7 @@ export function NoteTreeItem({
   const setActive    = useNoteStore((s) => s.setActiveNote);
   const createChild  = useNoteStore((s) => s.createChildNote);
   const deleteNote   = useNoteStore((s) => s.deleteNote);
+  const deleteNotes  = useNoteStore((s) => s.deleteNotes);
   const updateNote   = useNoteStore((s) => s.updateNote);
   const pinNote      = useNoteStore((s) => s.pinNote);
   const unpinNote    = useNoteStore((s) => s.unpinNote);
@@ -171,6 +172,10 @@ export function NoteTreeItem({
   const [renaming, setRenaming]       = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmOpen, setConfirmOpen]         = useState(false);
+  // Ids to trash when the right-clicked note is part of a multi-selection; null = just this note.
+  const [trashIds, setTrashIds] = useState<string[] | null>(null);
+  // How many notes are selected, but only for rows that are themselves selected (cheap primitive selector).
+  const multiCount = useUIStore((s) => (s.selectedNoteIds.has(noteId) ? s.selectedNoteIds.size : 0));
   const [moveOpen, setMoveOpen]               = useState(false);
   const [ragExcludeOpen, setRagExcludeOpen]   = useState(false);
   const [focusedItem, setFocusedItem] = useState<ContextItemId>("new-sub-note");
@@ -303,10 +308,13 @@ export function NoteTreeItem({
         setContextMenu(null);
         setMoveOpen(true);
         break;
-      case "trash":
+      case "trash": {
+        const sel = useUIStore.getState().selectedNoteIds;
+        setTrashIds(sel.has(noteId) && sel.size > 1 ? [...sel] : null);
         setContextMenu(null);
         setConfirmOpen(true);
         break;
+      }
       case "rag-exclude":
         setContextMenu(null);
         if (isRagExcluded) {
@@ -575,7 +583,7 @@ export function NoteTreeItem({
           <div className="my-1 border-t border-idemora-border" />
           <CtxItem label="Move"                id="move"                 focused={focusedItem === "move"}                 onHover={() => setFocusedItem("move")}                 onClick={() => triggerItem("move")} suffix="›" />
           <div className="my-1 border-t border-idemora-border" />
-          <CtxItem label="Move to Trash"       id="trash"                focused={focusedItem === "trash"}                onHover={() => setFocusedItem("trash")}                onClick={() => triggerItem("trash")} danger />
+          <CtxItem label={multiCount > 1 ? `Move ${multiCount} notes to Trash` : "Move to Trash"} id="trash"                focused={focusedItem === "trash"}                onHover={() => setFocusedItem("trash")}                onClick={() => triggerItem("trash")} danger />
         </div>
       )}
 
@@ -604,14 +612,22 @@ export function NoteTreeItem({
         open={confirmOpen}
         title="Move to Trash"
         message={
-          hasChildren
-            ? `"${note.title}" has sub-notes. Move everything to trash?`
-            : `"${note.title}" will be moved to trash. You can restore it within 30 days.`
+          trashIds
+            ? `${trashIds.length} selected notes (and any sub-notes) will be moved to trash. You can restore them within 30 days.`
+            : hasChildren
+              ? `"${note.title}" has sub-notes. Move everything to trash?`
+              : `"${note.title}" will be moved to trash. You can restore it within 30 days.`
         }
         confirmLabel="Move to Trash"
         danger
-        onConfirm={async () => { setConfirmOpen(false); await deleteNote(noteId); }}
-        onCancel={() => setConfirmOpen(false)}
+        onConfirm={async () => {
+          const ids = trashIds;
+          setConfirmOpen(false);
+          setTrashIds(null);
+          if (ids) { clearSelection(); await deleteNotes(ids); }
+          else { await deleteNote(noteId); }
+        }}
+        onCancel={() => { setConfirmOpen(false); setTrashIds(null); }}
       />
 
       {ragExcludeOpen && (

@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { NoteTreeItem } from "./NoteTreeItem";
+import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
 import type { Note } from "@/types";
 
 type SortOrder = 
@@ -32,7 +33,7 @@ export function NoteTree({ sortOrder }: NoteTreeProps) {
   const notes        = useNoteStore((s) => s.notes);
   const pinnedIds    = useNoteStore((s) => s.pinnedIds);
   const reorderNote  = useNoteStore((s) => s.reorderNote);
-  const deleteNote   = useNoteStore((s) => s.deleteNote);
+  const deleteNotes  = useNoteStore((s) => s.deleteNotes);
   const setActive    = useNoteStore((s) => s.setActiveNote);
   const activeTag    = useUIStore((s) => s.activeTag);
   const setActiveTag = useUIStore((s) => s.setActiveTag);
@@ -43,6 +44,7 @@ export function NoteTree({ sortOrder }: NoteTreeProps) {
 
   const [drag, setDrag]                 = useState<DragState | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen]   = useState(false);
 
   // Keyboard nav state — which item currently has sidebar focus.
   const [focusedNoteId, setFocusedNoteId] = useState<string | null>(null);
@@ -79,19 +81,21 @@ export function NoteTree({ sortOrder }: NoteTreeProps) {
 
   // ── Delete selected notes ──────────────────────────────────────────────────
   const deleteSelectedNotes = useCallback(async () => {
-    const ids = [...selectedNoteIds];
+    const ids = [...useUIStore.getState().selectedNoteIds];
+    setConfirmOpen(false);
     if (ids.length === 0) return;
-    
+
     clearSelection();
-    
-    for (const id of ids) {
-      try {
-        await deleteNote(id);
-      } catch (error) {
-        console.error(`Failed to delete note ${id}:`, error);
-      }
+    try {
+      await deleteNotes(ids);
+    } catch (error) {
+      console.error("Failed to delete selected notes:", error);
     }
-  }, [selectedNoteIds, clearSelection, deleteNote]);
+  }, [clearSelection, deleteNotes]);
+
+  const requestDeleteSelected = useCallback(() => {
+    if (useUIStore.getState().selectedNoteIds.size > 0) setConfirmOpen(true);
+  }, []);
 
   // ── Keyboard handler ───────────────────────────────────────────────────────
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -111,7 +115,7 @@ export function NoteTree({ sortOrder }: NoteTreeProps) {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      deleteSelectedNotes();
+      requestDeleteSelected();
       return;
     }
 
@@ -152,7 +156,7 @@ export function NoteTree({ sortOrder }: NoteTreeProps) {
     }
     setFocusedNoteId(nextId);
 
-  }, [deleteSelectedNotes]);
+  }, [requestDeleteSelected]);
 
   const handleEnterSpace = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
@@ -309,33 +313,15 @@ export function NoteTree({ sortOrder }: NoteTreeProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {selectionCount > 0 && (
-        <div className="mx-2 mb-1 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center gap-2">
-          <span className="flex-1 text-xs font-medium text-blue-400">
-            {selectionCount} selected
-          </span>
-          <button
-            onClick={deleteSelectedNotes}
-            title="Move selected to trash (Del)"
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-400 hover:bg-red-500/10 transition-colors duration-75"
-          >
-            <svg width="11" height="11" viewBox="0 0 13 13" fill="none">
-              <path d="M2 3h9M5 3V2h3v1M3.5 3l.5 8h5l.5-8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Trash
-          </button>
-          <button
-            onClick={clearSelection}
-            title="Clear selection (Esc)"
-            className="w-5 h-5 flex items-center justify-center rounded text-blue-400 hover:bg-blue-500/10 transition-colors duration-75"
-          >
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-              <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            </svg>
-          </button>
-        </div>
-      )}
-
+      <ConfirmModal
+        open={confirmOpen}
+        title="Move to Trash"
+        message={`${selectionCount} selected ${selectionCount === 1 ? "note" : "notes"} (and any sub-notes) will be moved to trash. You can restore them within 30 days.`}
+        confirmLabel="Move to Trash"
+        danger
+        onConfirm={deleteSelectedNotes}
+        onCancel={() => setConfirmOpen(false)}
+      />
       <div className="px-2 space-y-0.5 flex-1">
         {pinnedNotes.length > 0 && (
           <div className="mb-1">
