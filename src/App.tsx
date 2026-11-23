@@ -192,8 +192,8 @@ const openCalendar        = useUIStore((s) => s.openCalendar);
   
   // Right panel state from store (single source of truth)
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
-  const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
   const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
+  
 
   // Add these with the other UI store hooks
 const openTags = useUIStore((s) => s.openTags);
@@ -504,15 +504,19 @@ useEffect(() => {
       return;
     }
     if (ctrl && e.key === "\\") { e.preventDefault(); toggleSidebarPanel("notes"); }
-    if (ctrl && e.key === ";")  { 
-  e.preventDefault(); 
-  if (!rightPanelOpen) setRightPanelOpen(true);  // ADD THIS LINE
-  backlinkActive ? closeBacklinks(activePaneId) : openBacklinks(activePaneId);
+    if (ctrl && e.key === ";")  {
+  e.preventDefault();
+  const ui = useUIStore.getState();
+  const pane = ui.activePaneId;
+  const isOpen = pane === 2 ? ui.pane2BacklinksOpen : ui.pane1BacklinksOpen;
+  isOpen ? ui.closeBacklinks(pane) : ui.openBacklinks(pane);
 }
-    if (ctrl && e.key === "'")  { 
-  e.preventDefault(); 
-  if (!rightPanelOpen) setRightPanelOpen(true);  // ADD THIS LINE
-  outlineActive ? closeOutline(activePaneId) : openOutline(activePaneId);
+    if (ctrl && e.key === "'")  {
+  e.preventDefault();
+  const ui = useUIStore.getState();
+  const pane = ui.activePaneId;
+  const isOpen = pane === 2 ? ui.pane2OutlineOpen : ui.pane1OutlineOpen;
+  isOpen ? ui.closeOutline(pane) : ui.openOutline(pane);
 }
     if (ctrl && e.shiftKey && e.key === "?") { e.preventDefault(); openShortcuts(); }
     if (ctrl && e.key === "w")  { e.preventDefault(); closeActiveTab(); }
@@ -533,15 +537,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "t") { e.preventDefault(); use
   const ui = useUIStore.getState();
   const pane = ui.activePaneId;
   const chatIsOpen = pane === 2 ? ui.chatOpen2 : ui.chatOpen1;
-  if (!ui.rightPanelOpen) {
-    // Zone hidden: reveal it and make sure chat is showing.
-    ui.setRightPanelOpen(true);
-    ui.openChat(pane);
-  } else if (chatIsOpen) {
-    ui.closeChat(pane);
-  } else {
-    ui.openChat(pane);
-  }
+  chatIsOpen ? ui.closeChat(pane) : ui.openChat(pane);
 }
     if (ctrl && e.shiftKey && e.key.toLowerCase() === "l") {
       e.preventDefault();
@@ -558,7 +554,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
 }
     if (ctrl && e.key === ",") { e.preventDefault(); openSettings(); }
   }, [dbReady, togglePalette, toggleSidebarPanel, toggleFileTree, openBacklinks, closeBacklinks, openOutline, closeOutline,
-    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, calendarOpen, openCalendar, activePaneId, loadNotes, backlinkActive, outlineActive, setRightPanelOpen, reopenClosedTab, openTab, openTabInPane2]);
+    openShortcuts, openSettings, closeActiveTab, cycleTab, graphOpen, openGraph, calendarOpen, openCalendar, activePaneId, loadNotes, backlinkActive, outlineActive,  reopenClosedTab, openTab, openTabInPane2]);
     
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -669,7 +665,6 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
   // One shared panel slot on the window's right edge. It always shows the
   // panels of the active pane; each pane remembers which panels it has open.
   function renderPanelSlot() {
-    if (!rightPanelOpen) return null;
     const p = activePaneId;
     const paneTabs        = p === 1 ? tabs : pane2Tabs;
     const paneActiveTabId = p === 1 ? activeTabId : pane2ActiveTabId;
@@ -797,18 +792,15 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
           {/* RIGHT ZONE - REORDERED: Power switch FIRST, then sliding buttons */}
           <div className="flex items-center gap-1 px-2 shrink-0">
             
-            {/* POWER SWITCH BUTTON - now FIRST in the right zone */}
+            
+
+            {/* Toggle: only shows or hides the panel buttons. It never opens or closes a panel. */}
             <button
-              onClick={() => {
-                toggleRightPanel();
-                // When closing and tags panel is open, close it too
-                if (rightPanelOpen && activeSidebarPanel === "tags") {
-                  toggleSidebarPanel("tags");
-                }
-              }}
+              onClick={() => toggleRightPanel()}
+              title={rightPanelOpen ? "Hide panel buttons" : "Show panel buttons"}
               className={`shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-all duration-150
-                ${rightPanelOpen 
-                  ? "text-blue-500 bg-blue-500/10" 
+                ${rightPanelOpen
+                  ? "text-blue-500 bg-blue-500/10"
                   : "text-idemora-text-muted hover:text-idemora-text-normal hover:bg-black/6 dark:hover:bg-white/7"
                 }`}
             >
@@ -818,18 +810,15 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
               </svg>
             </button>
 
-            {/* SLIDING BUTTONS CONTAINER - now to the RIGHT of power switch */}
-            <div 
+            {/* Panel buttons: collapse with the toggle */}
+            <div
               className={`flex items-center gap-1 transition-all duration-200 ease-in-out overflow-hidden ${
-                rightPanelOpen 
-                  ? "w-auto opacity-100 ml-0" 
-                  : "w-0 opacity-0 -ml-1"
+                rightPanelOpen ? "w-auto opacity-100 ml-0" : "w-0 opacity-0 -ml-1"
               }`}
             >
               {/* Tags button */}
               <button
                 onClick={() => {
-                  if (!rightPanelOpen) setRightPanelOpen(true);
                   tagsActive ? closeTags(activePaneId) : openTags(activePaneId);
                 }}
                 className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0 ${
@@ -875,10 +864,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
                   <path d="M2.5 4.5h13M2.5 9h9M2.5 13.5h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
                 </svg>
               </button>
-            </div>
-
-            {/* Chat toggle - same style as tags, backlinks and outline */}
-            {rightPanelOpen && (
+              {/* Chat toggle - same style as tags, backlinks and outline */}
               <button
                 onClick={() => {
                   const { openChat, closeChat } = useUIStore.getState();
@@ -897,7 +883,8 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
                   <path d="M5.5 8h7M5.5 5.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
                 </svg>
               </button>
-            )}
+            </div>
+            
 
             {/* Separator line */}
             <div className="w-px h-5 bg-idemora-border/50 mx-1 shrink-0" />
