@@ -236,6 +236,7 @@ function SearchResultsView({
                 <NoteRow
                   title={r.title}
                   snippet={r.snippet}
+                  sourceType={useNoteStore.getState().notes.find((x) => x.id === r.id)?.source_type}
                   isSelected={i === selectedIdx}
                   onClick={() => onOpen(r.id, query)}
                   onHover={() => onHover(i)}
@@ -286,6 +287,7 @@ function RecentNotesView({ notes, onOpen }: RecentNotesViewProps) {
             <NoteRow
               title={n.title}
               timestamp={n.updated_at}
+              sourceType={n.source_type}
               onClick={() => onOpen(n.id)}
             />
           </li>
