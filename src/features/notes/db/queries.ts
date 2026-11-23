@@ -572,6 +572,15 @@ export interface CreateNoteInput {
 }
 
 export async function createNote(input: CreateNoteInput = {}): Promise<Note> {
+  // Notepads never have children: a note created under one becomes top-level.
+  if (input.parent_id) {
+    const db0 = await getDb();
+    const parentRows = await db0.select<{ source_type: string }[]>(
+      `SELECT source_type FROM notes WHERE id = $1`,
+      [input.parent_id]
+    );
+    if (parentRows[0]?.source_type === "notepad") input = { ...input, parent_id: null };
+  }
   const db = await getDb();
 
   let sort_order = input.sort_order ?? 0;
@@ -808,6 +817,15 @@ export async function getAllDescendants(id: string): Promise<{ id: string }[]> {
 
 export async function moveNote(id: string, newParentId: string | null): Promise<void> {
   if (newParentId !== null) {
+    // Notepads never have children.
+    const db0 = await getDb();
+    const parentRows = await db0.select<{ source_type: string }[]>(
+      `SELECT source_type FROM notes WHERE id = $1`,
+      [newParentId]
+    );
+    if (parentRows[0]?.source_type === "notepad") {
+      throw new Error("Notepads cannot contain sub-notes.");
+    }
     const descendants = await getAllDescendants(id);
     if (descendants.map(d => d.id).includes(newParentId) || newParentId === id) {
       throw new Error("Cannot move a note into one of its own descendants.");

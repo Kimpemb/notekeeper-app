@@ -263,6 +263,7 @@ export function NoteTreeItem({
     switch (item) {
       case "new-sub-note":
         setContextMenu(null);
+        if (note?.source_type === "notepad") break;
         createChild(noteId).then(() => { if (!isExpanded) toggleNode(noteId); }).catch(console.error);
         break;
       case "open-in-new-tab":
@@ -522,7 +523,7 @@ export function NoteTreeItem({
             )}
           </>
         )}
-        {!renaming && (
+        {!renaming && note.source_type !== "notepad" && (
           <button
             onClick={(e) => { e.stopPropagation(); triggerItem("new-sub-note"); }}
             title="New sub-note"
