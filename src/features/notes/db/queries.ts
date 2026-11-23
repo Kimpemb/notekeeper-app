@@ -817,6 +817,14 @@ export async function getAllDescendants(id: string): Promise<{ id: string }[]> {
 
 export async function moveNote(id: string, newParentId: string | null): Promise<void> {
   if (newParentId !== null) {
+    // Notepads are always top-level.
+    const movingRows = await (await getDb()).select<{ source_type: string }[]>(
+      `SELECT source_type FROM notes WHERE id = $1`,
+      [id]
+    );
+    if (movingRows[0]?.source_type === "notepad") {
+      throw new Error("Notepads cannot be nested.");
+    }
     // Notepads never have children.
     const db0 = await getDb();
     const parentRows = await db0.select<{ source_type: string }[]>(
