@@ -489,7 +489,16 @@ useEffect(() => {
       if (ui.splitOpen && ui.activePaneId === 2) ui.openEmptyTabInPane2();
       else openEmptyTab();
     }
-    if (ctrl && e.key.toLowerCase() === "n") {
+    if (ctrl && e.altKey && !e.shiftKey && e.code === "KeyN") {
+      e.preventDefault();
+      const ui = useUIStore.getState();
+      // Same tab handling as new note in new tab, but top-level: notepads never get a parent.
+      if (ui.splitOpen && ui.activePaneId === 2) ui.openEmptyTabInPane2();
+      else ui.openEmptyTab();
+      useNoteStore.getState().createNote({ title: "Notepad", source_type: "notepad", rag_excluded: 1 });
+      return;
+    }
+    if (ctrl && !e.altKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
       createNewNoteInNewTab();
       return;

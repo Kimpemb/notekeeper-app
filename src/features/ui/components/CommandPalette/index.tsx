@@ -252,6 +252,7 @@ const SHORTCUTS = [
   { label: "Command palette",         keys: ["Ctrl", "K"] },
   { label: "New note",                keys: ["Ctrl", "N"] },
   { label: "New note in new tab",     keys: ["Ctrl", "Shift", "N"] },
+  { label: "New notepad",             keys: ["Ctrl", "Alt", "N"] },
   { label: "Close tab",               keys: ["Ctrl", "W"] },
   { label: "Reopen closed tab",       keys: ["Ctrl", "Shift", "T"] },
   { label: "Next tab",                keys: ["Ctrl", "Tab"] },

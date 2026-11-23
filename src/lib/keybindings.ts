@@ -9,6 +9,7 @@ export interface Shortcut {
   key?: string        // ← optional: display-only shortcuts (graph, slash menu) omit this
   ctrl?: boolean;
   shift?: boolean;
+  alt?: boolean;
   keys: string[];
   label: string;
 }
@@ -41,6 +42,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     shortcuts: [
       { ctrl: true,               key: "n",  keys: ["Ctrl", "N"],           label: "New note" },
       { ctrl: true, shift: true,  key: "n",  keys: ["Ctrl", "Shift", "N"], label: "New note in new tab" },
+      { ctrl: true, alt: true,                keys: ["Ctrl", "Alt", "N"],   label: "New notepad (local only, hidden from AI)" },
       { ctrl: true,               key: "w",  keys: ["Ctrl", "W"],           label: "Close tab" },
       { ctrl: true,               key: "Tab",keys: ["Ctrl", "Tab"],         label: "Next tab" },
       { ctrl: true, shift: true,  key: "Tab",keys: ["Ctrl", "Shift", "Tab"],"label": "Previous tab" },
