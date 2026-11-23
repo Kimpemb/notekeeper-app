@@ -631,13 +631,9 @@ closeCalendar: () => {
     },
     
     toggleRightPanel: () => {
-      const { rightPanelOpen, activePaneId, resetRightPanelsForPane } = get();
-      const newState = !rightPanelOpen;
-      
-      if (newState === false) {
-        resetRightPanelsForPane(activePaneId);
-      }
-      
+      // Only show or hide the zone. Each panel keeps its own open/closed
+      // state while hidden, so it comes back exactly as it was left.
+      const newState = !get().rightPanelOpen;
       set({ rightPanelOpen: newState });
       setSetting("rightPanelOpen", String(newState)).catch(console.error);
     },
