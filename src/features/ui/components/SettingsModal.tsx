@@ -22,6 +22,7 @@ import type { ShortcutGroup, Shortcut } from "@/lib/keybindings";
 import { getDb } from "@/features/notes/db/client"
 
 
+
 // Milestone 4 components
 import { ProfileSelector }      from "@/features/ai/components/ProfileSelector";
 import { ProcessingModelCard }  from "@/features/ai/components/ProcessingModelCard";
@@ -65,6 +66,9 @@ export interface AppSettings {
 
   // Deadline resurface bar — notification vigor
   deadlineBarVigor: "off" | "minimal" | "normal" | "vigilant";
+
+  // "Related note" suggestion banner (backlink-driven)
+  resurfaceBarEnabled: boolean;
 }
 
 
@@ -89,6 +93,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   web_search_auto_search:  0,
 
   deadlineBarVigor: "normal",
+  resurfaceBarEnabled: true,
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -1024,6 +1029,9 @@ export function SettingsModal() {
                 </Row>
 
                 <SectionTitle>Notifications</SectionTitle>
+                <Row label="Related note suggestions" description="Show a banner suggesting related notes based on your links and what you've been viewing">
+                  <Toggle checked={settings.resurfaceBarEnabled} onChange={(v) => updateSetting("resurfaceBarEnabled", v)} />
+                </Row>
                 <Row
                   label="Deadline reminders"
                   description="How often the upcoming-deadlines bar checks in on app startup"

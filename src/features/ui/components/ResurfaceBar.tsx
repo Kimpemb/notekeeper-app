@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import {
   identifyCluster,
   shouldTrigger,
@@ -43,6 +44,7 @@ export function ResurfaceBar() {
   const clusterSession = useUIStore((s) => s.clusterSession);
   const tickCluster    = useUIStore((s) => s.tickClusterSession);
   const resetCluster   = useUIStore((s) => s.resetClusterSession);
+  const enabled        = useAppSettings((s) => s.settings.resurfaceBarEnabled ?? true);
 
   const shownRef    = useRef(false);
   const timerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,6 +56,7 @@ export function ResurfaceBar() {
   }, [tickCluster]);
 
   const checkTrigger = useCallback(async () => {
+    if (!enabled) return;
     if (shownRef.current) return;
     if (clusterSession.visits.length === 0) return;
 
@@ -129,7 +132,7 @@ export function ResurfaceBar() {
     } catch (err) {
       console.error("ResurfaceBar: trigger check failed", err);
     }
-  }, [clusterSession, notes, activeNoteId]);
+  }, [clusterSession, notes, activeNoteId, enabled]);
 
   useEffect(() => {
     // Delay the first check so app boot isn't competing with this scan —
@@ -205,7 +208,7 @@ export function ResurfaceBar() {
     });
   }
 
-  if (!rendered || !suggestion) return null;
+  if (!enabled || !rendered || !suggestion) return null;
 
   return (
     <div
