@@ -28,15 +28,21 @@ const closedTabs = useUIStore((s) => s.closedTabs);
 const reopenClosedTab = useUIStore((s) => s.reopenClosedTab);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-// Scroll to end when a new tab is added
+// Scroll to end only when a tab is added to the same pane.
+// Closing a tab or switching panes must not move the bar.
+const prevTabCount = useRef(tabs.length);
+const prevPaneId = useRef(activePaneId);
 useEffect(() => {
-  if (scrollRef.current) {
+  const grew = tabs.length > prevTabCount.current && prevPaneId.current === activePaneId;
+  prevTabCount.current = tabs.length;
+  prevPaneId.current = activePaneId;
+  if (grew && scrollRef.current) {
     scrollRef.current.scrollTo({
       left: scrollRef.current.scrollWidth,
       behavior: "smooth",
     });
   }
-}, [tabs.length]);
+}, [tabs.length, activePaneId]);
 
 // Scroll active tab into view when switching via keyboard
 useEffect(() => {
