@@ -7,6 +7,7 @@ import {
   createNote as dbCreateNote,
   updateNote as dbUpdateNote,
   trashNote as dbTrashNote,
+  trashNotes as dbTrashNotes,
   restoreNote as dbRestoreNote,
   permanentlyDeleteNote as dbPermanentlyDeleteNote,
   emptyTrash as dbEmptyTrash,
@@ -92,6 +93,7 @@ interface NoteStore {
   
   updateNote: (id: string, input: UpdateNoteInput, silent?: boolean) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
+  deleteNotes: (ids: string[]) => Promise<void>;
   restoreNote: (id: string) => Promise<void>;
   permanentlyDeleteNote: (id: string) => Promise<void>;
   emptyTrash: () => Promise<void>;
@@ -425,6 +427,45 @@ updateNote: async (id, input, silent = false) => {
         activeNoteId: newActiveId,
         pinnedIds: newPinnedIds,
       };
+    });
+
+    const { useUIStore } = await import("@/features/ui/store/useUIStore");
+    useUIStore.getState().closeTabsForNotes(allIds);
+  },
+
+    deleteNotes: async (ids) => {
+    const { notes } = get();
+    const selected = new Set(ids);
+    const byId = new Map(notes.map((n) => [n.id, n]));
+    // A selected note whose ancestor is also selected is covered by that
+    // ancestor's subtree, so skip it.
+    const hasSelectedAncestor = (id: string) => {
+      let p = byId.get(id)?.parent_id ?? null;
+      let guard = 0;
+      while (p && guard++ < 1000) {
+        if (selected.has(p)) return true;
+        p = byId.get(p)?.parent_id ?? null;
+      }
+      return false;
+    };
+    const allIds = new Set<string>();
+    for (const id of ids) {
+      if (!byId.has(id) || hasSelectedAncestor(id)) continue;
+      allIds.add(id);
+      for (const d of collectDescendants(id, notes)) allIds.add(d);
+    }
+    if (allIds.size === 0) return;
+
+    await dbTrashNotes([...allIds]);
+    const trashedNotes = await getTrashedNotes();
+
+    set((state) => {
+      const remaining = state.notes.filter((n) => !allIds.has(n.id));
+      const newPinnedIds = new Set([...state.pinnedIds].filter((pid) => !allIds.has(pid)));
+      savePinnedIds(newPinnedIds).catch(console.error);
+      const newActiveId =
+        state.activeNoteId && allIds.has(state.activeNoteId) ? null : state.activeNoteId;
+      return { notes: remaining, trashedNotes, activeNoteId: newActiveId, pinnedIds: newPinnedIds };
     });
 
     const { useUIStore } = await import("@/features/ui/store/useUIStore");

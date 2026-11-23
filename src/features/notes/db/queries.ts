@@ -735,6 +735,28 @@ export async function trashNote(id: string): Promise<void> {
   }
 }
 
+// Trashes many notes at once. `ids` must already include descendants.
+// Two statements per chunk instead of two per note.
+export async function trashNotes(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await getDb();
+  const trashedAt = now();
+  const CHUNK = 400;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const part = ids.slice(i, i + CHUNK);
+    const setPh = part.map((_, j) => `$${j + 2}`).join(",");
+    await db.execute(
+      `UPDATE notes SET deleted_at = $1 WHERE id IN (${setPh})`,
+      [trashedAt, ...part]
+    );
+    const delPh = part.map((_, j) => `$${j + 1}`).join(",");
+    await db.execute(
+      `DELETE FROM note_title_chunks WHERE note_id IN (${delPh})`,
+      part
+    );
+  }
+}
+
 export async function restoreNote(id: string): Promise<void> {
   const db = await getDb();
   const descendants = await getAllDescendants(id);
