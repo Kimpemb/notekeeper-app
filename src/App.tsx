@@ -500,7 +500,7 @@ useEffect(() => {
     }
     if (ctrl && !e.altKey && e.key.toLowerCase() === "n") {
       e.preventDefault();
-      createNewNoteInNewTab();
+      createNewNoteInNewTab(e.shiftKey);
       return;
     }
     if (ctrl && e.key === "\\") { e.preventDefault(); toggleSidebarPanel("notes"); }
@@ -556,8 +556,8 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  async function createNewNoteInNewTab() {
-    const parentId = useNoteStore.getState().activeNoteId ?? undefined;
+  async function createNewNoteInNewTab(asChild = true) {
+    const parentId = asChild ? (useNoteStore.getState().activeNoteId ?? undefined) : undefined;
     const ui = useUIStore.getState();
     // Open an empty tab first; createNote then fills it via replaceTab / replacePane2Tab
     if (ui.splitOpen && ui.activePaneId === 2) ui.openEmptyTabInPane2();
