@@ -115,6 +115,7 @@ useEffect(() => {
                 note?.source_type === "pdf"  ? "text-red-400"    :
                 note?.source_type === "docx" ? "text-blue-400"   :
                 note?.source_type === "pptx" ? "text-orange-400" :
+                note?.source_type === "notepad" ? "text-amber-400" :
                 "opacity-50"
               }`}>
                 {note?.is_canvas ? (
@@ -123,6 +124,12 @@ useEffect(() => {
                     <circle cx="4" cy="4" r="1" fill="currentColor"/>
                     <circle cx="8" cy="4" r="1" fill="currentColor"/>
                     <path d="M3 8l2-2 2 1.5 2-2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                ) : note?.source_type === "notepad" ? (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <rect x="2" y="2" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+                    <path d="M4 1v2M6 1v2M8 1v2" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                    <path d="M4 5.5h4M4 7.3h4M4 9h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
                   </svg>
                 ) : note?.source_type === "pdf" ? (
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

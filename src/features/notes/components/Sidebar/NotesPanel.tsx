@@ -62,6 +62,19 @@ export function NotesPanel() {
       {/* Header — 3 centered icons */}
       <div className="flex items-center justify-center gap-2 px-2 pt-0 pb-0 shrink-0 relative">
 
+        {/* 0. New notepad (local only, hidden from AI) */}
+        <button
+          onClick={() => createNote({ title: "Notepad", source_type: "notepad", rag_excluded: 1 })}
+          title="New notepad (local only, hidden from AI)"
+          className={btnClass}
+        >
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+            <rect x="4" y="4" width="14" height="16" rx="2" stroke="currentColor" strokeWidth="1.7"/>
+            <path d="M8 2v4M11 2v4M14 2v4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+            <path d="M8 10.5h6M8 13.5h6M8 16.5h3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
+          </svg>
+        </button>
+
         {/* 1. New note */}
         <button onClick={() => createNote()} title="New note" className={btnClass}>
           <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
