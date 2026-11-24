@@ -75,7 +75,7 @@ useEffect(() => {
     <div className="relative flex items-center flex-1 min-w-0 h-full ml-8">
       <div
   ref={scrollRef}
-  className="flex items-center h-full overflow-x-auto min-w-0 flex-1 gap-1 px-2"
+  className="flex items-center h-full overflow-x-auto overflow-y-hidden min-w-0 flex-1 gap-1 px-2"
   style={{ scrollbarWidth: "none" }}
   onContextMenu={(e) => {
     if ((e.target as HTMLElement).closest("[data-tab]")) return;
@@ -178,7 +178,7 @@ useEffect(() => {
               {/* IMMERSION BRIDGE */}
               {/* This absolute div sits at the bottom and covers the gap/border of the header */}
               {isActive && (
-                <div className="absolute -bottom-2 left-0 right-0 h-2 bg-idemora-bg-primary z-20" />
+                <div className="absolute -bottom-1.5 left-0 right-0 h-1.5 bg-idemora-bg-primary z-20" />
               )}
             </div>
           );
