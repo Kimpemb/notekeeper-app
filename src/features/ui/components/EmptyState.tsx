@@ -1,43 +1,106 @@
 // src/features/ui/components/EmptyState.tsx
+import { useEffect, useRef, useState } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
+import { useUIStore } from "@/features/ui/store/useUIStore";
+import { armBodyFocus } from "@/features/ui/lib/bodyFocusIntent";
 
-export function EmptyState() {
+interface Props {
+  paneId: 1 | 2;
+}
+
+function Kbd({ children }: { children: string }) {
+  return (
+    <kbd className="px-1.5 py-0.5 rounded border border-idemora-border bg-idemora-bg-secondary font-mono text-[11px] text-idemora-text-muted">
+      {children}
+    </kbd>
+  );
+}
+
+// Shown when a pane has no tabs. Looks like a blank note: type a title, press Enter.
+export function EmptyState({ paneId }: Props) {
   const createNote = useNoteStore((s) => s.createNote);
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const isMyPane = () => useUIStore.getState().activePaneId === paneId;
+
+  // Focus on mount, unless the sidebar has focus (its keys ignore inputs).
+  useEffect(() => {
+    if (!isMyPane()) return;
+    const sidebar = document.getElementById("sidebar-panel");
+    if (sidebar && sidebar.contains(document.activeElement)) return;
+    inputRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Type anywhere: a printable key with nothing focused starts the title.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
+      if (document.activeElement !== document.body) return;
+      if (!isMyPane()) return;
+      inputRef.current?.focus();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function create() {
+    if (busy) return;
+    const name = title.trim();
+    setBusy(true);
+    try {
+      useUIStore.getState().setActivePaneId(paneId);
+      if (name) {
+        armBodyFocus();
+        await createNote({ title: name });
+      } else {
+        await createNote();
+      }
+    } catch (err) {
+      console.error("Failed to create note:", err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      create();
+    } else if (e.key === "Escape") {
+      setTitle("");
+    }
+  }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center h-full select-none">
-      <div className="flex flex-col items-center gap-4">
-        <svg
-          width="48"
-          height="48"
-          viewBox="0 0 48 48"
-          fill="none"
-          className="text-idemora-text-muted text-idemora-text-normal"
-        >
-          <rect x="8" y="6" width="32" height="36" rx="3" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M16 16h16M16 22h16M16 28h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-
-        <div className="text-center">
-          <p className="text-sm font-medium text-idemora-text-normal">No note selected</p>
-          <p className="text-xs text-idemora-text-muted mt-1">
-            Select a note from the sidebar or create a new one
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 mt-2">
-          <button
-            onClick={() => createNote()}
-            className="text-xs px-3 py-1.5 rounded-md bg-idemora-bg-primary  text-idemora-text-normal 
-                        transition-colors duration-150 cursor-pointer"
-          >
-            New note
-          </button>
-          <span className="text-xs text-idemora-text-normal">or press</span>
-          <kbd className="text-xs text-idemora-text-normal bg-idemora-bg-primary  px-2 py-0.5 rounded font-mono">
-            Ctrl K
-          </kbd>
-        </div>
+    <div
+      className="flex-1 overflow-y-auto select-none"
+      onClick={(e) => { if (e.target !== inputRef.current) inputRef.current?.focus(); }}
+    >
+      <div className="w-full mx-auto pl-16 pr-8 pt-[60px] pb-6 max-w-4xl xl:max-w-240 2xl:max-w-5xl">
+        <input
+          ref={inputRef}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={handleKeyDown}
+          readOnly={busy}
+          maxLength={80}
+          placeholder="Untitled"
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
+          className="block w-full bg-transparent select-text font-bold outline-none text-idemora-text-normal placeholder:text-idemora-text-faint"
+          style={{ fontSize: "3rem", lineHeight: 1.2 }}
+        />
+        <p className="mt-3 text-xs text-idemora-text-faint">
+          Type a title and press <Kbd>Enter</Kbd> to create a note, or <Kbd>Esc</Kbd> to clear.
+        </p>
+        <p className="mt-1.5 text-xs text-idemora-text-faint">
+          <Kbd>Ctrl</Kbd> <Kbd>N</Kbd> new note &middot; <Kbd>Ctrl</Kbd> <Kbd>Alt</Kbd> <Kbd>N</Kbd> notepad
+        </p>
       </div>
     </div>
   );

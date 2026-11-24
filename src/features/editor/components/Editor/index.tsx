@@ -19,6 +19,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Extension } from "@tiptap/core";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
+import { consumeBodyFocus } from "@/features/ui/lib/bodyFocusIntent";
 import { useAutoSave } from "@/features/editor/hooks/useAutoSave";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { syncBacklinks } from "@/features/notes/db/queries";
@@ -560,6 +561,13 @@ useEffect(() => {
       return () => clearTimeout(t);
     }
   }, []);
+
+  // Blank-page flow: the title was already typed, so put the cursor in the body.
+  useEffect(() => {
+    if (!editor) return;
+    if (!consumeBodyFocus()) return;
+    setTimeout(() => { if (!editor.isDestroyed) editor.commands.focus("start"); }, 50);
+  }, [editor]);
 
   useEffect(() => {
     const el = scrollRef.current;

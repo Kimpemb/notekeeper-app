@@ -641,7 +641,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
       {/* Editor column */}
       <div className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0">
         <div className="flex-1 flex overflow-hidden relative">
-          {paneTabs.length === 0 ? <EmptyState /> : paneTabs.map((tab) => {
+          {paneTabs.length === 0 ? <EmptyState paneId={paneId} /> : paneTabs.map((tab) => {
             const isActive = tab.id === paneActiveTabId;
             return (
 <TabContent
