@@ -1,7 +1,7 @@
 // src/features/editor/components/Editor/FindReplace.tsx
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Editor } from "@tiptap/react";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, Selection } from "@tiptap/pm/state";
 import { DecorationSet, Decoration } from "@tiptap/pm/view";
 import { revealPosition } from "./editorUtils";
 
@@ -254,14 +254,36 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
   }
 
   function handleClose() {
-    // Clear all decorations
+    // Remember where the user is reading so closing the bar never moves the page
+    const scroller = editor.view.dom.closest(".overflow-y-auto") as HTMLElement | null;
+    const savedTop = scroller?.scrollTop ?? 0;
+
+    // Pick a collapsed caret: the match being looked at (read from the plugin so its
+    // positions are mapped through any edits), otherwise the start of the old selection.
+    // Never leave a range selected, and never fall back to doc end (AllSelection.head).
+    const pluginState = findReplaceKey.getState(editor.state);
+    const match = findText ? pluginState?.matches[currentIndex] : undefined;
+    const docSize = editor.state.doc.content.size;
+    const caretPos = Math.min(match ? match.from : editor.state.selection.from, docSize);
+
+    // Clear all decorations and collapse the selection in one transaction (no scrollIntoView)
     const tr = editor.state.tr.setMeta(findReplaceKey, {
       decorations: DecorationSet.empty,
       matches: [],
       currentIndex: -1,
     });
+    tr.setSelection(Selection.near(tr.doc.resolve(caretPos)));
     editor.view.dispatch(tr);
     onClose();
+
+    // Give focus back to the editor without scrolling, then undo any layout-shift scroll
+    // caused by the bar unmounting.
+    editor.commands.focus(null, { scrollIntoView: false });
+    if (scroller) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        scroller.scrollTo({ top: savedTop, behavior: "instant" as ScrollBehavior });
+      }));
+    }
   }
 
   // Keyboard shortcuts inside the bar

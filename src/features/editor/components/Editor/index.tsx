@@ -1147,7 +1147,7 @@ if (!contentReady) return null;
         </div>
 
         {findReplaceOpen && editor && (
-          <FindReplace editor={editor} focusSignal={findFocus.tick} focusTarget={findFocus.target} onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }} />
+          <FindReplace editor={editor} focusSignal={findFocus.tick} focusTarget={findFocus.target} onClose={() => setFindReplaceOpen(false)} />
         )}
 
         {editor && taskListToolbarPos && isActiveTab && (
