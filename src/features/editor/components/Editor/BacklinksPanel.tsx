@@ -1,15 +1,16 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
-  getBacklinksForNote,
-  getUnlinkedMentions,
+  getBacklinkSummaries,
+  findUnlinkedMentions,
   linkFirstMention,
   getNoteById,
   syncBacklinks,
-  type UnlinkedMention,
+  type BacklinkSummary,
+  type UnlinkedMentionLite,
 } from "@/features/notes/db/queries";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
-import type { Note } from "@/types";
+
 
 interface Props { noteId: string; paneId: 1 | 2; }
 
@@ -44,10 +45,12 @@ function highlightMention(snippet: string, targetTitle: string): React.ReactNode
 }
 
 export function BacklinksPanel({ noteId, paneId }: Props) {
-  const [backlinks, setBacklinks] = useState<Note[]>([]);
-  const [mentions, setMentions]   = useState<UnlinkedMention[]>([]);
-  const [loading, setLoading]     = useState(true);
+  const [backlinks, setBacklinks] = useState<BacklinkSummary[]>([]);
+  const [mentions, setMentions]   = useState<UnlinkedMentionLite[]>([]);
+  const [loading, setLoading]     = useState(true);   // linked backlinks
+  const [scanning, setScanning]   = useState(true);   // unlinked-mention scan
   const [linking, setLinking]     = useState<string | null>(null);
+  const mentionsReq = useRef(0);
 
   const notes         = useNoteStore((s) => s.notes);
   const refreshNote   = useNoteStore((s) => s.refreshNote);
@@ -55,25 +58,42 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
   const closeBacklinks = useUIStore((s) => s.closeBacklinks);
   const replaceTab = useUIStore((s) => s.replaceTab);
 
-
   const activeNote = notes.find((n) => n.id === noteId);
+  const title = activeNote?.title ?? "";
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [bl, um] = await Promise.all([
-        getBacklinksForNote(noteId),
-        getUnlinkedMentions(noteId, activeNote?.title ?? ""),
-      ]);
-      setBacklinks(bl);
-      setMentions(um);
-    } catch (err) { console.error(err); }
+  // Linked backlinks: one indexed query, no note bodies. Shown as soon as it returns.
+  const loadBacklinks = useCallback(async () => {
+    try { setBacklinks(await getBacklinkSummaries(noteId)); }
+    catch (err) { console.error(err); }
     finally { setLoading(false); }
-  }, [noteId, activeNote?.title]);
+  }, [noteId]);
 
-  useEffect(() => { load(); }, [load]);
+  // Unlinked mentions: the slow scan, kept separate so it never blocks the list above.
+  const loadMentions = useCallback(async (t: string) => {
+    const req = ++mentionsReq.current;
+    setScanning(true);
+    try {
+      const um = await findUnlinkedMentions(noteId, t);
+      if (req === mentionsReq.current) setMentions(um);
+    } catch (err) { console.error(err); }
+    finally { if (req === mentionsReq.current) setScanning(false); }
+  }, [noteId]);
 
-  async function handleLinkIt(mention: UnlinkedMention) {
+  // Switching notes: drop the previous note's results straight away
+  useEffect(() => {
+    setBacklinks([]);
+    setMentions([]);
+    setLoading(true);
+    loadBacklinks();
+  }, [loadBacklinks]);
+
+  // Debounced so typing in the title doesn't start a scan per keystroke
+  useEffect(() => {
+    const t = setTimeout(() => { loadMentions(title); }, 200);
+    return () => clearTimeout(t);
+  }, [title, loadMentions]);
+
+  async function handleLinkIt(mention: UnlinkedMentionLite) {
     if (!activeNote) return;
     setLinking(mention.note.id);
     try {
@@ -84,7 +104,7 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
         await syncBacklinks(mention.note.id, ids);
       }
       await refreshNote(mention.note.id);
-      await load();
+      await Promise.all([loadBacklinks(), loadMentions(title)]);
     } catch (err) { console.error(err); }
     finally { setLinking(null); }
   }
@@ -103,6 +123,9 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
           {!loading && totalCount > 0 && (
             <span className="text-xs text-idemora-text-faint tabular-nums">{totalCount}</span>
           )}
+          {!loading && scanning && (
+            <span className="text-[10px] text-idemora-text-faint animate-pulse">scanning…</span>
+          )}
         </div>
         {/* ✅ FIX: Close button ONLY calls closeBacklinks - does NOT touch rightPanelOpen */}
         <button
@@ -118,7 +141,7 @@ export function BacklinksPanel({ noteId, paneId }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto py-2">
-        {loading ? (
+        {loading || (totalCount === 0 && scanning) ? (
           <div className="flex items-center justify-center h-32">
             <span className="text-xs text-idemora-text-muted animate-pulse">Loading…</span>
           </div>
@@ -187,7 +210,7 @@ function SectionLabel({ label, count }: { label: string; count: number }) {
   );
 }
 
-function BacklinkCard({ note, onNavigate }: { note: Note; onNavigate: () => void }) {
+function BacklinkCard({ note, onNavigate }: { note: BacklinkSummary; onNavigate: () => void }) {
   return (
     <button
       onClick={onNavigate}
@@ -205,9 +228,9 @@ function BacklinkCard({ note, onNavigate }: { note: Note; onNavigate: () => void
           <p className="text-sm font-medium text-idemora-text-normal truncate group-hover:text-blue-400 transition-colors duration-150">
             {note.title}
           </p>
-          {note.plaintext && (
+          {note.preview && (
             <p className="text-xs text-idemora-text-muted truncate mt-0.5 leading-relaxed">
-              {note.plaintext.slice(0, 80)}
+              {note.preview}
             </p>
           )}
         </div>
@@ -220,7 +243,7 @@ function BacklinkCard({ note, onNavigate }: { note: Note; onNavigate: () => void
 }
 
 function UnlinkedMentionCard({ mention, targetTitle, linking, onNavigate, onLinkIt }: {
-  mention: UnlinkedMention; targetTitle: string; linking: boolean; onNavigate: () => void; onLinkIt: () => void;
+  mention: UnlinkedMentionLite; targetTitle: string; linking: boolean; onNavigate: () => void; onLinkIt: () => void;
 }) {
   return (
     <div className="rounded-lg border border-idemora-border bg-idemora-bg-primary overflow-hidden hover:bg-black/[0.06] dark:hover:bg-white/[0.07] transition-colors duration-150">

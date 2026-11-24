@@ -3386,3 +3386,113 @@ export async function deleteEpisode(episodeId: string): Promise<void> {
   const db = await getDb()
   await db.execute(`DELETE FROM episodes WHERE id = $1`, [episodeId])
 }
+
+// ─── Backlinks panel — lightweight queries ───────────────────────────────────
+
+export interface BacklinkSummary {
+  id:         string;
+  title:      string;
+  updated_at: number;
+  preview:    string;
+}
+
+// Indexed lookup, no note bodies: only the first 80 chars of plaintext come back.
+export async function getBacklinkSummaries(targetId: string): Promise<BacklinkSummary[]> {
+  const db = await getDb();
+  return db.select<BacklinkSummary[]>(
+    `SELECT n.id, n.title, n.updated_at, substr(n.plaintext, 1, 80) AS preview
+     FROM backlinks b
+     JOIN notes n ON n.id = b.source_id
+     WHERE b.target_id = $1
+       AND n.deleted_at IS NULL
+     ORDER BY n.updated_at DESC`,
+    [targetId]
+  );
+}
+
+export interface UnlinkedMentionLite {
+  note:        { id: string; title: string; updated_at: number };
+  snippet:     string;
+  occurrences: number;
+}
+
+interface MentionCandidateRow {
+  id:         string;
+  title:      string;
+  updated_at: number;
+  plaintext:  string | null;
+}
+
+// Same matching rules as getUnlinkedMentions, but SQLite does the first filter,
+// so only notes that contain the title cross the IPC boundary (and no `content`).
+export async function findUnlinkedMentions(
+  targetId: string,
+  targetTitle: string
+): Promise<UnlinkedMentionLite[]> {
+  if (!targetTitle.trim() || UNTITLED_RE.test(targetTitle)) return [];
+
+  const db = await getDb();
+  const lowerTarget = targetTitle.toLowerCase();
+
+  // SQLite LIKE only folds ASCII case, so the prefilter is used for ASCII titles only.
+  const asciiOnly = /^[\x00-\x7F]*$/.test(targetTitle);
+  const likePattern = `%${targetTitle.replace(/[\\%_]/g, "\\$&")}%`;
+
+  const [linked, candidates, titleRows] = await Promise.all([
+    db.select<{ source_id: string }[]>(
+      `SELECT source_id FROM backlinks WHERE target_id = $1`, [targetId]
+    ),
+    asciiOnly
+      ? db.select<MentionCandidateRow[]>(
+          `SELECT id, title, updated_at, plaintext FROM notes
+           WHERE deleted_at IS NULL AND id != $1 AND plaintext LIKE $2 ESCAPE '\\'`,
+          [targetId, likePattern]
+        )
+      : db.select<MentionCandidateRow[]>(
+          `SELECT id, title, updated_at, plaintext FROM notes
+           WHERE deleted_at IS NULL AND id != $1`,
+          [targetId]
+        ),
+    db.select<{ title: string }[]>(
+      `SELECT title FROM notes WHERE deleted_at IS NULL AND id != $1`, [targetId]
+    ),
+  ]);
+
+  const linkedIds = new Set(linked.map((r) => r.source_id));
+  // Only titles that contain the target title can swallow a match; usually a handful.
+  const longerTitles = titleRows
+    .map((r) => r.title.toLowerCase())
+    .filter((t) => t.includes(lowerTarget));
+
+  const escapedTitle = targetTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(?<![\\w])${escapedTitle}(?![\\w])`, "gi");
+
+  const mentions: UnlinkedMentionLite[] = [];
+
+  for (const row of candidates) {
+    if (linkedIds.has(row.id)) continue;
+    const plaintext = row.plaintext ?? "";
+
+    const validMatches = [...plaintext.matchAll(regex)].filter((match) => {
+      if (longerTitles.length === 0) return true;
+      const i = match.index ?? 0;
+      return !longerTitles.some((t) => plaintext.slice(i, i + t.length).toLowerCase() === t);
+    });
+    if (validMatches.length === 0) continue;
+
+    const idx = validMatches[0].index ?? 0;
+    const start = Math.max(0, idx - 60);
+    const end   = Math.min(plaintext.length, idx + targetTitle.length + 60);
+    let snippet = plaintext.slice(start, end).trim();
+    if (start > 0) snippet = "…" + snippet;
+    if (end < plaintext.length) snippet = snippet + "…";
+
+    mentions.push({
+      note: { id: row.id, title: row.title, updated_at: row.updated_at },
+      snippet,
+      occurrences: validMatches.length,
+    });
+  }
+
+  return mentions.sort((a, b) => b.note.updated_at - a.note.updated_at);
+}

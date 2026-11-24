@@ -278,10 +278,11 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
   const displayIndex = matchCount > 0 ? currentIndex + 1 : 0;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-idemora-border bg-idemora-bg-primary shrink-0 flex-wrap">
+    <div className="flex items-start gap-1.5 px-3 py-2 border-b border-idemora-border bg-idemora-bg-primary shrink-0">
+      <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
 
       {/* Find input + counter */}
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center gap-1 min-w-0">
         <div className="relative flex items-center">
           <input
             ref={findInputRef}
@@ -290,7 +291,7 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
             onKeyDown={handleFindKeyDown}
             placeholder="Find…"
             spellCheck={false}
-            className="h-7 pl-2.5 pr-16 rounded-md text-sm bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal placeholder-idemora-text-muted outline-none focus:ring-2 focus:ring-blue-500 w-44 transition-colors duration-150"
+            className="h-7 pl-2.5 pr-16 rounded-md text-sm bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal placeholder-idemora-text-muted outline-none focus:ring-2 focus:ring-blue-500 w-[148px] transition-colors duration-150"
           />
           {/* Match counter */}
           <span className="absolute right-2 text-xs text-idemora-text-muted pointer-events-none tabular-nums">
@@ -302,7 +303,7 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
         <button
           onClick={() => setCaseSensitive((c) => !c)}
           title="Case sensitive"
-          className={`h-7 px-2 rounded-md text-xs font-mono transition-colors duration-150 border ${
+          className={`h-7 px-1.5 rounded-md text-xs font-mono transition-colors duration-150 border ${
             caseSensitive
               ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
               : "bg-idemora-bg-primary text-idemora-text-muted border-idemora-border"
@@ -315,7 +316,7 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
         <button
           onClick={() => setWholeWord((w) => !w)}
           title="Whole word"
-          className={`h-7 px-2 rounded-md text-xs font-mono transition-colors duration-150 border ${
+          className={`h-7 px-1.5 rounded-md text-xs font-mono transition-colors duration-150 border ${
             wholeWord
               ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
               : "bg-idemora-bg-primary text-idemora-text-muted border-idemora-border"
@@ -328,7 +329,7 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
         <button
           onClick={() => setUseRegex((r) => !r)}
           title="Regular expression (use $1 in Replace for capture groups)"
-          className={`h-7 px-2 rounded-md text-xs font-mono transition-colors duration-150 border ${
+          className={`h-7 px-1.5 rounded-md text-xs font-mono transition-colors duration-150 border ${
             useRegex
               ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
               : "bg-idemora-bg-primary text-idemora-text-muted border-idemora-border"
@@ -342,7 +343,7 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
           onClick={handlePrev}
           disabled={matchCount === 0}
           title="Previous match (Shift+Enter)"
-          className="h-7 w-7 flex items-center justify-center rounded-md bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-30 transition-colors duration-150"
+          className="h-7 w-6 flex items-center justify-center rounded-md bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-30 transition-colors duration-150"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M2 6.5L5 3.5L8 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -352,7 +353,7 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
           onClick={handleNext}
           disabled={matchCount === 0}
           title="Next match (Enter)"
-          className="h-7 w-7 flex items-center justify-center rounded-md bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-30 transition-colors duration-150"
+          className="h-7 w-6 flex items-center justify-center rounded-md bg-idemora-bg-primary border border-idemora-border text-idemora-text-muted hover:text-idemora-text-normal disabled:opacity-30 transition-colors duration-150"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -364,7 +365,7 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
       <div className="w-px h-4 bg-idemora-border shrink-0" />
 
       {/* Replace input + buttons */}
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center gap-1 min-w-0">
         <input
           ref={replaceInputRef}
           value={replaceText}
@@ -372,25 +373,25 @@ export function FindReplace({ editor, onClose, focusSignal = 0, focusTarget = "f
           onKeyDown={handleReplaceKeyDown}
           placeholder="Replace…"
           spellCheck={false}
-          className="h-7 px-2.5 rounded-md text-sm bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal placeholder-idemora-text-muted outline-none focus:ring-2 focus:ring-blue-500 w-36 transition-colors duration-150"
+          className="h-7 px-2.5 rounded-md text-sm bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal placeholder-idemora-text-muted outline-none focus:ring-2 focus:ring-blue-500 w-28 transition-colors duration-150"
         />
         <button
           onClick={handleReplace}
           disabled={matchCount === 0 || !findText}
-          className="h-7 px-2.5 rounded-md text-xs bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal hover:bg-blue-500/10 hover:text-blue-400 disabled:opacity-30 transition-colors duration-150 shrink-0"
+          className="h-7 px-2 rounded-md text-xs bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal hover:bg-blue-500/10 hover:text-blue-400 disabled:opacity-30 transition-colors duration-150 shrink-0"
         >
           Replace
         </button>
         <button
           onClick={handleReplaceAll}
           disabled={matchCount === 0 || !findText}
-          className="h-7 px-2.5 rounded-md text-xs bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal hover:bg-blue-500/10 hover:text-blue-400 disabled:opacity-30 transition-colors duration-150 shrink-0"
+          className="h-7 px-2 rounded-md text-xs bg-idemora-bg-primary border border-idemora-border text-idemora-text-normal hover:bg-blue-500/10 hover:text-blue-400 disabled:opacity-30 transition-colors duration-150 shrink-0"
         >
           Replace All
         </button>
       </div>
+      </div>
 
-      {/* Close */}
       <button
         onClick={handleClose}
         title="Close (Escape)"

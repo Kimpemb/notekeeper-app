@@ -6,7 +6,11 @@ import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useAutoSave } from "@/features/editor/hooks/useAutoSave";
-import { BlockIdExtension } from "@/features/editor/components/Editor/extensions";
+import { Extension } from "@tiptap/core";
+import { BlockIdExtension, createFindReplaceShortcutExtension } from "@/features/editor/components/Editor/extensions";
+import { FindReplace, buildFindReplacePlugin } from "@/features/editor/components/Editor/FindReplace";
+import { NavButtons } from "@/features/ui/components/NavButtons";
+import { useUIStore } from "@/features/ui/store/useUIStore";
 import { getNoteContent } from "@/features/notes/db/queries";
 
 interface NotepadEditorProps {
@@ -15,12 +19,19 @@ interface NotepadEditorProps {
   isActive: boolean;
 }
 
-export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
+export function NotepadEditor({ noteId, paneId, isActive }: NotepadEditorProps) {
   const note       = useNoteStore((s) => s.notes.find((n) => n.id === noteId));
   const updateNote = useNoteStore((s) => s.updateNote);
   const editorRef  = useRef<Editor | null>(null);
   const contentLoading = useRef(true);
   const [title, setTitle] = useState(note?.title ?? "");
+  const [findReplaceOpen, setFindReplaceOpen] = useState(false);
+  const [findFocus, setFindFocus] = useState<{ tick: number; target: "find" | "replace" }>({ tick: 0, target: "find" });
+  const openFindReplaceRef = useRef<(target: "find" | "replace") => void>(() => {});
+  openFindReplaceRef.current = (target) => {
+    setFindReplaceOpen(true);
+    setFindFocus((f) => ({ tick: f.tick + 1, target }));
+  };
 
   const editor = useEditor({
     extensions: [
@@ -30,6 +41,8 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
         bold: false, italic: false, strike: false, code: false,
       }),
       BlockIdExtension,
+      createFindReplaceShortcutExtension((target) => openFindReplaceRef.current(target)),
+      Extension.create({ name: "findReplacePlugin", addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
     ],
     content: "",
     autofocus: false,
@@ -83,6 +96,22 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
 
   useAutoSave({ editor, noteId, isActiveTab: isActive, contentLoading });
 
+  // Ctrl+F / Ctrl+H when focus is outside the text (e.g. the title field).
+  // Inside the text, the TipTap shortcut handles it.
+  useEffect(() => {
+    function handle(e: KeyboardEvent) {
+      if (!isActive || useUIStore.getState().activePaneId !== paneId) return;
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "f" && key !== "h") return;
+      if ((e.target as HTMLElement).closest(".tiptap") !== null) return;
+      e.preventDefault();
+      openFindReplaceRef.current(key === "h" ? "replace" : "find");
+    }
+    window.addEventListener("keydown", handle);
+    return () => window.removeEventListener("keydown", handle);
+  }, [isActive, paneId]);
+
   const commitTitle = useCallback(() => {
     const next = title.trim() || "Untitled";
     if (next !== note?.title) updateNote(noteId, { title: next });
@@ -91,7 +120,19 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
   if (!note) return null;
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto">
+    <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className="flex items-center gap-1 px-3 h-9 shrink-0">
+        <NavButtons paneId={paneId} />
+      </div>
+      {findReplaceOpen && editor && (
+        <FindReplace
+          editor={editor}
+          focusSignal={findFocus.tick}
+          focusTarget={findFocus.target}
+          onClose={() => { setFindReplaceOpen(false); editor.commands.focus(); }}
+        />
+      )}
+      <div className="flex-1 overflow-y-auto">
       <div className="w-full mx-auto px-8 py-6 max-w-4xl cursor-text">
         <input
           value={title}
@@ -122,6 +163,7 @@ export function NotepadEditor({ noteId, isActive }: NotepadEditorProps) {
         >
           <EditorContent editor={editor} className="text-idemora-text-normal" />
         </div>
+      </div>
       </div>
     </div>
   );
