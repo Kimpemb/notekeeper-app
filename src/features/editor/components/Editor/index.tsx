@@ -20,6 +20,7 @@ import { Extension } from "@tiptap/core";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { consumeBodyFocus } from "@/features/ui/lib/bodyFocusIntent";
+import { finishBlankHandoff, isBlankHandoffActive } from "@/features/ui/lib/blankHandoff";
 import { useAutoSave } from "@/features/editor/hooks/useAutoSave";
 import { useAppSettings } from "@/features/ui/store/useAppSettings";
 import { syncBacklinks } from "@/features/notes/db/queries";
@@ -563,10 +564,26 @@ useEffect(() => {
   }, []);
 
   // Blank-page flow: the title was already typed, so put the cursor in the body.
+  // The blank page stays on top as an overlay until we signal ready (blankHandoff.ts).
   useEffect(() => {
     if (!editor) return;
-    if (!consumeBodyFocus()) return;
-    setTimeout(() => { if (!editor.isDestroyed) editor.commands.focus("start"); }, 50);
+    if (!consumeBodyFocus()) {
+      // Untitled path: the title effect above focuses at 50ms, so release just after it.
+      if (!isBlankHandoffActive(paneId)) return;
+      const t = setTimeout(() => finishBlankHandoff(paneId), 70);
+      return () => clearTimeout(t);
+    }
+    // Focus synchronously so the caret never goes missing between overlay and editor.
+    editor.commands.focus("start");
+    if (editor.isFocused) {
+      finishBlankHandoff(paneId);
+      return;
+    }
+    // Editor DOM not attached yet: short retry, then release.
+    setTimeout(() => {
+      if (!editor.isDestroyed) editor.commands.focus("start");
+      finishBlankHandoff(paneId);
+    }, 50);
   }, [editor]);
 
   useEffect(() => {

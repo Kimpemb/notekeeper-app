@@ -641,19 +641,22 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
       {/* Editor column */}
       <div className="flex flex-col flex-1 overflow-hidden min-w-0 min-h-0">
         <div className="flex-1 flex overflow-hidden relative">
-          {paneTabs.length === 0 ? <EmptyState paneId={paneId} /> : paneTabs.map((tab) => {
-            const isActive = tab.id === paneActiveTabId;
-            return (
-<TabContent
-  key={tab.id}
-  tab={tab}
-  isActive={isActive}
-  notes={notes}
-  paneId={paneId}
-  scrollPositions={scrollPositions}
-/>
-            );
-          })}
+          <div className="flex-1 flex overflow-hidden relative min-w-0">
+            <EmptyState paneId={paneId} hasTabs={paneTabs.length > 0} />
+            {paneTabs.map((tab) => {
+              const isActive = tab.id === paneActiveTabId;
+              return (
+                <TabContent
+                  key={tab.id}
+                  tab={tab}
+                  isActive={isActive}
+                  notes={notes}
+                  paneId={paneId}
+                  scrollPositions={scrollPositions}
+                />
+              );
+            })}
+          </div>
           {(paneId === 1 ? pane1FileTreeOpen : pane2FileTreeOpen) && <FileTreePanel paneId={paneId} />}
         </div>
       </div>
