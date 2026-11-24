@@ -66,7 +66,21 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Idemora v__VERSION__'
           releaseBody: |
-            ## What's new in v2.2.4
+            ## What's new in v2.2.5
+
+            **New**
+            - Drag tabs to reorder them. Dragging works within each pane in split view
+            - Ctrl+1 to Ctrl+9 jump straight to the 1st to 9th tab
+
+            **Improved**
+            - Much faster startup: the loading screen no longer waits for background database maintenance, which on large vaults could add around 19 seconds
+            - Automatic daily and weekly backups no longer scan your whole vault on every launch when no backup is due
+            - Background clean-up no longer re-checks the same notes and PDFs on every launch
+
+            **Fixed**
+            - Pressing Escape in find and replace no longer jumps to the bottom of the note or selects text. The cursor stays where you were
+
+            **New in v2.2.4**
 
             **New**
             - An optional "forgotten notes" banner that reminds you of notes you haven't opened in a while. It replaces the related-notes banner
