@@ -441,6 +441,17 @@ useEffect(() => {
     if (noteId) useChatSessionStore.getState().setPaneNote(2, noteId);
   }, [pane2ActiveTabId]);
 
+  // Nothing open in the active pane (e.g. all tabs closed): clear the note selection.
+  // Otherwise the last closed note still reads as active, and clicking it in the
+  // sidebar only toggles its children instead of reopening it.
+  useEffect(() => {
+    const ui = useUIStore.getState();
+    const openNoteId = ui.paneActiveNoteId(ui.activePaneId);
+    if (!openNoteId && useNoteStore.getState().activeNoteId) {
+      useNoteStore.getState().setActiveNote(null, true);
+    }
+  }, [activeTabId, pane2ActiveTabId, activePaneId]);
+
   function triggerNav(action: () => void) {
     if (slideTimeout.current) clearTimeout(slideTimeout.current);
     action();
