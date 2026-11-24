@@ -1,5 +1,5 @@
 // src/features/notes/components/Sidebar/index.tsx
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { SidebarRail } from "@/features/ui/components/SidebarRail";
 import { NotesPanel } from "./NotesPanel";
@@ -10,6 +10,21 @@ import { EnvPanel } from "./EnvPanel";
 import { GoalsPanel } from "@/features/goals/components/GoalsPanel";
 import { ChatHistoryPanel } from "./ChatHistoryPanel";
 
+type PanelName = "notes" | "search" | "trash" | "bookmarks" | "env" | "goals" | "chatHistory";
+
+// Memoized so a Sidebar re-render (panel switch, transition flag) does not
+// re-render every always-mounted panel, including the full notes tree.
+const PanelBody = memo(function PanelBody({ panel }: { panel: PanelName }) {
+  switch (panel) {
+    case "notes":       return <NotesPanel />;
+    case "search":      return <SearchPanel />;
+    case "trash":       return <TrashPanel />;
+    case "bookmarks":   return <BookmarksPanel />;
+    case "env":         return <EnvPanel />;
+    case "goals":       return <GoalsPanel />;
+    case "chatHistory": return <ChatHistoryPanel />;
+  }
+});
 
 
 export function Sidebar() {
@@ -84,13 +99,7 @@ export function Sidebar() {
               bottom: 0,
             }}
           >
-                {panel === "notes"       && <NotesPanel />}
-                {panel === "search"      && <SearchPanel />}
-                {panel === "trash"       && <TrashPanel />}
-                {panel === "bookmarks"   && <BookmarksPanel />}
-                {panel === "env"     && <EnvPanel />}
-                {panel === "goals"   && <GoalsPanel />}
-                {panel === "chatHistory" && <ChatHistoryPanel />}
+            <PanelBody panel={panel} />
           </div>
         ))}
       </div>
