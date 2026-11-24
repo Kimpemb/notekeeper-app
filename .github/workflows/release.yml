@@ -71,16 +71,21 @@ jobs:
             **New**
             - An optional "forgotten notes" banner that reminds you of notes you haven't opened in a while. It replaces the related-notes banner
             - Closing every tab now leaves a blank note: type a title and press Enter to create it
-            - Back and forward buttons, and find and replace, in notepads
+            - Notepads: plain-text notes that stay on this device only (Ctrl+Alt+N). Ctrl+N creates a root note and Ctrl+Shift+N a sub-note, each in a new tab
+            - Back and forward buttons in every note view, including notepads. Each tab keeps its own history, and it is kept after a restart
+            - Find and replace in notepads (Ctrl+F, Ctrl+H), plus whole word and regex options, with Replace moving on to the next match
 
             **Improved**
             - The backlinks panel opens much faster: linked notes show straight away and unlinked mentions load in the background
             - Selecting and trashing many notes at once is faster, and right-click Trash acts on the whole selection
             - Switching sidebar panels, clicking notes in the sidebar and opening the Move block dialog all feel lighter
+            - The breadcrumb shows sibling notes in hover menus and fits narrow panes
+            - Split view: shortcuts act on the active pane, and chat, backlinks and outline share one panel on the right edge
             - Cleaner sidebar: neutral highlights, slimmer rows and a narrower panel
             - The find bar keeps its close button on the first row when several panels are open
 
             **Fixed**
+            - Switching AI provider in the chat panel now takes effect immediately
             - The maximize button now shows the right icon for the window's real state
             - The tab bar no longer wobbles up and down when you shake the pointer over it
             - The note selection is cleared when the active pane has no open note
