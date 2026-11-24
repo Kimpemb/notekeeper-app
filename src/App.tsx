@@ -503,6 +503,11 @@ useEffect(() => {
     const ctrl = e.ctrlKey || e.metaKey;
 
     if (ctrl && e.key === "Tab") { e.preventDefault(); cycleTab(e.shiftKey ? -1 : 1); return; }
+    // Ctrl+1 ... Ctrl+9 jump to the 1st ... 9th tab. e.code keeps it layout-independent (AZERTY etc.)
+    if (ctrl && !e.shiftKey && !e.altKey) {
+      const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+      if (digit) { e.preventDefault(); useUIStore.getState().goToTab(Number(digit[1]) - 1); return; }
+    }
     if (ctrl && e.key === "k")   { e.preventDefault(); togglePalette(); }
     if (ctrl && e.key === "t") {
       e.preventDefault();

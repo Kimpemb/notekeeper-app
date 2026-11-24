@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
@@ -19,6 +19,7 @@ export function TabBar() {
   const openInSplit = useUIStore((s) => s.openInSplit);
   const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
   const setActivePaneId = useUIStore((s) => s.setActivePaneId);
+  const reorderTabs = useUIStore((s) => s.reorderTabs);
 
 const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
 const [emptySpaceMenu, setEmptySpaceMenu] = useState<{ x: number; y: number; flip: boolean } | null>(null);
@@ -71,6 +72,180 @@ useEffect(() => {
   return () => document.removeEventListener("mousedown", handle);
 }, [emptySpaceMenu]);
 
+// ─── Drag to reorder ─────────────────────────────────────────────────────────
+// Stability: every tab has the same fixed width, so slot positions are plain
+// arithmetic (index * stride). The target slot is computed from the pointer
+// offset alone and never from hit-testing moved elements, which is what makes
+// tabs jitter. Other tabs are shifted by exactly one stride with a transform.
+const DRAG_THRESHOLD = 5;
+const EDGE_ZONE = 36;
+const EDGE_SPEED = 14;
+const SETTLE_MS = 130;
+// Hysteresis: a neighbour swaps only once the dragged tab is this far (in tab widths) past
+// the midpoint, and swaps back only after crossing the same margin the other way.
+const SWAP_MARGIN = 0.1;
+
+interface DragState { id: string; from: number; to: number; offset: number; settling: boolean; }
+interface DragRefs {
+  id: string; from: number; to: number; stride: number; count: number;
+  startX: number; startScroll: number; lastX: number;
+  active: boolean; dirty: boolean; pointerId: number; el: HTMLElement; raf: number; timer: number;
+}
+
+const [drag, setDrag] = useState<DragState | null>(null);
+const dragRef = useRef<DragRefs | null>(null);
+const suppressClick = useRef(false);
+const lastDrag = useRef<DragState | null>(null);
+
+const computeDrag = useCallback(() => {
+  const d = dragRef.current;
+  const sc = scrollRef.current;
+  if (!d || !d.active || !sc) return;
+  let offset = (d.lastX - d.startX) + (sc.scrollLeft - d.startScroll);
+  // Keep the dragged tab inside the strip of tabs
+  offset = Math.max(-d.from * d.stride, Math.min((d.count - 1 - d.from) * d.stride, offset));
+  // Dragged tab's position in slot units; move the target one slot at a time with a dead zone
+  const pos = d.from + offset / d.stride;
+  let to = d.to;
+  while (to < d.count - 1 && pos > to + 0.5 + SWAP_MARGIN) to++;
+  while (to > 0 && pos < to - 0.5 - SWAP_MARGIN) to--;
+  d.dirty = false;
+  if (to === d.to && lastDrag.current && lastDrag.current.offset === offset) return;
+  d.to = to;
+  const next = { id: d.id, from: d.from, to, offset, settling: false };
+  lastDrag.current = next;
+  setDrag(next);
+}, []);
+
+const stopAutoScroll = () => {
+  const d = dragRef.current;
+  if (d && d.raf) { cancelAnimationFrame(d.raf); d.raf = 0; }
+};
+
+const autoScrollTick = useCallback(() => {
+  const d = dragRef.current;
+  const sc = scrollRef.current;
+  if (!d || !d.active || !sc) return;
+  const rect = sc.getBoundingClientRect();
+  let speed = 0;
+  if (d.lastX < rect.left + EDGE_ZONE) speed = -EDGE_SPEED * Math.min(1, (rect.left + EDGE_ZONE - d.lastX) / EDGE_ZONE);
+  else if (d.lastX > rect.right - EDGE_ZONE) speed = EDGE_SPEED * Math.min(1, (d.lastX - (rect.right - EDGE_ZONE)) / EDGE_ZONE);
+  if (speed !== 0) {
+    const before = sc.scrollLeft;
+    sc.scrollLeft = before + speed;
+    if (sc.scrollLeft !== before) d.dirty = true;
+  }
+  // Pointer moves only mark the drag dirty; React updates at most once per frame
+  if (d.dirty) computeDrag();
+  d.raf = requestAnimationFrame(autoScrollTick);
+}, [computeDrag]);
+
+const cancelDrag = useCallback(() => {
+  const d = dragRef.current;
+  if (d) {
+    if (d.raf) cancelAnimationFrame(d.raf);
+    if (d.timer) clearTimeout(d.timer);
+    try { d.el.releasePointerCapture(d.pointerId); } catch { /* already released */ }
+  }
+  dragRef.current = null;
+  lastDrag.current = null;
+  setDrag(null);
+}, []);
+
+function handleTabPointerDown(e: React.PointerEvent<HTMLDivElement>, tabId: string, index: number) {
+  suppressClick.current = false; // a new press starts a fresh click/drag decision
+  if (e.button !== 0 || tabs.length < 2 || dragRef.current) return;
+  if ((e.target as HTMLElement).closest("button")) return; // close button
+  const el = e.currentTarget;
+  const sc = scrollRef.current;
+  if (!sc) return;
+  const tabEls = sc.querySelectorAll<HTMLElement>("[data-tab]");
+  const stride = tabEls.length > 1
+    ? tabEls[1].offsetLeft - tabEls[0].offsetLeft
+    : el.offsetWidth + 4;
+  if (!(stride > 0)) return;
+  dragRef.current = {
+    id: tabId, from: index, to: index, stride, count: tabs.length,
+    startX: e.clientX, startScroll: sc.scrollLeft, lastX: e.clientX,
+    active: false, dirty: false, pointerId: e.pointerId, el, raf: 0, timer: 0,
+  };
+}
+
+function handleTabPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+  const d = dragRef.current;
+  if (!d || e.pointerId !== d.pointerId) return;
+  d.lastX = e.clientX;
+  if (!d.active) {
+    if (Math.abs(e.clientX - d.startX) < DRAG_THRESHOLD) return;
+    d.active = true;
+    suppressClick.current = true;
+    try { d.el.setPointerCapture(d.pointerId); } catch { /* ignore */ }
+    d.raf = requestAnimationFrame(autoScrollTick);
+  }
+  d.dirty = true;
+}
+
+function finishDrag(e: React.PointerEvent<HTMLDivElement>) {
+  const d = dragRef.current;
+  if (!d || e.pointerId !== d.pointerId) return;
+  if (!d.active) { dragRef.current = null; return; } // plain click, let onClick run
+  stopAutoScroll();
+  try { d.el.releasePointerCapture(d.pointerId); } catch { /* ignore */ }
+  d.lastX = e.clientX;
+  computeDrag(); // settle on the exact release position, not the last rendered frame
+  // Settle: glide the dragged tab into its slot, then commit the new order and clear
+  // every transform in the same render so nothing visibly jumps.
+  const { id, from, to, stride } = d;
+  setDrag({ id, from, to, offset: (to - from) * stride, settling: true });
+  d.active = false;
+  d.timer = window.setTimeout(() => {
+    dragRef.current = null;
+    lastDrag.current = null;
+    if (to !== from) reorderTabs(activePaneId, from, to);
+    setDrag(null);
+  }, SETTLE_MS);
+}
+
+// Escape cancels an in-progress drag; a tab list that changes underneath also cancels
+useEffect(() => {
+  if (!drag) return;
+  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !drag.settling) { e.preventDefault(); cancelDrag(); } };
+  window.addEventListener("keydown", onKey, true);
+  return () => window.removeEventListener("keydown", onKey, true);
+}, [drag, cancelDrag]);
+
+useEffect(() => {
+  if (dragRef.current) cancelDrag();
+}, [activePaneId, tabs.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+useEffect(() => () => {
+  const d = dragRef.current;
+  if (d) { if (d.raf) cancelAnimationFrame(d.raf); if (d.timer) clearTimeout(d.timer); }
+}, []);
+
+function dragStyle(index: number, tabId: string): React.CSSProperties | undefined {
+  if (!drag) return undefined;
+  if (tabId === drag.id) {
+    return {
+      transform: `translate3d(${drag.offset}px, 0, 0)`,
+      transition: drag.settling ? `transform ${SETTLE_MS}ms cubic-bezier(0.2, 0, 0, 1)` : "none",
+      zIndex: 30,
+      boxShadow: drag.settling ? undefined : "0 4px 14px rgba(0,0,0,0.25)",
+      cursor: "grabbing",
+      willChange: "transform",
+    };
+  }
+  let shift = 0;
+  if (drag.from < drag.to && index > drag.from && index <= drag.to) shift = -1;
+  else if (drag.from > drag.to && index >= drag.to && index < drag.from) shift = 1;
+  const stride = dragRef.current?.stride ?? 0;
+  return {
+    transform: shift === 0 ? "translate3d(0, 0, 0)" : `translate3d(${shift * stride}px, 0, 0)`,
+    transition: "transform 150ms cubic-bezier(0.2, 0, 0, 1)",
+    willChange: "transform",
+  };
+}
+
   return (
     <div className="relative flex items-center flex-1 min-w-0 h-full ml-8">
       <div
@@ -83,7 +258,7 @@ useEffect(() => {
     setEmptySpaceMenu({ x: e.clientX, y: e.clientY, flip: window.innerHeight - e.clientY < 260 });
   }}
 >
-        {tabs.map((tab) => {
+        {tabs.map((tab, tabIndex) => {
           const note = tab.noteId ? notes.find((n) => n.id === tab.noteId) : null;
           let title = "";
           if (tab.noteId === null) {
@@ -98,7 +273,13 @@ useEffect(() => {
   key={tab.id}
   data-tab="true"
   data-tab-id={tab.id}
-  onClick={() => {
+  style={dragStyle(tabIndex, tab.id)}
+              onPointerDown={(e) => handleTabPointerDown(e, tab.id, tabIndex)}
+              onPointerMove={handleTabPointerMove}
+              onPointerUp={finishDrag}
+              onPointerCancel={cancelDrag}
+              onClick={() => {
+                if (suppressClick.current) return; // this click is the end of a drag
                 setActive(tab.id);
                 if (tab.noteId) setActiveNote(tab.noteId, true);
               }}

@@ -329,6 +329,8 @@ interface UIStore {
   setActiveTab: (tabId: string) => void;
   closeActiveTab: () => void;
   cycleTab: (dir: 1 | -1) => void;
+  reorderTabs: (pane: 1 | 2, fromIndex: number, toIndex: number) => void;
+  goToTab: (index: number) => void;
   activeTabNoteId: () => string | null;
 
   // ─── Pane 2 tabs ─────────────────────────────────────────────────────────
@@ -766,6 +768,28 @@ closeCalendar: () => {
         set({ activeTabId: nextId });
         saveSession(get());
       }
+    },
+
+    // Jump to the Nth tab (0-based) of the active pane; out-of-range does nothing
+    goToTab: (index) => {
+      const { activePaneId, tabs, pane2Tabs } = get();
+      const list = activePaneId === 2 ? pane2Tabs : tabs;
+      const target = list[index];
+      if (!target) return;
+      set(activePaneId === 2 ? { pane2ActiveTabId: target.id } : { activeTabId: target.id });
+      saveSession(get());
+    },
+
+    reorderTabs: (pane, fromIndex, toIndex) => {
+      const key = pane === 1 ? "tabs" : "pane2Tabs";
+      const list = [...get()[key]];
+      if (fromIndex === toIndex || fromIndex < 0 || fromIndex >= list.length) return;
+      const to = Math.max(0, Math.min(list.length - 1, toIndex));
+      const [moved] = list.splice(fromIndex, 1);
+      list.splice(to, 0, moved);
+      // Tabs are tracked by id, so the active tab is unaffected by the new order
+      set({ [key]: list } as Partial<UIStore>);
+      saveSession(get());
     },
 
     activeTabNoteId: () => {

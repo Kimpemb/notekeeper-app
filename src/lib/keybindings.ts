@@ -47,6 +47,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { ctrl: true,               key: "Tab",keys: ["Ctrl", "Tab"],         label: "Next tab" },
       { ctrl: true, shift: true,  key: "Tab",keys: ["Ctrl", "Shift", "Tab"],"label": "Previous tab" },
       { ctrl: true, shift: true,  key: "t",  keys: ["Ctrl", "Shift", "T"], label: "Reopen closed tab" },
+      { ctrl: true,                           keys: ["Ctrl", "1–9"],         label: "Go to tab 1–9" },
     ],
   },
   {
