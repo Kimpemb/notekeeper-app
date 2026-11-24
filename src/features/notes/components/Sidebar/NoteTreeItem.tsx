@@ -1,5 +1,5 @@
 // src/features/notes/components/Sidebar/NoteTreeItem.tsx
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { ConfirmModal } from "@/features/ui/components/ConfirmModal";
@@ -213,9 +213,14 @@ export function NoteTreeItem({
     });
   };
 
-  const note        = notes.find((n) => n.id === noteId);
+  const note        = useMemo(() => notes.find((n) => n.id === noteId), [notes, noteId]);
   const isRagExcluded  = note?.rag_excluded === 1;
-  const children    = sortNotes(notes.filter((n) => n.parent_id === noteId));
+  // Memoized: a selection toggle doesn't change `notes`, so rows skip the O(N) filter and sort.
+  const children    = useMemo(
+    () => sortNotes(notes.filter((n) => n.parent_id === noteId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sortNotes only depends on sortOrder
+    [notes, noteId, sortOrder],
+  );
   const isActive    = activeNoteId === noteId;
   const isExpanded  = expandedNodes.has(noteId);
   const hasChildren = children.length > 0;
