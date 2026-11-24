@@ -4,7 +4,7 @@
 // Opened via the "idemora:move-block" custom event fired from useBlockMenu.
 // App.tsx listens for that event, stashes the detail, and renders this modal.
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 interface Props {
@@ -70,7 +70,7 @@ export function MoveBlockModal({ open, onClose, onConfirm }: Props) {
       .map(({ id, title, breadcrumb }) => ({ id, title, breadcrumb }));
   }, [getCandidates, query]);
 
-  const items      = getFiltered();
+  const items = useMemo(() => (open ? getFiltered() : []), [open, getFiltered]);
   const filteredRef = useRef(items);
   useEffect(() => { filteredRef.current = items; }, [items]);
 
