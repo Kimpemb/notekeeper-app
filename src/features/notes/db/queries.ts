@@ -1753,39 +1753,69 @@ export async function getSuggestionFeedback(): Promise<FeedbackEntry[]> {
   );
 }
 
-// ─── Cluster gap suggestion persistence ───────────────────────────────────────
+// ─── Forgotten notes ──────────────────────────────────────────────────────────
+// Used by ForgottenNoteBar. One aggregate pass over note_visits, no per-note
+// subquery. Skips trashed notes, canvases, PDFs, notepads, AI-excluded notes
+// (.env), untitled and very short notes.
 
-const CLUSTER_META_KEY      = "cluster_suggestion_meta";
-const CLUSTER_DISMISSED_KEY = "cluster_dismissed_pairs";
-
-export interface ClusterSuggestionMeta {
-  lastShownAt: number;
-  lastClusterNoteIds: string[];
+export interface ForgottenNoteCandidate {
+  id: string;
+  title: string;
+  last_touched: number;
 }
 
-export async function getClusterSuggestionMeta(): Promise<ClusterSuggestionMeta | null> {
-  const raw = await getSetting(CLUSTER_META_KEY);
-  if (!raw) return null;
-  try { return JSON.parse(raw) as ClusterSuggestionMeta; }
-  catch { return null; }
+export async function getForgottenNoteCandidates(
+  olderThan: number,
+  limit = 40
+): Promise<ForgottenNoteCandidate[]> {
+  const db = await getDb();
+  return db.select<ForgottenNoteCandidate[]>(
+    `SELECT n.id AS id, n.title AS title,
+            MAX(n.updated_at, COALESCE(v.mv, 0)) AS last_touched
+       FROM notes n
+       LEFT JOIN (SELECT note_id, MAX(visited_at) AS mv
+                    FROM note_visits GROUP BY note_id) v
+         ON v.note_id = n.id
+      WHERE n.deleted_at IS NULL
+        AND COALESCE(n.is_canvas, 0) = 0
+        AND COALESCE(n.source_type, 'note') = 'note'
+        AND COALESCE(n.rag_excluded, 0) = 0
+        AND n.title NOT LIKE 'Untitled%'
+        AND length(n.plaintext) >= 200
+        AND MAX(n.updated_at, COALESCE(v.mv, 0)) < $1
+      ORDER BY length(n.plaintext) DESC
+      LIMIT $2`,
+    [olderThan, limit]
+  );
 }
 
-export async function saveClusterSuggestionMeta(meta: ClusterSuggestionMeta): Promise<void> {
-  await setSetting(CLUSTER_META_KEY, JSON.stringify(meta));
+const FORGOTTEN_STATE_KEY = "forgotten_notes_state";
+
+export interface ForgottenNotesState {
+  // note id -> time (ms) until which it must not be suggested
+  snoozed: Record<string, number>;
 }
 
-export async function getClusterDismissedPairs(): Promise<Set<string>> {
-  const raw = await getSetting(CLUSTER_DISMISSED_KEY);
-  if (!raw) return new Set();
-  try { return new Set(JSON.parse(raw) as string[]); }
-  catch { return new Set(); }
+export async function getForgottenNotesState(): Promise<ForgottenNotesState> {
+  const raw = await getSetting(FORGOTTEN_STATE_KEY);
+  if (!raw) return { snoozed: {} };
+  try {
+    const parsed = JSON.parse(raw) as Partial<ForgottenNotesState>;
+    return { snoozed: parsed.snoozed ?? {} };
+  } catch {
+    return { snoozed: {} };
+  }
 }
 
-export async function dismissClusterPair(sourceId: string, targetId: string): Promise<void> {
-  const existing = await getClusterDismissedPairs();
-  existing.add(`${sourceId}:${targetId}`);
-  existing.add(`${targetId}:${sourceId}`);
-  await setSetting(CLUSTER_DISMISSED_KEY, JSON.stringify([...existing]));
+export async function snoozeForgottenNote(noteId: string, until: number): Promise<void> {
+  const state = await getForgottenNotesState();
+  const now = Date.now();
+  const snoozed: Record<string, number> = {};
+  for (const [id, t] of Object.entries(state.snoozed)) {
+    if (t > now) snoozed[id] = t; // drop expired entries
+  }
+  snoozed[noteId] = until;
+  await setSetting(FORGOTTEN_STATE_KEY, JSON.stringify({ snoozed }));
 }
 
 export async function getAllBacklinkRows(): Promise<{ source_id: string; target_id: string }[]> {

@@ -1,12 +1,6 @@
 // src/features/ui/store/useUIStore.ts
 import { create } from "zustand";
 import { getSetting, setSetting } from "@/features/notes/db/queries";
-import {
-  createSession,
-  recordVisit,
-  tickSession,
-  type SessionState,
-} from "@/features/notes/similarity/clusterEngine";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 
 type Theme = "light" | "dark";
@@ -362,12 +356,6 @@ interface UIStore {
   // ─── Closed tab history ───────────────────────────────────────────────────
   closedTabs: ClosedTab[];
   reopenClosedTab: () => void;
-
-  // ─── Cluster session tracking ─────────────────────────────────────────────
-  clusterSession: SessionState;
-  recordClusterVisit: (noteId: string) => void;
-  tickClusterSession: () => void;
-  resetClusterSession: () => void;
 
   // ─── Pane 2 nav history ───────────────────────────────────────────────────
   // Per-tab back/forward; pane defaults to the active pane
@@ -916,12 +904,6 @@ closeCalendar: () => {
       if (targetPane === 2) { get().openTabInPane2(last.noteId); }
       else { get().openTab(last.noteId); }
     },
-
-    // ─── Cluster session tracking ─────────────────────────────────────────────
-    clusterSession: createSession(),
-    recordClusterVisit: (noteId) => set((s) => ({ clusterSession: recordVisit(s.clusterSession, noteId) })),
-    tickClusterSession: () => set((s) => ({ clusterSession: tickSession(s.clusterSession) })),
-    resetClusterSession: () => set({ clusterSession: createSession() }),
 
         // (per-tab back/forward: each tab keeps its own history)
     paneCanGoBack: (pane) => {

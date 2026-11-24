@@ -235,9 +235,6 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     set({ activeNoteId: id });
     if (id) {
       get().recordVisit(id).catch(console.error);
-      import("@/features/ui/store/useUIStore").then(({ useUIStore }) => {
-        useUIStore.getState().recordClusterVisit(id);
-      }).catch(console.error);
     }
   },
 

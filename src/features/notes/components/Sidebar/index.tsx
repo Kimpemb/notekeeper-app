@@ -27,6 +27,8 @@ const PanelBody = memo(function PanelBody({ panel }: { panel: PanelName }) {
 });
 
 
+
+
 export function Sidebar() {
   const activeSidebarPanel    = useUIStore((s) => s.activeSidebarPanel);
   const setActiveSidebarPanel = useUIStore((s) => s.setActiveSidebarPanel);

@@ -67,8 +67,8 @@ export interface AppSettings {
   // Deadline resurface bar — notification vigor
   deadlineBarVigor: "off" | "minimal" | "normal" | "vigilant";
 
-  // "Related note" suggestion banner (backlink-driven)
-  resurfaceBarEnabled: boolean;
+  // "Forgotten note" banner. Off by default; while off, nothing runs.
+  forgottenNotesEnabled: boolean;
 }
 
 
@@ -93,7 +93,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   web_search_auto_search:  0,
 
   deadlineBarVigor: "normal",
-  resurfaceBarEnabled: true,
+  forgottenNotesEnabled: false,
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {
@@ -1029,8 +1029,8 @@ export function SettingsModal() {
                 </Row>
 
                 <SectionTitle>Notifications</SectionTitle>
-                <Row label="Related note suggestions" description="Show a banner suggesting related notes based on your links and what you've been viewing">
-                  <Toggle checked={settings.resurfaceBarEnabled} onChange={(v) => updateSetting("resurfaceBarEnabled", v)} />
+                <Row label="Forgotten notes" description="Once per launch, suggest a note you haven't opened in a month. Off by default; while off, nothing runs.">
+                  <Toggle checked={settings.forgottenNotesEnabled} onChange={(v) => updateSetting("forgottenNotesEnabled", v)} />
                 </Row>
                 <Row
                   label="Deadline reminders"

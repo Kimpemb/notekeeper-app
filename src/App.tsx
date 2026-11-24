@@ -25,7 +25,7 @@ import { prosemirrorToMarkdown } from "@/lib/exporters/markdown";
 import { exportToPdf } from "@/lib/exporters/pdf";
 import { exportToDocx } from "@/lib/exporters/docx";
 import { exportNotesToFile, exportDocxToFile } from "@/lib/tauri/fs";
-import { ResurfaceBar } from "@/features/ui/components/ResurfaceBar";
+import { ForgottenNoteBar } from "@/features/ui/components/ForgottenNoteBar";
 import { DeadlineResurfaceBar } from "@/features/ui/components/DeadlineResurfaceBar";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ConflictBadge } from "@/features/sync/components/ConflictBadge";
@@ -905,7 +905,7 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
         </header>
 
         <TipsPanel />
-        <ResurfaceBar />
+        <ForgottenNoteBar />
         <DeadlineResurfaceBar />
 
  
