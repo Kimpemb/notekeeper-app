@@ -57,6 +57,16 @@ export async function runScheduledBackupIfDue(): Promise<void> {
     if (!password?.trim())  return;
     if (!frequency)         return;
 
+    // ── Cheap early exit for time-based schedules ─────────────────────────────
+    // Whether a daily/weekly backup is due depends only on the clock. Deciding that
+    // before assembling + hashing the whole vault avoids ~12 s of main-thread work on
+    // every launch when nothing is due. ("on_change" still needs the hash, below.)
+    {
+      const sinceLast = Date.now() - (lastAt ? new Date(lastAt).getTime() : 0);
+      if (frequency === "daily"  && sinceLast < MS.day)  return;
+      if (frequency === "weekly" && sinceLast < MS.week) return;
+    }
+
     // ── Assemble bundle ───────────────────────────────────────────────────────
     const { assembleBundle } = await import("@/features/backup/lib/bundler");
     const bundle     = await assembleBundle();

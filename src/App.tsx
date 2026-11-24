@@ -68,6 +68,7 @@ import { useSyncStore } from "@/features/sync/store/useSyncStore";
  
 import { startPushQueueDrain } from "@/features/sync/lib/drainPushQueue";
 import { getDb } from "@/features/notes/db/client";
+import { timed, bootMark, installBootProf } from "@/lib/bootProfiler";
 import { pruneReconcileData } from "@/features/sync/lib/reconcileStore";
 
 
@@ -256,10 +257,12 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   useEffect(() => {
   let cancelled = false;
   console.log("[boot] effect start", performance.now());
+  installBootProf(getDb); // dev-only: exposes window.__bootProf
+  bootMark("boot effect start");
 
   // Fire-and-forget, deliberately outside the local-first boot chain below —
   // sync session restoration must never block or gate dbReady/notesLoaded.
-  useSyncStore.getState().restoreSession();
+  void timed("restoreSession (sync, fire-and-forget)", () => useSyncStore.getState().restoreSession());
 
   initDb()
     .then(async () => {
@@ -270,12 +273,12 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       // 4d.3: drop reconcile backups and saved choices past the retention window.
       // Fire-and-forget so it can never block boot.
       getDb()
-        .then((db) => pruneReconcileData(db))
+        .then((db) => timed("pruneReconcileData", () => pruneReconcileData(db)))
         .catch((err) => console.warn("[sync] reconcile prune failed:", err));
       return Promise.all([
-        useUIStore.getState().loadSettings(),
-        useAppSettings.getState().load(),
-        useAIStore.getState().loadAISettings(),
+        timed("settings: ui loadSettings", () => useUIStore.getState().loadSettings()),
+        timed("settings: appSettings load", () => useAppSettings.getState().load()),
+        timed("settings: loadAISettings", () => useAIStore.getState().loadAISettings()),
       ]);
     })
     .then(() => {
@@ -292,21 +295,21 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
       // Order matters: midnight transitions must apply before backfill/snapshot
       // read colour_state, and backfill must run before snapshot so today's
       // events aren't double-counted as "past".
-      await applyMidnightTransitions();
-      await backfillPastEvents();
-      await ensureYesterdayLocked();
-      const todayEvents = await snapshotTodayEvents();
+      await timed("calendar: applyMidnightTransitions", () => applyMidnightTransitions());
+      await timed("calendar: backfillPastEvents", () => backfillPastEvents());
+      await timed("calendar: ensureYesterdayLocked", () => ensureYesterdayLocked());
+      const todayEvents = await timed("calendar: snapshotTodayEvents", () => snapshotTodayEvents());
       if (!cancelled) useScoreStore.getState().setTodayEvents(todayEvents);
 
       // Compute streak from historical daily_scores
-      await refreshStreak();
+      await timed("calendar: refreshStreak", () => refreshStreak());
 
       // ── Milestone sync (one-time at startup) ────────────────────────────
       getAllMilestones()
         .then(syncMilestonesToCalendar)
         .catch(console.error);
 
-      return runScheduledBackupIfDue();
+      return timed("backup: runScheduledBackupIfDue", () => runScheduledBackupIfDue());
     })
     .catch((err) => { if (!cancelled) setDbError(String(err)); });
 
@@ -367,7 +370,7 @@ useEffect(() => {
     if (!dbReady) return;
     async function checkForUpdates() {
       try {
-        const version = await invoke<string | null>("check_for_updates");
+        const version = await timed("updater: check_for_updates", () => invoke<string | null>("check_for_updates"));
         if (version) setUpdateVersion(version);
       } catch (err) {
         console.error("Updater error:", err);

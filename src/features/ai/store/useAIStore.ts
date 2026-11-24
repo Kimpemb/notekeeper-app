@@ -485,7 +485,10 @@ loadAISettings: async () => {
     // Start indexer if enabled and has a valid key
     if (parsed.enabled && get().hasAnyValidKey() && !indexerStarted) {
       indexerStarted = true;
-      await startIndexer();
+      // Deliberately NOT awaited: startIndexer() waits for the background DB maintenance
+      // (waitForDb) to finish, which kept the loading screen up for ~19 s on a large vault.
+      // The indexer already delays its own first tick, so nothing needs it before the UI shows.
+      void startIndexer().catch((err) => console.warn("[indexer] startup failed:", err));
     }
   } catch {
     // silently ignore — store stays at defaults

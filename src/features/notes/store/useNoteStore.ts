@@ -1,5 +1,6 @@
 // src/features/notes/store/useNoteStore.ts
 import { create } from "zustand";
+import { timed } from "@/lib/bootProfiler";
 import {
   getAllNotes,
   getAllNotesMeta,
@@ -189,9 +190,9 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
   set({ isLoading: true, error: null });
   try {
     const [fetchedNotes, pinnedIds, bookmarks] = await Promise.all([
-      getAllNotesMeta(),
-      loadPinnedIds(),
-      loadBookmarks(),
+      timed("loadNotes: getAllNotesMeta", () => getAllNotesMeta()),
+      timed("loadNotes: loadPinnedIds", () => loadPinnedIds()),
+      timed("loadNotes: loadBookmarks", () => loadBookmarks()),
     ]);
 
     const normalizedNotes = fetchedNotes.map((note: Note) => ({
@@ -206,7 +207,7 @@ export const useNoteStore = create<NoteStore>((set, get) => ({
     }));
 
     set({ notes: normalizedNotes, pinnedIds, bookmarks, isLoading: false });
-    await get().loadRecentVisits();
+    await timed("loadNotes: loadRecentVisits", () => get().loadRecentVisits());
   } catch (err) {
     set({ error: String(err), isLoading: false });
   }

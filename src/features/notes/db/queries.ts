@@ -1,6 +1,7 @@
 // src/features/notes/db/queries.ts
 import { getDb } from "@/features/notes/db/client";
 import { ALL_MIGRATIONS } from "@/features/notes/db/schema";
+import { timed, bootMark } from "@/lib/bootProfiler";
 import { deleteImage } from "@/lib/tauri/fs";
 import type { Note, NoteVersion, Backlink, BookmarkItem, NoteBookmark, BookmarkGroup, NoteSourceType } from "@/types";
 import { blobToVector, vectorToBlob } from "@/features/ai/lib/provider"
@@ -415,8 +416,12 @@ let _dbInitialized = false;
 
 let _dbReady: Promise<void> | null = null;
 let _dbReadyResolve: (() => void) | null = null;
+// Remembered so a caller arriving AFTER maintenance finished doesn't wait on a promise
+// that nobody will ever resolve.
+let _maintenanceDone = false;
 
 export function waitForDb(): Promise<void> {
+  if (_maintenanceDone) return Promise.resolve();
   if (!_dbReady) {
     _dbReady = new Promise((res) => { _dbReadyResolve = res; });
   }
@@ -441,41 +446,52 @@ export async function initDb(): Promise<void> {
 
   const db = await getDb();
 
-  for (const sql of ALL_MIGRATIONS) {
-    try {
-      await db.execute(sql);
-    } catch (err) {
-      const msg = String(err);
-      if (msg.includes("duplicate column name") || msg.includes("already exists")) continue;
-      throw err;
+  await timed(`initDb: migrations (${ALL_MIGRATIONS.length} statements)`, async () => {
+    for (const sql of ALL_MIGRATIONS) {
+      try {
+        await db.execute(sql);
+      } catch (err) {
+        const msg = String(err);
+        if (msg.includes("duplicate column name") || msg.includes("already exists")) continue;
+        throw err;
+      }
     }
-  }
+  });
 
   // These must run before app starts
-  await fixNullTitles();
+  await timed("initDb: fixNullTitles", () => fixNullTitles());
 
   // Defer everything else — run after first render
   setTimeout(async () => {
-    await purgeTrashedNotes();
-    await clearStaleExhaustionEntries();
-    await migrateNoteBlocksV3();
-    await fixBlocksFtsUpdateTrigger();
-    await backfillNoteBlocks()
-    await backfillUnblockedNotes()
-    await backfillPdfBlocks()
-    await backfillMissingBlockIds()
-    await backfillBacklinks()
-    await backfillBreadcrumbs();
-    await backfillExcludedTitleChunks();
-    await backfillMissingTitleChunks();
-    await resetFailedEmbeddingJobs();
-    await rebuildFtsIndexIfNeeded();
-    await archiveOldExhaustionLogs();
-    await addMemoryBlockColumns();
-    const { ageWarmToCold } = await import('@/features/ai/lib/memory/blockFormation')
-    await ageWarmToCold()
-    console.log("[initDb] Background maintenance complete");
-    _dbReadyResolve?.();
+    bootMark("maintenance timer fired");
+    try {
+      await timed("maintenance: purgeTrashedNotes", () => purgeTrashedNotes());
+      await timed("maintenance: clearStaleExhaustionEntries", () => clearStaleExhaustionEntries());
+      await timed("maintenance: migrateNoteBlocksV3", () => migrateNoteBlocksV3());
+      await timed("maintenance: fixBlocksFtsUpdateTrigger", () => fixBlocksFtsUpdateTrigger());
+      await timed("maintenance: backfillNoteBlocks", () => backfillNoteBlocks());
+      await timed("maintenance: backfillUnblockedNotes", () => backfillUnblockedNotes());
+      await timed("maintenance: backfillPdfBlocks", () => backfillPdfBlocks());
+      await timed("maintenance: backfillMissingBlockIds", () => backfillMissingBlockIds());
+      await timed("maintenance: backfillBacklinks", () => backfillBacklinks());
+      await timed("maintenance: backfillBreadcrumbs", () => backfillBreadcrumbs());
+      await timed("maintenance: backfillExcludedTitleChunks", () => backfillExcludedTitleChunks());
+      await timed("maintenance: backfillMissingTitleChunks", () => backfillMissingTitleChunks());
+      await timed("maintenance: resetFailedEmbeddingJobs", () => resetFailedEmbeddingJobs());
+      await timed("maintenance: rebuildFtsIndexIfNeeded", () => rebuildFtsIndexIfNeeded());
+      await timed("maintenance: archiveOldExhaustionLogs", () => archiveOldExhaustionLogs());
+      await timed("maintenance: addMemoryBlockColumns", () => addMemoryBlockColumns());
+      const { ageWarmToCold } = await import('@/features/ai/lib/memory/blockFormation')
+      await timed("maintenance: ageWarmToCold", () => ageWarmToCold());
+      bootMark("maintenance complete");
+      console.log("[initDb] Background maintenance complete");
+    } catch (err) {
+      console.warn("[initDb] Background maintenance stopped early:", err);
+    } finally {
+      // Always release waiters (the indexer): a failing job must not block them forever.
+      _maintenanceDone = true;
+      _dbReadyResolve?.();
+    }
   }, 5000);
 
   if (typeof window !== "undefined") {
@@ -2090,6 +2106,15 @@ export async function backfillNoteBlocks(): Promise<void> {
   console.log("[backfill] complete");
 }
 
+async function loadTriedIds(key: string): Promise<Set<string>> {
+  try {
+    const raw = await getSetting(key)
+    return new Set(raw ? (JSON.parse(raw) as string[]) : [])
+  } catch {
+    return new Set()
+  }
+}
+
 async function backfillUnblockedNotes(): Promise<void> {
   const db = await getDb()
   const notes = await db.select<{ id: string; content: string; title: string }[]>(
@@ -2104,15 +2129,29 @@ async function backfillUnblockedNotes(): Promise<void> {
        )`
   )
 
-  if (notes.length === 0) return
-  console.log(`[backfill] chunking ${notes.length} notes with plaintext but no blocks`)
+  // Notes that were already attempted but still yield no blocks (image-only,
+  // etc.) would match the query above on every launch. Remember them.
+  const triedKey = "backfill_unblocked_tried_v1"
+  const tried = await loadTriedIds(triedKey)
+  const todo = notes.filter((n) => !tried.has(n.id))
+
+  if (todo.length === 0) return
+  console.log(
+    `[backfill] chunking ${todo.length} notes with plaintext but no blocks (${notes.length - todo.length} skipped, already tried)`
+  )
 
   const BACKFILL_BATCH_SIZE = 5
-  for (let i = 0; i < notes.length; i += BACKFILL_BATCH_SIZE) {
-    const batch = notes.slice(i, i + BACKFILL_BATCH_SIZE)
+  for (let i = 0; i < todo.length; i += BACKFILL_BATCH_SIZE) {
+    const batch = todo.slice(i, i + BACKFILL_BATCH_SIZE)
     for (const note of batch) {
-      await syncNoteBlocks(note.id, note.content, "note", note.title)
+      try {
+        await syncNoteBlocks(note.id, note.content, "note", note.title)
+      } catch (err) {
+        console.warn(`[backfill] failed to chunk note ${note.id}:`, err)
+      }
+      tried.add(note.id)
     }
+    await setSetting(triedKey, JSON.stringify([...tried]))
     // Yield to the event loop between batches so other pending IPC calls
     // (settings loads, UI interaction, etc.) aren't starved behind a long
     // uninterrupted burst of sequential DB round-trips.

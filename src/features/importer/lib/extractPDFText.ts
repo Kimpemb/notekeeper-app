@@ -91,7 +91,7 @@ export async function backfillPdfBlocks(): Promise<void> {
   const { getDb } = await import("@/features/notes/db/client")
   const db = await getDb()
 
-  const pdfs = await db.select<{ id: string; source_file: string }[]>(
+  const allPdfs = await db.select<{ id: string; source_file: string }[]>(
     `SELECT n.id, n.source_file
      FROM notes n
      WHERE n.source_type = 'pdf'
@@ -103,12 +103,25 @@ export async function backfillPdfBlocks(): Promise<void> {
        )`
   )
 
+  // PDFs with no extractable text (scans, missing files) never gain blocks,
+  // so they would be re-read from disk on every launch. Remember attempts.
+  const { getSetting, setSetting } = await import("@/features/notes/db/queries")
+  const triedKey = "backfill_pdf_tried_v1"
+  let tried = new Set<string>()
+  try {
+    const raw = await getSetting(triedKey)
+    tried = new Set(raw ? (JSON.parse(raw) as string[]) : [])
+  } catch {
+    tried = new Set()
+  }
+  const pdfs = allPdfs.filter((p) => !tried.has(p.id))
+
   if (pdfs.length === 0) {
-    console.log("[backfillPdfBlocks] no unindexed PDFs")
+    console.log(`[backfillPdfBlocks] no unindexed PDFs (${allPdfs.length} already tried)`)
     return
   }
 
-  console.log(`[backfillPdfBlocks] ${pdfs.length} unindexed PDFs found`)
+  console.log(`[backfillPdfBlocks] ${pdfs.length} unindexed PDFs found (${allPdfs.length - pdfs.length} skipped, already tried)`)
 
 const { invoke } = await import("@tauri-apps/api/core")
 const { getAppDataDir } = await import("@/lib/tauri/fs")
@@ -133,6 +146,8 @@ for (const { id, source_file } of pdfs) {
     } catch (err) {
       console.warn(`[backfillPdfBlocks] skipped ${source_file}:`, err)
     }
+    tried.add(id)
+    await setSetting(triedKey, JSON.stringify([...tried]))
   }
 
   console.log("[backfillPdfBlocks] complete")
