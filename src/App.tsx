@@ -122,7 +122,6 @@ function TabContent({
 }
 
 export default function App() {
-  const appWindow = getCurrentWindow();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [dbReady, setDbReady]     = useState(false);
   const [dbError, setDbError]     = useState<string | null>(null);
@@ -240,8 +239,19 @@ const tagsActive = activePaneId === 1 ? pane1TagsOpen : pane2TagsOpen;
   }, []);
 
   useEffect(() => {
-    appWindow.isMaximized().then(setIsWindowMaximized);
-  }, [appWindow]);
+    const w = getCurrentWindow();
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    const sync = () => {
+      w.isMaximized().then((m) => { if (!cancelled) setIsWindowMaximized(m); }).catch(() => {});
+    };
+    sync();
+    w.onResized(sync).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
 
   useEffect(() => {
   let cancelled = false;
