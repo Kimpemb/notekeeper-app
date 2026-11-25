@@ -23,7 +23,7 @@ const SORT_LABELS: Record<SortOrder, string> = {
 
 // Expand all icon (both chevrons pointing UP)
 const ExpandAllIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+  <svg width="16" height="16" viewBox="0 0 22 22" fill="none">
     <path d="M6 9l5-5 5 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
     <path d="M6 13l5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
@@ -53,7 +53,7 @@ export function NotesPanel() {
   }
 
   const btnClass =
-    "w-8 h-8 flex items-center justify-center rounded-md text-idemora-text-muted " +
+    "w-7 h-7 flex items-center justify-center rounded-md text-idemora-text-muted " +
     "hover:bg-black/6 dark:hover:bg-white/7 transition-colors duration-150";
 
   return (
@@ -68,7 +68,7 @@ export function NotesPanel() {
           title="New notepad (local only, hidden from AI)"
           className={`${btnClass} group`}
         >
-          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" className="group-hover:text-amber-400 transition-colors duration-150">
+          <svg width="16" height="16" viewBox="0 0 22 22" fill="none" className="group-hover:text-amber-400 transition-colors duration-150">
             <rect x="4" y="4" width="14" height="16" rx="2" stroke="currentColor" strokeWidth="1.7"/>
             <path d="M8 2v4M11 2v4M14 2v4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
             <path d="M8 10.5h6M8 13.5h6M8 16.5h3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
@@ -77,7 +77,7 @@ export function NotesPanel() {
 
         {/* 1. New note */}
         <button onClick={() => createNote()} title="New note" className={btnClass}>
-          <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+          <svg width="16" height="16" viewBox="0 0 22 22" fill="none">
             <path
               d="M10 4H5a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"
               stroke="currentColor" strokeWidth="1.7"
@@ -98,7 +98,7 @@ export function NotesPanel() {
             title="Sort notes"
             className={btnClass}
           >
-            <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+            <svg width="16" height="16" viewBox="0 0 22 22" fill="none">
               <path
                 d="M3 6h16M6 11h10M9 16h4"
                 stroke="currentColor" strokeWidth="1.7"
