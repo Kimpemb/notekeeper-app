@@ -107,6 +107,10 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
 
   const MAX_CONTEXT_CHARS = 32_000
   const MEDIUM_CONFIDENCE_THRESHOLD = 0.08
+  // Related-notes pass is off: its 0.05 cutoff is unreachable on the RRF scale
+  // (max final score about 0.046) and no UI shows the result. It cost one search
+  // plus one embedding request per answer.
+  const RELATED_NOTES_ENABLED = false
 
 
   // hasPersonalSignals removed — isPersonal now comes from detectIntent (intentDetection.ts)
@@ -392,7 +396,7 @@ import { searchMemoryBlocks, formatMemoryResults }         from "@/features/ai/l
     currentNoteId: string | undefined,
     confidence:    "high" | "medium" | "low",
   ): Promise<RelatedNote[]> {
-    if (confidence === "low") return []
+    if (!RELATED_NOTES_ENABLED || confidence === "low") return []
 
     try {
       // FIX: strip [N] citation markers and truncate before passing to FTS.
