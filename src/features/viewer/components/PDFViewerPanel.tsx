@@ -14,6 +14,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useNoteStore } from "@/features/notes/store/useNoteStore";
 import { useUIStore } from "@/features/ui/store/useUIStore";
 import { getAppDataDir } from "@/lib/tauri/fs";
+import { Breadcrumb } from "@/features/editor/components/Editor/Breadcrumb";
 import type { NoteSourceMeta } from "@/types";
 
 // pdfjs types — imported lazily so the type-only import doesn't pull the bundle
@@ -273,10 +274,15 @@ useEffect(() => {
             </svg>
           </button>
 
-          {/* Filename breadcrumb */}
-          <span className="text-xs text-idemora-text-muted ml-1 truncate max-w-50" title={originalName}>
-            {originalName}
-          </span>
+          {/* Breadcrumb when the PDF sits under a parent note (same as the editor);
+              top-level PDFs keep the plain filename */}
+          {note.parent_id ? (
+            <Breadcrumb noteId={noteId} paneId={paneId} />
+          ) : (
+            <span className="text-xs text-idemora-text-muted ml-1 truncate max-w-50" title={originalName}>
+              {originalName}
+            </span>
+          )}
         </div>
 
         
