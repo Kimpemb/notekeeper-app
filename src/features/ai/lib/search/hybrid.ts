@@ -21,7 +21,7 @@ import { semanticSearch }                 from "@/features/ai/lib/search/semanti
 import { rerank, type RerankInput }       from "@/features/ai/lib/search/rerank"
 import { getSurroundingBlocks }           from "@/features/notes/db/queries"
 import type { ScopeFilter }               from "@/features/ai/lib/search/intentDetection"
-
+import { titleScopePrefixes }             from "@/features/ai/lib/search/retrievalHelpers"
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -57,6 +57,7 @@ export interface HybridSearchOptions {
   queryVariants?:   string[]
   noteIds?:         string[]
   overrideNoteIds?: string[]
+  softScopeRetried?: boolean
 }
 
 export interface HybridSearchResult {
@@ -97,8 +98,10 @@ function buildScopeClause(scope: ScopeFilter, startIdx: number): ScopeClause {
     params.push(`%${scope.tag}%`)
   }
   if (scope.noteTitle) {
-    parts.push(`n.title LIKE $${idx++}`)
-    params.push(`%${scope.noteTitle}%`)
+    for (const prefix of titleScopePrefixes(scope.noteTitle)) {
+      parts.push(`n.title LIKE $${idx++}`)
+      params.push(`%${prefix}%`)
+    }
   }
   if (scope.folder) {
     parts.push(`n.title LIKE $${idx++}`)
@@ -687,6 +690,16 @@ console.log(`[hybrid] term coverage: ${coverageStats.zeroHitTerms}/${coverageSta
   // No additional filtering needed here since ftsPass and vectorPass already respect scope.noteIds
 
   if (fused.size === 0) {
+    // A title or folder scope is a guess from the user's wording; if it matches nothing,
+    // search everything once rather than answering "not found".
+    if ((scope.noteTitle || scope.folder) && !options.softScopeRetried) {
+      console.log('[hybrid] scoped search found nothing — retrying without title/folder scope')
+      return hybridSearch(query, topK, {
+        ...options,
+        scope: { ...scope, noteTitle: undefined, folder: undefined },
+        softScopeRetried: true,
+      })
+    }
     console.log('[hybrid] fused: 0 results — returning empty')
     return { results: [], excludedTitleMatches: [], lowTermCoverage }
   }

@@ -18,7 +18,7 @@
 //   low    — everything else
 
 import { getDb } from "@/features/notes/db/client"
-
+import { findReference, textHasReference } from "@/features/ai/lib/search/retrievalHelpers"
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ConfidenceLevel = "high" | "medium" | "low"
@@ -51,6 +51,8 @@ const BOOST_HEADING_MATCH   = 0.12   // query terms in chunk_heading
 const BOOST_TITLE_MATCH     = 0.15   // query terms in note title
 const BOOST_VAULT_ENTRY     = 0.10   // vault_entry + project terms
 const BOOST_CAP             = 0.40   // additive cap
+const BOOST_POPULARITY_CAP  = 0.05   // recency + visits + backlinks combined
+const BOOST_EXACT_REFERENCE = 0.30   // block literally contains "Example 31.1" etc.
 
 const RECENCY_7D  = 7  * 24 * 60 * 60 * 1000
 const RECENCY_30D = 30 * 24 * 60 * 60 * 1000
@@ -142,24 +144,24 @@ function computeBoost(
   const now  = Date.now()
   const age  = now - result.block_updated_at
 
-  // 1 + 2. Recency
+  // 1-4. Popularity (recency, visits, backlinks): soft tie-breakers only. Top RRF scores
+  // sit within a few percent of each other, so uncapped popularity (up to +33%)
+  // buried old documents such as textbooks under recently edited notes.
+  let popularity = 0
   if (age < RECENCY_7D) {
-    boost += BOOST_RECENCY_RECENT
+    popularity += BOOST_RECENCY_RECENT
   } else if (age < RECENCY_30D) {
-    boost += BOOST_RECENCY_SOFT
+    popularity += BOOST_RECENCY_SOFT
   }
-
-  // 3. Visit frequency
   const visits = visitCounts.get(result.note_id) ?? 0
   if (visits > 5) {
-    boost += BOOST_VISIT_FREQ
+    popularity += BOOST_VISIT_FREQ
   }
-
-  // 4. Backlink density
   const backlinks = backlinkCounts.get(result.note_id) ?? 0
   if (backlinks > 3) {
-    boost += BOOST_BACKLINK
+    popularity += BOOST_BACKLINK
   }
+  boost += Math.min(popularity, BOOST_POPULARITY_CAP)
 
   // 5. Current note
   if (currentNoteId && result.note_id === currentNoteId) {
@@ -174,6 +176,12 @@ function computeBoost(
   // 7. Title match
   if (termsMatchText(queryTerms, result.note_title)) {
     boost += BOOST_TITLE_MATCH
+  }
+
+  // 7b. Exact reference ("Example 31.1", "Figure 5.3"): the block that literally contains it
+  const ref = findReference(query)
+  if (ref && textHasReference(result.plaintext, ref)) {
+    boost += BOOST_EXACT_REFERENCE
   }
 
   // 8. Vault entry + project terms
