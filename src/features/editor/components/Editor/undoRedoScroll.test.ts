@@ -2,13 +2,19 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { UndoRedoScrollExtension, HISTORY_RUN_META } from "./undoRedoScroll";
+import { Fragment } from "@tiptap/pm/model";
+import { AllSelection, TextSelection } from "@tiptap/pm/state";
+import { UndoRedoScrollExtension } from "./undoRedoScroll";
 
 const para = (t: string) => ({ type: "paragraph", content: [{ type: "text", text: t }] });
+const PX_PER_POS = 3;      // fake layout: every document position is 3px tall
+const BOX_H = 600;         // visible height of the scroll container
+(window as any).scrollBy = () => {};   // jsdom: not implemented, ProseMirror's default scroll calls it
 let editors: Editor[] = [];
-afterEach(() => { editors.forEach((e) => e.destroy()); editors = []; document.body.innerHTML = ""; });
+afterEach(() => { editors.forEach((e) => e.destroy()); editors = []; document.body.innerHTML = ""; vi.restoreAllMocks(); });
 
-function mount(withExt = true) {
+/** An editor in a scroll container with a fake, scroll-aware layout (jsdom has none). */
+function mount(paragraphs = 40) {
   const scroller = document.createElement("div");
   scroller.style.overflowY = "auto";
   const el = document.createElement("div");
@@ -16,84 +22,108 @@ function mount(withExt = true) {
   document.body.appendChild(scroller);
   const editor = new Editor({
     element: el,
-    extensions: withExt ? [StarterKit, UndoRedoScrollExtension] : [StarterKit],
-    content: { type: "doc", content: Array.from({ length: 30 }, (_, i) => para("line " + i)) },
+    extensions: [StarterKit, UndoRedoScrollExtension],
+    content: { type: "doc", content: Array.from({ length: paragraphs }, (_, i) => para("line " + i)) },
   });
   editors.push(editor);
+  vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: BOX_H, height: BOX_H } as DOMRect);
+  vi.spyOn(editor.view, "coordsAtPos").mockImplementation((pos: number) => {
+    const top = pos * PX_PER_POS - scroller.scrollTop;
+    return { top, bottom: top + 20, left: 0, right: 0 } as any;
+  });
+  // ProseMirror only asks plugins where to scroll when the editor has a live DOM selection (it
+  // does whenever the user is typing in it). jsdom has none, so provide one.
+  vi.spyOn(editor.view as any, "domSelectionRange").mockReturnValue({ focusNode: editor.view.dom } as any);
   return { editor, scroller };
 }
-const key = (editor: Editor, k: string, extra: KeyboardEventInit = {}) =>
-  editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: k, ctrlKey: true, bubbles: true, cancelable: true, ...extra }));
 
-describe("UndoRedoScrollExtension", () => {
-  it("Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z undo and redo through this extension", () => {
-    const { editor } = mount();
-    const runs: number[] = [];
-    editor.on("transaction", ({ transaction }) => { if (transaction.getMeta(HISTORY_RUN_META)) runs.push(1); });
-    editor.commands.setTextSelection(40);
-    editor.commands.insertContent("hello");
-    const typed = editor.state.doc.textContent;
+const topLevelOffset = (editor: Editor, index: number) => {
+  let off = 0;
+  editor.state.doc.forEach((_n, o, i) => { if (i === index) off = o; });
+  return off;
+};
 
-    key(editor, "z");
-    expect(editor.state.doc.textContent).not.toBe(typed);
-    expect(editor.state.selection.from).toBeLessThan(50);       // back where it was, not the end
-    key(editor, "y");
-    expect(editor.state.doc.textContent).toBe(typed);
-    key(editor, "z");
-    key(editor, "Z", { shiftKey: true, keyCode: 90 });  // browsers send keyCode; the keymap uses it for shifted letters
-    expect(editor.state.doc.textContent).toBe(typed);
-    expect(runs.length).toBe(4);
-  });
+/** "Large paste": replace paragraphs [a, b) with many new paragraphs, selection = the replaced range. */
+function largePaste(editor: Editor, a: number, b: number) {
+  const from = topLevelOffset(editor, a);
+  const to = topLevelOffset(editor, b);
+  editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from + 1, to - 1)));
+  const big = Fragment.fromArray(Array.from({ length: 60 }, (_, i) => editor.schema.nodeFromJSON(para("pasted " + i))));
+  editor.view.dispatch(editor.state.tr.replaceWith(from, to, big).scrollIntoView());
+  return from;
+}
 
-  it("leaves the scroll position alone when the caret is still visible", () => {
+describe("undo/redo after a large paste", () => {
+  it("undo scrolls to where the paste STARTED, not to the end of the restored selection", () => {
     const { editor, scroller } = mount();
-    editor.commands.setTextSelection(40);
-    editor.commands.insertContent("hello");
-    scroller.scrollTop = 120;
-    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 600, height: 600 } as DOMRect);
-    vi.spyOn(editor.view, "coordsAtPos").mockReturnValue({ top: 300, bottom: 320 } as any);
-    key(editor, "z");
-    expect(scroller.scrollTop).toBe(120);
+    const from = largePaste(editor, 30, 33);
+    scroller.scrollTop = 0;
+    editor.commands.undo();
+    // the change start is off-screen (below the fold), so it is brought to 30% down the container
+    expect(scroller.scrollTop).toBeCloseTo(from * PX_PER_POS - BOX_H * 0.3, 0);
   });
 
-  it("centres the caret when undo lands it off-screen", () => {
+  it("redo scrolls to the start of the pasted text, not to its end", () => {
     const { editor, scroller } = mount();
-    editor.commands.setTextSelection(40);
-    editor.commands.insertContent("hello");
-    scroller.scrollTop = 120;
-    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 600, height: 600 } as DOMRect);
-    vi.spyOn(editor.view, "coordsAtPos").mockReturnValue({ top: 900, bottom: 920 } as any); // below the fold
-    key(editor, "z");
-    expect(scroller.scrollTop).toBe(120 + (910 - 300));        // caret middle -> container middle
+    const from = largePaste(editor, 30, 33);
+    editor.commands.undo();
+    scroller.scrollTop = 0;
+    editor.commands.redo();
+    expect(scroller.scrollTop).toBeCloseTo(from * PX_PER_POS - BOX_H * 0.3, 0);
+    const end = editor.state.selection.head;
+    expect(end).toBeGreaterThan(from + 200); // (the history's own selection is far below)
   });
 
-  it("with nothing to undo it does nothing and still swallows the key", () => {
-    const { editor } = mount();
-    const before = editor.state.doc.textContent;
-    const ev = new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true });
-    editor.view.dom.dispatchEvent(ev);
-    expect(editor.state.doc.textContent).toBe(before);
-    expect(ev.defaultPrevented).toBe(true);
+  it("brings a stranded caret to the start of the change", async () => {
+    const { editor, scroller } = mount();
+    // select-all + paste: undo restores a selection whose end is far below the screen
+    editor.view.dispatch(editor.state.tr.setSelection(new AllSelection(editor.state.doc)));
+    const big = Fragment.fromArray(Array.from({ length: 60 }, (_, i) => editor.schema.nodeFromJSON(para("pasted " + i))));
+    editor.view.dispatch(editor.state.tr.replaceWith(0, editor.state.doc.content.size, big).scrollIntoView());
+    scroller.scrollTop = 900;
+    editor.commands.undo();
+    await Promise.resolve();                       // the caret move is queued after the view update
+    const sel = editor.state.selection;
+    expect(sel.empty).toBe(true);                  // no longer a huge selection ending off-screen
+    expect(sel.from).toBeLessThan(10);             // at the top of the note, where the view is
+  });
+
+  it("leaves the caret alone when it is still on screen", async () => {
+    const { editor, scroller } = mount();
+    const from = largePaste(editor, 30, 33);       // restored selection is just 3 lines, all visible after the scroll
+    scroller.scrollTop = 0;
+    editor.commands.undo();
+    await Promise.resolve();
+    const sel = editor.state.selection;
+    expect(sel.empty).toBe(false);
+    expect(sel.from).toBeGreaterThanOrEqual(from);
+  });
+
+  it("does not scroll when the start of the change is already visible", () => {
+    const { editor, scroller } = mount();
+    largePaste(editor, 12, 14);          // start ≈ pos 120 -> 360px: on screen
+    scroller.scrollTop = 0;
+    editor.commands.undo();
+    expect(scroller.scrollTop).toBe(0);
+  });
+
+  it("select-all + paste, then undo, lands at the top of the note rather than the bottom", () => {
+    const { editor, scroller } = mount();
+    editor.view.dispatch(editor.state.tr.setSelection(new AllSelection(editor.state.doc)));
+    const big = Fragment.fromArray(Array.from({ length: 60 }, (_, i) => editor.schema.nodeFromJSON(para("pasted " + i))));
+    editor.view.dispatch(editor.state.tr.replaceWith(0, editor.state.doc.content.size, big).scrollIntoView());
+    scroller.scrollTop = 900;            // user was looking at the bottom of the pasted text
+    editor.commands.undo();
+    expect(scroller.scrollTop).toBeLessThanOrEqual(10);   // brought back to the top of the note
   });
 });
 
-describe("programmatic content swaps and undo history", () => {
-  it("a setContent flagged addToHistory:false cannot be undone", () => {
-    const { editor } = mount();
-    editor.chain().setMeta("addToHistory", false).setContent({ type: "doc", content: [para("loaded")] }).run();
-    editor.commands.setTextSelection(3);
-    editor.commands.insertContent("X");
-    key(editor, "z");
-    key(editor, "z");
-    key(editor, "z");
-    expect(editor.state.doc.textContent).toBe("loaded");      // never reverted to the old document
-  });
-
-  it("a plain setContent IS undoable (the behaviour we are avoiding)", () => {
-    const { editor } = mount();
-    const original = editor.state.doc.textContent;
-    editor.commands.setContent({ type: "doc", content: [para("loaded")] });
-    key(editor, "z");
-    expect(editor.state.doc.textContent).toBe(original);
+describe("everything else keeps ProseMirror's default scrolling", () => {
+  it("does not interfere with normal typing", () => {
+    const { editor, scroller } = mount();
+    scroller.scrollTop = 777;
+    editor.commands.setTextSelection(40);
+    editor.commands.insertContent("hello");
+    expect(scroller.scrollTop).toBe(777);
   });
 });

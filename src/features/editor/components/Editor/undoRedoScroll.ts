@@ -1,19 +1,34 @@
 // src/features/editor/components/Editor/undoRedoScroll.ts
 //
-// Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z with predictable scrolling.
+// Where the view goes after undo / redo.
 //
-// ProseMirror's undo/redo always asks the view to scroll the restored selection into view, and its
-// "minimum movement" rule leaves the caret hard against the bottom (or top) edge of the screen.
-// Here the history runs as usual, then the scroll position is put back; only when the restored
-// caret is outside the visible area is it scrolled, and then to the middle of the screen.
+// ProseMirror scrolls to the restored SELECTION. After a large paste that is the wrong place:
+//   - undo of "select all, paste" restores a selection that runs to the very end of the note;
+//   - redo leaves the caret after the pasted text.
+// Either way the screen is flung to the bottom. Here, after any history transaction, the view
+// reveals where the change STARTS instead, and only moves if that spot is off-screen. If the caret
+// is left stranded off-screen it is brought to that same spot, so what you see is where you type.
+//
+// This hooks the view's scroll step (handleScrollToSelection), so it applies however undo/redo was
+// triggered (keyboard, menu, command) and does not depend on key bindings.
 
-import { Extension, type Editor } from "@tiptap/core";
-import { undo, redo } from "@tiptap/pm/history";
+import { Extension } from "@tiptap/core";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 
-/** Transaction meta set on the transactions this extension dispatches (handy for tests). */
-export const HISTORY_RUN_META = "idemoraHistoryRun";
+const KEY = new PluginKey<ChangeInfo>("undoRedoScroll");
 
-const EDGE_MARGIN = 24; // px a caret must stay clear of the container's top/bottom to count as visible
+const HISTORY_META = "history$";   // meta key prosemirror-history puts on its transactions
+const EDGE_MARGIN = 24;            // px that must stay clear of the container's top/bottom edge
+const REVEAL_AT = 0.3;             // an off-screen change start is brought to 30% down the container
+
+interface ChangeInfo {
+  /** The last transaction was an undo/redo, and `from` is where its change starts. */
+  history: boolean;
+  from: number;
+}
+
+const NONE: ChangeInfo = { history: false, from: 0 };
 
 function findScroller(el: HTMLElement): HTMLElement | null {
   for (let cur: HTMLElement | null = el.parentElement; cur; cur = cur.parentElement) {
@@ -23,44 +38,75 @@ function findScroller(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
-function runHistory(editor: Editor, command: typeof undo): boolean {
-  const { view } = editor;
+function inView(rect: { top: number; bottom: number }, box: DOMRect): boolean {
+  return rect.top >= box.top + EDGE_MARGIN && rect.bottom <= box.bottom - EDGE_MARGIN;
+}
+
+function handleScroll(view: EditorView): boolean {
+  const info = KEY.getState(view.state);
+  if (!info?.history) return false; // not an undo/redo: leave ProseMirror's default scroll alone
+
   const scroller = findScroller(view.dom as HTMLElement);
-  const savedTop = scroller?.scrollTop ?? 0;
+  if (!scroller) return false;
 
-  command(view.state, (tr) => view.dispatch(tr.setMeta(HISTORY_RUN_META, true)));
+  const size = view.state.doc.content.size;
+  const from = Math.max(0, Math.min(info.from, size));
 
-  if (scroller) {
-    // ProseMirror has already scrolled (synchronously, inside dispatch). Undo that...
-    scroller.scrollTop = savedTop;
-    // ...then scroll only if the caret is no longer visible.
-    try {
-      const caret = view.coordsAtPos(view.state.selection.head);
-      const box = scroller.getBoundingClientRect();
-      const visible = caret.top >= box.top + EDGE_MARGIN && caret.bottom <= box.bottom - EDGE_MARGIN;
-      if (!visible) {
-        const caretMid = (caret.top + caret.bottom) / 2;
-        scroller.scrollTop += caretMid - (box.top + box.height / 2);
-      }
-    } catch {
-      /* selection position not renderable (yet): leave the scroll position alone */
+  try {
+    const box = scroller.getBoundingClientRect();
+    const start = view.coordsAtPos(from);
+    if (!inView(start, box)) {
+      scroller.scrollTop += start.top - (box.top + box.height * REVEAL_AT);
     }
-  }
 
-  // Always swallow the key: with nothing left to undo, the browser's own contenteditable undo
-  // must not run and fight ProseMirror's document.
+    // Is the caret now stranded off-screen (e.g. at the far end of a big paste)? If so, move it to
+    // the start of the change. Done after this update finishes: a view can't be dispatched into
+    // while it is still updating.
+    const head = view.coordsAtPos(view.state.selection.head);
+    if (!inView(head, box)) {
+      queueMicrotask(() => {
+        if (view.isDestroyed) return;
+        const doc = view.state.doc;
+        const pos = Math.max(0, Math.min(from, doc.content.size));
+        view.dispatch(
+          view.state.tr
+            .setSelection(TextSelection.near(doc.resolve(pos)))
+            .setMeta("addToHistory", false)
+        );
+      });
+    }
+  } catch {
+    return false; // positions not renderable: fall back to ProseMirror's own scroll
+  }
   return true;
 }
 
 export const UndoRedoScrollExtension = Extension.create({
   name: "undoRedoScroll",
-  priority: 1000, // ahead of the stock history shortcuts
 
-  addKeyboardShortcuts() {
-    return {
-      "Mod-z":       ({ editor }) => runHistory(editor, undo),
-      "Mod-y":       ({ editor }) => runHistory(editor, redo),
-      "Shift-Mod-z": ({ editor }) => runHistory(editor, redo),
-    };
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<ChangeInfo>({
+        key: KEY,
+        state: {
+          init: () => NONE,
+          apply(tr): ChangeInfo {
+            if (!tr.getMeta(HISTORY_META)) return NONE;
+
+            // Earliest position touched, in the final document's coordinates.
+            let from = Infinity;
+            tr.mapping.maps.forEach((map, i) => {
+              const rest = tr.mapping.slice(i + 1);
+              map.forEach((_oldStart, _oldEnd, newStart) => {
+                from = Math.min(from, rest.map(newStart, -1));
+              });
+            });
+            if (from === Infinity) from = tr.selection.from;
+            return { history: true, from };
+          },
+        },
+        props: { handleScrollToSelection: handleScroll },
+      }),
+    ];
   },
 });
