@@ -38,33 +38,50 @@ export function SimilarNotesPanel({ noteId, paneId }: Props) {
 
   const isAIAvailable = aiEnabled && connectionStatus === "connected";
 
+  const reqRef = useRef(0);
+
+  // Algorithmic results first: they show as soon as they're ready and never
+  // wait on the AI call. Every run carries a request number so a slow run for
+  // a previous note can't overwrite the current one.
   const load = useCallback(async () => {
-  setLoading(true);
-  setAIResults([]);
-  try {
-    const similar = await getSimilarNotes(noteId, useNoteStore.getState().notes);
+    const req = ++reqRef.current;
+    const stale = () => req !== reqRef.current;
+    setAIResults([]);
+    setAILoading(false);
+    try {
+      const similar = await getSimilarNotes(noteId, useNoteStore.getState().notes, 5, stale);
+      if (stale()) return;
       const filtered = similar.filter(
         (r) => !dismissedRef.current.has(r.id) && !linkedIdsRef.current.has(r.id)
       );
       setResults(filtered);
+      setLoading(false);
 
-      // ── AI fallback — only if connected and results are weak ─────────────
+      // AI fallback: runs after the list is already on screen
       if (isAIAvailable && filtered.length < AI_FALLBACK_THRESHOLD) {
         setAILoading(true);
-        const currentNotes = useNoteStore.getState().notes;
-const sourceNote = currentNotes.find((n: Note) => n.id === noteId);
-if (sourceNote) {
-  const existingIds = new Set(filtered.map((r) => r.id));
-  const aiSuggestions = await getAISimilarNotes(sourceNote, currentNotes, existingIds);
-          setAIResults(aiSuggestions.filter((r) => !dismissedRef.current.has(r.noteId)));
+        try {
+          const currentNotes = useNoteStore.getState().notes;
+          const sourceNote = currentNotes.find((n: Note) => n.id === noteId);
+          if (sourceNote) {
+            const existingIds = new Set(filtered.map((r) => r.id));
+            const ai = await getAISimilarNotes(sourceNote, currentNotes, existingIds);
+            if (!stale()) setAIResults(ai.filter((r) => !dismissedRef.current.has(r.noteId)));
+          }
+        } finally {
+          if (!stale()) setAILoading(false);
         }
-        setAILoading(false);
       }
     } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    finally { if (!stale()) setLoading(false); }
   }, [noteId, isAIAvailable]);
 
-  useEffect(() => { load(); }, [load]);
+  // Debounced like the backlinks panel, so quick note switching doesn't start a scan each time
+  useEffect(() => {
+    setLoading(true);
+    const t = setTimeout(() => { void load(); }, 150);
+    return () => { clearTimeout(t); reqRef.current++; };
+  }, [load]);
 
   const linkedIdsRef = useRef<Set<string>>(new Set());
 

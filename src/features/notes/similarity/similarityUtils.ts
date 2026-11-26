@@ -100,6 +100,39 @@ export function buildFeedbackMap(
   return map;
 }
 
+// ─── Per-note feature cache ──────────────────────────────────────────────────
+// Tokenizing a note's full text is the expensive part, so it happens once per
+// note version. The key checks cover edits (updated_at, length) and metadata
+// edits (title, tags), which don't bump updated_at.
+interface NoteFeatures {
+  stamp:    number;
+  title:    string;
+  tagsRaw:  string | null;
+  plainLen: number;
+  tags:     Set<string>;
+  kws:      Set<string>;
+}
+const featureCache = new Map<string, NoteFeatures>();
+
+function getNoteFeatures(n: Note): NoteFeatures {
+  const plain   = n.plaintext ?? "";
+  const stamp   = n.updated_at ?? 0;
+  const tagsRaw = n.tags ?? null;
+  const hit = featureCache.get(n.id);
+  if (
+    hit && hit.stamp === stamp && hit.title === n.title &&
+    hit.tagsRaw === tagsRaw && hit.plainLen === plain.length
+  ) return hit;
+
+  const f: NoteFeatures = {
+    stamp, title: n.title, tagsRaw, plainLen: plain.length,
+    tags: new Set(parseTags(tagsRaw)),
+    kws:  new Set([...extractKeywords(n.title), ...extractKeywords(plain)]),
+  };
+  featureCache.set(n.id, f);
+  return f;
+}
+
 // ─── Core Scorer ─────────────────────────────────────────────────────────────
 
 export function scoreCandidate(
@@ -116,16 +149,8 @@ export function scoreCandidate(
   const pairFeedback = feedbackMap.get(sourceNote.id)?.get(candidate.id);
   if (pairFeedback === "ignored" || pairFeedback === "accepted") return null;
 
-  const sourceTags    = new Set(parseTags(sourceNote.tags));
-  const candidateTags = new Set(parseTags(candidate.tags));
-const sourceKws    = new Set([
-  ...extractKeywords(sourceNote.title),
-  ...extractKeywords(sourceNote.plaintext ?? ""),
-]);
-const candidateKws = new Set([
-  ...extractKeywords(candidate.title),
-  ...extractKeywords(candidate.plaintext ?? ""),
-]);
+  const { tags: sourceTags, kws: sourceKws }       = getNoteFeatures(sourceNote);
+  const { tags: candidateTags, kws: candidateKws } = getNoteFeatures(candidate);
 
   const sharedTags: string[] = [];
   let tagScore = 0;
@@ -178,6 +203,37 @@ export function getSimilarityResults(
     if (result) results.push(result);
   }
 
+  return results.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+// Same result as getSimilarityResults, but scores in chunks and yields between
+// them so a cold cache never freezes the UI. Returns null if shouldAbort() fires.
+export async function getSimilarityResultsAsync(
+  sourceNote: Note,
+  allNotes: Note[],
+  feedback: FeedbackEntry[],
+  backlinkIds: Set<string>,
+  limit = 5,
+  shouldAbort?: () => boolean
+): Promise<SimilarityResult[] | null> {
+  const tagFrequency = buildTagFrequencyIndex(allNotes);
+  const feedbackMap  = buildFeedbackMap(feedback);
+  const totalNotes   = allNotes.length;
+  const CHUNK = 120;
+
+  const results: SimilarityResult[] = [];
+  for (let i = 0; i < allNotes.length; i += CHUNK) {
+    if (shouldAbort?.()) return null;
+    const end = Math.min(i + CHUNK, allNotes.length);
+    for (let j = i; j < end; j++) {
+      const r = scoreCandidate(
+        sourceNote, allNotes[j], tagFrequency, totalNotes, feedbackMap, backlinkIds
+      );
+      if (r) results.push(r);
+    }
+    if (end < allNotes.length) await new Promise<void>((res) => setTimeout(res, 0));
+  }
+  if (shouldAbort?.()) return null;
   return results.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 

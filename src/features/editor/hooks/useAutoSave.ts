@@ -78,6 +78,8 @@ export function useAutoSave({
   const debounceTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hardCapTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDirty          = useRef(false);
+  const retryCount       = useRef(0);
+  const retryTimer       = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savePending      = useRef(false); // a save was scheduled (idle callback) but has not run yet
   const isActiveTabRef   = useRef(isActiveTab);
   const autosaveDelayRef = useRef(autosaveDelay);
@@ -90,6 +92,7 @@ export function useAutoSave({
   const clearTimers = useCallback(() => {
     if (debounceTimer.current) { clearTimeout(debounceTimer.current); debounceTimer.current = null; }
     if (hardCapTimer.current)  { clearTimeout(hardCapTimer.current);  hardCapTimer.current  = null; }
+    if (retryTimer.current)    { clearTimeout(retryTimer.current);    retryTimer.current    = null; }
   }, []);
 
   // ── runScheduledBackupIfDue ───────────────────────────────────────────────
@@ -173,15 +176,23 @@ const save = useCallback(() => {
     const plaintext = editor.getText();
     onSaveComplete?.(content, noteId);
     trackSave(noteId, updateNote(noteId, { content, plaintext }, true)).then(() => {
+      retryCount.current = 0;
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2_000);
       runEmbeddingPipeline(noteId, content);
       runBlockRevisionSnapshot(noteId, content);
       runHostedPush(noteId);
       runScheduledBackupIfDue();
-    }).catch((err) => {
-      console.error("[AutoSave] failed:", err);
+    }, (err) => {
+      console.error("[AutoSave] failed:", noteId, err);
+      // The edit is not on disk: keep it dirty and retry, rather than
+      // waiting for the next keystroke (which may never come).
+      isDirty.current = true;
       setSaveStatus("error");
+      if (retryCount.current < 3) {
+        retryCount.current += 1;
+        retryTimer.current = setTimeout(save, 1_500 * retryCount.current);
+      }
     });
   };
 

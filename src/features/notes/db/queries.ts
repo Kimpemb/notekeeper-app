@@ -7,7 +7,7 @@ import type { Note, NoteVersion, Backlink, BookmarkItem, NoteBookmark, BookmarkG
 import { blobToVector, vectorToBlob } from "@/features/ai/lib/provider"
 import { backfillPdfBlocks } from "@/features/importer/lib/extractPDFText"
 import {
-  getSimilarityResults,
+  getSimilarityResultsAsync,
   type FeedbackEntry,
 } from "@/features/notes/similarity/similarityUtils";
 import { chunkDocument, type SourceType } from "@/features/ai/lib/search/chunker";
@@ -1710,34 +1710,38 @@ export interface SimilarNote extends Note {
 export async function getSimilarNotes(
   noteId: string,
   allNotes: Note[],
-  limit = 5
+  limit = 5,
+  shouldAbort?: () => boolean
 ): Promise<SimilarNote[]> {
   const sourceNote = allNotes.find((n) => n.id === noteId);
   if (!sourceNote) return [];
 
   const db = await getDb();
 
-  const feedback = await db.select<FeedbackEntry[]>(
-    `SELECT source_id, target_id, action FROM suggestion_feedback`
-  );
-
-  const backlinkRows = await db.select<{ source_id: string; target_id: string }[]>(
-    `SELECT source_id, target_id FROM backlinks
-    WHERE source_id = $1 OR target_id = $1`,
-    [noteId]
-  );
+  const [feedback, backlinkRows] = await Promise.all([
+    db.select<FeedbackEntry[]>(
+      `SELECT source_id, target_id, action FROM suggestion_feedback`
+    ),
+    db.select<{ source_id: string; target_id: string }[]>(
+      `SELECT source_id, target_id FROM backlinks
+      WHERE source_id = $1 OR target_id = $1`,
+      [noteId]
+    ),
+  ]);
   const backlinkIds = new Set(
     backlinkRows.flatMap(({ source_id, target_id }) => [source_id, target_id])
   );
   backlinkIds.delete(noteId);
 
-  const results = getSimilarityResults(
+  const results = await getSimilarityResultsAsync(
     sourceNote,
     allNotes,
     feedback,
     backlinkIds,
-    limit
+    limit,
+    shouldAbort
   );
+  if (!results) return [];
 
   const noteMap = new Map(allNotes.map((n) => [n.id, n]));
   return results.map((r) => ({

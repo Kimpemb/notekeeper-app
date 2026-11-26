@@ -26,6 +26,12 @@ export function VersionHistory({ noteId, paneId }: Props) {
     getNoteVersions(noteId).then(setVersions).finally(() => setLoading(false));
   }, [noteId]);
 
+  const saveStatus = useUIStore((s) => s.saveStatus);
+  useEffect(() => {
+    if (saveStatus !== "saved") return;
+    getNoteVersions(noteId).then(setVersions).catch(console.error);
+  }, [saveStatus, noteId]);
+
   useEffect(() => { setSelectedIndex(0); setPreview(null); }, [versions]);
 
   useEffect(() => {
