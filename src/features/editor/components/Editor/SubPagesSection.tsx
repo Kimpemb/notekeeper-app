@@ -17,7 +17,7 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
   const setActive  = useNoteStore((s) => s.setActiveNote);
   const deleteNote = useNoteStore((s) => s.deleteNote);
   const expandNode = useUIStore((s) => s.expandNode);
-  const openTab    = useUIStore((s) => s.openTab);
+  const openTabNextTo = useUIStore((s) => s.openTabNextTo);
   const replaceTab = useUIStore((s) => s.replaceTab);
 
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -54,11 +54,8 @@ export function SubPagesSection({ noteId, paneId, editor }: Props) {
   }
 
   function openInNewTab(childId: string) {
-    if (paneId === 2) {
-      useUIStore.getState().openTabInPane2(childId);
-    } else {
-      openTab(childId);
-    }
+    // New tab right after the one this sub-page was clicked in
+    openTabNextTo(childId, { pane: paneId, sourceNoteId: noteId });
   }
 
   function handleOpen(childId: string, e: React.MouseEvent) {

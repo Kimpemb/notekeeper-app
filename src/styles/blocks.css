@@ -369,3 +369,9 @@
 .tiptap table th p { margin-bottom: 0; }
 
 .tiptap .toggle-body-content table { margin-bottom: 0.35rem; }
+/* Sub-note rows are never "selected text": Ctrl+A skips them at the edges, and when a selection
+   passes over one in the middle of a note it shouldn't light up like copyable content. */
+.tiptap .subpage-node-wrapper::selection,
+.tiptap .subpage-node-wrapper *::selection {
+  background: transparent;
+}

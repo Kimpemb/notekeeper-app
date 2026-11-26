@@ -15,7 +15,6 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
   const setPendingScrollHeading = useUIStore((s) => s.setPendingScrollHeading);
   const replaceTab = useUIStore((s) => s.replaceTab);
-  const openTab = useUIStore((s) => s.openTab);
 
 
   const note      = notes.find((n) => n.id === id);
@@ -77,8 +76,10 @@ export function NoteLinkView({ node, editor, getPos }: NodeViewProps) {
   setPendingScrollHeading(null);
 
   if (e.metaKey || e.ctrlKey) {
-    // Cmd/Ctrl+click → open in new tab
-    openTab(id);          // openTab already calls setActiveNote internally
+    // Cmd/Ctrl+click → new tab right after the one the link was clicked in
+    const ui   = useUIStore.getState();
+    const pane = ui.splitOpen && ui.activePaneId === 2 ? 2 : 1;
+    ui.openTabNextTo(id, { pane, sourceNoteId: ui.paneActiveNoteId(pane) });
   } else {
     // Normal click → navigate in current tab
     setActiveNote(id);

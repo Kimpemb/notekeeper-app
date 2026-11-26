@@ -612,42 +612,51 @@ if (ctrl && e.shiftKey && e.key.toLowerCase() === "c") {
         try { await exportNotesToFile(JSON.stringify(notes, null, 2), "idemora-export.json"); }
         catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
-      exportNoteJson: async () => {
-        if (!activeNote) return;
+      exportNoteJson: async (noteId?: string) => {
+        const target = (noteId ? notes.find((n) => n.id === noteId) : null) ?? activeNote;
+        if (!target) return;
         setExporting(true);
-        try { await exportNotesToFile(JSON.stringify([activeNote], null, 2), `${noteSlug(activeNote.title)}.json`); }
+        try { await exportNotesToFile(JSON.stringify([target], null, 2), `${noteSlug(target.title)}.json`); }
         catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
       },
-      exportNoteMarkdown: async () => {
-        if (!activeNote) return;
+      exportNoteMarkdown: async (noteId?: string) => {
+        const target = (noteId ? notes.find((n) => n.id === noteId) : null) ?? activeNote;
+        if (!target) return;
         setExporting(true);
         try {
-          const md = prosemirrorToMarkdown(activeNote.title, activeNote.content ?? "", activeNote.tags, activeNote.frontmatter);
-          await exportNotesToFile(md, `${noteSlug(activeNote.title)}.md`);
-        } catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
-      },
-      exportNotePdf: async () => {
-        if (!activeNote) return;
-        try {
-          const liveEditor = useUIStore.getState().getEditorForNote(activeNote.id);
+          // Use the live editor when the note is open so an edit still inside the autosave delay is included
+          const liveEditor = useUIStore.getState().getEditorForNote(target.id);
           const liveContent = liveEditor && !liveEditor.isDestroyed
             ? JSON.stringify(liveEditor.getJSON())
-            : (activeNote.content ?? "");
-          await exportToPdf(activeNote.title, liveContent);
+            : (target.content ?? "");
+          const md = prosemirrorToMarkdown(target.title, liveContent, target.tags, target.frontmatter);
+          await exportNotesToFile(md, `${noteSlug(target.title)}.md`);
+        } catch (err) { console.error("Export failed:", err); } finally { setExporting(false); }
+      },
+      exportNotePdf: async (noteId?: string) => {
+        const target = (noteId ? notes.find((n) => n.id === noteId) : null) ?? activeNote;
+        if (!target) return;
+        try {
+          const liveEditor = useUIStore.getState().getEditorForNote(target.id);
+          const liveContent = liveEditor && !liveEditor.isDestroyed
+            ? JSON.stringify(liveEditor.getJSON())
+            : (target.content ?? "");
+          await exportToPdf(target.title, liveContent);
         }
         catch (err) { console.error("Export failed:", err); }
       },
-      exportNoteDocx: async () => {
-        if (!activeNote) return;
+      exportNoteDocx: async (noteId?: string) => {
+        const target = (noteId ? notes.find((n) => n.id === noteId) : null) ?? activeNote;
+        if (!target) return;
         setExporting(true);
         setExportNotice("Toggles, callouts, and dynamic views will be flattened to plain text/formatting for Word compatibility.");
         try {
-          const liveEditor = useUIStore.getState().getEditorForNote(activeNote.id);
+          const liveEditor = useUIStore.getState().getEditorForNote(target.id);
           const liveContent = liveEditor && !liveEditor.isDestroyed
             ? JSON.stringify(liveEditor.getJSON())
-            : (activeNote.content ?? "");
-          const bytes = await exportToDocx(activeNote.title, liveContent);
-          await exportDocxToFile(bytes, `${noteSlug(activeNote.title)}.docx`);
+            : (target.content ?? "");
+          const bytes = await exportToDocx(target.title, liveContent);
+          await exportDocxToFile(bytes, `${noteSlug(target.title)}.docx`);
         } catch (err) { console.error("Export failed:", err); } finally {
           setExporting(false);
           setTimeout(() => setExportNotice(null), 4000);

@@ -48,8 +48,7 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
   const setActive      = useNoteStore((s) => s.setActiveNote);
   const trashNote      = useNoteStore((s) => s.deleteNote);
   const expandNode     = useUIStore((s) => s.expandNode);
-  const openTab        = useUIStore((s) => s.openTab);
-  const openTabInPane2 = useUIStore((s) => s.openTabInPane2);
+  const openTabNextTo  = useUIStore((s) => s.openTabNextTo);
   const replaceTab     = useUIStore((s) => s.replaceTab);
 
   const graphMode     = (editor.storage as any)?.graphMode === true;
@@ -178,7 +177,8 @@ export function SubPageNodeView({ node, updateAttributes, deleteNode, editor }: 
     const isMac  = navigator.platform.toUpperCase().includes("MAC");
     const isCtrl = isMac ? e.metaKey : e.ctrlKey;
     if (isCtrl) {
-      paneId === 2 ? openTabInPane2(noteId) : openTab(noteId);
+      // New tab right after the one this sub-note was clicked in
+      openTabNextTo(noteId, { pane: paneId, sourceNoteId: storage?.parentNoteId });
     } else {
       if (paneId === 2) {
         useUIStore.setState((s) => ({

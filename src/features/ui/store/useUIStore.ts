@@ -294,17 +294,17 @@ interface UIStore {
   // ─── Export handlers ──────────────────────────────────────────────────────
   exportHandlers: {
     exportAll: () => Promise<void>;
-    exportNoteJson: () => Promise<void>;
-    exportNoteMarkdown: () => Promise<void>;
-    exportNotePdf: () => Promise<void>;
-    exportNoteDocx: () => Promise<void>;
+    exportNoteJson: (noteId?: string) => Promise<void>;
+    exportNoteMarkdown: (noteId?: string) => Promise<void>;
+    exportNotePdf: (noteId?: string) => Promise<void>;
+    exportNoteDocx: (noteId?: string) => Promise<void>;
   } | null;
   setExportHandlers: (handlers: {
     exportAll: () => Promise<void>;
-    exportNoteJson: () => Promise<void>;
-    exportNoteMarkdown: () => Promise<void>;
-    exportNotePdf: () => Promise<void>;
-    exportNoteDocx: () => Promise<void>;
+    exportNoteJson: (noteId?: string) => Promise<void>;
+    exportNoteMarkdown: (noteId?: string) => Promise<void>;
+    exportNotePdf: (noteId?: string) => Promise<void>;
+    exportNoteDocx: (noteId?: string) => Promise<void>;
   }) => void;
 
   // ─── Right Panel Management ───────────────────────────────────────────────
@@ -323,6 +323,12 @@ interface UIStore {
   activeTabId: string | null;
   replaceTab: (noteId: string) => void;
   openTab: (noteId: string) => Tab;
+  /**
+   * Ctrl/Cmd+click target: opens the note in a NEW tab placed right after the tab it was clicked
+   * from (the tab showing `sourceNoteId`, else the pane's active tab), and activates it. If the
+   * note is already open in that pane, that tab is activated instead of making a duplicate.
+   */
+  openTabNextTo: (noteId: string, opts?: { pane?: 1 | 2; sourceNoteId?: string | null }) => void;
   openEmptyTab: () => Tab;
   closeTab: (tabId: string) => void;
   closeTabsForNotes: (noteIds: Set<string>) => void;
@@ -701,6 +707,38 @@ closeCalendar: () => {
       // Push to note store navigation history instead
       useNoteStore.getState().setActiveNote(noteId, false);
       return tab;
+    },
+
+    openTabNextTo: (noteId, opts) => {
+      const pane = opts?.pane ?? 1;
+      const state = get();
+      const list = pane === 2 ? state.pane2Tabs : state.tabs;
+      const activeId = pane === 2 ? state.pane2ActiveTabId : state.activeTabId;
+
+      const commit = (tabs: Tab[], active: string) => {
+        set(pane === 2 ? { pane2Tabs: tabs, pane2ActiveTabId: active } : { tabs, activeTabId: active });
+        saveSession(get());
+      };
+
+      const existing = list.find((t) => t.noteId === noteId);
+      if (existing) {
+        commit(list, existing.id);
+        if (pane === 1) useNoteStore.getState().setActiveNote(noteId, false);
+        return;
+      }
+
+      // The tab the click came from: the one showing the source note, else the active one.
+      const activeTab = list.find((t) => t.id === activeId);
+      const source =
+        (opts?.sourceNoteId && activeTab?.noteId === opts.sourceNoteId ? activeTab : undefined) ??
+        (opts?.sourceNoteId ? list.find((t) => t.noteId === opts.sourceNoteId) : undefined) ??
+        activeTab;
+      const at = source ? list.indexOf(source) + 1 : list.length;
+
+      const tab: Tab = { id: makeTabId(), noteId };
+      const next = [...list.slice(0, at), tab, ...list.slice(at)];
+      commit(next, tab.id);
+      if (pane === 1) useNoteStore.getState().setActiveNote(noteId, false);
     },
 
     openEmptyTab: () => {

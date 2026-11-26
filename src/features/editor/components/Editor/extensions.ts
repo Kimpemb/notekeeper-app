@@ -800,6 +800,34 @@ export { DataviewNode }     from "./DataviewNode";
 export { PDFLinkNode }      from "./PDFLinkNode";
 export { Mathematics }
 
+// ── Paste keeps the scroll position ──────────────────────────────────────────
+// ProseMirror scrolls the caret into view after a paste, which for a long paste
+// means the end of what was pasted. A paste event opens a short window in which
+// scroll-to-selection requests are ignored.
+export const PasteNoScrollExtension = Extension.create({
+  name: "pasteNoScroll",
+
+  addProseMirrorPlugins() {
+    let suppress = false;
+    let timer = 0;
+    return [
+      new Plugin({
+        key: new PluginKey("pasteNoScroll"),
+        props: {
+          handleDOMEvents: {
+            paste: () => {
+              suppress = true;
+              window.clearTimeout(timer);
+              timer = window.setTimeout(() => { suppress = false; }, 300);
+              return false; // let the normal paste handlers run
+            },
+          },
+          handleScrollToSelection: () => suppress,
+        },
+      }),
+    ];
+  },
+});
 
 // ── Markdown paste handler ────────────────────────────────────────────────────
 const URL_REGEX = /^https?:\/\/[^\s]+$/
@@ -829,8 +857,6 @@ export const MarkdownPasteExtension = Extension.create({
             if (!plain) return false
 
             const { $from } = view.state.selection
-            for (let d = $from.depth; d >= 0; d--) {
-            }
 
             const inCodeBlock = $from.parent.type.name === "codeBlock"
               || (() => { for (let d = $from.depth; d > 0; d--) { if ($from.node(d).type.name === "codeBlock") return true } return false })()
@@ -841,6 +867,12 @@ export const MarkdownPasteExtension = Extension.create({
               dispatch(tr)
               return true
             }
+
+            // ── Copied from a ProseMirror/TipTap editor (this app included) ──
+            //    The HTML carries the full structure: headings, marks, lists, callouts, toggles,
+            //    tables. Re-reading the plain text as markdown (or as code) would throw all of
+            //    that away, so let the editor's native paste handle it.
+            if (html && html.includes("data-pm-slice")) return false
 
             // ── URL only → show inline prompt ─────────────────────────────
             if (URL_REGEX.test(plain)) {

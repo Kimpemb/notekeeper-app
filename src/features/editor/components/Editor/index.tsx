@@ -34,12 +34,14 @@ import { FindReplace, buildFindReplacePlugin } from "./FindReplace";
 import { TableToolbar } from "./TableToolbar";
 import { TagBar } from "./TagBar";
 import { SubPagesSection } from "./SubPagesSection";
-import { SubPageNode } from "./SubPageNode";
+import { SubPageNode, SubPageSelectAllExtension } from "./SubPageNode";
+import { buildInitialContent, syncSubPagesIntoEditor } from "./subPageSync";
 import { PDFLinkNode } from "./PDFLinkNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
 import { BlockRefSuggest } from "./BlockRefSuggest";
 import { useDragReorder } from "@/features/editor/hooks/useDragReorder";
 import { Breadcrumb } from "./Breadcrumb";
+import { NoteActionsMenu } from "./NoteActionsMenu";
 import { enqueueNoteForIndexing } from "@/features/ai/lib/indexer"
 import { DateChipExtension, DateChipDeletionWatcher } from "./DateChipExtension";
 import { markSubPageInserted } from "@/features/editor/components/Editor/subPageFresh";
@@ -56,6 +58,7 @@ import {
   BlockRefNode,
   DataviewNode, Color, TextStyle, MultiHighlight,
   MarkdownPasteExtension,
+  PasteNoScrollExtension,
   Mathematics,
 } from "./extensions";
 
@@ -123,68 +126,6 @@ interface EditorProps {
   onScrollChange?: (scrollTop: number) => void;
 }
 
- 
-function reconcileSubPageBlocks(
-  contentJson: string,
-  children: { id: string; title: string; source_type?: string }[]
-): string | null {
-  // Optional, not required — this is what JSON.parse can actually
-  // guarantee. The earlier annotation claimed both always exist, which is
-  // exactly why the crash and this warning both happened: TS trusted a
-  // shape the runtime data didn't honor.
-  let doc: { type?: string; content?: unknown[] };
-  try { doc = JSON.parse(contentJson); } catch { return null; }
-
-  const existingIds = new Set<string>();
-  for (const node of doc.content ?? []) {
-    const n = node as { type: string; attrs?: { noteId?: string | null } };
-    if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
-      existingIds.add(n.attrs.noteId);
-    }
-  }
-
-  // Normalize once — doc.content is undefined for any note whose content
-  // is still the schema default '{}' (new notes, or notes never opened in
-  // the editor yet). Everything below reads `content`, never doc.content
-  // directly, so this is the single place that needs the fallback.
-  const content = Array.isArray(doc.content) ? doc.content : [];
-
-  // Remove blocks for notes no longer children
-  const validIds = new Set(children.map((c) => c.id));
-  const filtered = content.filter((node) => {
-    const n = node as { type: string; attrs?: { noteId?: string | null } };
-    if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
-      return validIds.has(n.attrs.noteId);
-    }
-    return true;
-  });
-
-  // Add missing blocks
-  const missing = children.filter((c) => !existingIds.has(c.id));
-  const newBlocks = missing.map((c) =>
-    c.source_type === "pdf"
-      ? { type: "pdfLink", attrs: { noteId: c.id, title: c.title } }
-      : { type: "subPage", attrs: { noteId: c.id, title: c.title, mode: "display" } }
-  );
-
-  if (filtered.length === content.length && newBlocks.length === 0) return null;
-
-  const finalContent = [...filtered];
-  if (newBlocks.length > 0) {
-    const last = finalContent[finalContent.length - 1] as { type: string; content?: unknown[] } | undefined;
-    const lastIsEmptyPara = last?.type === "paragraph" && (!last.content || last.content.length === 0);
-    if (lastIsEmptyPara) {
-      finalContent.splice(finalContent.length - 1, 0, ...newBlocks);
-    } else {
-      finalContent.push(...newBlocks);
-    }
-  }
-
-  // doc may have no `type` at all when the source content was the schema
-// default '{}' — always guarantee a valid ProseMirror root, only
-// defaulting `type`, never overriding a real one that's already there.
-return JSON.stringify({ type: "doc", ...doc, content: finalContent });}
- 
 
 export function Editor({ noteId, paneId, initialScrollTop = 0, onScrollChange }: EditorProps) {
   const note = useNoteStore(useCallback((s) =>
@@ -301,69 +242,14 @@ useEffect(() => {
   });
 }, [noteId, isEmptyContent, isStaleContent]);
 
-// preserve positions; only append genuinely missing children
-const initialContent = (() => {
-  let doc: { type: string; content: unknown[] };
-  try {
-    doc = JSON.parse(
-      !note?.content || note.content === "null" || note.content === ""
-        ? '{"type":"doc","content":[]}'
-        : note.content
-    );
-  } catch {
-    doc = { type: "doc", content: [] };
-  }
-
-  // Guard against malformed/legacy content where `content` is missing
-  // or not an array (e.g. `{"type":"doc"}` with no content key)
-  if (!Array.isArray(doc.content)) {
-    doc.content = [];
-  }
-
-  const children = notes
-    .filter((n) => n.parent_id === noteId && !n.deleted_at)
-    .sort((a, b) => a.sort_order - b.sort_order);
-
-  // Find which children are already represented in the saved content
-  const existingIds = new Set<string>();
-  for (const node of doc.content) {
-    const n = node as { type: string; attrs?: { noteId?: string | null } };
-    if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
-      existingIds.add(n.attrs.noteId);
-    }
-  }
-
-  // Remove stale blocks (child was deleted/re-parented)
-  const validIds = new Set(children.map((c) => c.id));
-  doc.content = doc.content.filter((node) => {
-    const n = node as { type: string; attrs?: { noteId?: string | null } };
-    if ((n.type === "subPage" || n.type === "pdfLink") && n.attrs?.noteId) {
-      return validIds.has(n.attrs.noteId);
-    }
-    return true;
-  });
-
-  // Append only the children not yet in the doc (newly created subpages)
-  const missing = children.filter((c) => !existingIds.has(c.id));
-  if (missing.length > 0) {
-    const newBlocks = missing.map((c) =>
-      c.source_type === "pdf"
-        ? { type: "pdfLink", attrs: { noteId: c.id, title: c.title } }
-        : { type: "subPage", attrs: { noteId: c.id, title: c.title, mode: "display" } }
-    );
-    const last = doc.content[doc.content.length - 1] as
-      { type: string; content?: unknown[] } | undefined;
-    const lastIsEmptyPara =
-      last?.type === "paragraph" && (!last.content || last.content.length === 0);
-    if (lastIsEmptyPara) {
-      doc.content.splice(doc.content.length - 1, 0, ...newBlocks);
-    } else {
-      doc.content.push(...newBlocks);
-    }
-  }
-
-  return doc as import("@tiptap/core").JSONContent;
-})();
+// Saved positions are kept; any child with no block yet is appended at the bottom.
+// Blocks are only dropped for notes that are gone (see subPageSync.ts).
+const initialContent = buildInitialContent(
+  note?.content,
+  noteId,
+  notes,
+  useNoteStore.getState().dbSettled
+);
 
   const editor = useEditor({
     extensions: [
@@ -375,7 +261,7 @@ const initialContent = (() => {
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
-      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, PDFLinkNode, BlockIdExtension, BlockRefNode, DataviewNode,
+      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, SubPageSelectAllExtension, PDFLinkNode, BlockIdExtension, BlockRefNode, DataviewNode,
       NoteLink.configure({ onNavigate: setActiveNote }), DateChipExtension.configure({
   noteId,
   getTitle: () => useNoteStore.getState().notes.find((n) => n.id === noteId)?.title ?? "Untitled",
@@ -383,6 +269,7 @@ const initialContent = (() => {
       DateChipDeletionWatcher,
       Mathematics.configure({ katexOptions: { throwOnError: false } }),
       MarkdownPasteExtension,
+      PasteNoScrollExtension,
       createFindReplaceShortcutExtension((target) => openFindReplaceRef.current(target)),
       Extension.create({ name: "findReplacePlugin",     addProseMirrorPlugins() { return [buildFindReplacePlugin()]; } }),
       Extension.create({ name: "searchHighlightPlugin", addProseMirrorPlugins() { return [buildSearchHighlightPlugin()]; } }),
@@ -694,43 +581,20 @@ useEffect(() => {
       .join("|");
   }, [notes, noteId]);
 
+  // Keep the editor's sub-note blocks in step with the store. Runs whether or not the editor is
+  // focused: it only inserts/removes individual blocks, so the caret and selection are untouched.
   useEffect(() => {
-    if (!editor || !note) return;
-    if (!contentReady) return;
-    if (subPageCreatingRef.current) return;
-    // Guard against the same class of stale-data race useAutoSave.ts already
-    // guards against: if `notes` is momentarily incomplete relative to what's
-    // already persisted in this note's content (e.g. right after opening a
-    // note, or right after a subpage was just created and the store hasn't
-    // fully settled), the reconciler would see a "phantom deletion" and strip
-    // a block that was correctly there a moment ago — the flash-then-disappear.
-    if (!dbSettled) return;
-
-    const children = notes
-      .filter((n) => n.parent_id === noteId && !n.deleted_at)
-      .sort((a, b) => a.sort_order - b.sort_order);
+    if (!editor || !note || !contentReady) return;
 
     const apply = () => {
-      if (editor.isDestroyed || editor.isFocused) return;
-      if (subPageCreatingRef.current) return;
-
-      const liveContent = JSON.stringify(editor.getJSON());
-      const newContent = reconcileSubPageBlocks(liveContent, children);
-      if (!newContent) return;
-
-      contentLoadingRef.current = true;
-      editor.commands.setContent(JSON.parse(newContent));
-      editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
-      setTimeout(() => { contentLoadingRef.current = false; }, 300);
+      if (editor.isDestroyed || subPageCreatingRef.current) return;
+      const { notes: liveNotes, dbSettled: settled } = useNoteStore.getState();
+      syncSubPagesIntoEditor(editor, noteId, liveNotes, settled);
     };
 
     const t = setTimeout(apply, 80);
     return () => clearTimeout(t);
-  }, [noteId, subPageChildrenKey, dbSettled]);
-
- 
-
- 
+  }, [editor, noteId, contentReady, subPageChildrenKey, dbSettled]);
 
   useEffect(() => {
     if (!editor || !note || !pendingScrollHeading || !isActiveTab) return;
@@ -895,11 +759,17 @@ useEffect(() => {
       parentNoteId: string;
       paneId: 1 | 2;
       setCreating: (v: boolean) => void;
+      isLiveChild: (id: string) => boolean;
     }>;
     if (s["subPage"]) {
       s["subPage"].paneId       = paneId;
       s["subPage"].parentNoteId = noteId;
       s["subPage"].setCreating  = (v) => { subPageCreatingRef.current = v; };
+      // Read the store at call time so a delete/move is seen the instant it happens.
+      s["subPage"].isLiveChild  = (id) => {
+        const n = useNoteStore.getState().notes.find((x) => x.id === id);
+        return !!n && !n.deleted_at && n.parent_id === noteId;
+      };
     }
   }, [editor, paneId, noteId]);
 
@@ -1142,6 +1012,7 @@ if (!contentReady) return null;
                 </svg>
                 Local Graph
               </button>
+              {!note.deleted_at && <NoteActionsMenu noteId={noteId} paneId={paneId} />}
             </div>
           )}
         </div>

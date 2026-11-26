@@ -47,7 +47,7 @@ interface MenuListProps {
   items: Note[];
   activeId: string | null;
   byParent: Map<string | null, Note[]>;
-  onPick: (id: string) => void;
+  onPick: (id: string, e: React.MouseEvent) => void;
   flyouts: boolean;
   depthOf?: Map<string, number>; // row indent in levels, used by the hidden-path menu
 }
@@ -82,7 +82,7 @@ function MenuList({ items, activeId, byParent, onPick, flyouts, depthOf }: MenuL
         return (
           <button
             key={n.id}
-            onClick={() => onPick(n.id)}
+            onClick={(e) => onPick(n.id, e)}
             onMouseEnter={(e) => hoverRow(e, n)}
             style={{ paddingLeft: 8 + (depthOf?.get(n.id) ?? 0) * 12 }}
             className={`flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm text-left text-idemora-text-normal transition-colors duration-100 ${
@@ -142,6 +142,7 @@ export const Breadcrumb = memo(({ noteId, paneId = 1 }: Props) => {
   const setActive = useNoteStore((s) => s.setActiveNote);
   const replaceTab = useUIStore((s) => s.replaceTab);
   const replacePane2Tab = useUIStore((s) => s.replacePane2Tab);
+  const openTabNextTo = useUIStore((s) => s.openTabNextTo);
   const expandNode = useUIStore((s) => s.expandNode);
 
   const noteMap = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
@@ -191,6 +192,12 @@ export const Breadcrumb = memo(({ noteId, paneId = 1 }: Props) => {
     [paneId, setActive, replaceTab, replacePane2Tab, expandNode]
   );
 
+  // Ctrl/Cmd+click (or middle click): a new tab right after this note's tab
+  const openNext = useCallback(
+    (id: string) => openTabNextTo(id, { pane: paneId, sourceNoteId: noteId }),
+    [openTabNextTo, paneId, noteId]
+  );
+
   function show(el: HTMLElement, spec: { kind: "siblings"; noteId: string } | { kind: "hidden" }) {
     window.clearTimeout(closeTimer.current);
     window.clearTimeout(openTimer.current);
@@ -235,9 +242,11 @@ export const Breadcrumb = memo(({ noteId, paneId = 1 }: Props) => {
     menuItems = hiddenCrumbs;
   }
 
-  function pick(id: string) {
+  function pick(id: string, e: React.MouseEvent) {
     setPop(null);
-    if (id !== noteId) go(id);
+    if (id === noteId) return;
+    if (e.ctrlKey || e.metaKey) openNext(id);
+    else go(id);
   }
 
   return (
@@ -262,7 +271,15 @@ export const Breadcrumb = memo(({ noteId, paneId = 1 }: Props) => {
               </button>
             ) : (
               <button
-                onClick={() => { if (!isLast) go(it.note.id); }}
+                onClick={(e) => {
+                  if (isLast) return;
+                  if (e.ctrlKey || e.metaKey) openNext(it.note.id);
+                  else go(it.note.id);
+                }}
+                onAuxClick={(e) => {
+                  if (e.button === 1 && !isLast) { e.preventDefault(); openNext(it.note.id); }
+                }}
+                title={isLast ? undefined : "Click to open · Ctrl+click for new tab"}
                 onMouseEnter={(e) => show(e.currentTarget, { kind: "siblings", noteId: it.note.id })}
                 onMouseLeave={scheduleClose}
                 className={`text-base truncate max-w-[180px] transition-colors duration-100 ${
