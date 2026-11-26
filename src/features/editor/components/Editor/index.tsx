@@ -35,6 +35,7 @@ import { TableToolbar } from "./TableToolbar";
 import { TagBar } from "./TagBar";
 import { SubPagesSection } from "./SubPagesSection";
 import { SubPageNode, SubPageSelectAllExtension } from "./SubPageNode";
+import { UndoRedoScrollExtension } from "./undoRedoScroll";
 import { buildInitialContent, syncSubPagesIntoEditor } from "./subPageSync";
 import { PDFLinkNode } from "./PDFLinkNode";
 import { FrontmatterEditor } from "./FrontmatterEditor";
@@ -261,7 +262,7 @@ const initialContent = buildInitialContent(
       ToggleSummary, ToggleBody, Toggle, ImageExtension, AttachmentExtension,
       TaskItemExitExtension, ToggleKeyboardExtension, CodeBlockSelectAllExtension,
       CodeBlockBackspaceExtension, ListSelectAllExtension, SlashPlaceholderExtension, EmptyLinePlaceholderExtension,
-      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, SubPageSelectAllExtension, PDFLinkNode, BlockIdExtension, BlockRefNode, DataviewNode,
+      OrderedListBackspaceExtension, TaskListSortExtension, SubPageNode, SubPageSelectAllExtension, UndoRedoScrollExtension, PDFLinkNode, BlockIdExtension, BlockRefNode, DataviewNode,
       NoteLink.configure({ onNavigate: setActiveNote }), DateChipExtension.configure({
   noteId,
   getTitle: () => useNoteStore.getState().notes.find((n) => n.id === noteId)?.title ?? "Untitled",
@@ -521,7 +522,10 @@ useEffect(() => {
       const { from, to } = editor.state.selection;
 
       contentLoadingRef.current = true;
-      editor.commands.setContent(incoming ? JSON.parse(incoming) : "");
+      // Loading from the store is not a user edit: keep it out of undo history, otherwise Ctrl+Z
+      // eventually reverts the whole document swap (and parks the cursor at the end).
+      editor.chain().setMeta("addToHistory", false)
+        .setContent(incoming ? JSON.parse(incoming) : "").run();
       editor.view.dispatch(editor.state.tr.setMeta("preventAutoSave", true));
       setTimeout(() => { contentLoadingRef.current = false; }, 300);
 
@@ -557,7 +561,8 @@ useEffect(() => {
 
       suppressSave.current = true;
       lastSavedContent.current = freshContent;
-      editor.commands.setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false });
+      editor.chain().setMeta("addToHistory", false)
+        .setContent(parsed as import("@tiptap/core").Content, { emitUpdate: false }).run();
 
       requestAnimationFrame(() => { suppressSave.current = false; });
     }
