@@ -857,4 +857,20 @@ export const ALL_MIGRATIONS: string[] = [
     created_at  INTEGER NOT NULL,
     PRIMARY KEY (user_id, note_id, block_id)
   )`,
+
+  // Note sharing (M2.3): a change to AI exclusion must be visible to sync, otherwise the
+  // server never learns a note became excluded and cannot unshare it (plan decision 162).
+  `DROP TRIGGER IF EXISTS notes_meta_rev_bump`,
+  `CREATE TRIGGER notes_meta_rev_bump
+    AFTER UPDATE OF title, parent_id, sort_order, tags, frontmatter, deleted_at, rag_excluded ON notes
+    WHEN new.title IS NOT old.title
+      OR new.parent_id IS NOT old.parent_id
+      OR new.sort_order IS NOT old.sort_order
+      OR new.tags IS NOT old.tags
+      OR new.frontmatter IS NOT old.frontmatter
+      OR new.deleted_at IS NOT old.deleted_at
+      OR new.rag_excluded IS NOT old.rag_excluded
+    BEGIN
+      UPDATE notes SET meta_rev = meta_rev + 1 WHERE id = new.id;
+    END`,
 ];

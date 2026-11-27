@@ -6,8 +6,9 @@
 export const META_REV_TRIGGER_NAME = "notes_meta_rev_bump";
 
 export function metaRevTriggerSql(migrations: readonly string[]): string | null {
-  const found = migrations.find((s) =>
+  // The LAST definition wins: a later migration may redefine the trigger.
+  const matches = migrations.filter((s) =>
     /CREATE\s+TRIGGER\s+(IF\s+NOT\s+EXISTS\s+)?notes_meta_rev_bump\b/i.test(s)
   );
-  return found ?? null;
+  return matches.length > 0 ? matches[matches.length - 1] : null;
 }

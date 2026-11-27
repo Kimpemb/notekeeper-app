@@ -52,6 +52,8 @@ export interface LocalNoteRow {
   revision: number;
   meta_rev: number;
   is_canvas: number;
+  rag_excluded: number;
+  source_type: string;
   is_published: number;
   publish_visibility: "team" | "public" | null;
   publish_token: string | null;
@@ -63,7 +65,7 @@ export interface LocalNoteRow {
 const NOTE_COLUMNS = `id, title, content, plaintext, tags, parent_id, sort_order,
   frontmatter, created_at, updated_at, deleted_at, revision, meta_rev, is_canvas,
   is_published, publish_visibility, publish_token, forked_from_note_id,
-  forked_from_owner_id, fork_base_revision`;
+  forked_from_owner_id, fork_base_revision, rag_excluded, source_type`;
 
 const MAX_ANCESTOR_DEPTH = 20;
 const SNAPSHOT_CHUNK = 200;

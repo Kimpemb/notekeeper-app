@@ -28,6 +28,8 @@ const row: RemoteDownloadRow = {
   forked_from_note_id: null,
   forked_from_owner_id: null,
   fork_base_revision: null,
+  rag_excluded: true,
+  source_type: "note",
 };
 
 describe("remoteRowToInsertParams", () => {
@@ -77,5 +79,14 @@ describe("remoteRowToInsertParams", () => {
 
   it("selects every hosted column the mapping reads", () => {
     for (const col of Object.keys(row)) expect(REMOTE_DOWNLOAD_COLUMNS).toContain(col);
+  });
+
+    it("keeps rag_excluded and source_type, and falls back for old hosted rows", () => {
+    expect(params[20]).toBe(1);
+    expect(params[21]).toBe("note");
+    const old = remoteRowToInsertParams({ ...row, rag_excluded: null, source_type: null }, null, "s");
+    expect(old[20]).toBe(0);
+    expect(old[21]).toBe("note");
+    expect(remoteRowToInsertParams({ ...row, source_type: "pdf" }, null, "s")[21]).toBe("pdf");
   });
 });

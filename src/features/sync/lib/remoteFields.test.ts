@@ -16,6 +16,8 @@ const base: RemoteFieldsSource = {
   forked_from_note_id: "src1",
   forked_from_owner_id: "owner1",
   fork_base_revision: 4,
+  rag_excluded: 0,
+  source_type: "note",
 };
 
 const SHARE_KEYS = ["is_published", "publish_visibility", "publish_token"];
@@ -46,5 +48,12 @@ describe("toRemoteFields", () => {
     expect(out.updated_at).toBe("2026-11-26T12:00:00.500Z");
     expect(out.deleted_at).toBe("2026-11-26T13:00:00.000Z");
     expect(toRemoteFields(base, 9).deleted_at).toBeNull();
+  });
+
+    it("sends rag_excluded as a boolean and source_type as it is", () => {
+    expect(toRemoteFields(base, 5).rag_excluded).toBe(false);
+    expect(toRemoteFields({ ...base, rag_excluded: 1 }, 5).rag_excluded).toBe(true);
+    expect(toRemoteFields(base, 5).source_type).toBe("note");
+    expect(toRemoteFields({ ...base, source_type: "pdf" }, 5).source_type).toBe("pdf");
   });
 });

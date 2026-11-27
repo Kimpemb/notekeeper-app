@@ -26,6 +26,8 @@ export interface RemoteFieldsSource {
   forked_from_note_id: string | null;
   forked_from_owner_id: string | null;
   fork_base_revision: number | null;
+  rag_excluded: number; // local 0 / 1
+  source_type: string;
 }
 
 const toIso = (ms: number): string => new Date(ms).toISOString();
@@ -46,5 +48,7 @@ export function toRemoteFields(row: RemoteFieldsSource, serverRevision: number) 
     forked_from_note_id: row.forked_from_note_id,
     forked_from_owner_id: row.forked_from_owner_id,
     fork_base_revision: row.fork_base_revision,
+    rag_excluded: row.rag_excluded === 1,
+    source_type: row.source_type,
   };
 }

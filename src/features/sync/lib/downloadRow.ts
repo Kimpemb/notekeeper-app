@@ -12,7 +12,8 @@ export const DOWNLOAD_LOCAL_META_REV = 0;
 export const REMOTE_DOWNLOAD_COLUMNS =
   "id, title, content, plaintext, tags, parent_id, sort_order, frontmatter, " +
   "created_at, updated_at, deleted_at, revision, is_published, publish_visibility, " +
-  "publish_token, forked_from_note_id, forked_from_owner_id, fork_base_revision";
+  "publish_token, forked_from_note_id, forked_from_owner_id, fork_base_revision, " +
+  "rag_excluded, source_type";
 
 export interface RemoteDownloadRow {
   id: string;
@@ -33,6 +34,10 @@ export interface RemoteDownloadRow {
   forked_from_note_id: string | null;
   forked_from_owner_id: string | null;
   fork_base_revision: number | null;
+  // Optional: absent on hand-built rows (conflict copies) and null on rows pushed before the
+  // sharing migration. Both fall back to the old defaults (0 and 'note') on insert.
+  rag_excluded?: boolean | null;
+  source_type?: string | null;
 }
 
 export const INSERT_DOWNLOADED_NOTE_SQL = `INSERT OR IGNORE INTO notes (
@@ -42,7 +47,7 @@ export const INSERT_DOWNLOADED_NOTE_SQL = `INSERT OR IGNORE INTO notes (
   revision, meta_rev,
   is_published, publish_visibility, publish_token,
   forked_from_note_id, forked_from_owner_id, fork_base_revision
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,NULL,0,'note',NULL,NULL,$13,$14,$15,$16,$17,$18,$19,$20)`;
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,NULL,$21,$22,NULL,NULL,$13,$14,$15,$16,$17,$18,$19,$20)`;
 
 /**
  * Parameters for INSERT_DOWNLOADED_NOTE_SQL. `parentId` is the planned parent
@@ -74,5 +79,7 @@ export function remoteRowToInsertParams(
     r.forked_from_note_id,
     r.forked_from_owner_id,
     r.fork_base_revision,
+    r.rag_excluded ? 1 : 0,
+    r.source_type ?? "note", // older hosted rows have none: same as before
   ];
 }

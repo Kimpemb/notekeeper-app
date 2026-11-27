@@ -21,4 +21,16 @@ describe("metaRevTriggerSql", () => {
     expect(sql).not.toBeNull();
     expect(sql).toContain("meta_rev = meta_rev + 1");
   });
+
+  it("takes the last definition when the trigger is redefined", () => {
+    const sql = metaRevTriggerSql([
+      "CREATE TRIGGER notes_meta_rev_bump AFTER UPDATE OF title ON notes BEGIN SELECT 1; END",
+      "CREATE TRIGGER notes_meta_rev_bump AFTER UPDATE OF title, rag_excluded ON notes BEGIN SELECT 2; END",
+    ]);
+    expect(sql).toContain("rag_excluded");
+  });
+
+  it("the real trigger now watches rag_excluded", () => {
+    expect(metaRevTriggerSql(ALL_MIGRATIONS)).toContain("rag_excluded");
+  });
 });
