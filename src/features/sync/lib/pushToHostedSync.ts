@@ -23,6 +23,7 @@ import { enqueueFailedPush, markRemoteAhead, clearQueued } from "@/features/sync
 import { getSyncState, recordSynced } from "@/features/sync/lib/noteSyncState";
 import { tryLockNote, noteLockHolder } from "@/features/sync/lib/noteLock";
 import { healVerdict, type HostedCompare } from "@/features/sync/lib/hostedMatch";
+import { toRemoteFields } from "@/features/sync/lib/remoteFields";
 import {
   decideSyncAction,
   describeDecision,
@@ -78,28 +79,7 @@ export async function loadLocalNote(id: string): Promise<LocalNoteRow | null> {
   return rows[0] ?? null;
 }
 
-// Everything except id / owner_id; `revision` here is the SERVER revision.
-function toRemoteFields(row: LocalNoteRow, serverRevision: number) {
-  return {
-    title: row.title,
-    content: row.content,
-    plaintext: row.plaintext,
-    tags: row.tags,
-    parent_id: row.parent_id,
-    sort_order: row.sort_order,
-    frontmatter: row.frontmatter,
-    created_at: toIso(row.created_at),
-    updated_at: toIso(row.updated_at),
-    deleted_at: row.deleted_at == null ? null : toIso(row.deleted_at),
-    revision: serverRevision,
-    is_published: row.is_published === 1,
-    publish_visibility: row.publish_visibility,
-    publish_token: row.publish_token,
-    forked_from_note_id: row.forked_from_note_id,
-    forked_from_owner_id: row.forked_from_owner_id,
-    fork_base_revision: row.fork_base_revision,
-  };
-}
+// toRemoteFields lives in remoteFields.ts (pure and tested). It never writes share state.
 
 function toRemoteRow(row: LocalNoteRow, ownerId: string, serverRevision: number) {
   return { id: row.id, owner_id: ownerId, ...toRemoteFields(row, serverRevision) };
